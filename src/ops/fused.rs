@@ -9,7 +9,7 @@ use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
 
 /// Activation function types for fused operations
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Activation {
     None = 0,
     ReLU = 1,
