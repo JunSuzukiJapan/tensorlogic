@@ -596,12 +596,24 @@ pub enum TensorError {
 
 **テスト結果**: 95/95テスト成功 (95 lib + 6 integration - 1 ignored)
 
-### Phase 8: 高度な最適化 (計画中)
+### Phase 8: 高度な最適化 ⚡ **進行中**
 - [ ] デバイス自動配置 (ExecutionPlanner)
 - [ ] 勾配チェック (数値微分との比較)
 - [ ] 高階微分サポート
 - [ ] 実際のNeural Engine推論（CoreMLモデル統合）
 - [ ] 演算融合の自動化
-- [ ] メモリ最適化（in-place演算）
+- [x] メモリ最適化（in-place演算） ✅
 
-合計: 約17週間 (Phase 7.5まで完了)
+**Phase 8.1: メモリ最適化（in-place演算）完了**:
+- **In-place element-wise operations**: add_, sub_, mul_
+- **In-place activation**: relu_
+- **In-place scalar operations**: add_scalar_, mul_scalar_
+- **CPU/Metal/Neural Engine対応**: 自動デバイスディスパッチ
+- **メモリ削減**: 新規バッファ割り当て不要
+- **テスト追加**: 6つのin-place操作テスト
+- **テスト結果**: 101/101テスト成功 (95 → 101 lib tests)
+
+**実装ファイル**:
+- [src/ops/inplace.rs](src/ops/inplace.rs): In-place演算実装
+
+合計: 約17週間 (Phase 8.1完了)
