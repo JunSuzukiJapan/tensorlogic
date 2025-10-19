@@ -199,6 +199,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let outer = Tensor::einsum("i,j->ij", &[&v1, &v2])?;
     println!("einsum('i,j->ij') (outer product): {:?}", outer.to_vec_f32());
 
+    // Test Metal ↔ Neural Engine conversion
+    println!("\nTesting Metal ↔ Neural Engine conversion...");
+
+    use tensorlogic::device::{MetalBuffer, NeuralEngineBuffer};
+
+    // Create Metal buffer
+    let metal_data = vec![
+        half::f16::from_f32(1.0),
+        half::f16::from_f32(2.0),
+        half::f16::from_f32(3.0),
+        half::f16::from_f32(4.0),
+    ];
+    let metal_buf = MetalBuffer::from_f16_slice(device.metal_device(), &metal_data)?;
+    println!("Metal buffer: {:?}", metal_buf.to_vec().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
+
+    // Convert Metal → Neural Engine
+    let ne_buf = metal_buf.to_neural_engine(&vec![2, 2])?;
+    println!("Neural Engine buffer shape: {:?}", ne_buf.shape());
+    println!("Neural Engine buffer data: {:?}", ne_buf.to_f16_vec().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
+
+    // Convert Neural Engine → Metal (roundtrip)
+    let metal_buf2 = ne_buf.to_metal_buffer(device.metal_device())?;
+    println!("Roundtrip Metal buffer: {:?}", metal_buf2.to_vec().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
+
     println!("\n✅ All operations completed successfully!");
     println!("   - Element-wise: add, sub, mul, div");
     println!("   - Activations: ReLU, GELU, Softmax");
@@ -206,6 +230,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   - Broadcasting: broadcast_to");
     println!("   - Reductions: sum, mean, max, min, sum_dim");
     println!("   - Einsum: ij,jk->ik, ij->ji, ii->, i,j->ij");
+    println!("   - Neural Engine: Metal ↔ CoreML buffer conversion");
     println!("   - All running on Metal GPU with f16 precision! 🚀");
 
     Ok(())
