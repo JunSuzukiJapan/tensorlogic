@@ -7,6 +7,7 @@ mod relu;
 mod softmax;
 mod sub;
 mod utils;
+mod gradient_op;
 
 pub use add::AddBackward;
 pub use div::DivBackward;
@@ -17,3 +18,4 @@ pub use relu::ReLUBackward;
 pub use softmax::SoftmaxBackward;
 pub use sub::SubBackward;
 pub use utils::reduce_grad_for_broadcast;
+pub use gradient_op::GradientBackward;

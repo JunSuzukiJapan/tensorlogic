@@ -17,6 +17,14 @@ pub enum Operation {
     Sum,
     Mean,
     Broadcast,
+    /// Gradient operation for second-order derivatives
+    /// Records the gradient computation itself as an operation
+    Gradient {
+        /// The original operation whose gradient is being computed
+        original_op: Box<Operation>,
+        /// Index of the input for which gradient is computed
+        input_index: usize,
+    },
 }
 
 /// 計算グラフのノード
