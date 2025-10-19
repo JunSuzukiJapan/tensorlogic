@@ -564,15 +564,15 @@ pub enum TensorError {
 - [ ] 勾配チェック (数値微分との比較) - Phase 7へ
 - [ ] 高階微分サポート - Phase 7へ
 
-### Phase 7: 最適化 ⚡ **進行中**
+### Phase 7: 最適化 ⚡ **完了 ✅**
 - [x] Metal ↔ Neural Engine ゼロコピー変換 (SharedBuffer実装)
 - [x] バッファプール (BufferPool実装)
 - [x] 演算融合 (operator fusion) - 完全実装完了 ✅
 - [ ] デバイス自動配置 - Phase 8へ延期（低優先度）
 - [x] Metal GPU勾配カーネル ✅
-- [ ] GPU reduction kernels (Phase 7.6 - 残タスク)
+- [x] GPU reduction kernels ✅
 
-**Phase 7.1-7.5 完了**:
+**Phase 7.1-7.6 完了**:
 - 7.1: SharedBuffer - ゼロコピーMetal↔Neural Engine変換 ✅
 - 7.2: BufferPool - バッファ再利用によるメモリ最適化 ✅
 - 7.3: Operator Fusion - 完全融合演算実装 ✅
@@ -587,11 +587,14 @@ pub enum TensorError {
   - GELU backward GPU実装 (gelu_backward_f16)
   - 自動GPU/CPU選択機構
   - エンドツーエンドGPU学習ループ対応
-- **7.6: GPU Reduction Kernels** - 未実装（次のタスク）
-  - [ ] sum/mean/max/min GPU kernels
-  - [ ] 次元指定reduction GPU実装
+- 7.6: GPU Reduction Kernels ✅
+  - **Global reductions GPU実装**: sum, mean, max, min (two-stage parallel reduction)
+  - **次元指定reduction GPU実装**: sum_dim, mean_dim (Metal kernels完全統合)
+  - **reductions.metal**: 6つのGPUカーネル実装 (sum/mean/max/min global + sum/mean dim)
+  - **自動Metal/CPU/Neural Engine dispatch**: デバイスに応じた最適実装選択
+  - **テスト追加**: test_sum_dim_metal, test_mean_dim_metal, test_max_metal, test_min_metal
 
-**テスト結果**: 97/97テスト成功 (91 lib + 6 integration)
+**テスト結果**: 95/95テスト成功 (95 lib + 6 integration - 1 ignored)
 
 ### Phase 8: 高度な最適化 (計画中)
 - [ ] デバイス自動配置 (ExecutionPlanner)

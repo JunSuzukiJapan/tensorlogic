@@ -83,11 +83,76 @@ impl Tensor {
         }
 
         match self.device() {
-            Device::Metal(_) | Device::NeuralEngine => {
-                self.to_cpu()?.sum_dim_cpu(dim, keepdim)
-            }
+            Device::Metal(_) => self.sum_dim_metal(dim, keepdim),
+            Device::NeuralEngine => self.to_cpu()?.sum_dim_cpu(dim, keepdim),
             Device::CPU => self.sum_dim_cpu(dim, keepdim),
         }
+    }
+
+    fn sum_dim_metal(&self, dim: usize, keepdim: bool) -> TensorResult<Self> {
+        let input_buf = self.buffer().as_metal()?;
+        let input_dims = self.shape().dims();
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        // Load reduction shaders
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/reductions.metal");
+            device.load_library(shader_source)?;
+        }
+
+        // Compute output shape
+        let mut output_dims = input_dims.to_vec();
+        if keepdim {
+            output_dims[dim] = 1;
+        } else {
+            output_dims.remove(dim);
+        }
+
+        let output_numel = output_dims.iter().product();
+        let output_buf = MetalBuffer::new_uninit(device.metal_device(), output_numel)?;
+
+        // Prepare shape buffers
+        let input_shape_u32: Vec<u32> = input_dims.iter().map(|&x| x as u32).collect();
+        let output_shape_u32: Vec<u32> = if keepdim {
+            output_dims.iter().map(|&x| x as u32).collect()
+        } else {
+            // For non-keepdim, pass output shape as-is
+            output_dims.iter().map(|&x| x as u32).collect()
+        };
+        let rank = input_dims.len() as u32;
+        let reduce_dim = dim as u32;
+
+        let mut executor = crate::device::KernelExecutor::new(device.clone());
+        let pipeline = executor.get_or_compile_pipeline("sum_dim_f16")?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&output_buf.buffer), 0);
+        encoder.set_bytes(2, (input_shape_u32.len() * std::mem::size_of::<u32>()) as u64, input_shape_u32.as_ptr() as *const _);
+        encoder.set_bytes(3, (output_shape_u32.len() * std::mem::size_of::<u32>()) as u64, output_shape_u32.as_ptr() as *const _);
+        encoder.set_bytes(4, std::mem::size_of::<u32>() as u64, &rank as *const u32 as *const _);
+        encoder.set_bytes(5, std::mem::size_of::<u32>() as u64, &reduce_dim as *const u32 as *const _);
+
+        let grid_size = metal::MTLSize::new(output_numel as u64, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(256.min(output_numel as u64), 1, 1);
+
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        Tensor::new(
+            crate::tensor::BufferHandle::Metal(output_buf),
+            crate::tensor::TensorShape::new(output_dims),
+            self.device().clone(),
+        )
     }
 
     fn sum_dim_cpu(&self, dim: usize, keepdim: bool) -> TensorResult<Self> {
@@ -166,6 +231,83 @@ impl Tensor {
 
     /// Mean along a specific dimension
     pub fn mean_dim(&self, dim: usize, keepdim: bool) -> TensorResult<Self> {
+        if dim >= self.shape().rank() {
+            return Err(TensorError::InvalidDimension { dim });
+        }
+
+        match self.device() {
+            Device::Metal(_) => self.mean_dim_metal(dim, keepdim),
+            Device::NeuralEngine => self.to_cpu()?.mean_dim_cpu(dim, keepdim),
+            Device::CPU => self.mean_dim_cpu(dim, keepdim),
+        }
+    }
+
+    fn mean_dim_metal(&self, dim: usize, keepdim: bool) -> TensorResult<Self> {
+        let input_buf = self.buffer().as_metal()?;
+        let input_dims = self.shape().dims();
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        // Load reduction shaders
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/reductions.metal");
+            device.load_library(shader_source)?;
+        }
+
+        // Compute output shape
+        let mut output_dims = input_dims.to_vec();
+        if keepdim {
+            output_dims[dim] = 1;
+        } else {
+            output_dims.remove(dim);
+        }
+
+        let output_numel = output_dims.iter().product();
+        let output_buf = MetalBuffer::new_uninit(device.metal_device(), output_numel)?;
+
+        // Prepare shape buffers
+        let input_shape_u32: Vec<u32> = input_dims.iter().map(|&x| x as u32).collect();
+        let output_shape_u32: Vec<u32> = if keepdim {
+            output_dims.iter().map(|&x| x as u32).collect()
+        } else {
+            output_dims.iter().map(|&x| x as u32).collect()
+        };
+        let rank = input_dims.len() as u32;
+        let reduce_dim = dim as u32;
+
+        let mut executor = crate::device::KernelExecutor::new(device.clone());
+        let pipeline = executor.get_or_compile_pipeline("mean_dim_f16")?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&output_buf.buffer), 0);
+        encoder.set_bytes(2, (input_shape_u32.len() * std::mem::size_of::<u32>()) as u64, input_shape_u32.as_ptr() as *const _);
+        encoder.set_bytes(3, (output_shape_u32.len() * std::mem::size_of::<u32>()) as u64, output_shape_u32.as_ptr() as *const _);
+        encoder.set_bytes(4, std::mem::size_of::<u32>() as u64, &rank as *const u32 as *const _);
+        encoder.set_bytes(5, std::mem::size_of::<u32>() as u64, &reduce_dim as *const u32 as *const _);
+
+        let grid_size = metal::MTLSize::new(output_numel as u64, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(256.min(output_numel as u64), 1, 1);
+
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        Tensor::new(
+            crate::tensor::BufferHandle::Metal(output_buf),
+            crate::tensor::TensorShape::new(output_dims),
+            self.device().clone(),
+        )
+    }
+
+    fn mean_dim_cpu(&self, dim: usize, keepdim: bool) -> TensorResult<Self> {
         let sum_result = self.sum_dim(dim, keepdim)?;
         let dim_size = self.shape().dims()[dim] as f32;
 
@@ -182,9 +324,70 @@ impl Tensor {
     /// Maximum value in the tensor
     pub fn max(&self) -> TensorResult<f16> {
         match self.device() {
-            Device::Metal(_) | Device::NeuralEngine => self.to_cpu()?.max_cpu(),
+            Device::Metal(_) => self.max_metal(),
+            Device::NeuralEngine => self.to_cpu()?.max_cpu(),
             Device::CPU => self.max_cpu(),
         }
+    }
+
+    fn max_metal(&self) -> TensorResult<f16> {
+        let input_buf = self.buffer().as_metal()?;
+        let count = self.numel();
+
+        if count == 0 {
+            return Err(TensorError::InvalidOperation(
+                "Cannot compute max of empty tensor".to_string(),
+            ));
+        }
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        // Load reduction shaders
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/reductions.metal");
+            device.load_library(shader_source)?;
+        }
+
+        // Two-stage reduction
+        let threadgroup_size = 256;
+        let num_blocks = (count + threadgroup_size - 1) / threadgroup_size;
+
+        let stage1_buf = MetalBuffer::new_uninit(device.metal_device(), num_blocks)?;
+
+        let mut executor = crate::device::KernelExecutor::new(device.clone());
+        let pipeline = executor.get_or_compile_pipeline("max_global_f16")?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&stage1_buf.buffer), 0);
+        encoder.set_bytes(2, std::mem::size_of::<u32>() as u64, &count as *const usize as *const _);
+
+        let grid_size = metal::MTLSize::new(count as u64, 1, 1);
+        let tg_size = metal::MTLSize::new(threadgroup_size as u64, 1, 1);
+        let shared_mem_size = threadgroup_size * std::mem::size_of::<f16>();
+
+        encoder.set_threadgroup_memory_length(0, shared_mem_size as u64);
+        encoder.dispatch_threads(grid_size, tg_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        // Stage 2: Final reduction on CPU
+        let stage1_data = stage1_buf.to_vec();
+        let mut max_val = stage1_data[0];
+        for &val in &stage1_data[1..] {
+            if val > max_val {
+                max_val = val;
+            }
+        }
+
+        Ok(max_val)
     }
 
     fn max_cpu(&self) -> TensorResult<f16> {
@@ -207,9 +410,70 @@ impl Tensor {
     /// Minimum value in the tensor
     pub fn min(&self) -> TensorResult<f16> {
         match self.device() {
-            Device::Metal(_) | Device::NeuralEngine => self.to_cpu()?.min_cpu(),
+            Device::Metal(_) => self.min_metal(),
+            Device::NeuralEngine => self.to_cpu()?.min_cpu(),
             Device::CPU => self.min_cpu(),
         }
+    }
+
+    fn min_metal(&self) -> TensorResult<f16> {
+        let input_buf = self.buffer().as_metal()?;
+        let count = self.numel();
+
+        if count == 0 {
+            return Err(TensorError::InvalidOperation(
+                "Cannot compute min of empty tensor".to_string(),
+            ));
+        }
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        // Load reduction shaders
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/reductions.metal");
+            device.load_library(shader_source)?;
+        }
+
+        // Two-stage reduction
+        let threadgroup_size = 256;
+        let num_blocks = (count + threadgroup_size - 1) / threadgroup_size;
+
+        let stage1_buf = MetalBuffer::new_uninit(device.metal_device(), num_blocks)?;
+
+        let mut executor = crate::device::KernelExecutor::new(device.clone());
+        let pipeline = executor.get_or_compile_pipeline("min_global_f16")?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&stage1_buf.buffer), 0);
+        encoder.set_bytes(2, std::mem::size_of::<u32>() as u64, &count as *const usize as *const _);
+
+        let grid_size = metal::MTLSize::new(count as u64, 1, 1);
+        let tg_size = metal::MTLSize::new(threadgroup_size as u64, 1, 1);
+        let shared_mem_size = threadgroup_size * std::mem::size_of::<f16>();
+
+        encoder.set_threadgroup_memory_length(0, shared_mem_size as u64);
+        encoder.dispatch_threads(grid_size, tg_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        // Stage 2: Final reduction on CPU
+        let stage1_data = stage1_buf.to_vec();
+        let mut min_val = stage1_data[0];
+        for &val in &stage1_data[1..] {
+            if val < min_val {
+                min_val = val;
+            }
+        }
+
+        Ok(min_val)
     }
 
     fn min_cpu(&self) -> TensorResult<f16> {
@@ -353,5 +617,112 @@ mod tests {
         let result = mean1.to_vec();
         assert_eq!(result[0], f16::from_f32(3.0)); // (2+4)/2
         assert_eq!(result[1], f16::from_f32(7.0)); // (6+8)/2
+    }
+
+    #[test]
+    fn test_sum_dim_metal() {
+        use crate::device::MetalDevice;
+
+        let metal_device = MetalDevice::new().unwrap();
+
+        // Create tensor on Metal device
+        let a = Tensor::from_vec_metal(
+            &metal_device,
+            vec![
+                f16::from_f32(1.0),
+                f16::from_f32(2.0),
+                f16::from_f32(3.0),
+                f16::from_f32(4.0),
+                f16::from_f32(5.0),
+                f16::from_f32(6.0),
+            ],
+            vec![2, 3],
+        )
+        .unwrap();
+
+        // Sum along dim 0 (rows) -> [3]
+        let sum0 = a.sum_dim(0, false).unwrap();
+        assert_eq!(sum0.shape().dims(), &[3]);
+        let result0 = sum0.to_vec();
+        assert_eq!(result0[0], f16::from_f32(5.0)); // 1+4
+        assert_eq!(result0[1], f16::from_f32(7.0)); // 2+5
+        assert_eq!(result0[2], f16::from_f32(9.0)); // 3+6
+
+        // Sum along dim 1 (columns) -> [2]
+        let sum1 = a.sum_dim(1, false).unwrap();
+        assert_eq!(sum1.shape().dims(), &[2]);
+        let result1 = sum1.to_vec();
+        assert_eq!(result1[0], f16::from_f32(6.0)); // 1+2+3
+        assert_eq!(result1[1], f16::from_f32(15.0)); // 4+5+6
+    }
+
+    #[test]
+    fn test_mean_dim_metal() {
+        use crate::device::MetalDevice;
+
+        let metal_device = MetalDevice::new().unwrap();
+
+        let a = Tensor::from_vec_metal(
+            &metal_device,
+            vec![
+                f16::from_f32(2.0),
+                f16::from_f32(4.0),
+                f16::from_f32(6.0),
+                f16::from_f32(8.0),
+            ],
+            vec![2, 2],
+        )
+        .unwrap();
+
+        // Mean along dim 1
+        let mean1 = a.mean_dim(1, false).unwrap();
+        assert_eq!(mean1.shape().dims(), &[2]);
+        let result = mean1.to_vec();
+        assert_eq!(result[0], f16::from_f32(3.0)); // (2+4)/2
+        assert_eq!(result[1], f16::from_f32(7.0)); // (6+8)/2
+    }
+
+    #[test]
+    fn test_max_metal() {
+        use crate::device::MetalDevice;
+
+        let metal_device = MetalDevice::new().unwrap();
+
+        let a = Tensor::from_vec_metal(
+            &metal_device,
+            vec![
+                f16::from_f32(1.0),
+                f16::from_f32(5.0),
+                f16::from_f32(3.0),
+                f16::from_f32(2.0),
+            ],
+            vec![4],
+        )
+        .unwrap();
+
+        let max = a.max().unwrap();
+        assert_eq!(max, f16::from_f32(5.0));
+    }
+
+    #[test]
+    fn test_min_metal() {
+        use crate::device::MetalDevice;
+
+        let metal_device = MetalDevice::new().unwrap();
+
+        let a = Tensor::from_vec_metal(
+            &metal_device,
+            vec![
+                f16::from_f32(5.0),
+                f16::from_f32(1.0),
+                f16::from_f32(3.0),
+                f16::from_f32(2.0),
+            ],
+            vec![4],
+        )
+        .unwrap();
+
+        let min = a.min().unwrap();
+        assert_eq!(min, f16::from_f32(1.0));
     }
 }
