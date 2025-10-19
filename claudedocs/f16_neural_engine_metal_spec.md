@@ -535,19 +535,23 @@ pub enum TensorError {
 - [x] Einsum実装 (完了 - 論文実装に重要)
 - [ ] GPU kernels for reductions (Phase 5最適化で実装)
 
-### Phase 4: Neural Engine統合 (未着手)
-- [ ] CoreML統合
-- [ ] MLMultiArray ↔ Metal ゼロコピー変換
+### Phase 4: Neural Engine統合 (部分完了 ✅)
+- [x] CoreML統合 (objc2-core-ml)
+- [x] NeuralEngineBuffer実装 (MLMultiArray wrapper)
+- [x] Metal ↔ Neural Engine 変換 (コピー版、ゼロコピーはPhase 5)
+- [ ] CoreML model loader
 - [ ] Neural Engine推論実行
 
-### Phase 4: 自動微分 (4週間)
+### Phase 5: 自動微分 (4週間)
 - [ ] 計算グラフ構築
 - [ ] 後向き伝播 (Metal)
 - [ ] Neural Engine勾配計算
 
-### Phase 5: 最適化 (2週間)
+### Phase 6: 最適化 (2週間)
+- [ ] Metal ↔ Neural Engine ゼロコピー変換
 - [ ] バッファプール
 - [ ] 演算融合
 - [ ] デバイス自動配置
+- [ ] GPU kernels for reductions
 
 合計: 約13週間
