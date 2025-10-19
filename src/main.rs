@@ -1,4 +1,5 @@
 use tensorlogic::{MetalDevice, Tensor};
+use tensorlogic::tensor::TensorShape;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== TensorLogic f16 Demo ===\n");
@@ -98,10 +99,56 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Matrix B [3x2]: {:?}", mat_b.to_vec_f32());
     println!("A @ B [2x2]: {:?}", mat_c.to_vec_f32());
 
+    // Test broadcasting
+    println!("\nTesting broadcasting...");
+    let vec = Tensor::from_vec_metal(
+        &device,
+        vec![
+            half::f16::from_f32(1.0),
+            half::f16::from_f32(2.0),
+            half::f16::from_f32(3.0),
+        ],
+        vec![3],
+    )?;
+
+    let broadcast_shape = TensorShape::new(vec![2, 3]);
+    let broadcasted = vec.broadcast_to(&broadcast_shape)?;
+    println!("Vector [3]: {:?}", vec.to_vec_f32());
+    println!("Broadcasted to [2x3]: {:?}", broadcasted.to_vec_f32());
+
+    // Test reduction operations
+    println!("\nTesting reduction operations...");
+    let matrix = Tensor::from_vec_metal(
+        &device,
+        vec![
+            half::f16::from_f32(1.0),
+            half::f16::from_f32(2.0),
+            half::f16::from_f32(3.0),
+            half::f16::from_f32(4.0),
+            half::f16::from_f32(5.0),
+            half::f16::from_f32(6.0),
+        ],
+        vec![2, 3],
+    )?;
+
+    println!("Matrix [2x3]: {:?}", matrix.to_vec_f32());
+    println!("Sum: {}", matrix.sum()?.to_f32());
+    println!("Mean: {}", matrix.mean()?.to_f32());
+    println!("Max: {}", matrix.max()?.to_f32());
+    println!("Min: {}", matrix.min()?.to_f32());
+
+    let sum_rows = matrix.sum_dim(0, false)?;
+    println!("Sum along rows: {:?}", sum_rows.to_vec_f32());
+
+    let sum_cols = matrix.sum_dim(1, false)?;
+    println!("Sum along columns: {:?}", sum_cols.to_vec_f32());
+
     println!("\n✅ All operations completed successfully!");
     println!("   - Element-wise: add, sub, mul, div");
     println!("   - Activations: ReLU, GELU, Softmax");
     println!("   - Matrix ops: matmul");
+    println!("   - Broadcasting: broadcast_to");
+    println!("   - Reductions: sum, mean, max, min, sum_dim");
     println!("   - All running on Metal GPU with f16 precision! 🚀");
 
     Ok(())

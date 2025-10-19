@@ -48,6 +48,50 @@ impl TensorShape {
         true
     }
 
+    /// Compute the broadcasted shape of two shapes
+    pub fn broadcast_with(&self, other: &TensorShape) -> TensorResult<TensorShape> {
+        let max_rank = self.rank().max(other.rank());
+        let mut result_dims = vec![1; max_rank];
+
+        // Align shapes from the right
+        let self_offset = max_rank - self.rank();
+        let other_offset = max_rank - other.rank();
+
+        for i in 0..max_rank {
+            let self_dim = if i >= self_offset {
+                self.dims[i - self_offset]
+            } else {
+                1
+            };
+
+            let other_dim = if i >= other_offset {
+                other.dims[i - other_offset]
+            } else {
+                1
+            };
+
+            if self_dim == other_dim {
+                result_dims[i] = self_dim;
+            } else if self_dim == 1 {
+                result_dims[i] = other_dim;
+            } else if other_dim == 1 {
+                result_dims[i] = self_dim;
+            } else {
+                return Err(TensorError::ShapeMismatch {
+                    expected: self.dims.clone(),
+                    actual: other.dims.clone(),
+                });
+            }
+        }
+
+        Ok(TensorShape::new(result_dims))
+    }
+
+    /// Check if this shape needs broadcasting to match target shape
+    pub fn needs_broadcast(&self, target: &TensorShape) -> bool {
+        self.dims != target.dims
+    }
+
     /// Compute strides for this shape (row-major / C-contiguous)
     pub fn compute_strides(&self) -> Vec<usize> {
         let mut strides = vec![1; self.rank()];
