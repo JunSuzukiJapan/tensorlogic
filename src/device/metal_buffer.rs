@@ -9,8 +9,8 @@ use std::sync::Arc;
 /// Metal buffer wrapper for f16 data
 #[derive(Debug, Clone)]
 pub struct MetalBuffer {
-    buffer: Arc<Buffer>,
-    length: usize, // number of f16 elements
+    pub(crate) buffer: Arc<Buffer>,
+    pub(crate) length: usize, // number of f16 elements
 }
 
 impl MetalBuffer {

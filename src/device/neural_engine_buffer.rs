@@ -11,7 +11,7 @@ use objc2_foundation::{NSArray, NSNumber};
 
 /// Neural Engine buffer wrapper for MLMultiArray with f16 data
 pub struct NeuralEngineBuffer {
-    array: Retained<MLMultiArray>,
+    pub(crate) array: Retained<MLMultiArray>,
 }
 
 impl NeuralEngineBuffer {
