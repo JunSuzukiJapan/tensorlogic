@@ -544,14 +544,14 @@ pub enum TensorError {
 - [ ] CoreML model loader (将来のフェーズ)
 - [ ] 実際のNeural Engine推論 (将来のフェーズ)
 
-### Phase 5: 自動微分 (完了 ✅ - 基本実装)
+### Phase 5: 自動微分 ✅ **完了**
 - [x] 計算グラフ構築 (GradNode, ComputationGraph)
 - [x] 勾配関数トレイト (GradientFunction)
 - [x] 基本演算の勾配 (Add, Sub, Mul, Div - ブロードキャスト対応)
 - [x] 高度な演算の勾配 (MatMul, ReLU, GELU, Softmax)
 - [x] Tensor API (requires_grad, backward, zero_grad, grad)
 - [x] 統合テストスイート
-- [ ] 完全な逆伝播実装 (計算グラフとの統合) - Phase 6へ
+- [x] 完全な逆伝播実装 (Phase 6で完了)
 - [ ] Metal GPU勾配カーネル - Phase 7へ
 
 ### Phase 6: Autograd統合 ✅ **完了**
