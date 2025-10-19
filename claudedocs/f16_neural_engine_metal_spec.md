@@ -530,9 +530,10 @@ pub enum TensorError {
 ### Phase 3: 高度な演算 (完了 ✅)
 - [x] MatMul実装 (2D GPU kernel)
 - [x] 活性化関数 (ReLU, GELU, Softmax)
-- [ ] Einsum実装
-- [ ] Broadcasting
-- [ ] 集約演算 (reduce, sum, mean)
+- [x] Broadcasting (broadcast_to, broadcast_with)
+- [x] 集約演算 (sum, mean, max, min, sum_dim, mean_dim)
+- [ ] Einsum実装 (保留 - 基本演算で十分)
+- [ ] GPU kernels for reductions (Phase 5最適化で実装)
 
 ### Phase 4: Neural Engine統合 (未着手)
 - [ ] CoreML統合
