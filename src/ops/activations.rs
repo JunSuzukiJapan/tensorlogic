@@ -1,0 +1,297 @@
+//! Activation functions with Metal GPU acceleration
+
+use crate::device::{Device, MetalBuffer};
+use crate::error::{TensorError, TensorResult};
+use crate::tensor::{BufferHandle, Tensor};
+use half::f16;
+
+impl Tensor {
+    /// ReLU activation: f(x) = max(0, x)
+    pub fn relu(&self) -> TensorResult<Self> {
+        match self.device() {
+            Device::Metal(_) => self.relu_metal(),
+            Device::CPU => self.relu_cpu(),
+            Device::NeuralEngine => self.relu_cpu(), // Fallback to CPU
+        }
+    }
+
+    /// Metal GPU implementation of ReLU
+    fn relu_metal(&self) -> TensorResult<Self> {
+        let input_buf = self.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => {
+                return Err(TensorError::DeviceConversionError(
+                    "Not on Metal device".to_string(),
+                ))
+            }
+        };
+
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/elementwise.metal");
+            device.load_library(shader_source)?;
+        }
+
+        let result_buf = MetalBuffer::new_uninit(device.metal_device(), self.numel())?;
+
+        let mut executor = crate::device::KernelExecutor::new(device);
+        executor.execute_unary_op("relu_f16", input_buf, &result_buf)?;
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
+    }
+
+    /// CPU fallback for ReLU
+    fn relu_cpu(&self) -> TensorResult<Self> {
+        let input = self.to_vec();
+        let output: Vec<f16> = input.iter().map(|&x| x.max(f16::ZERO)).collect();
+
+        Tensor::from_vec(output, self.shape().dims().to_vec())
+    }
+
+    /// GELU activation (approximation): f(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
+    pub fn gelu(&self) -> TensorResult<Self> {
+        match self.device() {
+            Device::Metal(_) => self.gelu_metal(),
+            Device::CPU => self.gelu_cpu(),
+            Device::NeuralEngine => self.gelu_cpu(), // Fallback to CPU
+        }
+    }
+
+    /// Metal GPU implementation of GELU
+    fn gelu_metal(&self) -> TensorResult<Self> {
+        let input_buf = self.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => {
+                return Err(TensorError::DeviceConversionError(
+                    "Not on Metal device".to_string(),
+                ))
+            }
+        };
+
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/elementwise.metal");
+            device.load_library(shader_source)?;
+        }
+
+        let result_buf = MetalBuffer::new_uninit(device.metal_device(), self.numel())?;
+
+        let mut executor = crate::device::KernelExecutor::new(device);
+        executor.execute_unary_op("gelu_f16", input_buf, &result_buf)?;
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
+    }
+
+    /// CPU fallback for GELU
+    fn gelu_cpu(&self) -> TensorResult<Self> {
+        let input = self.to_vec();
+        let sqrt_2_over_pi = f16::from_f32(0.7978845608);
+        let coeff = f16::from_f32(0.044715);
+        let half = f16::from_f32(0.5);
+        let one = f16::ONE;
+
+        let output: Vec<f16> = input
+            .iter()
+            .map(|&x| {
+                let x3 = x * x * x;
+                let inner = sqrt_2_over_pi * (x + coeff * x3);
+                // Note: f16 doesn't have tanh, so we approximate
+                let tanh_approx = {
+                    let e = inner.to_f32().exp();
+                    let e_neg = (-inner.to_f32()).exp();
+                    f16::from_f32((e - e_neg) / (e + e_neg))
+                };
+                half * x * (one + tanh_approx)
+            })
+            .collect();
+
+        Tensor::from_vec(output, self.shape().dims().to_vec())
+    }
+
+    /// Softmax activation: softmax(x)_i = exp(x_i) / sum(exp(x))
+    /// Applies along the last dimension
+    pub fn softmax(&self) -> TensorResult<Self> {
+        // For now, CPU-only implementation
+        // GPU version requires reduction operations
+        self.softmax_cpu()
+    }
+
+    /// CPU implementation of softmax
+    fn softmax_cpu(&self) -> TensorResult<Self> {
+        let input = self.to_vec();
+        let dims = self.shape().dims();
+
+        if dims.is_empty() {
+            return Err(TensorError::InvalidOperation(
+                "softmax requires non-empty tensor".to_string(),
+            ));
+        }
+
+        let last_dim = dims[dims.len() - 1];
+        let batch_size = self.numel() / last_dim;
+
+        let mut output = vec![f16::ZERO; self.numel()];
+
+        for batch in 0..batch_size {
+            let offset = batch * last_dim;
+
+            // Find max for numerical stability
+            let max_val = input[offset..offset + last_dim]
+                .iter()
+                .copied()
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap();
+
+            // Compute exp and sum
+            let mut sum = f16::ZERO;
+            for i in 0..last_dim {
+                let exp_val = f16::from_f32((input[offset + i] - max_val).to_f32().exp());
+                output[offset + i] = exp_val;
+                sum += exp_val;
+            }
+
+            // Normalize
+            for i in 0..last_dim {
+                output[offset + i] /= sum;
+            }
+        }
+
+        Tensor::from_vec(output, self.shape().dims().to_vec())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::device::MetalDevice;
+
+    #[test]
+    fn test_relu_cpu() {
+        let input = Tensor::from_vec(
+            vec![
+                f16::from_f32(-2.0),
+                f16::from_f32(-1.0),
+                f16::from_f32(0.0),
+                f16::from_f32(1.0),
+                f16::from_f32(2.0),
+            ],
+            vec![5],
+        )
+        .unwrap();
+
+        let output = input.relu().unwrap();
+        let result = output.to_vec();
+
+        assert_eq!(result[0], f16::ZERO);
+        assert_eq!(result[1], f16::ZERO);
+        assert_eq!(result[2], f16::ZERO);
+        assert_eq!(result[3], f16::from_f32(1.0));
+        assert_eq!(result[4], f16::from_f32(2.0));
+    }
+
+    #[test]
+    fn test_relu_gpu() {
+        let device = MetalDevice::new().unwrap();
+
+        let input = Tensor::from_vec_metal(
+            &device,
+            vec![
+                f16::from_f32(-2.0),
+                f16::from_f32(-1.0),
+                f16::from_f32(0.0),
+                f16::from_f32(1.0),
+                f16::from_f32(2.0),
+            ],
+            vec![5],
+        )
+        .unwrap();
+
+        let output = input.relu().unwrap();
+        let result = output.to_vec();
+
+        assert_eq!(result[0], f16::ZERO);
+        assert_eq!(result[1], f16::ZERO);
+        assert_eq!(result[2], f16::ZERO);
+        assert_eq!(result[3], f16::from_f32(1.0));
+        assert_eq!(result[4], f16::from_f32(2.0));
+    }
+
+    #[test]
+    fn test_gelu_cpu() {
+        let input = Tensor::from_vec(
+            vec![
+                f16::from_f32(-1.0),
+                f16::from_f32(0.0),
+                f16::from_f32(1.0),
+            ],
+            vec![3],
+        )
+        .unwrap();
+
+        let output = input.gelu().unwrap();
+        let result = output.to_vec();
+
+        // GELU(0) should be approximately 0
+        assert!((result[1].to_f32()).abs() < 0.01);
+        // GELU is monotonic: GELU(-1) < GELU(0) < GELU(1)
+        assert!(result[0] < result[1]);
+        assert!(result[1] < result[2]);
+    }
+
+    #[test]
+    fn test_gelu_gpu() {
+        let device = MetalDevice::new().unwrap();
+
+        let input = Tensor::from_vec_metal(
+            &device,
+            vec![
+                f16::from_f32(-1.0),
+                f16::from_f32(0.0),
+                f16::from_f32(1.0),
+            ],
+            vec![3],
+        )
+        .unwrap();
+
+        let output = input.gelu().unwrap();
+        let result = output.to_vec();
+
+        assert!((result[1].to_f32()).abs() < 0.01);
+        assert!(result[0] < result[1]);
+        assert!(result[1] < result[2]);
+    }
+
+    #[test]
+    fn test_softmax_cpu() {
+        let input = Tensor::from_vec(
+            vec![
+                f16::from_f32(1.0),
+                f16::from_f32(2.0),
+                f16::from_f32(3.0),
+            ],
+            vec![3],
+        )
+        .unwrap();
+
+        let output = input.softmax().unwrap();
+        let result = output.to_vec();
+
+        // Check sum equals 1
+        let sum: f32 = result.iter().map(|x| x.to_f32()).sum();
+        assert!((sum - 1.0).abs() < 0.01);
+
+        // Check values are in ascending order (softmax is monotonic)
+        assert!(result[0] < result[1]);
+        assert!(result[1] < result[2]);
+    }
+}

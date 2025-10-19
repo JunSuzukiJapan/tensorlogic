@@ -131,3 +131,49 @@ kernel void fill_f16(
 ) {
     result[index] = value[0];
 }
+
+/// Matrix multiplication: C = A @ B
+/// A: [M, K], B: [K, N], C: [M, N]
+kernel void matmul_f16(
+    device const half* a [[buffer(0)]],
+    device const half* b [[buffer(1)]],
+    device half* c [[buffer(2)]],
+    constant uint& M [[buffer(3)]],
+    constant uint& N [[buffer(4)]],
+    constant uint& K [[buffer(5)]],
+    uint2 gid [[thread_position_in_grid]]
+) {
+    uint row = gid.y;  // M dimension
+    uint col = gid.x;  // N dimension
+
+    if (row >= M || col >= N) return;
+
+    half sum = 0.0h;
+    for (uint k = 0; k < K; k++) {
+        sum += a[row * K + k] * b[k * N + col];
+    }
+    c[row * N + col] = sum;
+}
+
+/// ReLU activation: f(x) = max(0, x)
+kernel void relu_f16(
+    device const half* input [[buffer(0)]],
+    device half* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = max(input[index], half(0.0));
+}
+
+/// GELU activation (approximation): f(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
+kernel void gelu_f16(
+    device const half* input [[buffer(0)]],
+    device half* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    half x = input[index];
+    half sqrt_2_over_pi = half(0.7978845608);  // sqrt(2/π)
+    half coeff = half(0.044715);
+    half x3 = x * x * x;
+    half inner = sqrt_2_over_pi * (x + coeff * x3);
+    output[index] = half(0.5) * x * (half(1.0) + tanh(inner));
+}
