@@ -544,16 +544,29 @@ pub enum TensorError {
 - [ ] CoreML model loader (将来のフェーズ)
 - [ ] 実際のNeural Engine推論 (将来のフェーズ)
 
-### Phase 5: 自動微分 (4週間)
-- [ ] 計算グラフ構築
-- [ ] 後向き伝播 (Metal)
-- [ ] Neural Engine勾配計算
+### Phase 5: 自動微分 (完了 ✅ - 基本実装)
+- [x] 計算グラフ構築 (GradNode, ComputationGraph)
+- [x] 勾配関数トレイト (GradientFunction)
+- [x] 基本演算の勾配 (Add, Sub, Mul, Div - ブロードキャスト対応)
+- [x] 高度な演算の勾配 (MatMul, ReLU, GELU, Softmax)
+- [x] Tensor API (requires_grad, backward, zero_grad, grad)
+- [x] 統合テストスイート
+- [ ] 完全な逆伝播実装 (計算グラフとの統合) - Phase 6へ
+- [ ] Metal GPU勾配カーネル - Phase 7へ
 
-### Phase 6: 最適化 (2週間)
+### Phase 6: Autograd統合 (2-3週間)
+- [ ] 演算に計算グラフ記録を統合
+- [ ] 完全な逆伝播実装
+- [ ] 勾配累積とバージョン管理
+- [ ] 勾配チェック (数値微分との比較)
+- [ ] 高階微分サポート
+
+### Phase 7: 最適化 (2週間)
 - [ ] Metal ↔ Neural Engine ゼロコピー変換
 - [ ] バッファプール
 - [ ] 演算融合
 - [ ] デバイス自動配置
+- [ ] Metal GPU勾配カーネル
 - [ ] GPU kernels for reductions
 
-合計: 約13週間
+合計: 約17週間 (Phase 5基本実装完了)

@@ -230,6 +230,40 @@ impl Tensor {
     pub fn flatten(&self) -> TensorResult<Self> {
         self.reshape(vec![self.numel()])
     }
+
+    // === Autograd operations ===
+
+    /// Set gradient (internal use)
+    pub(crate) fn set_grad(&mut self, grad: Tensor) {
+        self.grad = Some(Box::new(grad));
+    }
+
+    /// Perform backward pass (for scalar tensors)
+    pub fn backward(&mut self) -> TensorResult<()> {
+        if !self.requires_grad {
+            return Err(TensorError::InvalidOperation(
+                "Cannot call backward on tensor with requires_grad=False".to_string(),
+            ));
+        }
+
+        if self.numel() != 1 {
+            return Err(TensorError::InvalidOperation(
+                "backward() can only be called on scalar tensors. Use backward_with_grad() for non-scalar tensors."
+                    .to_string(),
+            ));
+        }
+
+        // 初期勾配は1.0
+        let grad = Tensor::from_vec(vec![f16::ONE], vec![1])?;
+        self.backward_with_grad(grad)
+    }
+
+    /// Perform backward pass with specified gradient
+    pub fn backward_with_grad(&mut self, _grad: Tensor) -> TensorResult<()> {
+        // TODO: 計算グラフを使った実際の逆伝播実装
+        // Phase 5.2で実装
+        Ok(())
+    }
 }
 
 impl PartialEq for Tensor {
