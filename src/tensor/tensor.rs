@@ -1,5 +1,6 @@
 //! Core Tensor type
 
+use crate::autograd::NodeId;
 use crate::device::{Device, MetalBuffer, MetalDevice};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, TensorShape};
@@ -25,6 +26,12 @@ pub struct Tensor {
 
     /// Whether gradient computation is required
     requires_grad: bool,
+
+    /// Computation graph node ID (if part of a computation graph)
+    grad_node: Option<NodeId>,
+
+    /// Version counter for gradient accumulation tracking
+    version: u64,
 }
 
 impl Tensor {
@@ -49,6 +56,8 @@ impl Tensor {
             device,
             grad: None,
             requires_grad: false,
+            grad_node: None,
+            version: 0,
         })
     }
 
@@ -157,6 +166,14 @@ impl Tensor {
     /// Set whether gradient is required
     pub fn set_requires_grad(&mut self, requires: bool) {
         self.requires_grad = requires;
+
+        // Allocate a node ID for this tensor if it doesn't have one and requires_grad is true
+        if requires && self.grad_node.is_none() {
+            use crate::autograd::AutogradContext;
+            let node_id = AutogradContext::allocate_id();
+            self.grad_node = Some(node_id);
+            AutogradContext::register_tensor(node_id, self.clone());
+        }
     }
 
     /// Get the gradient
@@ -167,6 +184,7 @@ impl Tensor {
     /// Zero out the gradient
     pub fn zero_grad(&mut self) {
         self.grad = None;
+        self.version += 1;
     }
 
     // === Device transfers ===
@@ -223,6 +241,8 @@ impl Tensor {
             device: self.device.clone(),
             grad: None,
             requires_grad: self.requires_grad,
+            grad_node: None,
+            version: 0,
         })
     }
 
@@ -236,6 +256,21 @@ impl Tensor {
     /// Set gradient (internal use)
     pub(crate) fn set_grad(&mut self, grad: Tensor) {
         self.grad = Some(Box::new(grad));
+    }
+
+    /// Get computation graph node ID
+    pub fn grad_node(&self) -> Option<NodeId> {
+        self.grad_node
+    }
+
+    /// Set computation graph node ID (internal use)
+    pub(crate) fn set_grad_node(&mut self, node_id: NodeId) {
+        self.grad_node = Some(node_id);
+    }
+
+    /// Get version (for gradient accumulation tracking)
+    pub fn version(&self) -> u64 {
+        self.version
     }
 
     /// Perform backward pass (for scalar tensors)
@@ -259,9 +294,38 @@ impl Tensor {
     }
 
     /// Perform backward pass with specified gradient
-    pub fn backward_with_grad(&mut self, _grad: Tensor) -> TensorResult<()> {
-        // TODO: 計算グラフを使った実際の逆伝播実装
-        // Phase 5.2で実装
+    pub fn backward_with_grad(&mut self, grad: Tensor) -> TensorResult<()> {
+        use crate::autograd::AutogradContext;
+
+        // Get node ID for this tensor
+        let node_id = self.grad_node.ok_or_else(|| {
+            TensorError::InvalidOperation(
+                "Cannot call backward on tensor without computation graph node".to_string(),
+            )
+        })?;
+
+        // Perform backward pass through computation graph
+        let gradients = AutogradContext::backward(node_id, grad)?;
+
+        // Distribute gradients to all tensors in the graph
+        // Use no_grad to avoid recording gradient accumulation operations
+        AutogradContext::no_grad(|| {
+            for (tensor_node_id, gradient) in gradients {
+                if let Some(mut tensor) = AutogradContext::get_tensor(tensor_node_id) {
+                    // Accumulate gradient if it already exists
+                    if let Some(existing_grad) = tensor.grad() {
+                        let accumulated_grad = existing_grad.add(&gradient).unwrap();
+                        tensor.set_grad(accumulated_grad);
+                    } else {
+                        tensor.set_grad(gradient);
+                    }
+
+                    // Re-register the updated tensor
+                    AutogradContext::register_tensor(tensor_node_id, tensor);
+                }
+            }
+        });
+
         Ok(())
     }
 }

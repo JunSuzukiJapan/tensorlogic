@@ -1,18 +1,48 @@
 //! Activation functions with Metal GPU acceleration
 
+use crate::autograd::gradients::{GELUBackward, ReLUBackward, SoftmaxBackward};
+use crate::autograd::{AutogradContext, GradientFunction, Operation};
 use crate::device::{Device, MetalBuffer};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
 
+/// Helper function to record a unary operation in the computation graph
+fn record_unary_op(
+    op: Operation,
+    grad_fn: Box<dyn GradientFunction>,
+    input_tensor: &Tensor,
+    result: &mut Tensor,
+) {
+    if !input_tensor.requires_grad() || !AutogradContext::is_enabled() {
+        return;
+    }
+
+    let input_node_id = input_tensor
+        .grad_node()
+        .unwrap_or_else(|| AutogradContext::allocate_id());
+
+    let result_node_id = AutogradContext::add_node(op, vec![input_node_id], Some(grad_fn));
+
+    AutogradContext::register_tensor(input_node_id, input_tensor.clone());
+
+    result.set_grad_node(result_node_id);
+    result.set_requires_grad(true);
+}
+
 impl Tensor {
     /// ReLU activation: f(x) = max(0, x)
     pub fn relu(&self) -> TensorResult<Self> {
-        match self.device() {
-            Device::Metal(_) => self.relu_metal(),
-            Device::CPU => self.relu_cpu(),
-            Device::NeuralEngine => self.relu_cpu(), // Fallback to CPU
-        }
+        let mut result = match self.device() {
+            Device::Metal(_) => self.relu_metal()?,
+            Device::CPU => self.relu_cpu()?,
+            Device::NeuralEngine => self.relu_cpu()?, // Fallback to CPU
+        };
+
+        let grad_fn = Box::new(ReLUBackward::new(self.clone()));
+        record_unary_op(Operation::ReLU, grad_fn, self, &mut result);
+
+        Ok(result)
     }
 
     /// Metal GPU implementation of ReLU
@@ -55,11 +85,16 @@ impl Tensor {
 
     /// GELU activation (approximation): f(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
     pub fn gelu(&self) -> TensorResult<Self> {
-        match self.device() {
-            Device::Metal(_) => self.gelu_metal(),
-            Device::CPU => self.gelu_cpu(),
-            Device::NeuralEngine => self.gelu_cpu(), // Fallback to CPU
-        }
+        let mut result = match self.device() {
+            Device::Metal(_) => self.gelu_metal()?,
+            Device::CPU => self.gelu_cpu()?,
+            Device::NeuralEngine => self.gelu_cpu()?, // Fallback to CPU
+        };
+
+        let grad_fn = Box::new(GELUBackward::new(self.clone()));
+        record_unary_op(Operation::GELU, grad_fn, self, &mut result);
+
+        Ok(result)
     }
 
     /// Metal GPU implementation of GELU
@@ -123,7 +158,12 @@ impl Tensor {
     pub fn softmax(&self) -> TensorResult<Self> {
         // For now, CPU-only implementation
         // GPU version requires reduction operations
-        self.softmax_cpu()
+        let mut result = self.softmax_cpu()?;
+
+        let grad_fn = Box::new(SoftmaxBackward::new(result.clone()));
+        record_unary_op(Operation::Softmax, grad_fn, self, &mut result);
+
+        Ok(result)
     }
 
     /// CPU implementation of softmax

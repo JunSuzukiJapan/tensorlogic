@@ -96,10 +96,12 @@ fn test_backward_requires_grad_false() {
         .contains("requires_grad=False"));
 }
 
-// 将来の統合テスト用サンプル（現在は実装待ち）
+// Simple autodiff test
 #[test]
-#[ignore] // 完全なautograd実装後に有効化
 fn test_simple_autodiff() {
+    use tensorlogic::autograd::AutogradContext;
+
+    AutogradContext::clear();
     let device = get_test_device();
 
     // y = x^2 の微分を計算
@@ -114,7 +116,9 @@ fn test_simple_autodiff() {
     y_scalar.backward().unwrap();
 
     // x.grad() = dy/dx = 2x = 6.0
-    let grad = x.grad().unwrap();
+    // Note: 勾配は計算グラフのテンソルレジストリに保存される
+    let x_with_grad = AutogradContext::get_tensor(x.grad_node().unwrap()).unwrap();
+    let grad = x_with_grad.grad().unwrap();
     assert_eq!(grad.to_vec()[0], f16::from_f32(6.0));
 }
 

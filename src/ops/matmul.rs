@@ -1,5 +1,7 @@
 //! Matrix multiplication operations with Metal GPU acceleration
 
+use crate::autograd::gradients::MatMulBackward;
+use crate::autograd::{AutogradContext, Operation};
 use crate::device::{Device, MetalBuffer};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
@@ -41,13 +43,38 @@ impl Tensor {
             ));
         }
 
-        match self.device() {
-            Device::Metal(_) => self.matmul_metal(other, m, k, n),
-            Device::CPU => self.matmul_cpu(other, m, k, n),
-            Device::NeuralEngine => Err(TensorError::InvalidOperation(
-                "matmul not yet supported on Neural Engine".to_string(),
-            )),
+        let mut result = match self.device() {
+            Device::Metal(_) => self.matmul_metal(other, m, k, n)?,
+            Device::CPU => self.matmul_cpu(other, m, k, n)?,
+            Device::NeuralEngine => {
+                return Err(TensorError::InvalidOperation(
+                    "matmul not yet supported on Neural Engine".to_string(),
+                ))
+            }
+        };
+
+        // Record in computation graph
+        if (self.requires_grad() || other.requires_grad()) && AutogradContext::is_enabled() {
+            let self_node_id = self.grad_node().unwrap_or_else(|| AutogradContext::allocate_id());
+            let other_node_id =
+                other.grad_node().unwrap_or_else(|| AutogradContext::allocate_id());
+
+            let grad_fn = Box::new(MatMulBackward::new(self.clone(), other.clone()));
+
+            let result_node_id = AutogradContext::add_node(
+                Operation::MatMul,
+                vec![self_node_id, other_node_id],
+                Some(grad_fn),
+            );
+
+            AutogradContext::register_tensor(self_node_id, self.clone());
+            AutogradContext::register_tensor(other_node_id, other.clone());
+
+            result.set_grad_node(result_node_id);
+            result.set_requires_grad(true);
         }
+
+        Ok(result)
     }
 
     /// Metal GPU implementation of matmul

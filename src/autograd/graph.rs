@@ -38,6 +38,7 @@ impl ComputationGraph {
     /// # Arguments
     /// * `node_id` - 開始ノード（通常は損失テンソルのノード）
     /// * `grad` - 初期勾配（通常は1.0のスカラー）
+    /// * `enabled` - 勾配計算が有効かどうか（外部から渡される）
     ///
     /// # Returns
     /// 各ノードIDに対する勾配のマップ
@@ -45,6 +46,7 @@ impl ComputationGraph {
         &self,
         node_id: NodeId,
         grad: Tensor,
+        _enabled: bool,
     ) -> TensorResult<HashMap<NodeId, Tensor>> {
         // トポロジカルソートで逆順にノードを処理
         let topo_order = self.topological_sort(node_id)?;

@@ -1,9 +1,43 @@
 //! Element-wise tensor operations with Metal GPU acceleration
 
+use crate::autograd::gradients::{AddBackward, DivBackward, MulBackward, SubBackward};
+use crate::autograd::{AutogradContext, GradientFunction, Operation};
 use crate::device::{Device, MetalBuffer};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
+
+/// Helper function to record a binary operation in the computation graph
+fn record_binary_op(
+    op: Operation,
+    grad_fn: Box<dyn GradientFunction>,
+    self_tensor: &Tensor,
+    other_tensor: &Tensor,
+    result: &mut Tensor,
+) {
+    if !(self_tensor.requires_grad() || other_tensor.requires_grad()) || !AutogradContext::is_enabled() {
+        return;
+    }
+
+    // Get or allocate node IDs for input tensors
+    let self_node_id = self_tensor.grad_node().unwrap_or_else(|| AutogradContext::allocate_id());
+    let other_node_id = other_tensor.grad_node().unwrap_or_else(|| AutogradContext::allocate_id());
+
+    // Add node to computation graph (this allocates the result node ID internally)
+    let result_node_id = AutogradContext::add_node(
+        op,
+        vec![self_node_id, other_node_id],
+        Some(grad_fn),
+    );
+
+    // Register tensors
+    AutogradContext::register_tensor(self_node_id, self_tensor.clone());
+    AutogradContext::register_tensor(other_node_id, other_tensor.clone());
+
+    // Set node ID and requires_grad on result
+    result.set_grad_node(result_node_id);
+    result.set_requires_grad(true);
+}
 
 impl Tensor {
     /// Element-wise addition
@@ -16,12 +50,18 @@ impl Tensor {
             });
         }
 
-        // Use Metal kernel if both tensors are on Metal
-        if self.buffer().is_metal() && other.buffer().is_metal() {
-            self.add_metal(other)
+        // Perform computation
+        let mut result = if self.buffer().is_metal() && other.buffer().is_metal() {
+            self.add_metal(other)?
         } else {
-            self.add_cpu(other)
-        }
+            self.add_cpu(other)?
+        };
+
+        // Record in computation graph
+        let grad_fn = Box::new(AddBackward::new(self.shape().clone(), other.shape().clone()));
+        record_binary_op(Operation::Add, grad_fn, self, other, &mut result);
+
+        Ok(result)
     }
 
     /// Metal GPU implementation of addition
@@ -79,11 +119,16 @@ impl Tensor {
             });
         }
 
-        if self.buffer().is_metal() && other.buffer().is_metal() {
-            self.sub_metal(other)
+        let mut result = if self.buffer().is_metal() && other.buffer().is_metal() {
+            self.sub_metal(other)?
         } else {
-            self.sub_cpu(other)
-        }
+            self.sub_cpu(other)?
+        };
+
+        let grad_fn = Box::new(SubBackward::new(self.shape().clone(), other.shape().clone()));
+        record_binary_op(Operation::Sub, grad_fn, self, other, &mut result);
+
+        Ok(result)
     }
 
     fn sub_metal(&self, other: &Tensor) -> TensorResult<Self> {
@@ -133,11 +178,16 @@ impl Tensor {
             });
         }
 
-        if self.buffer().is_metal() && other.buffer().is_metal() {
-            self.mul_metal(other)
+        let mut result = if self.buffer().is_metal() && other.buffer().is_metal() {
+            self.mul_metal(other)?
         } else {
-            self.mul_cpu(other)
-        }
+            self.mul_cpu(other)?
+        };
+
+        let grad_fn = Box::new(MulBackward::new(self.clone(), other.clone()));
+        record_binary_op(Operation::Mul, grad_fn, self, other, &mut result);
+
+        Ok(result)
     }
 
     fn mul_metal(&self, other: &Tensor) -> TensorResult<Self> {
@@ -187,11 +237,16 @@ impl Tensor {
             });
         }
 
-        if self.buffer().is_metal() && other.buffer().is_metal() {
-            self.div_metal(other)
+        let mut result = if self.buffer().is_metal() && other.buffer().is_metal() {
+            self.div_metal(other)?
         } else {
-            self.div_cpu(other)
-        }
+            self.div_cpu(other)?
+        };
+
+        let grad_fn = Box::new(DivBackward::new(self.clone(), other.clone()));
+        record_binary_op(Operation::Div, grad_fn, self, other, &mut result);
+
+        Ok(result)
     }
 
     fn div_metal(&self, other: &Tensor) -> TensorResult<Self> {
