@@ -1,7 +1,8 @@
-//! Element-wise tensor operations (placeholders for Metal kernels)
+//! Element-wise tensor operations with Metal GPU acceleration
 
+use crate::device::{Device, MetalBuffer};
 use crate::error::{TensorError, TensorResult};
-use crate::tensor::Tensor;
+use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
 
 impl Tensor {
@@ -15,9 +16,44 @@ impl Tensor {
             });
         }
 
-        // TODO: Implement Metal kernel for add
-        // For now, fallback to CPU
-        self.add_cpu(other)
+        // Use Metal kernel if both tensors are on Metal
+        if self.buffer().is_metal() && other.buffer().is_metal() {
+            self.add_metal(other)
+        } else {
+            self.add_cpu(other)
+        }
+    }
+
+    /// Metal GPU implementation of addition
+    fn add_metal(&self, other: &Tensor) -> TensorResult<Self> {
+        let a_buf = self.buffer().as_metal()?;
+        let b_buf = other.buffer().as_metal()?;
+
+        // Get device
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        // Load shaders if not already loaded
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/elementwise.metal");
+            device.load_library(shader_source)?;
+        }
+
+        // Create result buffer
+        let result_buf = MetalBuffer::new_uninit(device.metal_device(), self.numel())?;
+
+        // Create local executor for this operation
+        let mut executor = crate::device::KernelExecutor::new(device);
+        executor.execute_binary_op("add_f16", a_buf, b_buf, &result_buf)?;
+
+        // Create result tensor
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
     }
 
     /// CPU fallback for addition
@@ -25,17 +61,11 @@ impl Tensor {
         let a = self.to_vec();
         let b = other.to_vec();
 
-        let result: Vec<f16> = a
-            .iter()
-            .zip(b.iter())
-            .map(|(&x, &y)| x + y)
-            .collect();
+        let result: Vec<f16> = a.iter().zip(b.iter()).map(|(&x, &y)| x + y).collect();
 
         // Keep result on same device as self
         match self.device() {
-            crate::device::Device::Metal(dev) => {
-                Tensor::from_vec_metal(dev, result, self.dims().to_vec())
-            }
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
             _ => Tensor::from_vec(result, self.dims().to_vec()),
         }
     }
@@ -49,24 +79,47 @@ impl Tensor {
             });
         }
 
-        // TODO: Implement Metal kernel
-        self.sub_cpu(other)
+        if self.buffer().is_metal() && other.buffer().is_metal() {
+            self.sub_metal(other)
+        } else {
+            self.sub_cpu(other)
+        }
+    }
+
+    fn sub_metal(&self, other: &Tensor) -> TensorResult<Self> {
+        let a_buf = self.buffer().as_metal()?;
+        let b_buf = other.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/elementwise.metal");
+            device.load_library(shader_source)?;
+        }
+
+        let result_buf = MetalBuffer::new_uninit(device.metal_device(), self.numel())?;
+
+        let mut executor = crate::device::KernelExecutor::new(device);
+        executor.execute_binary_op("sub_f16", a_buf, b_buf, &result_buf)?;
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
     }
 
     fn sub_cpu(&self, other: &Tensor) -> TensorResult<Self> {
         let a = self.to_vec();
         let b = other.to_vec();
 
-        let result: Vec<f16> = a
-            .iter()
-            .zip(b.iter())
-            .map(|(&x, &y)| x - y)
-            .collect();
+        let result: Vec<f16> = a.iter().zip(b.iter()).map(|(&x, &y)| x - y).collect();
 
         match self.device() {
-            crate::device::Device::Metal(dev) => {
-                Tensor::from_vec_metal(dev, result, self.dims().to_vec())
-            }
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
             _ => Tensor::from_vec(result, self.dims().to_vec()),
         }
     }
@@ -80,24 +133,47 @@ impl Tensor {
             });
         }
 
-        // TODO: Implement Metal kernel
-        self.mul_cpu(other)
+        if self.buffer().is_metal() && other.buffer().is_metal() {
+            self.mul_metal(other)
+        } else {
+            self.mul_cpu(other)
+        }
+    }
+
+    fn mul_metal(&self, other: &Tensor) -> TensorResult<Self> {
+        let a_buf = self.buffer().as_metal()?;
+        let b_buf = other.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/elementwise.metal");
+            device.load_library(shader_source)?;
+        }
+
+        let result_buf = MetalBuffer::new_uninit(device.metal_device(), self.numel())?;
+
+        let mut executor = crate::device::KernelExecutor::new(device);
+        executor.execute_binary_op("mul_f16", a_buf, b_buf, &result_buf)?;
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
     }
 
     fn mul_cpu(&self, other: &Tensor) -> TensorResult<Self> {
         let a = self.to_vec();
         let b = other.to_vec();
 
-        let result: Vec<f16> = a
-            .iter()
-            .zip(b.iter())
-            .map(|(&x, &y)| x * y)
-            .collect();
+        let result: Vec<f16> = a.iter().zip(b.iter()).map(|(&x, &y)| x * y).collect();
 
         match self.device() {
-            crate::device::Device::Metal(dev) => {
-                Tensor::from_vec_metal(dev, result, self.dims().to_vec())
-            }
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
             _ => Tensor::from_vec(result, self.dims().to_vec()),
         }
     }
@@ -111,24 +187,47 @@ impl Tensor {
             });
         }
 
-        // TODO: Implement Metal kernel
-        self.div_cpu(other)
+        if self.buffer().is_metal() && other.buffer().is_metal() {
+            self.div_metal(other)
+        } else {
+            self.div_cpu(other)
+        }
+    }
+
+    fn div_metal(&self, other: &Tensor) -> TensorResult<Self> {
+        let a_buf = self.buffer().as_metal()?;
+        let b_buf = other.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/elementwise.metal");
+            device.load_library(shader_source)?;
+        }
+
+        let result_buf = MetalBuffer::new_uninit(device.metal_device(), self.numel())?;
+
+        let mut executor = crate::device::KernelExecutor::new(device);
+        executor.execute_binary_op("div_f16", a_buf, b_buf, &result_buf)?;
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
     }
 
     fn div_cpu(&self, other: &Tensor) -> TensorResult<Self> {
         let a = self.to_vec();
         let b = other.to_vec();
 
-        let result: Vec<f16> = a
-            .iter()
-            .zip(b.iter())
-            .map(|(&x, &y)| x / y)
-            .collect();
+        let result: Vec<f16> = a.iter().zip(b.iter()).map(|(&x, &y)| x / y).collect();
 
         match self.device() {
-            crate::device::Device::Metal(dev) => {
-                Tensor::from_vec_metal(dev, result, self.dims().to_vec())
-            }
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
             _ => Tensor::from_vec(result, self.dims().to_vec()),
         }
     }
@@ -144,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add() {
+    fn test_add_gpu() {
         let device = get_test_device();
 
         let a = Tensor::from_vec_metal(
@@ -168,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sub() {
+    fn test_sub_gpu() {
         let device = get_test_device();
 
         let a = Tensor::from_vec_metal(
@@ -192,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mul() {
+    fn test_mul_gpu() {
         let device = get_test_device();
 
         let a = Tensor::from_vec_metal(
@@ -216,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn test_div() {
+    fn test_div_gpu() {
         let device = get_test_device();
 
         let a = Tensor::from_vec_metal(

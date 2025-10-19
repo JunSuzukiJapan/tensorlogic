@@ -2,9 +2,11 @@
 
 mod metal_device;
 mod metal_buffer;
+mod kernel_executor;
 
 pub use metal_device::MetalDevice;
 pub use metal_buffer::MetalBuffer;
+pub use kernel_executor::{KernelExecutor, get_kernel_executor};
 
 use crate::error::TensorResult;
 
