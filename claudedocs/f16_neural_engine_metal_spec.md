@@ -531,18 +531,19 @@ pub enum TensorError {
 - [x] MatMul実装 (2D GPU kernel)
 - [x] 活性化関数 (ReLU, GELU, Softmax)
 - [x] Broadcasting (broadcast_to, broadcast_with)
-- [x] 集約演算 (sum, mean, max, min, sum_dim, mean_dim)
+- [x] 集約演算 (sum, mean, max, min, sum_dim, mean_dim) - CPU実装
 - [x] Einsum実装 (完了 - 論文実装に重要)
-- [ ] GPU kernels for reductions (Phase 5最適化で実装)
+- [ ] GPU kernels for reductions → Phase 7.6へ移動
 
 ### Phase 4: Neural Engine統合 (完了 ✅)
 - [x] CoreML統合 (objc2-core-ml)
-- [x] NeuralEngineBuffer実装 (MLMultiArray wrapper)
-- [x] Metal ↔ Neural Engine 変換 (コピー版、ゼロコピーはPhase 6)
-- [x] NeuralEngineOps実装 (matmul, relu)
+- [x] NeuralEngineBuffer実装 (MLMultiArray wrapper + Send/Sync)
+- [x] Metal ↔ Neural Engine 変換 (Phase 7.1でゼロコピー完了)
+- [x] NeuralEngineOps実装 (matmul, relu, fused ops)
 - [x] Neural Engine演算フレームワーク
-- [ ] CoreML model loader (将来のフェーズ)
-- [ ] 実際のNeural Engine推論 (将来のフェーズ)
+- [x] BufferHandle::NeuralEngine完全実装 (Phase 7.3)
+- [ ] CoreML model loader → 将来のフェーズ（実際のNeural Engine実行）
+- [ ] 実際のNeural Engine推論 → 将来のフェーズ（現在はCPUプレースホルダー）
 
 ### Phase 5: 自動微分 ✅ **完了**
 - [x] 計算グラフ構築 (GradNode, ComputationGraph)
@@ -566,24 +567,38 @@ pub enum TensorError {
 ### Phase 7: 最適化 ⚡ **進行中**
 - [x] Metal ↔ Neural Engine ゼロコピー変換 (SharedBuffer実装)
 - [x] バッファプール (BufferPool実装)
-- [x] 演算融合 (operator fusion) - 基本実装完了
-- [ ] デバイス自動配置 - Phase 8へ延期
+- [x] 演算融合 (operator fusion) - 完全実装完了 ✅
+- [ ] デバイス自動配置 - Phase 8へ延期（低優先度）
 - [x] Metal GPU勾配カーネル ✅
-- [ ] GPU kernels for reductions
+- [ ] GPU reduction kernels (Phase 7.6 - 残タスク)
 
 **Phase 7.1-7.5 完了**:
 - 7.1: SharedBuffer - ゼロコピーMetal↔Neural Engine変換 ✅
 - 7.2: BufferPool - バッファ再利用によるメモリ最適化 ✅
-- 7.3: Operator Fusion - 基本融合演算実装 ✅
-  - add+relu, mul+relu, affine融合演算
-  - Metal GPU カーネル (fused_ops.metal)
-  - CPU フォールバック実装
+- 7.3: Operator Fusion - 完全融合演算実装 ✅
+  - **Metal GPU実装**: add+relu, mul+relu, affine
+  - **Neural Engine実装**: add+relu, mul+relu, affine (CPUフォールバック削除)
+  - **BufferHandle拡張**: NeuralEngine(NeuralEngineBuffer)完全対応
+  - **スレッド安全性**: unsafe impl Send/Sync for NeuralEngineBuffer
+  - Metal/CPU/Neural Engine それぞれ専用実装
 - 7.5: GPU Gradient Kernels ✅
   - gradients.metal: 包括的勾配カーネルライブラリ
   - ReLU backward GPU実装 (relu_backward_f16)
   - GELU backward GPU実装 (gelu_backward_f16)
   - 自動GPU/CPU選択機構
   - エンドツーエンドGPU学習ループ対応
-- 97テスト成功 (91 lib + 6 integration)
+- **7.6: GPU Reduction Kernels** - 未実装（次のタスク）
+  - [ ] sum/mean/max/min GPU kernels
+  - [ ] 次元指定reduction GPU実装
 
-合計: 約17週間 (Phase 5基本実装完了)
+**テスト結果**: 97/97テスト成功 (91 lib + 6 integration)
+
+### Phase 8: 高度な最適化 (計画中)
+- [ ] デバイス自動配置 (ExecutionPlanner)
+- [ ] 勾配チェック (数値微分との比較)
+- [ ] 高階微分サポート
+- [ ] 実際のNeural Engine推論（CoreMLモデル統合）
+- [ ] 演算融合の自動化
+- [ ] メモリ最適化（in-place演算）
+
+合計: 約17週間 (Phase 7.5まで完了)
