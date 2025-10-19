@@ -1,6 +1,6 @@
 //! Reduction operations for tensors
 
-use crate::device::Device;
+use crate::device::{Device, MetalBuffer};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{Tensor, TensorShape};
 use half::f16;
@@ -9,12 +9,62 @@ impl Tensor {
     /// Sum all elements in the tensor
     pub fn sum(&self) -> TensorResult<f16> {
         match self.device() {
-            Device::Metal(_) | Device::NeuralEngine => {
-                // Fallback to CPU for now
-                self.to_cpu()?.sum_cpu()
-            }
-            Device::CPU => self.sum_cpu(),
+            Device::Metal(_) => self.sum_metal(),
+            Device::CPU | Device::NeuralEngine => self.sum_cpu(),
         }
+    }
+
+    fn sum_metal(&self) -> TensorResult<f16> {
+        let input_buf = self.buffer().as_metal()?;
+        let count = self.numel();
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        // Load reduction shaders
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/reductions.metal");
+            device.load_library(shader_source)?;
+        }
+
+        // Two-stage reduction: first reduce to blocks, then reduce blocks
+        let threadgroup_size = 256;
+        let num_blocks = (count + threadgroup_size - 1) / threadgroup_size;
+
+        // Stage 1: Reduce to blocks
+        let stage1_buf = MetalBuffer::new_uninit(device.metal_device(), num_blocks)?;
+
+        let mut executor = crate::device::KernelExecutor::new(device.clone());
+        let pipeline = executor.get_or_compile_pipeline("sum_global_f16")?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&stage1_buf.buffer), 0);
+        encoder.set_bytes(2, std::mem::size_of::<u32>() as u64, &count as *const usize as *const _);
+
+        let grid_size = metal::MTLSize::new(count as u64, 1, 1);
+        let tg_size = metal::MTLSize::new(threadgroup_size as u64, 1, 1);
+        let shared_mem_size = threadgroup_size * std::mem::size_of::<f16>();
+
+        encoder.set_threadgroup_memory_length(0, shared_mem_size as u64);
+        encoder.dispatch_threads(grid_size, tg_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        // Stage 2: Reduce blocks to final result (CPU for simplicity)
+        let stage1_data = stage1_buf.to_vec();
+        let mut final_sum = f16::ZERO;
+        for &val in &stage1_data {
+            final_sum += val;
+        }
+
+        Ok(final_sum)
     }
 
     fn sum_cpu(&self) -> TensorResult<f16> {
