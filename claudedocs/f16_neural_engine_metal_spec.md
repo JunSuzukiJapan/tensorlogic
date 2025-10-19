@@ -532,7 +532,7 @@ pub enum TensorError {
 - [x] 活性化関数 (ReLU, GELU, Softmax)
 - [x] Broadcasting (broadcast_to, broadcast_with)
 - [x] 集約演算 (sum, mean, max, min, sum_dim, mean_dim)
-- [ ] Einsum実装 (保留 - 基本演算で十分)
+- [x] Einsum実装 (完了 - 論文実装に重要)
 - [ ] GPU kernels for reductions (Phase 5最適化で実装)
 
 ### Phase 4: Neural Engine統合 (未着手)
