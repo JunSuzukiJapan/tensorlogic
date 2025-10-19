@@ -1,7 +1,9 @@
 //! Neural Engine buffer implementation using CoreML MLMultiArray
 
+use crate::device::MetalBuffer;
 use crate::error::{TensorError, TensorResult};
 use half::f16;
+use metal::Device as MTLDevice;
 use objc2::rc::Retained;
 use objc2::ClassType;
 use objc2_core_ml::{MLMultiArray, MLMultiArrayDataType};
@@ -77,6 +79,15 @@ impl NeuralEngineBuffer {
     /// Get total element count
     pub fn count(&self) -> usize {
         (unsafe { self.array.count() }) as usize
+    }
+
+    /// Convert to Metal buffer (with data copy)
+    ///
+    /// Note: This performs a data copy. Zero-copy conversion will be implemented in Phase 5.
+    pub fn to_metal_buffer(&self, device: &MTLDevice) -> TensorResult<MetalBuffer> {
+        // Copy data from Neural Engine to CPU, then to Metal
+        let data = self.to_f16_vec();
+        MetalBuffer::from_f16_slice(device, &data)
     }
 }
 

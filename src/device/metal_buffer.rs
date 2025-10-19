@@ -1,5 +1,6 @@
 //! Metal buffer management for f16 data
 
+use crate::device::NeuralEngineBuffer;
 use crate::error::{TensorError, TensorResult};
 use half::f16;
 use metal::{Buffer, Device as MTLDevice};
@@ -114,6 +115,24 @@ impl MetalBuffer {
     pub unsafe fn contents(&self) -> *const f16 {
         self.buffer.contents() as *const f16
     }
+
+    /// Convert to Neural Engine buffer (with data copy)
+    ///
+    /// Note: This performs a data copy. Zero-copy conversion will be implemented in Phase 5.
+    pub fn to_neural_engine(&self, shape: &[usize]) -> TensorResult<NeuralEngineBuffer> {
+        // Validate shape matches buffer size
+        let total_elements: usize = shape.iter().product();
+        if total_elements != self.length {
+            return Err(TensorError::ShapeMismatch {
+                expected: vec![self.length],
+                actual: vec![total_elements],
+            });
+        }
+
+        // Copy data from Metal to CPU, then to Neural Engine
+        let data = self.to_vec();
+        NeuralEngineBuffer::from_f16_slice(&data, shape)
+    }
 }
 
 impl PartialEq for MetalBuffer {
@@ -177,5 +196,55 @@ mod tests {
 
         let read_data = buffer.to_vec();
         assert_eq!(read_data, new_data);
+    }
+
+    #[test]
+    fn test_metal_to_neural_engine_conversion() {
+        let device = get_test_device();
+        let data = vec![
+            f16::from_f32(1.0),
+            f16::from_f32(2.0),
+            f16::from_f32(3.0),
+            f16::from_f32(4.0),
+        ];
+        let shape = vec![2, 2];
+
+        // Create Metal buffer
+        let metal_buffer = MetalBuffer::from_f16_slice(&device, &data).unwrap();
+
+        // Convert to Neural Engine
+        let ne_buffer = metal_buffer.to_neural_engine(&shape).unwrap();
+
+        // Verify data
+        assert_eq!(ne_buffer.shape(), shape);
+        assert_eq!(ne_buffer.count(), 4);
+
+        let ne_data = ne_buffer.to_f16_vec();
+        assert_eq!(ne_data.len(), 4);
+        assert_eq!(ne_data[0].to_f32(), 1.0);
+        assert_eq!(ne_data[3].to_f32(), 4.0);
+    }
+
+    #[test]
+    fn test_metal_neural_engine_roundtrip() {
+        let device = get_test_device();
+        let original_data = vec![
+            f16::from_f32(1.5),
+            f16::from_f32(2.5),
+            f16::from_f32(3.5),
+        ];
+        let shape = vec![3];
+
+        // Metal -> Neural Engine -> Metal
+        let metal1 = MetalBuffer::from_f16_slice(&device, &original_data).unwrap();
+        let ne_buffer = metal1.to_neural_engine(&shape).unwrap();
+        let metal2 = ne_buffer.to_metal_buffer(&device).unwrap();
+
+        // Verify roundtrip preserves data
+        let result = metal2.to_vec();
+        assert_eq!(result.len(), original_data.len());
+        for (i, &val) in result.iter().enumerate() {
+            assert_eq!(val.to_f32(), original_data[i].to_f32());
+        }
     }
 }
