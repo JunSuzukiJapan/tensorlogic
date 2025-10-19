@@ -295,6 +295,30 @@ impl Tensor {
 
     /// Perform backward pass with specified gradient
     pub fn backward_with_grad(&mut self, grad: Tensor) -> TensorResult<()> {
+        self.backward_impl(grad, false)
+    }
+
+    /// Perform backward pass with computation graph creation (for higher-order derivatives)
+    pub fn backward_create_graph(&mut self) -> TensorResult<()> {
+        if !self.requires_grad {
+            return Err(TensorError::InvalidOperation(
+                "Cannot call backward on tensor with requires_grad=False".to_string(),
+            ));
+        }
+
+        if self.numel() != 1 {
+            return Err(TensorError::InvalidOperation(
+                "backward_create_graph() can only be called on scalar tensors."
+                    .to_string(),
+            ));
+        }
+
+        let grad = Tensor::from_vec(vec![f16::ONE], vec![1])?;
+        self.backward_impl(grad, true)
+    }
+
+    /// Internal backward implementation
+    fn backward_impl(&mut self, grad: Tensor, create_graph: bool) -> TensorResult<()> {
         use crate::autograd::AutogradContext;
 
         // Get node ID for this tensor
@@ -305,26 +329,48 @@ impl Tensor {
         })?;
 
         // Perform backward pass through computation graph
-        let gradients = AutogradContext::backward(node_id, grad)?;
+        let gradients = if create_graph {
+            AutogradContext::backward_with_graph(node_id, grad)?
+        } else {
+            AutogradContext::backward(node_id, grad)?
+        };
 
         // Distribute gradients to all tensors in the graph
-        // Use no_grad to avoid recording gradient accumulation operations
-        AutogradContext::no_grad(|| {
-            for (tensor_node_id, gradient) in gradients {
-                if let Some(mut tensor) = AutogradContext::get_tensor(tensor_node_id) {
-                    // Accumulate gradient if it already exists
-                    if let Some(existing_grad) = tensor.grad() {
-                        let accumulated_grad = existing_grad.add(&gradient).unwrap();
-                        tensor.set_grad(accumulated_grad);
-                    } else {
-                        tensor.set_grad(gradient);
-                    }
+        // If create_graph is true, enable gradient recording for gradient accumulation
+        if create_graph {
+            AutogradContext::set_enabled(true);
+        }
 
-                    // Re-register the updated tensor
-                    AutogradContext::register_tensor(tensor_node_id, tensor);
+        for (tensor_node_id, gradient) in gradients {
+            if let Some(mut tensor) = AutogradContext::get_tensor(tensor_node_id) {
+                // Accumulate gradient if it already exists
+                if let Some(existing_grad) = tensor.grad() {
+                    let accumulated_grad = if create_graph {
+                        // With create_graph, gradient accumulation should be recorded
+                        existing_grad.add(&gradient).unwrap()
+                    } else {
+                        // Without create_graph, use no_grad for accumulation
+                        AutogradContext::no_grad(|| existing_grad.add(&gradient).unwrap())
+                    };
+                    tensor.set_grad(accumulated_grad);
+                } else {
+                    // If create_graph is true, make gradient tensor require grad
+                    let mut grad_tensor = gradient;
+                    if create_graph {
+                        grad_tensor.set_requires_grad(true);
+                    }
+                    tensor.set_grad(grad_tensor);
                 }
+
+                // Re-register the updated tensor
+                AutogradContext::register_tensor(tensor_node_id, tensor);
             }
-        });
+        }
+
+        // Disable gradient recording after distribution
+        if create_graph {
+            AutogradContext::set_enabled(false);
+        }
 
         Ok(())
     }

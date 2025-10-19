@@ -9,6 +9,9 @@ thread_local! {
 
     /// Thread-local tensor registry (NodeId -> Tensor)
     static TENSOR_REGISTRY: RefCell<HashMap<NodeId, Tensor>> = RefCell::new(HashMap::new());
+
+    /// Flag for creating computation graph during backward pass (for higher-order derivatives)
+    static CREATE_GRAPH: RefCell<bool> = RefCell::new(false);
 }
 
 /// Autograd context for managing computation graph
@@ -52,8 +55,25 @@ impl AutogradContext {
 
     /// Perform backward pass from a node
     pub fn backward(node_id: NodeId, grad: Tensor) -> crate::error::TensorResult<HashMap<NodeId, Tensor>> {
-        // Save current enabled state and disable gradient recording during backward
+        Self::backward_impl(node_id, grad, false)
+    }
+
+    /// Perform backward pass with computation graph creation for higher-order derivatives
+    pub fn backward_with_graph(node_id: NodeId, grad: Tensor) -> crate::error::TensorResult<HashMap<NodeId, Tensor>> {
+        Self::backward_impl(node_id, grad, true)
+    }
+
+    /// Internal backward implementation
+    fn backward_impl(node_id: NodeId, grad: Tensor, create_graph: bool) -> crate::error::TensorResult<HashMap<NodeId, Tensor>> {
+        // Save current states
         let prev_enabled = Self::is_enabled();
+        let prev_create_graph = Self::is_create_graph();
+
+        // Set create_graph mode
+        Self::set_create_graph(create_graph);
+
+        // Disable gradient recording during backward computation
+        // (will be re-enabled during gradient distribution if create_graph=true)
         Self::set_enabled(false);
 
         let result = COMPUTATION_GRAPH.with(|graph| {
@@ -61,8 +81,9 @@ impl AutogradContext {
             g.backward(node_id, grad, prev_enabled)
         });
 
-        // Restore previous enabled state
+        // Restore previous states
         Self::set_enabled(prev_enabled);
+        Self::set_create_graph(prev_create_graph);
         result
     }
 
@@ -100,6 +121,18 @@ impl AutogradContext {
 
         Self::set_enabled(prev_enabled);
         result
+    }
+
+    /// Check if create_graph mode is enabled
+    pub fn is_create_graph() -> bool {
+        CREATE_GRAPH.with(|flag| *flag.borrow())
+    }
+
+    /// Set create_graph mode (for higher-order derivatives)
+    pub fn set_create_graph(create_graph: bool) {
+        CREATE_GRAPH.with(|flag| {
+            *flag.borrow_mut() = create_graph;
+        });
     }
 }
 
