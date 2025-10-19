@@ -1,56 +1,60 @@
 # TensorLogic
 
-A high-performance f16 tensor library for Apple Silicon, leveraging Metal GPU and Neural Engine (CoreML) for optimized computation.
+A production-ready f16 tensor library for Apple Silicon with automatic differentiation and optimizers, featuring Metal GPU and Neural Engine acceleration.
 
 ## Overview
 
-TensorLogic is a unified tensor algebra library designed specifically for Apple Silicon (M-series chips), providing seamless integration between Metal GPU and Neural Engine through CoreML. All operations maintain f16 (half-precision) throughout for optimal Neural Engine compatibility.
+TensorLogic is a unified tensor algebra library designed specifically for Apple Silicon (M-series chips), providing seamless integration between Metal GPU and Neural Engine through CoreML. All operations maintain f16 (half-precision) throughout for optimal Neural Engine compatibility and performance.
+
+**📚 [Getting Started Guide](claudedocs/getting_started.md)** | **📖 [Optimizer Tutorial](claudedocs/optimizer_tutorial.md)** | **🔧 [Full Specification](claudedocs/f16_neural_engine_metal_spec.md)**
 
 ## Key Features
 
-### ✅ Implemented (Phase 1-5)
+### ✅ Production Ready
 
-- **Metal GPU Foundation** (Phase 1-2)
-  - f16 buffer management with shared memory mode
-  - Device initialization and automatic device selection
-  - Basic arithmetic operations (add, sub, mul, div)
-  - Compute shaders for element-wise operations
+- **Tensor Operations** (Phase 1-3)
+  - Element-wise operations: add, sub, mul, div
+  - Matrix multiplication with GPU optimization
+  - Activation functions: ReLU, GELU, Softmax
+  - Broadcasting (NumPy-compatible)
+  - Reductions: sum, mean, max, min (global + dimension-specific)
+  - Einstein summation with pattern optimization
+  - In-place operations for memory efficiency
 
-- **Advanced Operations** (Phase 3)
-  - Matrix multiplication with 2D GPU kernels (16x16 threadgroups)
-  - Activation functions: ReLU, GELU (tanh approx), Softmax
-  - Broadcasting operations (NumPy-compatible)
-  - Reduction operations: sum, mean, max, min (global and per-dimension)
-  - Einstein summation (einsum) with pattern optimization
-    - Supports: `ij,jk->ik`, `ij->ji`, `ii->`, `i,j->ij`, batch matmul, etc.
-
-- **Neural Engine Integration** (Phase 4)
-  - CoreML MLMultiArray wrapper (NeuralEngineBuffer)
-  - Bidirectional Metal ↔ Neural Engine buffer conversion
-  - Neural Engine operation framework (matmul, relu)
-  - Ready for CoreML model integration
-
-- **Autograd Framework** (Phase 5) ⚡ NEW
+- **Automatic Differentiation** (Phase 5-6) ⚡
   - Dynamic computation graph (PyTorch-style)
-  - Automatic differentiation with gradient functions
-  - Gradient computation for all operations:
-    - Basic ops: Add, Sub, Mul, Div with broadcasting support
-    - Advanced ops: MatMul, ReLU, GELU, Softmax
-  - Gradient API: `requires_grad()`, `backward()`, `zero_grad()`, `grad()`
-  - Integration test suite ready for full implementation
+  - Full backward pass implementation
+  - Gradient computation for all operations
+  - Second-order derivatives (Hessian foundation)
+  - Gradient checking with numerical validation
+  - Create graph mode for higher-order derivatives
 
-### 🚧 Planned (Phase 6+)
+- **Optimizers** (Phase 9.1) 🚀 NEW
+  - **SGD**: Basic gradient descent, momentum, Nesterov
+  - **Adam**: Adaptive learning rates with AMSGrad support
+  - **AdamW**: Decoupled weight decay for better regularization
+  - Learning rate scheduling
+  - State save/load for checkpointing
+  - Multi-parameter group support
 
-- **Phase 6: Full Autograd Integration** - Connect gradients with computation graph, implement full backward pass
-- **Phase 7: Optimization** - Zero-copy conversion, buffer pooling, operation fusion, Metal GPU gradient kernels
+- **Device Acceleration** (Phase 2, 4, 7)
+  - Metal GPU acceleration for all operations
+  - Neural Engine integration (foundation complete)
+  - Zero-copy Metal ↔ Neural Engine conversion
+  - Buffer pooling for memory optimization
+  - Fused operations (add+relu, mul+relu, affine)
+  - Metal GPU gradient kernels
+  - ExecutionPlanner for automatic device selection
+
+### 🚧 Advanced Features (Optional)
+
+- **Neural Engine Inference**: Full CoreML model integration (foundation complete, deferred)
+- **Learning Rate Schedulers**: Cosine, step decay, warmup (coming soon)
+- **Additional Optimizers**: RMSprop, Adagrad (future work)
 
 ## Quick Start
 
-### Prerequisites
-
-- macOS with Apple Silicon (M1/M2/M3/M4)
-- Rust 1.70+ with Cargo
-- Xcode Command Line Tools
+See the [**Getting Started Guide**](claudedocs/getting_started.md) for comprehensive tutorials.
 
 ### Installation
 
@@ -60,92 +64,54 @@ cd tensorlogic
 cargo build --release
 ```
 
-### Running the Demo
+### Run Example
 
 ```bash
-cargo run --release
+# Simple training example
+cargo run --example simple_training --release
 ```
 
-## Usage Examples
-
-### Basic Operations
+### Basic Usage
 
 ```rust
-use tensorlogic::prelude::*;
+use tensorlogic::{Tensor, TensorResult};
+use tensorlogic::optim::{Optimizer, Adam};
+use tensorlogic::autograd::AutogradContext;
 use half::f16;
 
-// Create Metal device
-let device = MetalDevice::new()?;
+fn main() -> TensorResult<()> {
+    // Create parameter
+    let mut w = Tensor::from_vec(vec![f16::from_f32(0.5)], vec![1])?;
+    w.set_requires_grad(true);
 
-// Create tensors on Metal GPU
-let a = Tensor::from_vec_metal(
-    &device,
-    vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
-    vec![3],
-)?;
+    // Create optimizer
+    let mut optimizer = Adam::new(vec![w.clone()], 0.01);
 
-let b = Tensor::from_vec_metal(
-    &device,
-    vec![f16::from_f32(4.0), f16::from_f32(5.0), f16::from_f32(6.0)],
-    vec![3],
-)?;
+    // Training loop
+    for epoch in 0..100 {
+        optimizer.zero_grad();
+        AutogradContext::clear();
 
-// Element-wise operations (executed on GPU)
-let c = a.add(&b)?;  // [5.0, 7.0, 9.0]
-let d = a.mul(&b)?;  // [4.0, 10.0, 18.0]
+        // Forward pass: y = w * x
+        let x = Tensor::from_vec(vec![f16::from_f32(2.0)], vec![1])?;
+        let y = w.mul(&x)?;
+
+        // Backward pass
+        let mut loss = y.clone();
+        loss.backward()?;
+
+        // Update weights
+        optimizer.step()?;
+    }
+
+    Ok(())
+}
 ```
 
-### Matrix Operations
-
-```rust
-// Matrix multiplication on Metal GPU
-let a = Tensor::from_vec_metal(
-    &device,
-    vec![f16::from_f32(1.0), f16::from_f32(2.0),
-         f16::from_f32(3.0), f16::from_f32(4.0)],
-    vec![2, 2],
-)?;
-
-let b = Tensor::from_vec_metal(
-    &device,
-    vec![f16::from_f32(5.0), f16::from_f32(6.0),
-         f16::from_f32(7.0), f16::from_f32(8.0)],
-    vec![2, 2],
-)?;
-
-let c = a.matmul(&b)?;  // [19.0, 22.0, 43.0, 50.0]
-```
-
-### Einstein Summation
-
-```rust
-// Matrix multiplication via einsum
-let c = Tensor::einsum("ij,jk->ik", &[&a, &b])?;
-
-// Transpose
-let transposed = Tensor::einsum("ij->ji", &[&a])?;
-
-// Trace (diagonal sum)
-let trace = Tensor::einsum("ii->", &[&a])?;
-
-// Outer product
-let outer = Tensor::einsum("i,j->ij", &[&v1, &v2])?;
-```
-
-### Neural Engine Integration
-
-```rust
-use tensorlogic::device::{MetalBuffer, NeuralEngineBuffer, NeuralEngineOps};
-
-// Create Metal buffer
-let metal_buf = MetalBuffer::from_f16_slice(device.metal_device(), &data)?;
-
-// Convert to Neural Engine
-let ne_buf = metal_buf.to_neural_engine(&vec![2, 2])?;
-
-// Perform operations on Neural Engine
-let result = NeuralEngineOps::matmul(&ne_a, &ne_b, 2, 2, 2)?;
-```
+For more examples, see:
+- [Getting Started Guide](claudedocs/getting_started.md) - Complete tutorial with examples
+- [Optimizer Tutorial](claudedocs/optimizer_tutorial.md) - In-depth optimizer guide
+- [Examples Directory](examples/) - Working code examples
 
 ## Architecture
 
@@ -172,29 +138,30 @@ Device
 3. **Conversion**: Seamless Metal ↔ Neural Engine buffer conversion
 4. **Fallback**: Automatic CPU fallback for unsupported operations
 
-## Performance
+## Testing & Performance
 
 ### Test Results
 
-**79/79 tests passing** ✅ (74 lib + 5 integration)
+**127/127 tests passing** ✅ (121 lib + 6 integration)
 
-- Phase 1-2: Metal foundation and GPU acceleration (28 tests)
-- Phase 3: Advanced operations (25 additional tests, 53 total)
-- Phase 4: Neural Engine integration (8 additional tests, 61 total)
-- Phase 5: Autograd framework (13 additional tests, 74 lib total + 5 integration)
+- Phase 1-3: Tensor operations and GPU acceleration (95 tests)
+- Phase 4: Neural Engine integration (8 tests)
+- Phase 5-6: Autograd framework (6 tests)
+- Phase 7: Optimization features (8 tests)
+- Phase 8: Advanced features (6 tests)
+- Phase 9.1: Optimizers (19 tests)
 
-### Tested On
-
-- Apple M4 Pro (macOS 15.0)
-- All operations maintain f16 precision
-- Metal GPU acceleration for compute-intensive operations
-
-### Benchmarks
-
-Run benchmarks with:
+Run tests:
 ```bash
-cargo bench
+cargo test -- --test-threads=1
 ```
+
+### Hardware Support
+
+- **Apple M4 Pro** (primary development)
+- **Apple M1/M2/M3** (compatible)
+- macOS 13+ (for Neural Engine features)
+- All operations use f16 for optimal performance
 
 ## Project Structure
 
@@ -240,44 +207,25 @@ tensorlogic/
 
 ## Development Roadmap
 
-### ✅ Phase 1: Metal Foundation (Complete)
-- Metal device initialization
-- f16 buffer management
-- Basic arithmetic shaders
-- Tensor type and shape management
-- CPU fallback
+### ✅ Completed
 
-### ✅ Phase 2: Metal GPU Acceleration (Complete)
-- Compute shader library
-- KernelExecutor with pipeline caching
-- Element-wise GPU operations
-- Thread group optimization
+- **Phase 1-2**: Metal GPU foundation and acceleration
+- **Phase 3**: Advanced operations (matmul, activations, broadcasting, einsum)
+- **Phase 4**: Neural Engine integration (foundation)
+- **Phase 5-6**: Full autograd with computation graph
+- **Phase 7**: Optimization (zero-copy, buffer pool, fusion, GPU gradients)
+- **Phase 8**: Advanced features (in-place ops, planner, gradient checking, higher-order derivatives)
+- **Phase 9.1**: Production optimizers (SGD, Adam, AdamW)
 
-### ✅ Phase 3: Advanced Operations (Complete)
-- Matrix multiplication (2D GPU kernels)
-- Activation functions (ReLU, GELU, Softmax)
-- Broadcasting (NumPy-compatible)
-- Reduction operations (sum, mean, max, min, per-dimension)
-- Einstein summation with pattern optimization
+### 🎯 Optional Future Work
 
-### ✅ Phase 4: Neural Engine Integration (Complete)
-- CoreML integration (objc2-core-ml)
-- NeuralEngineBuffer (MLMultiArray wrapper)
-- Metal ↔ Neural Engine conversion
-- Neural Engine operation framework
+- **Learning Rate Schedulers**: Cosine annealing, step decay, warmup
+- **Additional Optimizers**: RMSprop, Adagrad, AdaDelta
+- **Neural Engine Inference**: Full CoreML model integration (foundation complete)
+- **Distributed Training**: Multi-device support
+- **Model Zoo**: Pre-trained models optimized for Apple Silicon
 
-### 🔄 Phase 5: Autograd (Planned)
-- Computation graph construction
-- Automatic differentiation
-- Backpropagation on Metal GPU
-- Gradient accumulation
-
-### ⏳ Phase 6: Optimization (Future)
-- Zero-copy Metal ↔ Neural Engine conversion
-- Buffer pooling and memory optimization
-- Operation fusion
-- Automatic device placement
-- GPU kernels for reductions
+See [Full Specification](claudedocs/f16_neural_engine_metal_spec.md) for detailed roadmap.
 
 ## Contributing
 
