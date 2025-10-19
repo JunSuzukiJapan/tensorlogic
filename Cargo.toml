@@ -16,7 +16,9 @@ metal = "0.29"
 objc = "0.2"
 
 # CoreML統合 (Neural Engine)
-# TODO: Add CoreML bindings when available
+objc2 = "0.5"
+objc2-core-ml = { version = "0.2", features = ["MLMultiArray", "MLModel"] }
+objc2-foundation = { version = "0.2", features = ["NSArray", "NSValue", "NSError", "NSString"] }
 
 # エラーハンドリング
 thiserror = "1.0"

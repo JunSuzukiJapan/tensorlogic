@@ -3,10 +3,12 @@
 mod metal_device;
 mod metal_buffer;
 mod kernel_executor;
+mod neural_engine_buffer;
 
 pub use metal_device::MetalDevice;
 pub use metal_buffer::MetalBuffer;
 pub use kernel_executor::{KernelExecutor, get_kernel_executor};
+pub use neural_engine_buffer::NeuralEngineBuffer;
 
 use crate::error::TensorResult;
 
