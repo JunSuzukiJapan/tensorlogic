@@ -7,6 +7,7 @@ pub mod ast;
 pub mod autograd;
 pub mod device;
 pub mod error;
+pub mod interpreter;
 pub mod ops;
 pub mod optim;
 pub mod parser;
