@@ -513,20 +513,31 @@ pub enum TensorError {
 
 ## 7. 実装優先順序
 
-### Phase 1: Metal基盤 (2週間)
-- [ ] Metal device初期化
-- [ ] f16バッファ管理
-- [ ] 基本演算shaders (add, mul)
+### Phase 1: Metal基盤 (完了 ✅)
+- [x] Metal device初期化
+- [x] f16バッファ管理
+- [x] 基本演算shaders (add, sub, mul, div)
+- [x] テンソル型とShape管理
+- [x] CPUフォールバック実装
 
-### Phase 2: Neural Engine統合 (2週間)
+### Phase 2: Metal GPU高速化 (完了 ✅)
+- [x] Metal compute shaders
+- [x] KernelExecutor実装
+- [x] Element-wise演算のGPU実装
+- [x] パイプラインキャッシング
+- [x] スレッドグループ最適化
+
+### Phase 3: 高度な演算 (完了 ✅)
+- [x] MatMul実装 (2D GPU kernel)
+- [x] 活性化関数 (ReLU, GELU, Softmax)
+- [ ] Einsum実装
+- [ ] Broadcasting
+- [ ] 集約演算 (reduce, sum, mean)
+
+### Phase 4: Neural Engine統合 (未着手)
 - [ ] CoreML統合
 - [ ] MLMultiArray ↔ Metal ゼロコピー変換
-- [ ] MatMul実装
-
-### Phase 3: 高度な演算 (3週間)
-- [ ] Einsum実装
-- [ ] 活性化関数
-- [ ] 集約演算 (MPS使用)
+- [ ] Neural Engine推論実行
 
 ### Phase 4: 自動微分 (4週間)
 - [ ] 計算グラフ構築
