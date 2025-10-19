@@ -670,13 +670,158 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_constraint(_pair: pest::iterators::Pair<Rule>) -> Result<Constraint, ParseError> {
-        // Simplified constraint parsing
-        Ok(Constraint::Comparison {
-            op: CompOp::Eq,
-            left: TensorExpr::scalar(0.0),
-            right: TensorExpr::scalar(0.0),
-        })
+    fn parse_constraint(pair: pest::iterators::Pair<Rule>) -> Result<Constraint, ParseError> {
+        // constraint = { constraint_term ~ (logical_op ~ constraint_term)* }
+        let mut pairs = pair.into_inner();
+
+        let first_term = pairs.next().ok_or_else(|| {
+            ParseError::MissingField("constraint term".to_string())
+        })?;
+        let mut constraint = Self::parse_constraint_term(first_term)?;
+
+        // Parse logical operators (and, or)
+        while let Some(op_pair) = pairs.next() {
+            let op = op_pair.as_str();
+            let right_term = pairs.next().ok_or_else(|| {
+                ParseError::MissingField("right constraint term".to_string())
+            })?;
+            let right = Self::parse_constraint_term(right_term)?;
+
+            constraint = match op {
+                "and" => Constraint::And(Box::new(constraint), Box::new(right)),
+                "or" => Constraint::Or(Box::new(constraint), Box::new(right)),
+                _ => return Err(ParseError::InvalidValue(format!("unknown logical operator: {}", op))),
+            };
+        }
+
+        Ok(constraint)
+    }
+
+    fn parse_constraint_term(pair: pest::iterators::Pair<Rule>) -> Result<Constraint, ParseError> {
+        let inner = pair.into_inner().next().ok_or_else(|| {
+            ParseError::MissingField("constraint term content".to_string())
+        })?;
+
+        match inner.as_rule() {
+            Rule::constraint_term => {
+                // Negation: "not" ~ constraint_term
+                let mut inner_pairs = inner.into_inner();
+                let first = inner_pairs.next().ok_or_else(|| {
+                    ParseError::MissingField("negation content".to_string())
+                })?;
+
+                if first.as_str() == "not" {
+                    let negated = inner_pairs.next().ok_or_else(|| {
+                        ParseError::MissingField("negated constraint".to_string())
+                    })?;
+                    Ok(Constraint::Not(Box::new(Self::parse_constraint_term(negated)?)))
+                } else {
+                    Self::parse_constraint_term(first)
+                }
+            }
+            Rule::constraint => {
+                // Parenthesized constraint
+                Self::parse_constraint(inner)
+            }
+            Rule::tensor_constraint => {
+                Self::parse_tensor_constraint(inner)
+            }
+            Rule::comparison => {
+                Self::parse_comparison(inner)
+            }
+            _ => Err(ParseError::UnexpectedRule {
+                expected: "constraint term".to_string(),
+                found: format!("{:?}", inner.as_rule()),
+            }),
+        }
+    }
+
+    fn parse_tensor_constraint(pair: pest::iterators::Pair<Rule>) -> Result<Constraint, ParseError> {
+        let inner = pair.into_inner().next().ok_or_else(|| {
+            ParseError::MissingField("tensor constraint content".to_string())
+        })?;
+
+        let constraint_str = inner.as_str();
+
+        if constraint_str.starts_with("shape") {
+            // shape(tensor) == shape_spec
+            let mut parts = inner.into_inner();
+            let tensor_expr = Self::parse_tensor_expr(parts.next().ok_or_else(|| {
+                ParseError::MissingField("tensor in shape constraint".to_string())
+            })?)?;
+
+            let shape_spec = parts.next().ok_or_else(|| {
+                ParseError::MissingField("shape spec".to_string())
+            })?;
+            let shape = Self::parse_dimension_list(shape_spec)?;
+
+            Ok(Constraint::Shape { tensor: tensor_expr, shape })
+        } else if constraint_str.starts_with("rank") {
+            // rank(tensor) == integer
+            let mut parts = inner.into_inner();
+            let tensor_expr = Self::parse_tensor_expr(parts.next().ok_or_else(|| {
+                ParseError::MissingField("tensor in rank constraint".to_string())
+            })?)?;
+
+            let rank_val = parts.next().ok_or_else(|| {
+                ParseError::MissingField("rank value".to_string())
+            })?;
+            let rank = Self::parse_number(rank_val)? as usize;
+
+            Ok(Constraint::Rank { tensor: tensor_expr, rank })
+        } else if constraint_str.starts_with("norm") {
+            // norm(tensor) comp_op number
+            let mut parts = inner.into_inner();
+            let tensor_expr = Self::parse_tensor_expr(parts.next().ok_or_else(|| {
+                ParseError::MissingField("tensor in norm constraint".to_string())
+            })?)?;
+
+            let comp_op_pair = parts.next().ok_or_else(|| {
+                ParseError::MissingField("comparison operator".to_string())
+            })?;
+            let op = Self::parse_comp_op(comp_op_pair)?;
+
+            let value_pair = parts.next().ok_or_else(|| {
+                ParseError::MissingField("norm value".to_string())
+            })?;
+            let value = Self::parse_number(value_pair)?;
+
+            Ok(Constraint::Norm { tensor: tensor_expr, op, value })
+        } else {
+            Err(ParseError::InvalidValue(format!("unknown tensor constraint: {}", constraint_str)))
+        }
+    }
+
+    fn parse_comparison(pair: pest::iterators::Pair<Rule>) -> Result<Constraint, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let left = Self::parse_tensor_expr(inner.next().ok_or_else(|| {
+            ParseError::MissingField("left side of comparison".to_string())
+        })?)?;
+
+        let op_pair = inner.next().ok_or_else(|| {
+            ParseError::MissingField("comparison operator".to_string())
+        })?;
+        let op = Self::parse_comp_op(op_pair)?;
+
+        let right = Self::parse_tensor_expr(inner.next().ok_or_else(|| {
+            ParseError::MissingField("right side of comparison".to_string())
+        })?)?;
+
+        Ok(Constraint::Comparison { op, left, right })
+    }
+
+    fn parse_comp_op(pair: pest::iterators::Pair<Rule>) -> Result<CompOp, ParseError> {
+        match pair.as_str() {
+            "==" => Ok(CompOp::Eq),
+            "!=" => Ok(CompOp::Ne),
+            "<" => Ok(CompOp::Lt),
+            ">" => Ok(CompOp::Gt),
+            "<=" => Ok(CompOp::Le),
+            ">=" => Ok(CompOp::Ge),
+            "≈" => Ok(CompOp::Approx),
+            _ => Err(ParseError::InvalidValue(format!("unknown comparison operator: {}", pair.as_str()))),
+        }
     }
 
     fn parse_tensor_equation(pair: pest::iterators::Pair<Rule>) -> Result<TensorEquation, ParseError> {
