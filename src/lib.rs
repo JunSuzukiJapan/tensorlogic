@@ -7,6 +7,7 @@ pub mod autograd;
 pub mod device;
 pub mod error;
 pub mod ops;
+pub mod optim;
 pub mod planner;
 pub mod tensor;
 
