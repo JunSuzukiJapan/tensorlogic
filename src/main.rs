@@ -202,7 +202,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test Metal ↔ Neural Engine conversion
     println!("\nTesting Metal ↔ Neural Engine conversion...");
 
-    use tensorlogic::device::{MetalBuffer, NeuralEngineBuffer};
+    use tensorlogic::device::{MetalBuffer, NeuralEngineBuffer, NeuralEngineOps};
 
     // Create Metal buffer
     let metal_data = vec![
@@ -223,6 +223,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metal_buf2 = ne_buf.to_metal_buffer(device.metal_device())?;
     println!("Roundtrip Metal buffer: {:?}", metal_buf2.to_vec().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
 
+    // Test Neural Engine operations
+    println!("\nTesting Neural Engine operations...");
+    println!("Neural Engine: {}", NeuralEngineOps::info());
+
+    // Neural Engine matmul
+    let ne_a = NeuralEngineBuffer::from_f16_slice(
+        &vec![
+            half::f16::from_f32(1.0),
+            half::f16::from_f32(2.0),
+            half::f16::from_f32(3.0),
+            half::f16::from_f32(4.0),
+        ],
+        &[2, 2],
+    )?;
+
+    let ne_b = NeuralEngineBuffer::from_f16_slice(
+        &vec![
+            half::f16::from_f32(5.0),
+            half::f16::from_f32(6.0),
+            half::f16::from_f32(7.0),
+            half::f16::from_f32(8.0),
+        ],
+        &[2, 2],
+    )?;
+
+    let ne_c = NeuralEngineOps::matmul(&ne_a, &ne_b, 2, 2, 2)?;
+    println!("Neural Engine matmul result: {:?}", ne_c.to_f16_vec().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
+
+    // Neural Engine ReLU
+    let ne_input = NeuralEngineBuffer::from_f16_slice(
+        &vec![
+            half::f16::from_f32(-2.0),
+            half::f16::from_f32(-1.0),
+            half::f16::from_f32(0.0),
+            half::f16::from_f32(1.0),
+            half::f16::from_f32(2.0),
+        ],
+        &[5],
+    )?;
+
+    let ne_relu = NeuralEngineOps::relu(&ne_input)?;
+    println!("Neural Engine ReLU result: {:?}", ne_relu.to_f16_vec().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
+
     println!("\n✅ All operations completed successfully!");
     println!("   - Element-wise: add, sub, mul, div");
     println!("   - Activations: ReLU, GELU, Softmax");
@@ -230,7 +273,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   - Broadcasting: broadcast_to");
     println!("   - Reductions: sum, mean, max, min, sum_dim");
     println!("   - Einsum: ij,jk->ik, ij->ji, ii->, i,j->ij");
-    println!("   - Neural Engine: Metal ↔ CoreML buffer conversion");
+    println!("   - Neural Engine: Metal ↔ CoreML conversion + operations");
     println!("   - All running on Metal GPU with f16 precision! 🚀");
 
     Ok(())
