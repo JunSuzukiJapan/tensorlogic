@@ -563,12 +563,17 @@ pub enum TensorError {
 - [ ] 勾配チェック (数値微分との比較) - Phase 7へ
 - [ ] 高階微分サポート - Phase 7へ
 
-### Phase 7: 最適化 (2週間)
-- [ ] Metal ↔ Neural Engine ゼロコピー変換
-- [ ] バッファプール
-- [ ] 演算融合
+### Phase 7: 最適化 ⚡ **進行中**
+- [x] Metal ↔ Neural Engine ゼロコピー変換 (SharedBuffer実装)
+- [x] バッファプール (BufferPool実装)
+- [ ] 演算融合 (operator fusion)
 - [ ] デバイス自動配置
 - [ ] Metal GPU勾配カーネル
 - [ ] GPU kernels for reductions
+
+**Phase 7.1-7.2 完了**:
+- SharedBuffer: ゼロコピーMetal↔Neural Engine変換 ✅
+- BufferPool: バッファ再利用によるメモリ最適化 ✅
+- 93テスト成功 (87 lib + 6 integration)
 
 合計: 約17週間 (Phase 5基本実装完了)
