@@ -62,6 +62,11 @@ pub struct AdamW {
 }
 
 impl AdamW {
+    /// Get mutable access to parameters (for direct manipulation in training loop)
+    pub fn get_params_mut(&mut self) -> &mut Vec<Tensor> {
+        &mut self.param_groups[0].params
+    }
+
     /// Create new AdamW optimizer with default parameters
     ///
     /// Default values:

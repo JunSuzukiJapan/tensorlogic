@@ -253,8 +253,8 @@ impl Tensor {
 
     // === Autograd operations ===
 
-    /// Set gradient (internal use)
-    pub(crate) fn set_grad(&mut self, grad: Tensor) {
+    /// Set gradient (public for optimizer use)
+    pub fn set_grad(&mut self, grad: Tensor) {
         self.grad = Some(Box::new(grad));
     }
 

@@ -27,6 +27,11 @@ pub struct SGD {
 }
 
 impl SGD {
+    /// Get mutable access to parameters (for direct manipulation in training loop)
+    pub fn get_params_mut(&mut self) -> &mut Vec<Tensor> {
+        &mut self.param_groups[0].params
+    }
+
     /// Create a new SGD optimizer with default settings
     pub fn new(params: Vec<Tensor>, lr: f32) -> Self {
         Self {
