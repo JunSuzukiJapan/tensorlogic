@@ -568,16 +568,22 @@ pub enum TensorError {
 - [x] バッファプール (BufferPool実装)
 - [x] 演算融合 (operator fusion) - 基本実装完了
 - [ ] デバイス自動配置 - Phase 8へ延期
-- [ ] Metal GPU勾配カーネル
+- [x] Metal GPU勾配カーネル ✅
 - [ ] GPU kernels for reductions
 
-**Phase 7.1-7.3 進捗**:
-- SharedBuffer: ゼロコピーMetal↔Neural Engine変換 ✅
-- BufferPool: バッファ再利用によるメモリ最適化 ✅
-- Operator Fusion: 基本融合演算実装 ✅ (add+relu, mul+relu, affine)
+**Phase 7.1-7.5 完了**:
+- 7.1: SharedBuffer - ゼロコピーMetal↔Neural Engine変換 ✅
+- 7.2: BufferPool - バッファ再利用によるメモリ最適化 ✅
+- 7.3: Operator Fusion - 基本融合演算実装 ✅
+  - add+relu, mul+relu, affine融合演算
   - Metal GPU カーネル (fused_ops.metal)
   - CPU フォールバック実装
-  - 4新テスト (97 total: 91 lib + 6 integration)
-- 残タスク: fused_linear, パフォーマンスベンチマーク
+- 7.5: GPU Gradient Kernels ✅
+  - gradients.metal: 包括的勾配カーネルライブラリ
+  - ReLU backward GPU実装 (relu_backward_f16)
+  - GELU backward GPU実装 (gelu_backward_f16)
+  - 自動GPU/CPU選択機構
+  - エンドツーエンドGPU学習ループ対応
+- 97テスト成功 (91 lib + 6 integration)
 
 合計: 約17週間 (Phase 5基本実装完了)
