@@ -312,3 +312,70 @@ fn test_parse_assignment_statement() {
         }
     }
 }
+
+#[test]
+fn test_parse_binary_expression() {
+    let source = r#"
+        main {
+            result := a + b
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+
+    if let Some(main) = program.main_block {
+        if let Statement::Assignment { value, .. } = &main.statements[0] {
+            if let TensorExpr::BinaryOp { op, left, right } = value {
+                assert_eq!(*op, BinaryOp::Add);
+                assert!(matches!(**left, TensorExpr::Variable(_)));
+                assert!(matches!(**right, TensorExpr::Variable(_)));
+            } else {
+                panic!("Expected binary operation");
+            }
+        }
+    }
+}
+
+#[test]
+fn test_parse_chained_expression() {
+    let source = r#"
+        main {
+            result := a + b * c
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+
+    if let Some(main) = program.main_block {
+        if let Statement::Assignment { value, .. } = &main.statements[0] {
+            // Parse as: (a + b) * c due to left-to-right parsing
+            // Note: This is simplified precedence, not full operator precedence
+            if let TensorExpr::BinaryOp { op, .. } = value {
+                assert_eq!(*op, BinaryOp::Mul);
+            } else {
+                panic!("Expected binary operation");
+            }
+        }
+    }
+}
+
+#[test]
+fn test_parse_matmul_expression() {
+    let source = r#"
+        main {
+            result := A @ B
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+
+    if let Some(main) = program.main_block {
+        if let Statement::Assignment { value, .. } = &main.statements[0] {
+            if let TensorExpr::BinaryOp { op, .. } = value {
+                assert_eq!(*op, BinaryOp::MatMul);
+            } else {
+                panic!("Expected binary operation");
+            }
+        }
+    }
+}

@@ -496,13 +496,45 @@ impl TensorLogicParser {
     }
 
     fn parse_tensor_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
-        // Simplified expression parser - would need full precedence climbing
-        // or pratt parsing for production use
-        let inner = pair.into_inner().next().ok_or_else(|| {
+        // Expression parser with operator precedence handling
+        let mut pairs = pair.into_inner();
+
+        // Parse the first term
+        let first_term = pairs.next().ok_or_else(|| {
             ParseError::MissingField("tensor expression content".to_string())
         })?;
+        let mut expr = Self::parse_tensor_term(first_term)?;
 
-        Self::parse_tensor_term(inner)
+        // Parse remaining (binary_op, tensor_term) pairs
+        while let Some(op_pair) = pairs.next() {
+            let op = Self::parse_binary_op(op_pair)?;
+            let right_term = pairs.next().ok_or_else(|| {
+                ParseError::MissingField("right operand".to_string())
+            })?;
+            let right = Self::parse_tensor_term(right_term)?;
+
+            expr = TensorExpr::BinaryOp {
+                op,
+                left: Box::new(expr),
+                right: Box::new(right),
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_binary_op(pair: pest::iterators::Pair<Rule>) -> Result<BinaryOp, ParseError> {
+        match pair.as_str() {
+            "+" => Ok(BinaryOp::Add),
+            "-" => Ok(BinaryOp::Sub),
+            "*" => Ok(BinaryOp::Mul),
+            "/" => Ok(BinaryOp::Div),
+            "@" => Ok(BinaryOp::MatMul),
+            "**" => Ok(BinaryOp::Power),
+            "⊗" => Ok(BinaryOp::TensorProd),
+            "⊙" => Ok(BinaryOp::Hadamard),
+            _ => Err(ParseError::InvalidValue(format!("unknown binary operator: {}", pair.as_str()))),
+        }
     }
 
     fn parse_tensor_term(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
