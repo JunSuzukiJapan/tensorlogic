@@ -1,6 +1,6 @@
 //! Buffer handle for different device types
 
-use crate::device::MetalBuffer;
+use crate::device::{MetalBuffer, NeuralEngineBuffer};
 use crate::error::{TensorError, TensorResult};
 use half::f16;
 
@@ -11,9 +11,7 @@ pub enum BufferHandle {
     Metal(MetalBuffer),
 
     /// Neural Engine buffer (CoreML MLMultiArray)
-    /// TODO: Implement when CoreML bindings are ready
-    #[allow(dead_code)]
-    NeuralEngine,
+    NeuralEngine(NeuralEngineBuffer),
 
     /// CPU buffer (f16) - avoid if possible, for control flow only
     CPU(Vec<f16>),
@@ -24,10 +22,7 @@ impl BufferHandle {
     pub fn len(&self) -> usize {
         match self {
             BufferHandle::Metal(buf) => buf.len(),
-            BufferHandle::NeuralEngine => {
-                // TODO: Implement
-                0
-            }
+            BufferHandle::NeuralEngine(buf) => buf.count(),
             BufferHandle::CPU(vec) => vec.len(),
         }
     }
@@ -41,10 +36,7 @@ impl BufferHandle {
     pub fn to_cpu_vec(&self) -> Vec<f16> {
         match self {
             BufferHandle::Metal(buf) => buf.to_vec(),
-            BufferHandle::NeuralEngine => {
-                // TODO: Implement
-                vec![]
-            }
+            BufferHandle::NeuralEngine(buf) => buf.to_f16_vec(),
             BufferHandle::CPU(vec) => vec.clone(),
         }
     }
@@ -53,7 +45,7 @@ impl BufferHandle {
     pub fn device_type(&self) -> &'static str {
         match self {
             BufferHandle::Metal(_) => "Metal",
-            BufferHandle::NeuralEngine => "NeuralEngine",
+            BufferHandle::NeuralEngine(_) => "NeuralEngine",
             BufferHandle::CPU(_) => "CPU",
         }
     }
@@ -65,7 +57,7 @@ impl BufferHandle {
 
     /// Check if buffer is on Neural Engine
     pub fn is_neural_engine(&self) -> bool {
-        matches!(self, BufferHandle::NeuralEngine)
+        matches!(self, BufferHandle::NeuralEngine(_))
     }
 
     /// Check if buffer is on CPU
@@ -105,12 +97,28 @@ impl BufferHandle {
             ))),
         }
     }
+
+    /// Get reference to Neural Engine buffer if available
+    pub fn as_neural_engine(&self) -> TensorResult<&NeuralEngineBuffer> {
+        match self {
+            BufferHandle::NeuralEngine(buf) => Ok(buf),
+            _ => Err(TensorError::DeviceConversionError(format!(
+                "Buffer is not on Neural Engine (found: {})",
+                self.device_type()
+            ))),
+        }
+    }
+
 }
 
 impl PartialEq for BufferHandle {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (BufferHandle::Metal(a), BufferHandle::Metal(b)) => a == b,
+            (BufferHandle::NeuralEngine(a), BufferHandle::NeuralEngine(b)) => {
+                // Compare by converting to CPU vectors
+                a.to_f16_vec() == b.to_f16_vec()
+            }
             (BufferHandle::CPU(a), BufferHandle::CPU(b)) => a == b,
             _ => false,
         }

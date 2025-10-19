@@ -10,9 +10,15 @@ use objc2_core_ml::{MLMultiArray, MLMultiArrayDataType};
 use objc2_foundation::{NSArray, NSNumber};
 
 /// Neural Engine buffer wrapper for MLMultiArray with f16 data
+#[derive(Debug)]
 pub struct NeuralEngineBuffer {
     pub(crate) array: Retained<MLMultiArray>,
 }
+
+// SAFETY: MLMultiArray is thread-safe on Apple Silicon
+// The Objective-C runtime and CoreML are designed for concurrent access
+unsafe impl Send for NeuralEngineBuffer {}
+unsafe impl Sync for NeuralEngineBuffer {}
 
 impl NeuralEngineBuffer {
     /// Create a new Neural Engine buffer from f16 slice

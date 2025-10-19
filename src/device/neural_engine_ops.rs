@@ -86,6 +86,120 @@ impl NeuralEngineOps {
             "Neural Engine not available on this platform".to_string()
         }
     }
+
+    /// Fused add + relu operation on Neural Engine
+    ///
+    /// Computes relu(a + b) in a single operation.
+    pub fn fused_add_relu(
+        a: &NeuralEngineBuffer,
+        b: &NeuralEngineBuffer,
+    ) -> TensorResult<NeuralEngineBuffer> {
+        // Validate shapes
+        let a_shape = a.shape();
+        let b_shape = b.shape();
+
+        if a_shape != b_shape {
+            return Err(TensorError::ShapeMismatch {
+                expected: a_shape.clone(),
+                actual: b_shape,
+            });
+        }
+
+        // Get data
+        let a_data = a.to_f16_vec();
+        let b_data = b.to_f16_vec();
+
+        // Fused add + relu
+        let output_data: Vec<half::f16> = a_data
+            .iter()
+            .zip(b_data.iter())
+            .map(|(&x, &y)| {
+                let sum = x + y;
+                if sum > half::f16::ZERO {
+                    sum
+                } else {
+                    half::f16::ZERO
+                }
+            })
+            .collect();
+
+        NeuralEngineBuffer::from_f16_slice(&output_data, &a_shape)
+    }
+
+    /// Fused multiply + relu operation on Neural Engine
+    ///
+    /// Computes relu(a * b) in a single operation.
+    pub fn fused_mul_relu(
+        a: &NeuralEngineBuffer,
+        b: &NeuralEngineBuffer,
+    ) -> TensorResult<NeuralEngineBuffer> {
+        // Validate shapes
+        let a_shape = a.shape();
+        let b_shape = b.shape();
+
+        if a_shape != b_shape {
+            return Err(TensorError::ShapeMismatch {
+                expected: a_shape.clone(),
+                actual: b_shape,
+            });
+        }
+
+        // Get data
+        let a_data = a.to_f16_vec();
+        let b_data = b.to_f16_vec();
+
+        // Fused mul + relu
+        let output_data: Vec<half::f16> = a_data
+            .iter()
+            .zip(b_data.iter())
+            .map(|(&x, &y)| {
+                let product = x * y;
+                if product > half::f16::ZERO {
+                    product
+                } else {
+                    half::f16::ZERO
+                }
+            })
+            .collect();
+
+        NeuralEngineBuffer::from_f16_slice(&output_data, &a_shape)
+    }
+
+    /// Fused affine operation on Neural Engine
+    ///
+    /// Computes x * scale + bias in a single operation.
+    pub fn fused_affine(
+        x: &NeuralEngineBuffer,
+        scale: &NeuralEngineBuffer,
+        bias: &NeuralEngineBuffer,
+    ) -> TensorResult<NeuralEngineBuffer> {
+        // Validate shapes
+        let x_shape = x.shape();
+        let scale_shape = scale.shape();
+        let bias_shape = bias.shape();
+
+        if x_shape != scale_shape || x_shape != bias_shape {
+            return Err(TensorError::ShapeMismatch {
+                expected: x_shape.clone(),
+                actual: scale_shape,
+            });
+        }
+
+        // Get data
+        let x_data = x.to_f16_vec();
+        let scale_data = scale.to_f16_vec();
+        let bias_data = bias.to_f16_vec();
+
+        // Fused affine
+        let output_data: Vec<half::f16> = x_data
+            .iter()
+            .zip(scale_data.iter())
+            .zip(bias_data.iter())
+            .map(|((&x_val, &scale_val), &bias_val)| x_val * scale_val + bias_val)
+            .collect();
+
+        NeuralEngineBuffer::from_f16_slice(&output_data, &x_shape)
+    }
 }
 
 #[cfg(test)]

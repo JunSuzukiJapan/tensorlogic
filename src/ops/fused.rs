@@ -3,7 +3,7 @@
 //! These operations combine multiple operations into single GPU kernels,
 //! reducing memory access overhead and kernel launch overhead.
 
-use crate::device::{Device, MetalBuffer};
+use crate::device::{Device, MetalBuffer, NeuralEngineOps};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
@@ -32,7 +32,7 @@ impl Tensor {
         match self.device() {
             Device::Metal(_) => self.fused_add_relu_metal(other),
             Device::CPU => self.fused_add_relu_cpu(other),
-            Device::NeuralEngine => self.fused_add_relu_cpu(other), // Fallback
+            Device::NeuralEngine => self.fused_add_relu_neural_engine(other),
         }
     }
 
@@ -111,7 +111,7 @@ impl Tensor {
         match self.device() {
             Device::Metal(_) => self.fused_mul_relu_metal(other),
             Device::CPU => self.fused_mul_relu_cpu(other),
-            Device::NeuralEngine => self.fused_mul_relu_cpu(other),
+            Device::NeuralEngine => self.fused_mul_relu_neural_engine(other),
         }
     }
 
@@ -189,7 +189,7 @@ impl Tensor {
         match self.device() {
             Device::Metal(_) => self.fused_affine_metal(scale, bias),
             Device::CPU => self.fused_affine_cpu(scale, bias),
-            Device::NeuralEngine => self.fused_affine_cpu(scale, bias),
+            Device::NeuralEngine => self.fused_affine_neural_engine(scale, bias),
         }
     }
 
@@ -252,6 +252,49 @@ impl Tensor {
             .collect();
 
         Tensor::from_vec(result, self.dims().to_vec())
+    }
+
+    /// Neural Engine implementation of fused add + relu
+    fn fused_add_relu_neural_engine(&self, other: &Tensor) -> TensorResult<Self> {
+        let a_buf = self.buffer().as_neural_engine()?;
+        let b_buf = other.buffer().as_neural_engine()?;
+
+        let result_buf = NeuralEngineOps::fused_add_relu(a_buf, b_buf)?;
+
+        Tensor::new(
+            BufferHandle::NeuralEngine(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
+    }
+
+    /// Neural Engine implementation of fused mul + relu
+    fn fused_mul_relu_neural_engine(&self, other: &Tensor) -> TensorResult<Self> {
+        let a_buf = self.buffer().as_neural_engine()?;
+        let b_buf = other.buffer().as_neural_engine()?;
+
+        let result_buf = NeuralEngineOps::fused_mul_relu(a_buf, b_buf)?;
+
+        Tensor::new(
+            BufferHandle::NeuralEngine(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
+    }
+
+    /// Neural Engine implementation of fused affine
+    fn fused_affine_neural_engine(&self, scale: &Tensor, bias: &Tensor) -> TensorResult<Self> {
+        let x_buf = self.buffer().as_neural_engine()?;
+        let scale_buf = scale.buffer().as_neural_engine()?;
+        let bias_buf = bias.buffer().as_neural_engine()?;
+
+        let result_buf = NeuralEngineOps::fused_affine(x_buf, scale_buf, bias_buf)?;
+
+        Tensor::new(
+            BufferHandle::NeuralEngine(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
     }
 }
 
