@@ -566,14 +566,18 @@ pub enum TensorError {
 ### Phase 7: 最適化 ⚡ **進行中**
 - [x] Metal ↔ Neural Engine ゼロコピー変換 (SharedBuffer実装)
 - [x] バッファプール (BufferPool実装)
-- [ ] 演算融合 (operator fusion)
-- [ ] デバイス自動配置
+- [x] 演算融合 (operator fusion) - 基本実装完了
+- [ ] デバイス自動配置 - Phase 8へ延期
 - [ ] Metal GPU勾配カーネル
 - [ ] GPU kernels for reductions
 
-**Phase 7.1-7.2 完了**:
+**Phase 7.1-7.3 進捗**:
 - SharedBuffer: ゼロコピーMetal↔Neural Engine変換 ✅
 - BufferPool: バッファ再利用によるメモリ最適化 ✅
-- 93テスト成功 (87 lib + 6 integration)
+- Operator Fusion: 基本融合演算実装 ✅ (add+relu, mul+relu, affine)
+  - Metal GPU カーネル (fused_ops.metal)
+  - CPU フォールバック実装
+  - 4新テスト (97 total: 91 lib + 6 integration)
+- 残タスク: fused_linear, パフォーマンスベンチマーク
 
 合計: 約17週間 (Phase 5基本実装完了)
