@@ -1,0 +1,278 @@
+// TensorLogic Grammar for Pest Parser
+// Based on Papers/実装/tensorlogic_grammar.md
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT = _{ "//" ~ (!"\n" ~ ANY)* ~ "\n" | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+
+// ============================================================================
+// Program Structure
+// ============================================================================
+
+program = { SOI ~ declaration* ~ main_block? ~ EOI }
+
+declaration = {
+    tensor_decl
+    | relation_decl
+    | rule_decl
+    | embedding_decl
+    | function_decl
+}
+
+main_block = { "main" ~ "{" ~ statement* ~ "}" }
+
+// ============================================================================
+// Tensor Declarations
+// ============================================================================
+
+tensor_decl = { "tensor" ~ identifier ~ ":" ~ tensor_type ~ ("=" ~ tensor_expr)? }
+
+tensor_type = { base_type ~ "[" ~ dimension_list ~ "]" ~ learnable? }
+
+base_type = {
+    "float32" | "float64" | "int32" | "int64" | "bool" | "complex64"
+}
+
+dimension_list = { dimension ~ ("," ~ dimension)* }
+
+dimension = { integer | identifier | "?" }
+
+learnable = { "learnable" | "frozen" }
+
+// ============================================================================
+// Relation Declarations
+// ============================================================================
+
+relation_decl = { "relation" ~ identifier ~ "(" ~ param_list? ~ ")" ~ embedding_spec? }
+
+param_list = { param ~ ("," ~ param)* }
+
+param = { identifier ~ ":" ~ entity_type }
+
+entity_type = { "entity" | "concept" | tensor_type }
+
+embedding_spec = { "embed" ~ tensor_type }
+
+// ============================================================================
+// Rule Declarations
+// ============================================================================
+
+rule_decl = { rule_head ~ "<-" ~ rule_body }
+
+rule_head = { atom | tensor_equation }
+
+rule_body = { body_term ~ ("," ~ body_term)* }
+
+body_term = { atom | tensor_equation | constraint }
+
+atom = { identifier ~ "(" ~ term_list? ~ ")" }
+
+term_list = { term ~ ("," ~ term)* }
+
+term = { identifier | constant | tensor_expr }
+
+// ============================================================================
+// Embedding Declarations
+// ============================================================================
+
+embedding_decl = {
+    "embedding" ~ identifier ~ "{"
+    ~ "entities" ~ ":" ~ entity_set
+    ~ "dimension" ~ ":" ~ integer
+    ~ ("init" ~ ":" ~ init_method)?
+    ~ "}"
+}
+
+entity_set = { "{" ~ identifier_list ~ "}" | "auto" }
+
+identifier_list = { identifier ~ ("," ~ identifier)* }
+
+init_method = { "random" | "xavier" | "he" | "zeros" | "ones" }
+
+// ============================================================================
+// Function Declarations
+// ============================================================================
+
+function_decl = {
+    "function" ~ identifier ~ "(" ~ param_list? ~ ")"
+    ~ "->" ~ return_type ~ "{" ~ statement* ~ "}"
+}
+
+return_type = { tensor_type | "void" }
+
+// ============================================================================
+// Tensor Expressions
+// ============================================================================
+
+tensor_expr = { tensor_term ~ (binary_op ~ tensor_term)* }
+
+tensor_term = {
+    "(" ~ tensor_expr ~ ")"
+    | unary_op ~ tensor_term
+    | embedding_lookup
+    | einstein_sum
+    | function_call
+    | tensor_literal
+    | identifier
+}
+
+binary_op = {
+    "**" | "⊗" | "⊙" | "@" | "*" | "/" | "+" | "-"
+}
+
+unary_op = {
+    "transpose" | "inv" | "det" | "-" | "!"
+}
+
+einstein_sum = { "einsum" ~ "(" ~ string_literal ~ "," ~ tensor_list ~ ")" }
+
+tensor_list = { tensor_expr ~ ("," ~ tensor_expr)* }
+
+function_call = { identifier ~ "(" ~ tensor_list? ~ ")" }
+
+embedding_lookup = { identifier ~ "[" ~ entity_ref ~ "]" }
+
+entity_ref = { identifier | string_literal }
+
+tensor_literal = { "[" ~ tensor_elements ~ "]" | scalar_literal }
+
+tensor_elements = { tensor_element ~ ("," ~ tensor_element)* }
+
+tensor_element = { tensor_literal | number }
+
+scalar_literal = { complex_number | number | boolean }
+
+// ============================================================================
+// Constraints
+// ============================================================================
+
+constraint = { constraint_term ~ (logical_op ~ constraint_term)* }
+
+constraint_term = {
+    "not" ~ constraint_term
+    | "(" ~ constraint ~ ")"
+    | tensor_constraint
+    | comparison
+}
+
+comparison = { tensor_expr ~ comp_op ~ tensor_expr }
+
+comp_op = { "==" | "!=" | "<=" | ">=" | "<" | ">" | "≈" }
+
+tensor_constraint = {
+    "shape" ~ "(" ~ tensor_expr ~ ")" ~ "==" ~ shape_spec
+    | "rank" ~ "(" ~ tensor_expr ~ ")" ~ "==" ~ integer
+    | "norm" ~ "(" ~ tensor_expr ~ ")" ~ comp_op ~ number
+}
+
+shape_spec = { "[" ~ dimension_list ~ "]" }
+
+logical_op = { "and" | "or" }
+
+// ============================================================================
+// Tensor Equations
+// ============================================================================
+
+tensor_equation = { tensor_expr ~ eq_type ~ tensor_expr }
+
+eq_type = { ":=" | "~" | "=" }
+
+// ============================================================================
+// Statements
+// ============================================================================
+
+statement = {
+    assignment
+    | tensor_equation
+    | query
+    | inference_call
+    | learning_call
+    | control_flow
+}
+
+assignment = { identifier ~ ":=" ~ tensor_expr }
+
+query = { "query" ~ atom ~ ("where" ~ constraint_list)? }
+
+constraint_list = { constraint ~ ("," ~ constraint)* }
+
+inference_call = { "infer" ~ inference_method ~ query }
+
+inference_method = { "forward" | "backward" | "gradient" | "symbolic" }
+
+learning_call = { "learn" ~ "{" ~ learning_spec ~ "}" }
+
+learning_spec = {
+    "objective" ~ ":" ~ tensor_expr
+    ~ "optimizer" ~ ":" ~ optimizer_spec
+    ~ "epochs" ~ ":" ~ integer
+}
+
+optimizer_spec = { identifier ~ "(" ~ optimizer_params? ~ ")" }
+
+optimizer_params = { optimizer_param ~ ("," ~ optimizer_param)* }
+
+optimizer_param = { identifier ~ "=" ~ number }
+
+// ============================================================================
+// Control Flow
+// ============================================================================
+
+control_flow = { if_statement | for_statement | while_statement }
+
+if_statement = {
+    "if" ~ condition ~ "{" ~ statement* ~ "}"
+    ~ ("else" ~ "{" ~ statement* ~ "}")?
+}
+
+condition = { constraint | tensor_expr }
+
+for_statement = {
+    "for" ~ identifier ~ "in" ~ iterable ~ "{" ~ statement* ~ "}"
+}
+
+iterable = { tensor_expr | entity_set | range_expr }
+
+range_expr = { "range" ~ "(" ~ integer ~ ")" }
+
+while_statement = { "while" ~ condition ~ "{" ~ statement* ~ "}" }
+
+// ============================================================================
+// Literals and Identifiers
+// ============================================================================
+
+constant = { number | string_literal | boolean }
+
+number = @{ float | integer }
+
+integer = @{ ASCII_DIGIT+ }
+
+float = @{
+    ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ ~ exponent?
+}
+
+exponent = @{ ("e" | "E") ~ ("+" | "-")? ~ ASCII_DIGIT+ }
+
+boolean = { "true" | "false" }
+
+complex_number = { number ~ ("+" | "-") ~ number ~ "i" }
+
+string_literal = @{ "\"" ~ (!"\"" ~ (escape_sequence | ANY))* ~ "\"" }
+
+escape_sequence = @{ "\\\\" | "\\\"" | "\\n" | "\\t" | "\\r" }
+
+identifier = @{
+    !reserved_keyword ~ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")*
+}
+
+reserved_keyword = {
+    "tensor" | "relation" | "rule" | "embedding" | "function" | "main"
+    | "learnable" | "frozen" | "entity" | "concept" | "embed"
+    | "einsum" | "query" | "infer" | "learn"
+    | "forward" | "backward" | "gradient" | "symbolic"
+    | "if" | "else" | "for" | "while" | "in" | "range"
+    | "true" | "false" | "not" | "and" | "or"
+    | "shape" | "rank" | "norm" | "transpose" | "inv" | "det"
+    | "objective" | "optimizer" | "epochs" | "auto"
+    | "random" | "xavier" | "he" | "zeros" | "ones" | "void"
+    | "float32" | "float64" | "int32" | "int64" | "bool" | "complex64"
+}

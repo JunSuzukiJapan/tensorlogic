@@ -9,6 +9,7 @@ pub mod device;
 pub mod error;
 pub mod ops;
 pub mod optim;
+pub mod parser;
 pub mod planner;
 pub mod tensor;
 
