@@ -3,6 +3,7 @@
 //! This library implements the TensorLogic language with f16-only operations,
 //! leveraging Metal GPU and Neural Engine for maximum performance.
 
+pub mod ast;
 pub mod autograd;
 pub mod device;
 pub mod error;
