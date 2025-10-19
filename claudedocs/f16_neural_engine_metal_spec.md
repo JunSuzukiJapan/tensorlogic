@@ -703,19 +703,25 @@ pub enum TensorError {
 - absolute_tolerance: 1e-3
 - 単一要素出力と多要素出力の自動判定
 
-**Phase 8.6: 高階微分サポート（基本実装）完了**:
+**Phase 8.6: 高階微分サポート（拡張実装）完了**:
 - **backward_create_graph()**: 計算グラフ作成モードでの逆伝播
 - **AutogradContext拡張**: create_graph フラグサポート
 - **勾配のrequires_grad**: create_graph=true時に勾配テンソルがrequires_grad=trueに設定
-- **テスト追加**: 4つの高階微分テスト（2 passing + 2 ignored）
-- **テスト結果**: 123/123テスト成功 (121 lib + 2 integration passing)
+- **Operation::Gradient**: 二階微分計算用の新しい演算種別
+- **GradientBackward**: Hessian計算実装（Add, Sub, Mul, Div対応）
+- **テスト追加**: 6つの高階微分テスト (2 gradient_op + 4 integration)
+- **テスト結果**: 全テスト成功
 
 **実装ファイル**:
+- [src/autograd/node.rs](src/autograd/node.rs): Operation::Gradient追加
+- [src/autograd/gradients/gradient_op.rs](src/autograd/gradients/gradient_op.rs): GradientBackward実装
 - [src/autograd/context.rs](src/autograd/context.rs): backward_with_graph()実装
 - [src/tensor/tensor.rs](src/tensor/tensor.rs): backward_create_graph()実装
+- [tests/test_second_derivatives.rs](tests/test_second_derivatives.rs): 二階微分テスト (4 tests)
 - [tests/higher_order_derivatives.rs](tests/higher_order_derivatives.rs): 高階微分テスト
 - [tests/test_backward_create_graph.rs](tests/test_backward_create_graph.rs): create_graphテスト
-- [claudedocs/phase8.6_higher_order_derivatives_design.md](claudedocs/phase8.6_higher_order_derivatives_design.md): 設計文書
+- [claudedocs/phase8.6_full_second_order_design.md](claudedocs/phase8.6_full_second_order_design.md): 完全設計文書
+- [claudedocs/phase8.6_higher_order_derivatives_design.md](claudedocs/phase8.6_higher_order_derivatives_design.md): 基礎設計文書
 
 **実装内容**:
 - create_graph フラグによる勾配計算時の計算グラフ作成
