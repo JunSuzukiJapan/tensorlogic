@@ -1,6 +1,7 @@
 use crate::autograd::GradientFunction;
-use crate::error::TensorResult;
-use crate::tensor::Tensor;
+use crate::device::{Device, MetalBuffer};
+use crate::error::{TensorError, TensorResult};
+use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
 
 /// ReLU演算の勾配関数
@@ -19,6 +20,66 @@ impl ReLUBackward {
 
 impl GradientFunction for ReLUBackward {
     fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+        // Use GPU if both tensors are on Metal
+        let grad_input = if grad_output.buffer().is_metal() && self.input.buffer().is_metal() {
+            self.backward_metal(grad_output)?
+        } else {
+            self.backward_cpu(grad_output)?
+        };
+
+        Ok(vec![grad_input])
+    }
+}
+
+impl ReLUBackward {
+    /// Metal GPU implementation of ReLU backward
+    fn backward_metal(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
+        let grad_out_buf = grad_output.buffer().as_metal()?;
+        let input_buf = self.input.buffer().as_metal()?;
+
+        let mut device = match grad_output.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        // Load gradient shaders if not already loaded
+        if device.library().is_none() {
+            let shader_source = include_str!("../../../shaders/gradients.metal");
+            device.load_library(shader_source)?;
+        }
+
+        // Create result buffer
+        let result_buf = MetalBuffer::new_uninit(device.metal_device(), grad_output.numel())?;
+
+        // Execute kernel
+        let mut executor = crate::device::KernelExecutor::new(device.clone());
+        let pipeline = executor.get_or_compile_pipeline("relu_backward_f16")?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&grad_out_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(2, Some(&result_buf.buffer), 0);
+
+        let grid_size = metal::MTLSize::new(grad_output.numel() as u64, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(256.min(grad_output.numel() as u64), 1, 1);
+
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            grad_output.shape().clone(),
+            grad_output.device().clone(),
+        )
+    }
+
+    /// CPU fallback for ReLU backward
+    fn backward_cpu(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
         let grad_output_data = grad_output.to_vec();
         let input_data = self.input.to_vec();
 
@@ -34,8 +95,7 @@ impl GradientFunction for ReLUBackward {
             })
             .collect();
 
-        let grad_input = Tensor::from_vec(grad_input_data, grad_output.dims().to_vec())?;
-        Ok(vec![grad_input])
+        Tensor::from_vec(grad_input_data, grad_output.dims().to_vec())
     }
 }
 
