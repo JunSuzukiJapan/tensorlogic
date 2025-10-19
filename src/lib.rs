@@ -12,6 +12,7 @@ pub mod optim;
 pub mod parser;
 pub mod planner;
 pub mod tensor;
+pub mod typecheck;
 
 // Re-export main types
 pub use error::{TensorError, TensorResult};
