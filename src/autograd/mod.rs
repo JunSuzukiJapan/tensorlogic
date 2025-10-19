@@ -4,6 +4,7 @@ mod gradient;
 pub mod gradients;
 mod node;
 mod fusion;
+mod gradcheck;
 
 pub use context::AutogradContext;
 pub use graph::ComputationGraph;
@@ -13,3 +14,4 @@ pub use fusion::{
     FusionOptimizer, FusionPattern, FusionOpportunity, FusionConfig,
     FusionStats, FusionStatsSummary, BinaryOp, ScalarOp,
 };
+pub use gradcheck::{GradientChecker, GradCheckConfig, GradCheckResult};

@@ -598,7 +598,7 @@ pub enum TensorError {
 
 ### Phase 8: 高度な最適化 ⚡ **進行中**
 - [x] デバイス自動配置 (ExecutionPlanner) ✅
-- [ ] 勾配チェック (数値微分との比較)
+- [x] 勾配チェック (数値微分との比較) ✅
 - [ ] 高階微分サポート
 - [x] 実際のNeural Engine推論（CoreMLモデル統合 - 基本実装） ✅
 - [x] 演算融合の自動化（基本実装） ✅
@@ -677,4 +677,30 @@ pub enum TensorError {
 - 計算グラフへの融合適用は将来フェーズで実装
 - パフォーマンスベンチマークは将来フェーズで実装
 
-合計: 約17週間 (Phase 8.1-8.4完了)
+**Phase 8.5: 勾配チェック（数値微分との比較）完了**:
+- **GradientChecker**: 数値微分による勾配検証
+- **中心差分法**: 高精度な数値勾配計算 `[f(x+ε) - f(x-ε)] / 2ε`
+- **前方差分法**: シンプルな数値勾配計算 `[f(x+ε) - f(x)] / ε`
+- **誤差評価**: 相対誤差と絶対誤差の両方でチェック
+- **設定可能な許容誤差**: f16精度に最適化（epsilon=1e-2）
+- **テスト追加**: 4つのGradientCheckerテスト
+- **テスト結果**: 121/121テスト成功 (117 → 121 lib tests)
+
+**実装ファイル**:
+- [src/autograd/gradcheck.rs](src/autograd/gradcheck.rs): GradientChecker実装
+- [claudedocs/phase8.5_gradient_checking_design.md](claudedocs/phase8.5_gradient_checking_design.md): 設計文書
+
+**実装内容**:
+- 数値勾配計算（中心差分・前方差分）
+- 解析的勾配との比較・検証
+- エラー統計（最大・平均誤差）
+- 詳細エラーレポート（verbose mode）
+- f16精度に最適化した epsilon と許容誤差
+
+**f16精度対応**:
+- epsilon: 1e-2（f16では1e-4は小さすぎて誤差が大きい）
+- relative_tolerance: 1e-2
+- absolute_tolerance: 1e-3
+- 単一要素出力と多要素出力の自動判定
+
+合計: 約17週間 (Phase 8.1-8.5完了)
