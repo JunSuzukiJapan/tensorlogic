@@ -870,11 +870,158 @@ impl TensorLogicParser {
             Rule::tensor_equation => {
                 Ok(Statement::Equation(Self::parse_tensor_equation(inner)?))
             }
+            Rule::query => {
+                Self::parse_query(inner)
+            }
+            Rule::inference_call => {
+                Self::parse_inference_call(inner)
+            }
+            Rule::learning_call => {
+                Self::parse_learning_call(inner)
+            }
+            Rule::control_flow => {
+                Self::parse_control_flow(inner).map(Statement::ControlFlow)
+            }
             _ => Err(ParseError::UnexpectedRule {
                 expected: "statement type".to_string(),
                 found: format!("{:?}", inner.as_rule()),
             }),
         }
+    }
+
+    fn parse_query(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let atom = Self::parse_atom(inner.next().ok_or_else(|| {
+            ParseError::MissingField("query atom".to_string())
+        })?)?;
+
+        let constraints = if let Some(constraint_list) = inner.next() {
+            Self::parse_constraint_list(constraint_list)?
+        } else {
+            Vec::new()
+        };
+
+        Ok(Statement::Query { atom, constraints })
+    }
+
+    fn parse_constraint_list(pair: pest::iterators::Pair<Rule>) -> Result<Vec<Constraint>, ParseError> {
+        pair.into_inner()
+            .map(|constraint_pair| Self::parse_constraint(constraint_pair))
+            .collect()
+    }
+
+    fn parse_inference_call(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let method = Self::parse_inference_method(inner.next().ok_or_else(|| {
+            ParseError::MissingField("inference method".to_string())
+        })?)?;
+
+        let query = Self::parse_query(inner.next().ok_or_else(|| {
+            ParseError::MissingField("query in inference call".to_string())
+        })?)?;
+
+        Ok(Statement::Inference {
+            method,
+            query: Box::new(query),
+        })
+    }
+
+    fn parse_inference_method(pair: pest::iterators::Pair<Rule>) -> Result<InferenceMethod, ParseError> {
+        match pair.as_str() {
+            "forward" => Ok(InferenceMethod::Forward),
+            "backward" => Ok(InferenceMethod::Backward),
+            "gradient" => Ok(InferenceMethod::Gradient),
+            "symbolic" => Ok(InferenceMethod::Symbolic),
+            s => Err(ParseError::InvalidValue(format!("Unknown inference method: {}", s))),
+        }
+    }
+
+    fn parse_learning_call(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+        let inner = pair.into_inner().next().ok_or_else(|| {
+            ParseError::MissingField("learning spec".to_string())
+        })?;
+
+        let learning_spec = Self::parse_learning_spec(inner)?;
+        Ok(Statement::Learning(learning_spec))
+    }
+
+    fn parse_learning_spec(pair: pest::iterators::Pair<Rule>) -> Result<LearningSpec, ParseError> {
+        let mut objective = None;
+        let mut optimizer = None;
+        let mut epochs = None;
+
+        for field in pair.into_inner() {
+            let field_str = field.as_str();
+            let mut field_inner = field.into_inner();
+
+            if field_str.starts_with("objective") {
+                objective = Some(Self::parse_tensor_expr(field_inner.next().ok_or_else(|| {
+                    ParseError::MissingField("objective expression".to_string())
+                })?)?);
+            } else if field_str.starts_with("optimizer") {
+                optimizer = Some(Self::parse_optimizer_spec(field_inner.next().ok_or_else(|| {
+                    ParseError::MissingField("optimizer spec".to_string())
+                })?)?);
+            } else if field_str.starts_with("epochs") {
+                let epochs_val = field_inner.next().ok_or_else(|| {
+                    ParseError::MissingField("epochs value".to_string())
+                })?;
+                epochs = Some(Self::parse_number(epochs_val)? as usize);
+            }
+        }
+
+        Ok(LearningSpec {
+            objective: objective.ok_or_else(|| ParseError::MissingField("objective".to_string()))?,
+            optimizer: optimizer.ok_or_else(|| ParseError::MissingField("optimizer".to_string()))?,
+            epochs: epochs.ok_or_else(|| ParseError::MissingField("epochs".to_string()))?,
+        })
+    }
+
+    fn parse_optimizer_spec(pair: pest::iterators::Pair<Rule>) -> Result<OptimizerSpec, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let name = Self::parse_identifier(inner.next().ok_or_else(|| {
+            ParseError::MissingField("optimizer name".to_string())
+        })?)?.as_str().to_string();
+
+        let params = if let Some(params_pair) = inner.next() {
+            Self::parse_optimizer_params(params_pair)?
+        } else {
+            Vec::new()
+        };
+
+        Ok(OptimizerSpec { name, params })
+    }
+
+    fn parse_optimizer_params(pair: pest::iterators::Pair<Rule>) -> Result<Vec<(String, f64)>, ParseError> {
+        pair.into_inner()
+            .map(|param_pair| {
+                let mut inner = param_pair.into_inner();
+                let name = Self::parse_identifier(inner.next().ok_or_else(|| {
+                    ParseError::MissingField("parameter name".to_string())
+                })?)?.as_str().to_string();
+                let value = Self::parse_number(inner.next().ok_or_else(|| {
+                    ParseError::MissingField("parameter value".to_string())
+                })?)?;
+                Ok((name, value))
+            })
+            .collect()
+    }
+
+    fn parse_control_flow(_pair: pest::iterators::Pair<Rule>) -> Result<ControlFlow, ParseError> {
+        // Placeholder for control flow parsing
+        // Will be implemented in next phase
+        Ok(ControlFlow::If {
+            condition: Condition::Constraint(Constraint::Comparison {
+                op: CompOp::Eq,
+                left: TensorExpr::scalar(0.0),
+                right: TensorExpr::scalar(0.0),
+            }),
+            then_block: Vec::new(),
+            else_block: None,
+        })
     }
 
     // Helper parsers
