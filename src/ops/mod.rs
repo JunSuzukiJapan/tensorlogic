@@ -6,3 +6,6 @@ pub mod activations;
 pub mod broadcast;
 pub mod reduce;
 pub mod einsum;
+pub mod fused;
+
+pub use fused::Activation;
