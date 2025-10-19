@@ -143,12 +143,69 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sum_cols = matrix.sum_dim(1, false)?;
     println!("Sum along columns: {:?}", sum_cols.to_vec_f32());
 
+    // Test einsum operations
+    println!("\nTesting einsum operations...");
+
+    // Matrix multiplication via einsum
+    let a = Tensor::from_vec_metal(
+        &device,
+        vec![
+            half::f16::from_f32(1.0),
+            half::f16::from_f32(2.0),
+            half::f16::from_f32(3.0),
+            half::f16::from_f32(4.0),
+        ],
+        vec![2, 2],
+    )?;
+
+    let b = Tensor::from_vec_metal(
+        &device,
+        vec![
+            half::f16::from_f32(5.0),
+            half::f16::from_f32(6.0),
+            half::f16::from_f32(7.0),
+            half::f16::from_f32(8.0),
+        ],
+        vec![2, 2],
+    )?;
+
+    println!("Matrix A: {:?}", a.to_vec_f32());
+    println!("Matrix B: {:?}", b.to_vec_f32());
+
+    let c = Tensor::einsum("ij,jk->ik", &[&a, &b])?;
+    println!("einsum('ij,jk->ik'): {:?}", c.to_vec_f32());
+
+    // Transpose via einsum
+    let transposed = Tensor::einsum("ij->ji", &[&a])?;
+    println!("einsum('ij->ji') (transpose): {:?}", transposed.to_vec_f32());
+
+    // Trace via einsum
+    let trace = Tensor::einsum("ii->", &[&a])?;
+    println!("einsum('ii->') (trace): {:?}", trace.to_vec_f32());
+
+    // Outer product via einsum
+    let v1 = Tensor::from_vec_metal(
+        &device,
+        vec![half::f16::from_f32(1.0), half::f16::from_f32(2.0)],
+        vec![2],
+    )?;
+
+    let v2 = Tensor::from_vec_metal(
+        &device,
+        vec![half::f16::from_f32(3.0), half::f16::from_f32(4.0)],
+        vec![2],
+    )?;
+
+    let outer = Tensor::einsum("i,j->ij", &[&v1, &v2])?;
+    println!("einsum('i,j->ij') (outer product): {:?}", outer.to_vec_f32());
+
     println!("\n✅ All operations completed successfully!");
     println!("   - Element-wise: add, sub, mul, div");
     println!("   - Activations: ReLU, GELU, Softmax");
     println!("   - Matrix ops: matmul");
     println!("   - Broadcasting: broadcast_to");
     println!("   - Reductions: sum, mean, max, min, sum_dim");
+    println!("   - Einsum: ij,jk->ik, ij->ji, ii->, i,j->ij");
     println!("   - All running on Metal GPU with f16 precision! 🚀");
 
     Ok(())
