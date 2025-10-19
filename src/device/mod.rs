@@ -1,0 +1,33 @@
+//! Device management for Metal and Neural Engine
+
+mod metal_device;
+mod metal_buffer;
+
+pub use metal_device::MetalDevice;
+pub use metal_buffer::MetalBuffer;
+
+use crate::error::TensorResult;
+
+/// Compute device types
+#[derive(Debug, Clone, PartialEq)]
+pub enum Device {
+    /// Metal GPU device
+    Metal(MetalDevice),
+    /// Neural Engine (CoreML)
+    NeuralEngine,
+    /// CPU (control flow only - avoid if possible)
+    CPU,
+}
+
+impl Device {
+    /// Get the default Metal device
+    pub fn default_metal() -> TensorResult<Self> {
+        Ok(Device::Metal(MetalDevice::new()?))
+    }
+
+    /// Check if Neural Engine is available
+    pub fn neural_engine_available() -> bool {
+        // TODO: Implement CoreML availability check
+        cfg!(target_os = "macos") || cfg!(target_os = "ios")
+    }
+}

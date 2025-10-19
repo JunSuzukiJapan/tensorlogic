@@ -1,6 +1,42 @@
 [package]
 name = "tensorlogic"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
+# パーサー
+pest = "2.7"
+pest_derive = "2.7"
+
+# f16サポート
+half = "2.4"
+
+# Metal統合
+metal = "0.29"
+objc = "0.2"
+
+# CoreML統合 (Neural Engine)
+# TODO: Add CoreML bindings when available
+
+# エラーハンドリング
+thiserror = "1.0"
+anyhow = "1.0"
+
+# ユーティリティ
+bytemuck = { version = "1.14", features = ["derive"] }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[lib]
+name = "tensorlogic"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tensorlogic"
+path = "src/main.rs"
