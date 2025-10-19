@@ -7,9 +7,11 @@ pub mod autograd;
 pub mod device;
 pub mod error;
 pub mod ops;
+pub mod planner;
 pub mod tensor;
 
 // Re-export main types
 pub use error::{TensorError, TensorResult};
 pub use tensor::Tensor;
 pub use device::{Device, MetalDevice};
+pub use planner::ExecutionPlanner;

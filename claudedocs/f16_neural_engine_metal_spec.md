@@ -597,7 +597,7 @@ pub enum TensorError {
 **テスト結果**: 95/95テスト成功 (95 lib + 6 integration - 1 ignored)
 
 ### Phase 8: 高度な最適化 ⚡ **進行中**
-- [ ] デバイス自動配置 (ExecutionPlanner)
+- [x] デバイス自動配置 (ExecutionPlanner) ✅
 - [ ] 勾配チェック (数値微分との比較)
 - [ ] 高階微分サポート
 - [ ] 実際のNeural Engine推論（CoreMLモデル統合）
@@ -616,4 +616,21 @@ pub enum TensorError {
 **実装ファイル**:
 - [src/ops/inplace.rs](src/ops/inplace.rs): In-place演算実装
 
-合計: 約17週間 (Phase 8.1完了)
+**Phase 8.2: デバイス自動配置（ExecutionPlanner）完了**:
+- **ヒューリスティックベースの選択**: 演算種類とテンソルサイズに基づく最適デバイス選択
+- **サイズ閾値最適化**:
+  - 小規模演算 (<1000要素): CPU (オーバーヘッド回避)
+  - 中規模演算 (1000-10,000要素): Metal GPU (並列化)
+  - 大規模行列演算 (>4,096要素): Metal GPU (Neural Engineは将来対応)
+  - 大規模Reduction (>10,000要素): Metal GPU
+- **デシジョンキャッシュ**: 同一条件での選択結果を再利用
+- **選択戦略**: Heuristic（デフォルト）、Fixed（固定デバイス）
+- **統計情報**: キャッシュ状況とデバイス使用状況の取得
+- **テスト追加**: 7つのExecutionPlannerテスト
+- **テスト結果**: 108/108テスト成功 (101 → 108 lib tests)
+
+**実装ファイル**:
+- [src/planner/execution_planner.rs](src/planner/execution_planner.rs): ExecutionPlanner実装
+- [claudedocs/phase8_execution_planner_design.md](claudedocs/phase8_execution_planner_design.md): 設計文書
+
+合計: 約17週間 (Phase 8.1-8.2完了)
