@@ -102,6 +102,18 @@ impl Value {
             ))),
         }
     }
+
+    /// Convert to integer if possible
+    pub fn as_integer(&self) -> RuntimeResult<i64> {
+        match self {
+            Value::Integer(i) => Ok(*i),
+            Value::Float(f) => Ok(*f as i64),
+            _ => Err(RuntimeError::TypeError(format!(
+                "Expected integer, found {:?}",
+                self
+            ))),
+        }
+    }
 }
 
 /// Runtime environment
@@ -275,6 +287,37 @@ impl Interpreter {
                 // In a full implementation, this would perform unification or constraint solving
                 Ok(())
             }
+            Statement::ControlFlow(cf) => match cf {
+                ControlFlow::If {
+                    condition,
+                    then_block,
+                    else_block,
+                } => {
+                    // Evaluate condition
+                    let condition_result = match condition {
+                        Condition::Constraint(c) => self.eval_constraint(c)?,
+                        Condition::Tensor(expr) => {
+                            let val = self.eval_expr(expr)?;
+                            val.as_bool()?
+                        }
+                    };
+
+                    // Execute appropriate block
+                    if condition_result {
+                        for stmt in then_block {
+                            self.execute_statement(stmt)?;
+                        }
+                    } else if let Some(else_stmts) = else_block {
+                        for stmt in else_stmts {
+                            self.execute_statement(stmt)?;
+                        }
+                    }
+                    Ok(())
+                }
+                _ => Err(RuntimeError::NotImplemented(
+                    "Control flow type not yet implemented".to_string(),
+                )),
+            },
             _ => Err(RuntimeError::NotImplemented(
                 "Statement type not yet implemented".to_string(),
             )),
@@ -512,6 +555,146 @@ impl Interpreter {
         Err(RuntimeError::NotImplemented(
             "Function calls not yet implemented".to_string(),
         ))
+    }
+
+    /// Evaluate a constraint and return true/false
+    fn eval_constraint(&mut self, constraint: &Constraint) -> RuntimeResult<bool> {
+        match constraint {
+            Constraint::Comparison { left, op, right } => {
+                let left_val = self.eval_expr(left)?;
+                let right_val = self.eval_expr(right)?;
+
+                // Compare values based on operator
+                let result = match (left_val, right_val) {
+                    (Value::Float(l), Value::Float(r)) => match op {
+                        CompOp::Eq => (l - r).abs() < 1e-6,
+                        CompOp::Ne => (l - r).abs() >= 1e-6,
+                        CompOp::Lt => l < r,
+                        CompOp::Gt => l > r,
+                        CompOp::Le => l <= r,
+                        CompOp::Ge => l >= r,
+                        CompOp::Approx => (l - r).abs() < 1e-3,
+                    },
+                    (Value::Integer(l), Value::Integer(r)) => match op {
+                        CompOp::Eq => l == r,
+                        CompOp::Ne => l != r,
+                        CompOp::Lt => l < r,
+                        CompOp::Gt => l > r,
+                        CompOp::Le => l <= r,
+                        CompOp::Ge => l >= r,
+                        CompOp::Approx => l == r,
+                    },
+                    (Value::Integer(l), Value::Float(r)) | (Value::Float(r), Value::Integer(l)) => {
+                        let l = l as f64;
+                        match op {
+                            CompOp::Eq => (l - r).abs() < 1e-6,
+                            CompOp::Ne => (l - r).abs() >= 1e-6,
+                            CompOp::Lt => l < r,
+                            CompOp::Gt => l > r,
+                            CompOp::Le => l <= r,
+                            CompOp::Ge => l >= r,
+                            CompOp::Approx => (l - r).abs() < 1e-3,
+                        }
+                    }
+                    _ => {
+                        return Err(RuntimeError::TypeError(
+                            "Comparison requires numeric types".to_string(),
+                        ))
+                    }
+                };
+                Ok(result)
+            }
+
+            Constraint::And(left, right) => {
+                let left_result = self.eval_constraint(left)?;
+                if !left_result {
+                    return Ok(false);
+                }
+                self.eval_constraint(right)
+            }
+
+            Constraint::Or(left, right) => {
+                let left_result = self.eval_constraint(left)?;
+                if left_result {
+                    return Ok(true);
+                }
+                self.eval_constraint(right)
+            }
+
+            Constraint::Not(constraint) => {
+                let result = self.eval_constraint(constraint)?;
+                Ok(!result)
+            }
+
+            Constraint::Shape { tensor, shape } => {
+                // Get tensor value
+                let tensor_val = self.eval_expr(tensor)?;
+                let tensor_obj = tensor_val.as_tensor()?;
+
+                // Compare actual shape with expected dimensions
+                let actual_shape = tensor_obj.shape().dims();
+
+                if actual_shape.len() != shape.len() {
+                    return Ok(false);
+                }
+
+                for (i, dim) in shape.iter().enumerate() {
+                    match dim {
+                        Dimension::Fixed(expected) => {
+                            if actual_shape[i] != *expected {
+                                return Ok(false);
+                            }
+                        }
+                        _ => {
+                            // Variable or Dynamic dimensions always match
+                            continue;
+                        }
+                    }
+                }
+
+                Ok(true)
+            }
+
+            Constraint::Rank { tensor, rank } => {
+                // Get tensor value
+                let tensor_val = self.eval_expr(tensor)?;
+                let tensor = tensor_val.as_tensor()?;
+
+                // Compare ranks
+                let actual_rank = tensor.rank();
+                Ok(actual_rank == *rank)
+            }
+
+            Constraint::Norm { tensor, op, value } => {
+                // Get tensor value
+                let tensor_val = self.eval_expr(tensor)?;
+                let tensor = tensor_val.as_tensor()?;
+
+                // Calculate L2 norm
+                let data = tensor.to_vec();
+                let norm: f32 = data
+                    .iter()
+                    .map(|x| {
+                        let val = x.to_f32();
+                        val * val
+                    })
+                    .sum::<f32>()
+                    .sqrt();
+
+                // Compare using the comparison operator
+                let result = match op {
+                    CompOp::Eq => (norm as f64 - *value).abs() < 1e-6,
+                    CompOp::Ne => (norm as f64 - *value).abs() >= 1e-6,
+                    CompOp::Lt => (norm as f64) < *value,
+                    CompOp::Gt => (norm as f64) > *value,
+                    CompOp::Le => (norm as f64) <= *value,
+                    CompOp::Ge => (norm as f64) >= *value,
+                    CompOp::Approx => (norm as f64 - *value).abs() < 1e-3,
+                };
+
+                Ok(result)
+            }
+        }
     }
 
     /// Get a variable's value
