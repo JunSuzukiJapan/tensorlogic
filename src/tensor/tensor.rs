@@ -252,6 +252,100 @@ impl Tensor {
         self.reshape(vec![self.numel()])
     }
 
+    // === Save/Load operations ===
+
+    /// Save tensor to a binary file
+    ///
+    /// Format: [num_dims: u32][dim0: u32][dim1: u32]...[data: f16...]
+    pub fn save<P: AsRef<std::path::Path>>(&self, path: P) -> TensorResult<()> {
+        use std::fs::File;
+        use std::io::Write;
+
+        let mut file = File::create(path).map_err(|e| TensorError::InvalidOperation(
+            format!("Failed to create file: {}", e)
+        ))?;
+
+        // Write number of dimensions
+        let num_dims = self.dims().len() as u32;
+        file.write_all(&num_dims.to_le_bytes()).map_err(|e| TensorError::InvalidOperation(
+            format!("Failed to write dimensions count: {}", e)
+        ))?;
+
+        // Write each dimension
+        for &dim in self.dims() {
+            file.write_all(&(dim as u32).to_le_bytes()).map_err(|e| TensorError::InvalidOperation(
+                format!("Failed to write dimension: {}", e)
+            ))?;
+        }
+
+        // Write tensor data (f16)
+        let data = self.to_vec();
+        let bytes: Vec<u8> = data.iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        file.write_all(&bytes).map_err(|e| TensorError::InvalidOperation(
+            format!("Failed to write tensor data: {}", e)
+        ))?;
+
+        Ok(())
+    }
+
+    /// Load tensor from a binary file
+    ///
+    /// Format: [num_dims: u32][dim0: u32][dim1: u32]...[data: f16...]
+    pub fn load<P: AsRef<std::path::Path>>(device: &Device, path: P) -> TensorResult<Self> {
+        use std::fs::File;
+        use std::io::Read;
+
+        let mut file = File::open(path).map_err(|e| TensorError::InvalidOperation(
+            format!("Failed to open file: {}", e)
+        ))?;
+
+        // Read number of dimensions
+        let mut num_dims_bytes = [0u8; 4];
+        file.read_exact(&mut num_dims_bytes).map_err(|e| TensorError::InvalidOperation(
+            format!("Failed to read dimensions count: {}", e)
+        ))?;
+        let num_dims = u32::from_le_bytes(num_dims_bytes) as usize;
+
+        // Read each dimension
+        let mut shape = Vec::with_capacity(num_dims);
+        for _ in 0..num_dims {
+            let mut dim_bytes = [0u8; 4];
+            file.read_exact(&mut dim_bytes).map_err(|e| TensorError::InvalidOperation(
+                format!("Failed to read dimension: {}", e)
+            ))?;
+            shape.push(u32::from_le_bytes(dim_bytes) as usize);
+        }
+
+        // Calculate expected data size
+        let numel: usize = shape.iter().product();
+        let expected_bytes = numel * 2; // 2 bytes per f16
+
+        // Read tensor data
+        let mut bytes = vec![0u8; expected_bytes];
+        file.read_exact(&mut bytes).map_err(|e| TensorError::InvalidOperation(
+            format!("Failed to read tensor data: {}", e)
+        ))?;
+
+        // Convert bytes to f16 vector
+        let data: Vec<f16> = bytes.chunks_exact(2)
+            .map(|chunk| f16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect();
+
+        // Create tensor on specified device
+        match device {
+            Device::Metal(metal_device) => Self::from_vec_metal(metal_device, data, shape),
+            Device::CPU => Self::from_vec(data, shape),
+            Device::NeuralEngine => {
+                // NeuralEngine uses Metal backend for tensor storage
+                // We need a Metal device - for now, create a new one
+                let metal = MetalDevice::new()?;
+                Self::from_vec_metal(&metal, data, shape)
+            }
+        }
+    }
+
     // === Autograd operations ===
 
     /// Set gradient (public for optimizer use)
@@ -462,5 +556,25 @@ mod tests {
         let cpu_tensor = tensor.to_cpu().unwrap();
         assert!(cpu_tensor.buffer().is_cpu());
         assert_eq!(cpu_tensor.to_vec(), data);
+    }
+
+    #[test]
+    fn test_save_load() {
+        use std::fs;
+
+        let metal_device = get_test_device();
+        let data = vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)];
+        let tensor = Tensor::from_vec_metal(&metal_device, data.clone(), vec![2, 2]).unwrap();
+
+        let path = "/tmp/test_tensor.bin";
+        tensor.save(path).unwrap();
+
+        let device = Device::Metal(metal_device);
+        let loaded = Tensor::load(&device, path).unwrap();
+        assert_eq!(loaded.dims(), tensor.dims());
+        assert_eq!(loaded.to_vec(), data);
+
+        // Cleanup
+        fs::remove_file(path).ok();
     }
 }

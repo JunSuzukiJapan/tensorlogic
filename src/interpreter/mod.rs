@@ -26,7 +26,7 @@ use std::collections::HashMap;
 
 use crate::ast::*;
 use crate::tensor::Tensor;
-use crate::device::MetalDevice;
+use crate::device::{Device, MetalDevice};
 use crate::error::TensorError;
 use crate::logic::LogicEngine;
 use half::f16;
@@ -556,6 +556,7 @@ impl Interpreter {
                 ScalarLiteral::Complex { .. } => {
                     Err(RuntimeError::NotImplemented("Complex numbers not yet supported".to_string()))
                 }
+                ScalarLiteral::String(s) => Ok(Value::String(s.clone())),
             },
             TensorLiteral::Array(elements) => {
                 // Convert array to tensor
@@ -822,10 +823,71 @@ impl Interpreter {
     }
 
     /// Evaluate a function call
-    fn eval_function_call(&mut self, _name: &Identifier, _args: &[TensorExpr]) -> RuntimeResult<Value> {
-        Err(RuntimeError::NotImplemented(
-            "Function calls not yet implemented".to_string(),
-        ))
+    fn eval_function_call(&mut self, name: &Identifier, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        match name.as_str() {
+            "save" => {
+                // save(tensor, "filename")
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("save() expects 2 arguments (tensor, filename), got {}", args.len())
+                    ));
+                }
+
+                // Evaluate tensor argument
+                let tensor_val = self.eval_expr(&args[0])?;
+                let tensor = match tensor_val {
+                    Value::Tensor(t) => t,
+                    _ => return Err(RuntimeError::TypeError(
+                        "save() first argument must be a tensor".to_string()
+                    )),
+                };
+
+                // Evaluate filename argument
+                let filename_val = self.eval_expr(&args[1])?;
+                let filename = match filename_val {
+                    Value::String(s) => s,
+                    _ => return Err(RuntimeError::TypeError(
+                        "save() second argument must be a string (filename)".to_string()
+                    )),
+                };
+
+                // Save tensor to file
+                tensor.save(&filename).map_err(|e| RuntimeError::TensorError(e))?;
+
+                println!("Saved tensor to: {}", filename);
+                Ok(Value::Void)
+            }
+
+            "load" => {
+                // load("filename")
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("load() expects 1 argument (filename), got {}", args.len())
+                    ));
+                }
+
+                // Evaluate filename argument
+                let filename_val = self.eval_expr(&args[0])?;
+                let filename = match filename_val {
+                    Value::String(s) => s,
+                    _ => return Err(RuntimeError::TypeError(
+                        "load() argument must be a string (filename)".to_string()
+                    )),
+                };
+
+                // Load tensor from file (create Metal device for loading)
+                let metal_device = MetalDevice::new().map_err(|e| RuntimeError::TensorError(e))?;
+                let device = Device::Metal(metal_device);
+                let tensor = Tensor::load(&device, &filename).map_err(|e| RuntimeError::TensorError(e))?;
+
+                println!("Loaded tensor from: {} (shape: {:?})", filename, tensor.dims());
+                Ok(Value::Tensor(tensor))
+            }
+
+            _ => Err(RuntimeError::NotImplemented(
+                format!("Function '{}' not yet implemented", name.as_str()),
+            ))
+        }
     }
 
     /// Evaluate a constraint and return true/false

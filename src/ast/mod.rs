@@ -284,6 +284,7 @@ pub enum ScalarLiteral {
     Float(f64),
     Boolean(bool),
     Complex { real: f64, imag: f64 },
+    String(String),
 }
 
 /// Entity reference in embedding lookup

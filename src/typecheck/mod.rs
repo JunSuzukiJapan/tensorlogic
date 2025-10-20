@@ -435,6 +435,7 @@ impl TypeChecker {
                     ScalarLiteral::Integer(_) => BaseType::Int32,
                     ScalarLiteral::Boolean(_) => BaseType::Bool,
                     ScalarLiteral::Complex { .. } => BaseType::Complex64,
+                    ScalarLiteral::String(_) => BaseType::Int32, // Placeholder for string type
                 };
                 Ok(TensorTypeInfo::new(base_type, vec![]))
             }

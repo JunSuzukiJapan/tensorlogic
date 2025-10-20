@@ -587,6 +587,11 @@ impl TensorLogicParser {
 
                 Ok(TensorExpr::EmbeddingLookup { embedding, entity })
             }
+            Rule::string_literal => {
+                // String literals in expressions (e.g., for save/load filenames)
+                let s = Self::parse_string_literal(inner)?;
+                Ok(TensorExpr::Literal(TensorLiteral::Scalar(ScalarLiteral::String(s))))
+            }
             _ => Err(ParseError::UnexpectedRule {
                 expected: "tensor term".to_string(),
                 found: format!("{:?}", inner.as_rule()),

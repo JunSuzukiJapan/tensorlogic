@@ -1315,3 +1315,27 @@ main {
         result
     );
 }
+
+#[test]
+fn test_save_load() {
+    use std::fs;
+    
+    let source = r#"
+        tensor w: float16[2, 2] learnable = [[1.0, 2.0], [3.0, 4.0]]
+        
+        main {
+            result := save(w, "/tmp/test_interpreter_save.bin")
+            loaded := load("/tmp/test_interpreter_save.bin")
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program).unwrap();
+    
+    // Verify file was created
+    assert!(std::path::Path::new("/tmp/test_interpreter_save.bin").exists());
+    
+    // Cleanup
+    fs::remove_file("/tmp/test_interpreter_save.bin").ok();
+}

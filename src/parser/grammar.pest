@@ -112,6 +112,7 @@ tensor_term = {
     | einstein_sum
     | function_call
     | tensor_literal
+    | string_literal
     | identifier
 }
 
