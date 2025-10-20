@@ -10,7 +10,7 @@ use std::path::Path;
 
 use tensorlogic::parser::TensorLogicParser;
 use tensorlogic::interpreter::Interpreter;
-use tensorlogic::error_reporting::{ErrorReporter, helpers};
+use tensorlogic::error_reporting::{ErrorReporter, helpers, StackTrace, StackFrame, FrameType};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -132,22 +132,37 @@ fn run_file(file_path: &str, debug_mode: bool) -> Result<(), Box<dyn std::error:
     println!("\nExecuting...\n");
     let mut interpreter = Interpreter::new();
     if let Err(e) = interpreter.execute(&program) {
-        // Report runtime error with enhanced formatting
-        let diag = helpers::runtime_error_diagnostic(e.to_string(), None);
+        // Build stack trace from error context
+        let mut stack_trace = StackTrace::new();
+
+        // Add main execution frame
+        stack_trace.push(StackFrame::with_location(
+            "main".to_string(),
+            FrameType::MainBlock,
+            file_path.to_string(),
+            0,
+        ));
+
+        // Add error chain as stack frames
+        let mut source = e.source();
+        let mut level = 1;
+        while let Some(err) = source {
+            stack_trace.push(StackFrame::new(
+                format!("error level {}", level),
+                FrameType::Expression,
+            ));
+            source = err.source();
+            level += 1;
+        }
+
+        // Report runtime error with stack trace
+        let diag = helpers::runtime_error_with_trace(e.to_string(), None, stack_trace);
         error_reporter.report(diag);
         eprintln!("{}", error_reporter.format_all());
 
         if debug_mode {
             eprintln!("\n[DEBUG] Runtime error details:");
             eprintln!("[DEBUG] Error: {:?}", e);
-            eprintln!("[DEBUG] Error chain:");
-            let mut source = e.source();
-            let mut level = 1;
-            while let Some(err) = source {
-                eprintln!("[DEBUG]   {}: {}", level, err);
-                source = err.source();
-                level += 1;
-            }
         }
         std::process::exit(1);
     }

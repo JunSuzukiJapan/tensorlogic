@@ -1,6 +1,6 @@
 //! Helper functions for creating common error diagnostics
 
-use super::Diagnostic;
+use super::{Diagnostic, StackTrace, StackFrame, FrameType};
 use crate::ast::span::Span;
 use crate::typecheck::TypeError;
 
@@ -110,6 +110,38 @@ pub fn warning_diagnostic(message: impl Into<String>, span: Option<Span>) -> Dia
     }
 
     diag
+}
+
+/// Create a runtime error diagnostic with stack trace
+pub fn runtime_error_with_trace(
+    message: impl Into<String>,
+    span: Option<Span>,
+    stack_trace: StackTrace,
+) -> Diagnostic {
+    let mut diag = runtime_error_diagnostic(message, span);
+    diag = diag.with_stack_trace(stack_trace);
+    diag
+}
+
+/// Create a simple stack trace from error context
+pub fn simple_stack_trace(context: &str, file: Option<&str>) -> StackTrace {
+    let mut trace = StackTrace::new();
+
+    if let Some(f) = file {
+        trace.push(StackFrame::with_location(
+            context.to_string(),
+            FrameType::Statement,
+            f.to_string(),
+            0,
+        ));
+    } else {
+        trace.push(StackFrame::new(
+            context.to_string(),
+            FrameType::Statement,
+        ));
+    }
+
+    trace
 }
 
 #[cfg(test)]

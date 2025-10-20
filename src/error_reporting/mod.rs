@@ -5,5 +5,7 @@
 
 mod diagnostic;
 pub mod helpers;
+pub mod stack_trace;
 
 pub use diagnostic::{Diagnostic, Severity, ErrorReporter};
+pub use stack_trace::{StackTrace, StackFrame, FrameType};

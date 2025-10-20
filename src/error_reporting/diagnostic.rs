@@ -6,6 +6,8 @@
 use crate::ast::span::Span;
 use std::fmt;
 
+use super::stack_trace::StackTrace;
+
 #[cfg(test)]
 use crate::ast::span::Position;
 
@@ -35,6 +37,7 @@ pub struct Diagnostic {
     pub span: Option<Span>,
     pub notes: Vec<String>,
     pub suggestions: Vec<String>,
+    pub stack_trace: Option<StackTrace>,
 }
 
 impl Diagnostic {
@@ -45,6 +48,7 @@ impl Diagnostic {
             span: None,
             notes: Vec::new(),
             suggestions: Vec::new(),
+            stack_trace: None,
         }
     }
 
@@ -55,6 +59,7 @@ impl Diagnostic {
             span: None,
             notes: Vec::new(),
             suggestions: Vec::new(),
+            stack_trace: None,
         }
     }
 
@@ -70,6 +75,11 @@ impl Diagnostic {
 
     pub fn with_suggestion(mut self, suggestion: impl Into<String>) -> Self {
         self.suggestions.push(suggestion.into());
+        self
+    }
+
+    pub fn with_stack_trace(mut self, stack_trace: StackTrace) -> Self {
+        self.stack_trace = Some(stack_trace);
         self
     }
 
@@ -116,6 +126,14 @@ impl Diagnostic {
         // Add suggestions
         for suggestion in &self.suggestions {
             output.push_str(&format!("  = help: {}\n", suggestion));
+        }
+
+        // Add stack trace if available
+        if let Some(stack_trace) = &self.stack_trace {
+            if !stack_trace.is_empty() {
+                output.push_str("\n");
+                output.push_str(&stack_trace.format());
+            }
         }
 
         output
