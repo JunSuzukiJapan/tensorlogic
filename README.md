@@ -371,6 +371,10 @@ at your option.
 
 ## Acknowledgments
 
+This project was inspired by:
+- **[Andrej Karpathy's "Intro to Large Language Models"](https://www.youtube.com/watch?v=rkBLPYqPkP4)** - Insights on efficient neural computation and optimization
+- **[Tensor-Logic Paper (arXiv:2510.12269)](https://arxiv.org/abs/2510.12269)** - Theoretical foundation for integrating tensor algebra with logic programming
+
 Built with [Claude Code](https://claude.com/claude-code) using:
 - Apple's Metal framework for GPU acceleration
 - Apple's CoreML for Neural Engine integration
