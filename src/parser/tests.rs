@@ -205,11 +205,14 @@ fn test_parse_multiple_declarations() {
 
 #[test]
 fn test_parse_base_types() {
-    // TensorLogic only supports float16 type
+    // TensorLogic supports 6 types: float16, int16, int32, int64, bool, complex16
     let test_cases = vec![
         ("tensor a: float16[1]", BaseType::Float32),
-        ("tensor b: float16[2, 3]", BaseType::Float32),
-        ("tensor c: float16[?]", BaseType::Float32),
+        ("tensor b: int16[2, 3]", BaseType::Int16),
+        ("tensor c: int32[?]", BaseType::Int32),
+        ("tensor d: int64[5]", BaseType::Int64),
+        ("tensor e: bool[1]", BaseType::Bool),
+        ("tensor f: complex16[2, 2]", BaseType::Complex64),
     ];
 
     for (source, expected_type) in test_cases {

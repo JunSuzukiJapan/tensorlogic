@@ -29,7 +29,7 @@ tensor_decl = { "tensor" ~ identifier ~ ":" ~ tensor_type ~ ("=" ~ tensor_expr)?
 tensor_type = { base_type ~ "[" ~ dimension_list ~ "]" ~ learnable? }
 
 base_type = {
-    "float16"
+    "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
 }
 
 dimension_list = { dimension ~ ("," ~ dimension)* }
@@ -281,5 +281,5 @@ reserved_keyword = {
     | "shape" | "rank" | "norm" | "transpose" | "inv" | "det"
     | "objective" | "optimizer" | "epochs" | "auto"
     | "random" | "xavier" | "he" | "zeros" | "ones" | "void"
-    | "float32" | "float64" | "int32" | "int64" | "bool" | "complex64"
+    | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
 }

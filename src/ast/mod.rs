@@ -65,12 +65,13 @@ pub struct TensorType {
 /// Base scalar types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BaseType {
-    Float32,
+    Float32,  // Used for float16 (16-bit float)
     Float64,
+    Int16,    // 16-bit integer
     Int32,
     Int64,
     Bool,
-    Complex64,
+    Complex64,  // Used for complex16 (2x 16-bit floats)
 }
 
 /// Dimension specification
@@ -526,6 +527,51 @@ impl TensorType {
     pub fn learnable_float16(dims: Vec<usize>) -> Self {
         Self::learnable_float32(dims)
     }
+
+    /// Create a simple int16 tensor type
+    pub fn int16(dims: Vec<usize>) -> Self {
+        TensorType {
+            base_type: BaseType::Int16,
+            dimensions: dims.into_iter().map(Dimension::Fixed).collect(),
+            learnable: LearnableStatus::Default,
+        }
+    }
+
+    /// Create a simple int32 tensor type
+    pub fn int32(dims: Vec<usize>) -> Self {
+        TensorType {
+            base_type: BaseType::Int32,
+            dimensions: dims.into_iter().map(Dimension::Fixed).collect(),
+            learnable: LearnableStatus::Default,
+        }
+    }
+
+    /// Create a simple int64 tensor type
+    pub fn int64(dims: Vec<usize>) -> Self {
+        TensorType {
+            base_type: BaseType::Int64,
+            dimensions: dims.into_iter().map(Dimension::Fixed).collect(),
+            learnable: LearnableStatus::Default,
+        }
+    }
+
+    /// Create a simple bool tensor type
+    pub fn bool(dims: Vec<usize>) -> Self {
+        TensorType {
+            base_type: BaseType::Bool,
+            dimensions: dims.into_iter().map(Dimension::Fixed).collect(),
+            learnable: LearnableStatus::Default,
+        }
+    }
+
+    /// Create a simple complex16 tensor type (uses Complex64 internally)
+    pub fn complex16(dims: Vec<usize>) -> Self {
+        TensorType {
+            base_type: BaseType::Complex64,
+            dimensions: dims.into_iter().map(Dimension::Fixed).collect(),
+            learnable: LearnableStatus::Default,
+        }
+    }
 }
 
 impl TensorExpr {
@@ -575,12 +621,13 @@ impl Atom {
 impl fmt::Display for BaseType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            BaseType::Float32 => write!(f, "float32"),
+            BaseType::Float32 => write!(f, "float16"),  // Display as float16
             BaseType::Float64 => write!(f, "float64"),
+            BaseType::Int16 => write!(f, "int16"),
             BaseType::Int32 => write!(f, "int32"),
             BaseType::Int64 => write!(f, "int64"),
             BaseType::Bool => write!(f, "bool"),
-            BaseType::Complex64 => write!(f, "complex64"),
+            BaseType::Complex64 => write!(f, "complex16"),  // Display as complex16
         }
     }
 }

@@ -163,7 +163,12 @@ impl TensorLogicParser {
 
     fn parse_base_type(pair: pest::iterators::Pair<Rule>) -> Result<BaseType, ParseError> {
         match pair.as_str() {
-            "float16" => Ok(BaseType::Float32), // Using Float32 enum value but semantically it's float16
+            "float16" => Ok(BaseType::Float32), // Float32 enum represents float16 (16-bit float)
+            "int16" => Ok(BaseType::Int16),
+            "int32" => Ok(BaseType::Int32),
+            "int64" => Ok(BaseType::Int64),
+            "bool" => Ok(BaseType::Bool),
+            "complex16" => Ok(BaseType::Complex64), // Complex64 enum represents complex16 (2x 16-bit floats)
             s => Err(ParseError::InvalidValue(format!("Unknown base type: {}", s))),
         }
     }
