@@ -5,9 +5,11 @@
 
 pub mod ast;
 pub mod autograd;
+pub mod coreml;
 pub mod device;
 pub mod error;
 pub mod interpreter;
+pub mod logic;
 pub mod ops;
 pub mod optim;
 pub mod parser;
