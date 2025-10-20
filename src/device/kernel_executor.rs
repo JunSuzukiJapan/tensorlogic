@@ -200,7 +200,7 @@ mod tests {
 
         let a = MetalBuffer::from_f16_slice(device.metal_device(), &a_data).unwrap();
         let b = MetalBuffer::from_f16_slice(device.metal_device(), &b_data).unwrap();
-        let result = MetalBuffer::new_uninit(device.metal_device(), 3).unwrap();
+        let result = MetalBuffer::new_uninit_pooled(device.buffer_pool(), 3).unwrap();
 
         // Use global executor
         let executor = get_kernel_executor().unwrap();
@@ -224,7 +224,7 @@ mod tests {
 
         let a = MetalBuffer::from_f16_slice(device.metal_device(), &a_data).unwrap();
         let b = MetalBuffer::from_f16_slice(device.metal_device(), &b_data).unwrap();
-        let result = MetalBuffer::new_uninit(device.metal_device(), 3).unwrap();
+        let result = MetalBuffer::new_uninit_pooled(device.buffer_pool(), 3).unwrap();
 
         // Use global executor
         let executor = get_kernel_executor().unwrap();

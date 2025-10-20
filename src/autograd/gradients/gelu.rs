@@ -50,7 +50,7 @@ impl GELUBackward {
         }
 
         // Create result buffer
-        let result_buf = MetalBuffer::new_uninit(device.metal_device(), grad_output.numel())?;
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), grad_output.numel())?;
 
         // Execute kernel
         let mut executor = crate::device::KernelExecutor::new(device.clone());

@@ -34,7 +34,7 @@ impl Tensor {
         let num_blocks = (count + threadgroup_size - 1) / threadgroup_size;
 
         // Stage 1: Reduce to blocks
-        let stage1_buf = MetalBuffer::new_uninit(device.metal_device(), num_blocks)?;
+        let stage1_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), num_blocks)?;
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
         let pipeline = executor.get_or_compile_pipeline("sum_global_f16")?;
@@ -115,7 +115,7 @@ impl Tensor {
         }
 
         let output_numel = output_dims.iter().product();
-        let output_buf = MetalBuffer::new_uninit(device.metal_device(), output_numel)?;
+        let output_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), output_numel)?;
 
         // Prepare shape buffers
         let input_shape_u32: Vec<u32> = input_dims.iter().map(|&x| x as u32).collect();
@@ -268,7 +268,7 @@ impl Tensor {
         }
 
         let output_numel = output_dims.iter().product();
-        let output_buf = MetalBuffer::new_uninit(device.metal_device(), output_numel)?;
+        let output_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), output_numel)?;
 
         // Prepare shape buffers
         let input_shape_u32: Vec<u32> = input_dims.iter().map(|&x| x as u32).collect();
@@ -357,7 +357,7 @@ impl Tensor {
         let threadgroup_size = 256;
         let num_blocks = (count + threadgroup_size - 1) / threadgroup_size;
 
-        let stage1_buf = MetalBuffer::new_uninit(device.metal_device(), num_blocks)?;
+        let stage1_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), num_blocks)?;
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
         let pipeline = executor.get_or_compile_pipeline("max_global_f16")?;
@@ -443,7 +443,7 @@ impl Tensor {
         let threadgroup_size = 256;
         let num_blocks = (count + threadgroup_size - 1) / threadgroup_size;
 
-        let stage1_buf = MetalBuffer::new_uninit(device.metal_device(), num_blocks)?;
+        let stage1_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), num_blocks)?;
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
         let pipeline = executor.get_or_compile_pipeline("min_global_f16")?;

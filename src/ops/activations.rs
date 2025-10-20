@@ -63,7 +63,7 @@ impl Tensor {
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::new_uninit(device.metal_device(), self.numel())?;
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         let mut executor = crate::device::KernelExecutor::new(device);
         executor.execute_unary_op("relu_f16", input_buf, &result_buf)?;
@@ -115,7 +115,7 @@ impl Tensor {
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::new_uninit(device.metal_device(), self.numel())?;
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         let mut executor = crate::device::KernelExecutor::new(device);
         executor.execute_unary_op("gelu_f16", input_buf, &result_buf)?;

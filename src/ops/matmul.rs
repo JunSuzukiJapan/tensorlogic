@@ -98,7 +98,7 @@ impl Tensor {
         }
 
         // Create result buffer
-        let result_buf = MetalBuffer::new_uninit(device.metal_device(), m * n)?;
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), m * n)?;
 
         // Create buffers for dimensions
         let m_u32 = m as u32;

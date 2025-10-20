@@ -1,15 +1,27 @@
 //! Metal device management
 
+use crate::device::BufferPool;
 use crate::error::{TensorError, TensorResult};
 use metal::{Device as MTLDevice, CommandQueue, Library};
 use std::sync::Arc;
 
 /// Metal GPU device wrapper
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MetalDevice {
     device: Arc<MTLDevice>,
     command_queue: Arc<CommandQueue>,
     library: Option<Arc<Library>>,
+    buffer_pool: BufferPool,
+}
+
+impl std::fmt::Debug for MetalDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MetalDevice")
+            .field("device", &self.device.name())
+            .field("command_queue", &"CommandQueue")
+            .field("library", &self.library.is_some())
+            .finish()
+    }
 }
 
 impl MetalDevice {
@@ -19,23 +31,37 @@ impl MetalDevice {
             .ok_or_else(|| TensorError::MetalError("No Metal device found".to_string()))?;
 
         let command_queue = device.new_command_queue();
+        let buffer_pool = BufferPool::new(&device);
 
         Ok(Self {
             device: Arc::new(device),
             command_queue: Arc::new(command_queue),
             library: None,
+            buffer_pool,
         })
     }
 
     /// Create Metal device with specific device
     pub fn with_device(device: MTLDevice) -> TensorResult<Self> {
         let command_queue = device.new_command_queue();
+        let buffer_pool = BufferPool::new(&device);
 
         Ok(Self {
             device: Arc::new(device),
             command_queue: Arc::new(command_queue),
             library: None,
+            buffer_pool,
         })
+    }
+
+    /// Get the buffer pool for efficient buffer allocation
+    pub fn buffer_pool(&self) -> &BufferPool {
+        &self.buffer_pool
+    }
+
+    /// Get buffer pool statistics
+    pub fn buffer_pool_stats(&self) -> crate::device::buffer_pool::PoolStats {
+        self.buffer_pool.stats()
     }
 
     /// Get the underlying Metal device

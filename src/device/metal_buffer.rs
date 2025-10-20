@@ -1,6 +1,6 @@
 //! Metal buffer management for f16 data
 
-use crate::device::NeuralEngineBuffer;
+use crate::device::{BufferPool, NeuralEngineBuffer};
 use crate::error::{TensorError, TensorResult};
 use half::f16;
 use metal::{Buffer, Device as MTLDevice};
@@ -55,6 +55,16 @@ impl MetalBuffer {
     pub fn ones(device: &MTLDevice, length: usize) -> TensorResult<Self> {
         let ones = vec![f16::ONE; length];
         Self::from_f16_slice(device, &ones)
+    }
+
+    /// Create a new uninitialized Metal buffer from pool
+    pub fn new_uninit_pooled(pool: &BufferPool, length: usize) -> TensorResult<Self> {
+        pool.allocate(length)
+    }
+
+    /// Create a new Metal buffer filled with zeros from pool
+    pub fn zeros_pooled(pool: &BufferPool, length: usize) -> TensorResult<Self> {
+        pool.allocate_zeros(length)
     }
 
     /// Get the buffer length (number of f16 elements)

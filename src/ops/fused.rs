@@ -53,7 +53,7 @@ impl Tensor {
         }
 
         // Create result buffer
-        let result_buf = MetalBuffer::new_uninit(device.metal_device(), self.numel())?;
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         // Execute kernel
         let mut executor = crate::device::KernelExecutor::new(device.clone());
@@ -130,7 +130,7 @@ impl Tensor {
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::new_uninit(device.metal_device(), self.numel())?;
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
         let pipeline = executor.get_or_compile_pipeline("fused_mul_relu_f16")?;
@@ -175,6 +175,110 @@ impl Tensor {
         Tensor::from_vec(result, self.dims().to_vec())
     }
 
+    /// Fused matmul + activation
+    ///
+    /// Computes result = activation(self @ other)
+    /// More efficient than separate matmul() and activation() calls
+    pub fn matmul_with_activation(&self, other: &Tensor, activation: Activation) -> TensorResult<Self> {
+        // Shape validation
+        if self.rank() != 2 || other.rank() != 2 {
+            return Err(TensorError::InvalidDimension {
+                dim: if self.rank() != 2 { 0 } else { 1 },
+            });
+        }
+
+        let m = self.dims()[0];
+        let k1 = self.dims()[1];
+        let k2 = other.dims()[0];
+        let n = other.dims()[1];
+
+        if k1 != k2 {
+            return Err(TensorError::ShapeMismatch {
+                expected: vec![m, k1],
+                actual: vec![k2, n],
+            });
+        }
+
+        match self.device() {
+            Device::Metal(_) => self.matmul_with_activation_metal(other, activation),
+            Device::CPU => {
+                // Fallback: separate operations
+                let result = self.matmul(other)?;
+                match activation {
+                    Activation::None => Ok(result),
+                    Activation::ReLU => result.relu(),
+                    Activation::GELU => result.gelu(),
+                }
+            }
+            Device::NeuralEngine => {
+                // Fallback: separate operations
+                let result = self.matmul(other)?;
+                match activation {
+                    Activation::None => Ok(result),
+                    Activation::ReLU => result.relu(),
+                    Activation::GELU => result.gelu(),
+                }
+            }
+        }
+    }
+
+    fn matmul_with_activation_metal(&self, other: &Tensor, activation: Activation) -> TensorResult<Self> {
+        let a_buf = self.buffer().as_metal()?;
+        let b_buf = other.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        // Load shaders
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/fused_ops.metal");
+            device.load_library(shader_source)?;
+        }
+
+        let m = self.dims()[0] as u32;
+        let k = self.dims()[1] as u32;
+        let n = other.dims()[1] as u32;
+
+        let output_shape = vec![m as usize, n as usize];
+        let output_numel = (m * n) as usize;
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), output_numel)?;
+
+        let mut executor = crate::device::KernelExecutor::new(device.clone());
+        let pipeline = executor.get_or_compile_pipeline("fused_linear_f16")?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&a_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&b_buf.buffer), 0);
+        encoder.set_buffer(2, None, 0); // No bias
+        encoder.set_buffer(3, Some(&result_buf.buffer), 0);
+        encoder.set_bytes(4, std::mem::size_of::<u32>() as u64, &m as *const u32 as *const _);
+        encoder.set_bytes(5, std::mem::size_of::<u32>() as u64, &k as *const u32 as *const _);
+        encoder.set_bytes(6, std::mem::size_of::<u32>() as u64, &n as *const u32 as *const _);
+        let activation_val = activation as u32;
+        encoder.set_bytes(7, std::mem::size_of::<u32>() as u64, &activation_val as *const u32 as *const _);
+        let has_bias = false;
+        encoder.set_bytes(8, std::mem::size_of::<bool>() as u64, &has_bias as *const bool as *const _);
+
+        let grid_size = metal::MTLSize::new(n as u64, m as u64, 1);
+        let threadgroup_size = metal::MTLSize::new(16.min(n as u64), 16.min(m as u64), 1);
+
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            crate::tensor::TensorShape::new(output_shape),
+            self.device().clone(),
+        )
+    }
+
     /// Fused affine transformation: self * scale + bias
     ///
     /// Used in batch normalization and similar operations.
@@ -209,7 +313,7 @@ impl Tensor {
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::new_uninit(device.metal_device(), self.numel())?;
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
         let pipeline = executor.get_or_compile_pipeline("fused_affine_f16")?;
@@ -422,5 +526,24 @@ mod tests {
 
         // Results should be identical
         assert_eq!(fused_result.to_vec(), unfused_result.to_vec());
+    }
+
+    #[test]
+    fn test_matmul_relu_fusion() {
+        let device = get_test_device();
+
+        let a = Tensor::from_vec_metal(&device, vec![f16::ONE; 4], vec![2, 2]).unwrap();
+        let b = Tensor::from_vec_metal(&device, vec![f16::ONE; 4], vec![2, 2]).unwrap();
+
+        let fused = a.matmul_with_activation(&b, Activation::ReLU).unwrap();
+        let unfused = a.matmul(&b).unwrap().relu().unwrap();
+
+        // Should be equivalent
+        let fused_data = fused.to_vec();
+        let unfused_data = unfused.to_vec();
+
+        for (f, u) in fused_data.iter().zip(unfused_data.iter()) {
+            assert!((f.to_f32() - u.to_f32()).abs() < 0.01);
+        }
     }
 }

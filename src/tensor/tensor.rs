@@ -101,7 +101,8 @@ impl Tensor {
     /// Create a tensor filled with zeros on Metal device
     pub fn zeros(device: &MetalDevice, shape: Vec<usize>) -> TensorResult<Self> {
         let shape = TensorShape::new(shape);
-        let metal_buffer = MetalBuffer::zeros(device.metal_device(), shape.numel())?;
+        // Use buffer pool for allocation
+        let metal_buffer = MetalBuffer::zeros_pooled(device.buffer_pool(), shape.numel())?;
         let buffer = BufferHandle::Metal(metal_buffer);
 
         Self::new(buffer, shape, Device::Metal(device.clone()))

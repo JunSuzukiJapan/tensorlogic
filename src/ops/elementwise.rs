@@ -82,7 +82,7 @@ impl Tensor {
         }
 
         // Create result buffer
-        let result_buf = MetalBuffer::new_uninit(device.metal_device(), self.numel())?;
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         // Create local executor for this operation
         let mut executor = crate::device::KernelExecutor::new(device);
@@ -145,7 +145,7 @@ impl Tensor {
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::new_uninit(device.metal_device(), self.numel())?;
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         let mut executor = crate::device::KernelExecutor::new(device);
         executor.execute_binary_op("sub_f16", a_buf, b_buf, &result_buf)?;
@@ -204,7 +204,7 @@ impl Tensor {
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::new_uninit(device.metal_device(), self.numel())?;
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         let mut executor = crate::device::KernelExecutor::new(device);
         executor.execute_binary_op("mul_f16", a_buf, b_buf, &result_buf)?;
@@ -263,7 +263,7 @@ impl Tensor {
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::new_uninit(device.metal_device(), self.numel())?;
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         let mut executor = crate::device::KernelExecutor::new(device);
         executor.execute_binary_op("div_f16", a_buf, b_buf, &result_buf)?;

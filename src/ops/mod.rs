@@ -9,4 +9,6 @@ pub mod einsum;
 pub mod fused;
 pub mod inplace;
 
+// Re-export commonly used types
 pub use fused::Activation;
+
