@@ -58,6 +58,8 @@ impl Tensor {
         command_buffer.wait_until_completed();
 
         // Stage 2: Reduce blocks to final result (CPU for simplicity)
+        // Note: For small num_blocks (<256), CPU reduction is faster than launching
+        // another GPU kernel due to ~0.15-0.20ms kernel launch overhead
         let stage1_data = stage1_buf.to_vec();
         let mut final_sum = f16::ZERO;
         for &val in &stage1_data {

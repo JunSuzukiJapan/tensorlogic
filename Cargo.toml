@@ -53,3 +53,8 @@ path = "examples/simple_training.rs"
 name = "coreml_benchmark"
 path = "benches/coreml_benchmark.rs"
 harness = false
+
+[[bench]]
+name = "metal_performance"
+path = "benches/metal_performance.rs"
+harness = false
