@@ -537,8 +537,8 @@ impl Interpreter {
                 self.eval_function_call(name, args)
             }
 
-            TensorExpr::EinSum { .. } => {
-                Err(RuntimeError::NotImplemented("einsum not yet implemented".to_string()))
+            TensorExpr::EinSum { spec, tensors } => {
+                self.eval_einsum(spec, tensors)
             }
 
             TensorExpr::EmbeddingLookup { embedding, entity } => {
@@ -800,6 +800,26 @@ impl Interpreter {
         let embedding_tensor = Tensor::from_vec(entity_embedding, vec![dimension])?;
 
         Ok(Value::Tensor(embedding_tensor))
+    }
+
+    /// Evaluate Einstein summation: einsum("ij,jk->ik", A, B)
+    fn eval_einsum(&mut self, spec: &str, tensor_exprs: &[TensorExpr]) -> RuntimeResult<Value> {
+        // Evaluate all tensor expressions
+        let mut tensors = Vec::new();
+        for expr in tensor_exprs {
+            let value = self.eval_expr(expr)?;
+            let tensor = value.as_tensor()?;
+            tensors.push(tensor.clone());
+        }
+
+        // Create references for einsum call
+        let tensor_refs: Vec<&Tensor> = tensors.iter().collect();
+
+        // Call einsum operation
+        let result = Tensor::einsum(spec, &tensor_refs)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(Value::Tensor(result))
     }
 
     /// Evaluate a function call

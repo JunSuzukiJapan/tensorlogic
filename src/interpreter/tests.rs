@@ -1107,3 +1107,98 @@ main {{
         assert!(result.is_ok(), "Init method '{}' should succeed: {:?}", method, result);
     }
 }
+
+
+// ============================================================================
+// EinSum Tests
+// ============================================================================
+
+#[test]
+fn test_einsum_matmul() {
+    let source = r#"
+main {
+    A := [[1.0, 2.0], [3.0, 4.0]]
+    B := [[5.0, 6.0], [7.0, 8.0]]
+    C := einsum("ij,jk->ik", A, B)
+}
+"#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    let mut interpreter = Interpreter::new();
+    
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "EinSum matmul should succeed: {:?}", result);
+    
+    // Verify result shape
+    let c = interpreter.env.get_variable("C").unwrap();
+    if let Value::Tensor(t) = c {
+        assert_eq!(t.shape().dims(), &[2, 2], "Result should be 2x2 matrix");
+    } else {
+        panic!("Expected Tensor value for C");
+    }
+}
+
+#[test]
+fn test_einsum_trace() {
+    let source = r#"
+main {
+    A := [[1.0, 2.0], [3.0, 4.0]]
+    trace := einsum("ii->", A)
+}
+"#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    let mut interpreter = Interpreter::new();
+    
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "EinSum trace should succeed: {:?}", result);
+}
+
+#[test]
+fn test_einsum_transpose() {
+    let source = r#"
+main {
+    A := [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+    B := einsum("ij->ji", A)
+}
+"#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    let mut interpreter = Interpreter::new();
+    
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "EinSum transpose should succeed: {:?}", result);
+    
+    // Verify result shape (should be transposed)
+    let b = interpreter.env.get_variable("B").unwrap();
+    if let Value::Tensor(t) = b {
+        assert_eq!(t.shape().dims(), &[3, 2], "Result should be 3x2 matrix (transposed)");
+    } else {
+        panic!("Expected Tensor value for B");
+    }
+}
+
+#[test]
+fn test_einsum_batch_matmul() {
+    let source = r#"
+main {
+    A := [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]
+    B := [[[1.0, 0.0], [0.0, 1.0]], [[1.0, 0.0], [0.0, 1.0]]]
+    C := einsum("bij,bjk->bik", A, B)
+}
+"#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    let mut interpreter = Interpreter::new();
+    
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "EinSum batch matmul should succeed: {:?}", result);
+    
+    // Verify result shape
+    let c = interpreter.env.get_variable("C").unwrap();
+    if let Value::Tensor(t) = c {
+        assert_eq!(t.shape().dims(), &[2, 2, 2], "Result should be 2x2x2 tensor");
+    } else {
+        panic!("Expected Tensor value for C");
+    }
+}
