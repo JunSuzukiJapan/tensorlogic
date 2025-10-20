@@ -87,6 +87,9 @@ pub trait Optimizer {
 
     /// Get number of parameter groups
     fn num_param_groups(&self) -> usize;
+
+    /// Get reference to parameters
+    fn params(&self) -> &[Tensor];
 }
 
 /// Helper function to create a scalar tensor

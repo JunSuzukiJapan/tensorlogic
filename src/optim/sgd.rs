@@ -218,6 +218,15 @@ impl Optimizer for SGD {
     fn num_param_groups(&self) -> usize {
         self.param_groups.len()
     }
+
+    fn params(&self) -> &[Tensor] {
+        // Return parameters from the first param group
+        if !self.param_groups.is_empty() {
+            &self.param_groups[0].params
+        } else {
+            &[]
+        }
+    }
 }
 
 #[cfg(test)]

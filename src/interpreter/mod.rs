@@ -928,6 +928,11 @@ impl Interpreter {
         // Training loop with detailed progress display
         println!("\n--- Training Progress ---");
         for epoch in 0..spec.epochs {
+            // Zero gradients before computing loss
+            if epoch > 0 {
+                opt.zero_grad();
+            }
+
             // Compute loss
             let loss_val = self.eval_expr(&spec.objective)?;
             let loss_tensor = loss_val.as_tensor()?;
@@ -943,28 +948,65 @@ impl Interpreter {
             // Display epoch progress
             print!("Epoch {:3}/{}: Loss = {:.6}", epoch + 1, spec.epochs, loss_scalar);
 
-            // Compute gradients (placeholder - actual backward pass would be here)
-            // In a full implementation:
-            // 1. loss_tensor.backward()
-            // 2. Collect gradients from all learnable parameters
-            // 3. Calculate gradient norms
-            // 4. Apply optimizer step
-
-            // For now, simulate gradient computation
-            // In a full implementation, this would collect actual gradients
-
-            // Apply optimizer step (this updates parameters in-place)
-            // Note: This may fail if gradients are not available (known limitation)
-            match opt.step() {
+            // Compute gradients using autograd
+            // 1. Compute backward pass
+            let mut loss_tensor_mut = loss_tensor.clone();
+            match loss_tensor_mut.backward() {
                 Ok(_) => {
-                    // Optimizer has updated parameters internally
-                    // Calculate gradient norm (placeholder)
-                    let grad_norm = 0.001 * (epoch + 1) as f32; // Simulated
-                    print!(", Grad Norm: {:.6}", grad_norm);
+                    // 2. Collect gradients from all learnable parameters and compute norm
+                    let mut grad_norm_squared = 0.0f32;
+                    for (name, _) in &learnable_params {
+                        if let Ok(Value::Tensor(param_tensor)) = self.env.get_variable(name) {
+                            if let Some(grad) = param_tensor.grad() {
+                                // Calculate gradient norm contribution
+                                let grad_data = grad.to_vec();
+                                for g in grad_data {
+                                    let gf = g.to_f32();
+                                    grad_norm_squared += gf * gf;
+                                }
+                            }
+                        }
+                    }
+                    let grad_norm = grad_norm_squared.sqrt();
+
+                    // 3. Apply optimizer step (this updates parameters in-place)
+                    match opt.step() {
+                        Ok(_) => {
+                            print!(", Grad Norm: {:.6}", grad_norm);
+
+                            // 4. Update environment with optimized parameters
+                            // The optimizer has updated the parameters internally
+                            // We need to sync them back to the environment
+                            // IMPORTANT: Ensure requires_grad is maintained
+                            let updated_params = opt.params();
+                            for ((name, _), new_tensor) in learnable_params.iter().zip(updated_params.iter()) {
+                                let mut param_with_grad = new_tensor.clone();
+                                param_with_grad.set_requires_grad(true);
+                                self.env.set_variable(name.clone(), Value::Tensor(param_with_grad));
+                            }
+
+                            // 5. Rebuild learnable_params vector to point to updated tensors
+                            // This ensures the next epoch's backward pass can find the parameters
+                            learnable_params.clear();
+                            for (name, value) in &self.env.variables {
+                                if Some(name.as_str()) == objective_name {
+                                    continue;
+                                }
+                                if let Value::Tensor(tensor) = value {
+                                    if tensor.requires_grad() {
+                                        learnable_params.push((name.clone(), tensor.clone()));
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            print!(" [Optimizer error: {}]", e);
+                        }
+                    }
                 }
                 Err(e) => {
-                    // Gradient computation not fully implemented
-                    print!(" [Note: Gradient update skipped - {}]", e);
+                    // Backward pass failed
+                    print!(" [Note: Gradient computation failed - {}]", e);
                 }
             }
 
