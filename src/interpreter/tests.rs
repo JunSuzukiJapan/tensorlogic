@@ -947,3 +947,163 @@ main {
     let result = interpreter.execute(&program);
     assert!(result.is_ok(), "Rule-based inference should succeed: {:?}", result);
 }
+
+
+// ============================================================================
+// Embedding Tests
+// ============================================================================
+
+#[test]
+fn test_embedding_declaration_explicit() {
+    let source = r#"
+embedding person_embed {
+    entities: {alice, bob, charlie}
+    dimension: 64
+    init: xavier
+}
+
+main {
+    x := 1
+}
+"#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    let mut interpreter = Interpreter::new();
+    
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "Embedding declaration should succeed: {:?}", result);
+}
+
+#[test]
+fn test_embedding_lookup_literal() {
+    let source = r#"
+embedding person_embed {
+    entities: {alice, bob, charlie}
+    dimension: 8
+    init: zeros
+}
+
+main {
+    alice_vec := person_embed["alice"]
+}
+"#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    let mut interpreter = Interpreter::new();
+    
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "Embedding lookup should succeed: {:?}", result);
+    
+    // Verify that alice_vec is a tensor with dimension 8
+    let alice_vec = interpreter.env.get_variable("alice_vec").unwrap();
+    if let Value::Tensor(t) = alice_vec {
+        assert_eq!(t.shape().dims(), &[8], "Alice embedding should have dimension 8");
+    } else {
+        panic!("Expected Tensor value for alice_vec");
+    }
+}
+
+#[test]
+fn test_embedding_multiple_lookups() {
+    let source = r#"
+embedding person_embed {
+    entities: {alice, bob, charlie}
+    dimension: 4
+    init: ones
+}
+
+main {
+    alice_vec := person_embed["alice"]
+    bob_vec := person_embed["bob"]
+    charlie_vec := person_embed["charlie"]
+}
+"#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    let mut interpreter = Interpreter::new();
+    
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "Multiple embedding lookups should succeed: {:?}", result);
+    
+    // Verify all three embeddings exist
+    assert!(interpreter.env.get_variable("alice_vec").is_ok());
+    assert!(interpreter.env.get_variable("bob_vec").is_ok());
+    assert!(interpreter.env.get_variable("charlie_vec").is_ok());
+}
+
+#[test]
+fn test_embedding_operations() {
+    let source = r#"
+embedding person_embed {
+    entities: {alice, bob}
+    dimension: 4
+    init: ones
+}
+
+main {
+    alice_vec := person_embed["alice"]
+    bob_vec := person_embed["bob"]
+    similarity := alice_vec + bob_vec
+}
+"#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    let mut interpreter = Interpreter::new();
+    
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "Embedding operations should succeed: {:?}", result);
+    
+    // Verify similarity tensor exists and has correct shape
+    let similarity = interpreter.env.get_variable("similarity").unwrap();
+    if let Value::Tensor(t) = similarity {
+        assert_eq!(t.shape().dims(), &[4], "Similarity should have dimension 4");
+    } else {
+        panic!("Expected Tensor value for similarity");
+    }
+}
+
+#[test]
+fn test_embedding_auto_entity_set() {
+    let source = r#"
+embedding dynamic_embed {
+    entities: auto
+    dimension: 8
+    init: random
+}
+
+main {
+    x := 1
+}
+"#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    let mut interpreter = Interpreter::new();
+    
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "Auto entity set should succeed: {:?}", result);
+}
+
+#[test]
+fn test_embedding_init_methods() {
+    let init_methods = vec!["random", "xavier", "he", "zeros", "ones"];
+    
+    for method in init_methods {
+        let source = format!(r#"
+embedding test_embed {{
+    entities: {{a, b, c}}
+    dimension: 4
+    init: {}
+}}
+
+main {{
+    x := test_embed["a"]
+}}
+"#, method);
+
+        let program = TensorLogicParser::parse_program(&source).unwrap();
+        let mut interpreter = Interpreter::new();
+        
+        let result = interpreter.execute(&program);
+        assert!(result.is_ok(), "Init method '{}' should succeed: {:?}", method, result);
+    }
+}

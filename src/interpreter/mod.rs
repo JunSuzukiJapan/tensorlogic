@@ -162,6 +162,8 @@ impl Default for RuntimeEnvironment {
 pub struct Interpreter {
     env: RuntimeEnvironment,
     logic_engine: LogicEngine,
+    // Embedding storage: (embedding_name, entity_index_map, embedding_matrix)
+    embeddings: HashMap<String, (HashMap<String, usize>, Tensor)>,
 }
 
 impl Interpreter {
@@ -169,6 +171,7 @@ impl Interpreter {
         Self {
             env: RuntimeEnvironment::new(),
             logic_engine: LogicEngine::new(),
+            embeddings: HashMap::new(),
         }
     }
 
@@ -200,10 +203,7 @@ impl Interpreter {
                 self.logic_engine.add_rule(rule.clone());
                 Ok(())
             }
-            Declaration::Embedding(_) => {
-                // Simplified: embedding initialization deferred
-                Ok(())
-            }
+            Declaration::Embedding(embedding_decl) => self.execute_embedding_decl(embedding_decl),
             Declaration::Function(_) => {
                 // Functions are executed when called
                 Ok(())
@@ -230,6 +230,83 @@ impl Interpreter {
 
         self.env
             .set_variable(decl.name.as_str().to_string(), Value::Tensor(tensor));
+
+        Ok(())
+    }
+
+    /// Execute an embedding declaration
+    fn execute_embedding_decl(&mut self, decl: &EmbeddingDecl) -> RuntimeResult<()> {
+        use crate::ast::{EntitySet, InitMethod};
+        
+        // Build entity-to-index mapping
+        let entity_map: HashMap<String, usize> = match &decl.entities {
+            EntitySet::Explicit(entities) => {
+                entities
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, id)| (id.as_str().to_string(), idx))
+                    .collect()
+            }
+            EntitySet::Auto => {
+                // Auto entity set: initially empty, entities added on-demand
+                HashMap::new()
+            }
+        };
+
+        let num_entities = entity_map.len().max(1); // At least 1 for auto
+        let device = self.env.metal_device();
+        
+        // Initialize embedding matrix [num_entities, dimension]
+        let embedding_matrix = match decl.init_method {
+            InitMethod::Random => {
+                // Random initialization in range [-0.1, 0.1]
+                let mut data = Vec::with_capacity(num_entities * decl.dimension);
+                use rand::Rng;
+                let mut rng = rand::thread_rng();
+                for _ in 0..(num_entities * decl.dimension) {
+                    let val: f32 = rng.gen_range(-0.1..0.1);
+                    data.push(half::f16::from_f32(val));
+                }
+                Tensor::from_vec(data, vec![num_entities, decl.dimension])?
+            }
+            InitMethod::Xavier => {
+                // Xavier initialization: uniform(-sqrt(6/(n+m)), sqrt(6/(n+m)))
+                let limit = (6.0 / (num_entities + decl.dimension) as f32).sqrt();
+                let mut data = Vec::with_capacity(num_entities * decl.dimension);
+                use rand::Rng;
+                let mut rng = rand::thread_rng();
+                for _ in 0..(num_entities * decl.dimension) {
+                    let val: f32 = rng.gen_range(-limit..limit);
+                    data.push(half::f16::from_f32(val));
+                }
+                Tensor::from_vec(data, vec![num_entities, decl.dimension])?
+            }
+            InitMethod::He => {
+                // He initialization: normal(0, sqrt(2/n))
+                let stddev = (2.0 / num_entities as f32).sqrt();
+                let mut data = Vec::with_capacity(num_entities * decl.dimension);
+                use rand::Rng;
+                use rand_distr::{Normal, Distribution};
+                let mut rng = rand::thread_rng();
+                let normal = Normal::new(0.0, stddev as f64).unwrap();
+                for _ in 0..(num_entities * decl.dimension) {
+                    let val: f32 = normal.sample(&mut rng) as f32;
+                    data.push(half::f16::from_f32(val));
+                }
+                Tensor::from_vec(data, vec![num_entities, decl.dimension])?
+            }
+            InitMethod::Zeros => Tensor::zeros(&device, vec![num_entities, decl.dimension])?,
+            InitMethod::Ones => Tensor::ones(&device, vec![num_entities, decl.dimension])?,
+        };
+
+        // Store embedding with entity mapping
+        self.embeddings.insert(
+            decl.name.as_str().to_string(),
+            (entity_map, embedding_matrix),
+        );
+
+        println!("Initialized embedding '{}': {} entities × {} dimensions", 
+            decl.name.as_str(), num_entities, decl.dimension);
 
         Ok(())
     }
@@ -464,10 +541,8 @@ impl Interpreter {
                 Err(RuntimeError::NotImplemented("einsum not yet implemented".to_string()))
             }
 
-            TensorExpr::EmbeddingLookup { .. } => {
-                Err(RuntimeError::NotImplemented(
-                    "embedding lookup not yet implemented".to_string(),
-                ))
+            TensorExpr::EmbeddingLookup { embedding, entity } => {
+                self.eval_embedding_lookup(embedding, entity)
             }
         }
     }
@@ -659,6 +734,72 @@ impl Interpreter {
                 op
             ))),
         }
+    }
+
+    /// Evaluate embedding lookup: embed[entity]
+    fn eval_embedding_lookup(&mut self, embedding: &Identifier, entity: &EntityRef) -> RuntimeResult<Value> {
+        use crate::ast::EntityRef;
+
+        // Get embedding name
+        let embed_name = embedding.as_str();
+
+        // Lookup embedding
+        let (entity_map, embedding_matrix) = self.embeddings
+            .get(embed_name)
+            .ok_or_else(|| RuntimeError::UndefinedVariable(embed_name.to_string()))?;
+
+        // Resolve entity to index
+        let entity_idx = match entity {
+            EntityRef::Literal(entity_name) => {
+                // Look up entity in mapping
+                entity_map
+                    .get(entity_name)
+                    .copied()
+                    .ok_or_else(|| RuntimeError::InvalidOperation(
+                        format!("Unknown entity '{}' in embedding '{}'", entity_name, embed_name)
+                    ))?
+            }
+            EntityRef::Variable(var_name) => {
+                // Variable entity: try to resolve from environment
+                let var_value = self.env.get_variable(var_name.as_str())?;
+                match var_value {
+                    Value::String(s) => {
+                        entity_map
+                            .get(s)
+                            .copied()
+                            .ok_or_else(|| RuntimeError::InvalidOperation(
+                                format!("Unknown entity '{}' in embedding '{}'", s, embed_name)
+                            ))?
+                    }
+                    Value::Integer(idx) => *idx as usize,
+                    _ => return Err(RuntimeError::TypeError(
+                        format!("Expected String or Integer for entity, found {:?}", var_value)
+                    )),
+                }
+            }
+        };
+
+        // Extract row from embedding matrix
+        let embedding_vec = embedding_matrix.to_vec();
+        let dimension = embedding_matrix.shape().dims()[1];
+        
+        // Check bounds
+        let num_entities = embedding_matrix.shape().dims()[0];
+        if entity_idx >= num_entities {
+            return Err(RuntimeError::InvalidOperation(
+                format!("Entity index {} out of bounds (0..{})", entity_idx, num_entities)
+            ));
+        }
+
+        // Extract embedding vector
+        let start_idx = entity_idx * dimension;
+        let end_idx = start_idx + dimension;
+        let entity_embedding = embedding_vec[start_idx..end_idx].to_vec();
+
+        // Create tensor from embedding vector
+        let embedding_tensor = Tensor::from_vec(entity_embedding, vec![dimension])?;
+
+        Ok(Value::Tensor(embedding_tensor))
     }
 
     /// Evaluate a function call
