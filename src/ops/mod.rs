@@ -7,6 +7,7 @@ pub mod broadcast;
 pub mod reduce;
 pub mod einsum;
 pub mod fused;
+pub mod advanced_fusion;
 pub mod inplace;
 
 // Re-export commonly used types

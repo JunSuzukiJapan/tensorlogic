@@ -58,3 +58,8 @@ harness = false
 name = "metal_performance"
 path = "benches/metal_performance.rs"
 harness = false
+
+[[bench]]
+name = "advanced_fusion_benchmark"
+path = "benches/advanced_fusion_benchmark.rs"
+harness = false
