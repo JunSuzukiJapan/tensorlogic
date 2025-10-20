@@ -231,10 +231,12 @@ impl Tensor {
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
 
-        // Load shaders
+        // Load shaders (both fused_ops and tiled matmul)
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/fused_ops.metal");
-            device.load_library(shader_source)?;
+            let fused_source = include_str!("../../shaders/fused_ops.metal");
+            let tiled_source = include_str!("../../shaders/matmul_tiled.metal");
+            let combined_source = format!("{}\n\n{}", fused_source, tiled_source);
+            device.load_library(&combined_source)?;
         }
 
         let m = self.dims()[0] as u32;
@@ -246,7 +248,15 @@ impl Tensor {
         let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), output_numel)?;
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
-        let pipeline = executor.get_or_compile_pipeline("fused_linear_f16")?;
+
+        // Use tiled version for larger matrices (better performance)
+        let (kernel_name, tile_size) = if m >= 128 && n >= 128 && k >= 128 {
+            ("matmul_tiled_activation_f16", 16)
+        } else {
+            ("fused_linear_f16", 16)
+        };
+
+        let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
 
         let command_buffer = device.command_queue().new_command_buffer();
         let encoder = command_buffer.new_compute_command_encoder();
@@ -264,10 +274,21 @@ impl Tensor {
         let has_bias = false;
         encoder.set_bytes(8, std::mem::size_of::<bool>() as u64, &has_bias as *const bool as *const _);
 
-        let grid_size = metal::MTLSize::new(n as u64, m as u64, 1);
-        let threadgroup_size = metal::MTLSize::new(16.min(n as u64), 16.min(m as u64), 1);
+        // Use thread groups (tiled) or threads (naive) based on kernel
+        if kernel_name.contains("tiled") {
+            let threadgroup_size = metal::MTLSize::new(tile_size, tile_size, 1);
+            let threadgroups = metal::MTLSize::new(
+                (n as u64 + tile_size - 1) / tile_size,
+                (m as u64 + tile_size - 1) / tile_size,
+                1,
+            );
+            encoder.dispatch_thread_groups(threadgroups, threadgroup_size);
+        } else {
+            let grid_size = metal::MTLSize::new(n as u64, m as u64, 1);
+            let threadgroup_size = metal::MTLSize::new(16.min(n as u64), 16.min(m as u64), 1);
+            encoder.dispatch_threads(grid_size, threadgroup_size);
+        }
 
-        encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
         command_buffer.commit();
         command_buffer.wait_until_completed();
