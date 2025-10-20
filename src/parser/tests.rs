@@ -379,3 +379,151 @@ fn test_parse_matmul_expression() {
         }
     }
 }
+
+#[test]
+fn test_parse_if_statement() {
+    let source = r#"
+main {
+    if x > 0 {
+        y := x + 1
+    }
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    
+    if let Some(main) = program.main_block {
+        assert_eq!(main.statements.len(), 1);
+        
+        if let Statement::ControlFlow(ControlFlow::If { condition, then_block, else_block }) = &main.statements[0] {
+            // Check condition
+            assert!(matches!(condition, Condition::Constraint(Constraint::Comparison { .. })));
+            
+            // Check then block
+            assert_eq!(then_block.len(), 1);
+            assert!(matches!(then_block[0], Statement::Assignment { .. }));
+            
+            // Check no else block
+            assert!(else_block.is_none());
+        } else {
+            panic!("Expected if statement");
+        }
+    } else {
+        panic!("Expected main block");
+    }
+}
+
+#[test]
+fn test_parse_if_else_statement() {
+    let source = r#"
+main {
+    if x > 0 {
+        y := 1
+    } else {
+        y := 0
+    }
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    
+    if let Some(main) = program.main_block {
+        if let Statement::ControlFlow(ControlFlow::If { condition, then_block, else_block }) = &main.statements[0] {
+            assert!(matches!(condition, Condition::Constraint(_)));
+            assert_eq!(then_block.len(), 1);
+            
+            // Check else block exists
+            assert!(else_block.is_some());
+            let else_stmts = else_block.as_ref().unwrap();
+            assert_eq!(else_stmts.len(), 1);
+            assert!(matches!(else_stmts[0], Statement::Assignment { .. }));
+        } else {
+            panic!("Expected if-else statement");
+        }
+    }
+}
+
+#[test]
+fn test_parse_for_statement() {
+    let source = r#"
+main {
+    for i in range(10) {
+        x := x + i
+    }
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    
+    if let Some(main) = program.main_block {
+        assert_eq!(main.statements.len(), 1);
+        
+        if let Statement::ControlFlow(ControlFlow::For { variable, iterable, body }) = &main.statements[0] {
+            // Check variable
+            assert_eq!(variable.as_str(), "i");
+            
+            // Check iterable
+            assert!(matches!(iterable, Iterable::Range(10)));
+            
+            // Check body
+            assert_eq!(body.len(), 1);
+            assert!(matches!(body[0], Statement::Assignment { .. }));
+        } else {
+            panic!("Expected for statement");
+        }
+    }
+}
+
+#[test]
+fn test_parse_while_statement() {
+    let source = r#"
+main {
+    while x > 0 {
+        x := x - 1
+    }
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    
+    if let Some(main) = program.main_block {
+        assert_eq!(main.statements.len(), 1);
+        
+        if let Statement::ControlFlow(ControlFlow::While { condition, body }) = &main.statements[0] {
+            // Check condition
+            assert!(matches!(condition, Condition::Constraint(Constraint::Comparison { .. })));
+            
+            // Check body
+            assert_eq!(body.len(), 1);
+            assert!(matches!(body[0], Statement::Assignment { .. }));
+        } else {
+            panic!("Expected while statement");
+        }
+    }
+}
+
+#[test]
+fn test_parse_nested_control_flow() {
+    let source = r#"
+main {
+    for i in range(5) {
+        if i > 2 {
+            x := x + 1
+        }
+    }
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    
+    if let Some(main) = program.main_block {
+        if let Statement::ControlFlow(ControlFlow::For { body, .. }) = &main.statements[0] {
+            assert_eq!(body.len(), 1);
+            
+            // Check nested if statement
+            if let Statement::ControlFlow(ControlFlow::If { then_block, .. }) = &body[0] {
+                assert_eq!(then_block.len(), 1);
+                assert!(matches!(then_block[0], Statement::Assignment { .. }));
+            } else {
+                panic!("Expected nested if statement");
+            }
+        } else {
+            panic!("Expected for statement");
+        }
+    }
+}

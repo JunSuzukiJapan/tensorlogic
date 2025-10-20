@@ -757,16 +757,29 @@ impl TensorLogicParser {
 
             Ok(Constraint::Shape { tensor: tensor_expr, shape })
         } else if constraint_str.starts_with("rank") {
-            // rank(tensor) == integer
+            // rank(tensor) comp_op integer
             let mut parts = inner.into_inner();
             let tensor_expr = Self::parse_tensor_expr(parts.next().ok_or_else(|| {
                 ParseError::MissingField("tensor in rank constraint".to_string())
             })?)?;
 
+            let comp_op_pair = parts.next().ok_or_else(|| {
+                ParseError::MissingField("comparison operator".to_string())
+            })?;
+            let op = Self::parse_comp_op(comp_op_pair)?;
+
             let rank_val = parts.next().ok_or_else(|| {
                 ParseError::MissingField("rank value".to_string())
             })?;
             let rank = Self::parse_number(rank_val)? as usize;
+
+            // For now, only support == for rank
+            // Store the comparison in the AST for future extension
+            if op != CompOp::Eq {
+                return Err(ParseError::InvalidValue(
+                    "rank constraint only supports == operator".to_string()
+                ));
+            }
 
             Ok(Constraint::Rank { tensor: tensor_expr, rank })
         } else if constraint_str.starts_with("norm") {
@@ -948,34 +961,30 @@ impl TensorLogicParser {
     }
 
     fn parse_learning_spec(pair: pest::iterators::Pair<Rule>) -> Result<LearningSpec, ParseError> {
-        let mut objective = None;
-        let mut optimizer = None;
-        let mut epochs = None;
+        let mut inner = pair.into_inner();
 
-        for field in pair.into_inner() {
-            let field_str = field.as_str();
-            let mut field_inner = field.into_inner();
+        // Parse objective: tensor_expr
+        let objective_expr = inner.next().ok_or_else(|| {
+            ParseError::MissingField("objective expression".to_string())
+        })?;
+        let objective = Self::parse_tensor_expr(objective_expr)?;
 
-            if field_str.starts_with("objective") {
-                objective = Some(Self::parse_tensor_expr(field_inner.next().ok_or_else(|| {
-                    ParseError::MissingField("objective expression".to_string())
-                })?)?);
-            } else if field_str.starts_with("optimizer") {
-                optimizer = Some(Self::parse_optimizer_spec(field_inner.next().ok_or_else(|| {
-                    ParseError::MissingField("optimizer spec".to_string())
-                })?)?);
-            } else if field_str.starts_with("epochs") {
-                let epochs_val = field_inner.next().ok_or_else(|| {
-                    ParseError::MissingField("epochs value".to_string())
-                })?;
-                epochs = Some(Self::parse_number(epochs_val)? as usize);
-            }
-        }
+        // Parse optimizer: optimizer_spec
+        let optimizer_spec = inner.next().ok_or_else(|| {
+            ParseError::MissingField("optimizer spec".to_string())
+        })?;
+        let optimizer = Self::parse_optimizer_spec(optimizer_spec)?;
+
+        // Parse epochs: integer
+        let epochs_val = inner.next().ok_or_else(|| {
+            ParseError::MissingField("epochs value".to_string())
+        })?;
+        let epochs = Self::parse_number(epochs_val)? as usize;
 
         Ok(LearningSpec {
-            objective: objective.ok_or_else(|| ParseError::MissingField("objective".to_string()))?,
-            optimizer: optimizer.ok_or_else(|| ParseError::MissingField("optimizer".to_string()))?,
-            epochs: epochs.ok_or_else(|| ParseError::MissingField("epochs".to_string()))?,
+            objective,
+            optimizer,
+            epochs,
         })
     }
 
@@ -1010,18 +1019,157 @@ impl TensorLogicParser {
             .collect()
     }
 
-    fn parse_control_flow(_pair: pest::iterators::Pair<Rule>) -> Result<ControlFlow, ParseError> {
-        // Placeholder for control flow parsing
-        // Will be implemented in next phase
+    fn parse_control_flow(pair: pest::iterators::Pair<Rule>) -> Result<ControlFlow, ParseError> {
+        let inner = pair.into_inner().next().ok_or_else(|| {
+            ParseError::MissingField("control flow statement".to_string())
+        })?;
+
+        match inner.as_rule() {
+            Rule::if_statement => Self::parse_if_statement(inner),
+            Rule::for_statement => Self::parse_for_statement(inner),
+            Rule::while_statement => Self::parse_while_statement(inner),
+            _ => Err(ParseError::InvalidValue(format!("Invalid control flow: {}", inner.as_str()))),
+        }
+    }
+
+    fn parse_if_statement(pair: pest::iterators::Pair<Rule>) -> Result<ControlFlow, ParseError> {
+        // Get the input string before consuming pair
+        let input_str = pair.as_str();
+        let has_else = input_str.contains("} else {");
+        
+        let mut inner = pair.into_inner();
+        
+        // Parse condition (always first)
+        let condition_pair = inner.next().ok_or_else(|| {
+            ParseError::MissingField("if condition".to_string())
+        })?;
+        let condition = Self::parse_condition(condition_pair)?;
+        
+        // Collect all statement pairs
+        let remaining: Vec<_> = inner
+            .filter(|p| p.as_rule() == Rule::statement)
+            .collect();
+        
+        let mut then_block = Vec::new();
+        let mut else_block = None;
+        
+        if has_else {
+            // Count statements in then block by counting := before "} else {"
+            let before_else = input_str.split("} else {").next().unwrap();
+            let then_stmt_count = before_else.matches(":=").count();
+            
+            // Parse then block
+            for i in 0..then_stmt_count.min(remaining.len()) {
+                then_block.push(Self::parse_statement(remaining[i].clone())?);
+            }
+            
+            // Parse else block
+            let mut else_stmts = Vec::new();
+            for i in then_stmt_count..remaining.len() {
+                else_stmts.push(Self::parse_statement(remaining[i].clone())?);
+            }
+            
+            if !else_stmts.is_empty() {
+                else_block = Some(else_stmts);
+            }
+        } else {
+            // No else block - all statements go to then block
+            for stmt_pair in remaining {
+                then_block.push(Self::parse_statement(stmt_pair)?);
+            }
+        }
+        
         Ok(ControlFlow::If {
-            condition: Condition::Constraint(Constraint::Comparison {
-                op: CompOp::Eq,
-                left: TensorExpr::scalar(0.0),
-                right: TensorExpr::scalar(0.0),
-            }),
-            then_block: Vec::new(),
-            else_block: None,
+            condition,
+            then_block,
+            else_block,
         })
+    }
+
+    fn parse_for_statement(pair: pest::iterators::Pair<Rule>) -> Result<ControlFlow, ParseError> {
+        let mut inner = pair.into_inner();
+        
+        // Parse loop variable
+        let var_pair = inner.next().ok_or_else(|| {
+            ParseError::MissingField("for loop variable".to_string())
+        })?;
+        let variable = Self::parse_identifier(var_pair)?;
+        
+        // Parse iterable
+        let iterable_pair = inner.next().ok_or_else(|| {
+            ParseError::MissingField("for loop iterable".to_string())
+        })?;
+        let iterable = Self::parse_iterable(iterable_pair)?;
+        
+        // Parse body
+        let mut body = Vec::new();
+        for stmt_pair in inner {
+            if stmt_pair.as_rule() == Rule::statement {
+                body.push(Self::parse_statement(stmt_pair)?);
+            }
+        }
+        
+        Ok(ControlFlow::For {
+            variable,
+            iterable,
+            body,
+        })
+    }
+
+    fn parse_while_statement(pair: pest::iterators::Pair<Rule>) -> Result<ControlFlow, ParseError> {
+        let mut inner = pair.into_inner();
+        
+        // Parse condition
+        let condition_pair = inner.next().ok_or_else(|| {
+            ParseError::MissingField("while condition".to_string())
+        })?;
+        let condition = Self::parse_condition(condition_pair)?;
+        
+        // Parse body
+        let mut body = Vec::new();
+        for stmt_pair in inner {
+            if stmt_pair.as_rule() == Rule::statement {
+                body.push(Self::parse_statement(stmt_pair)?);
+            }
+        }
+        
+        Ok(ControlFlow::While {
+            condition,
+            body,
+        })
+    }
+
+    fn parse_condition(pair: pest::iterators::Pair<Rule>) -> Result<Condition, ParseError> {
+        let inner = pair.into_inner().next().ok_or_else(|| {
+            ParseError::MissingField("condition value".to_string())
+        })?;
+
+        match inner.as_rule() {
+            Rule::constraint => Ok(Condition::Constraint(Self::parse_constraint(inner)?)),
+            Rule::tensor_expr => Ok(Condition::Tensor(Self::parse_tensor_expr(inner)?)),
+            _ => Err(ParseError::InvalidValue(format!("Invalid condition: {}", inner.as_str()))),
+        }
+    }
+
+    fn parse_iterable(pair: pest::iterators::Pair<Rule>) -> Result<Iterable, ParseError> {
+        let inner = pair.into_inner().next().ok_or_else(|| {
+            ParseError::MissingField("iterable value".to_string())
+        })?;
+
+        match inner.as_rule() {
+            Rule::tensor_expr => Ok(Iterable::Tensor(Self::parse_tensor_expr(inner)?)),
+            Rule::entity_set => Ok(Iterable::EntitySet(Self::parse_entity_set(inner)?)),
+            Rule::range_expr => {
+                // range(n) -> extract n
+                let mut range_inner = inner.into_inner();
+                let n_pair = range_inner.next().ok_or_else(|| {
+                    ParseError::MissingField("range size".to_string())
+                })?;
+                let n = Self::parse_number(n_pair)? as usize;
+                Ok(Iterable::Range(n))
+            },
+            _ => Err(ParseError::InvalidValue(format!("Invalid iterable: {}", inner.as_str()))),
+        }
     }
 
     // Helper parsers

@@ -160,7 +160,7 @@ comp_op = { "==" | "!=" | "<=" | ">=" | "<" | ">" | "≈" }
 
 tensor_constraint = {
     "shape" ~ "(" ~ tensor_expr ~ ")" ~ "==" ~ shape_spec
-    | "rank" ~ "(" ~ tensor_expr ~ ")" ~ "==" ~ integer
+    | "rank" ~ "(" ~ tensor_expr ~ ")" ~ comp_op ~ integer
     | "norm" ~ "(" ~ tensor_expr ~ ")" ~ comp_op ~ number
 }
 
@@ -202,8 +202,8 @@ inference_method = { "forward" | "backward" | "gradient" | "symbolic" }
 learning_call = { "learn" ~ "{" ~ learning_spec ~ "}" }
 
 learning_spec = {
-    "objective" ~ ":" ~ tensor_expr
-    ~ "optimizer" ~ ":" ~ optimizer_spec
+    "objective" ~ ":" ~ tensor_expr ~ ","
+    ~ "optimizer" ~ ":" ~ optimizer_spec ~ ","
     ~ "epochs" ~ ":" ~ integer
 }
 
@@ -211,7 +211,7 @@ optimizer_spec = { identifier ~ "(" ~ optimizer_params? ~ ")" }
 
 optimizer_params = { optimizer_param ~ ("," ~ optimizer_param)* }
 
-optimizer_param = { identifier ~ "=" ~ number }
+optimizer_param = { identifier ~ ("=" | ":") ~ number }
 
 // ============================================================================
 // Control Flow

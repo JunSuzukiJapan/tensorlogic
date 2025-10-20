@@ -1,280 +1,244 @@
-use tensorlogic::{MetalDevice, Tensor};
-use tensorlogic::tensor::TensorShape;
+//! TensorLogic CLI
+//!
+//! Command-line interface for running TensorLogic programs.
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("=== TensorLogic f16 Demo ===\n");
+use std::env;
+use std::fs;
+use std::io::{self, Write};
+use std::path::Path;
 
-    // Initialize Metal device
-    let device = MetalDevice::new()?;
-    println!("Metal Device: {}", device.name());
-    println!("Supports f16: {}\n", device.supports_f16());
+use tensorlogic::parser::TensorLogicParser;
+use tensorlogic::interpreter::Interpreter;
 
-    // Create tensors
-    println!("Creating tensors...");
-    let a = Tensor::ones(&device, vec![3])?;
-    let b = Tensor::from_vec_metal(
-        &device,
-        vec![
-            half::f16::from_f32(2.0),
-            half::f16::from_f32(3.0),
-            half::f16::from_f32(4.0),
-        ],
-        vec![3],
-    )?;
+fn main() {
+    let args: Vec<String> = env::args().collect();
 
-    println!("a = {:?}", a.to_vec_f32());
-    println!("b = {:?}", b.to_vec_f32());
+    if args.len() < 2 {
+        print_usage(&args[0]);
+        std::process::exit(1);
+    }
 
-    // Perform operations
-    println!("\nPerforming operations...");
+    let command = &args[1];
 
-    let c = a.add(&b)?;
-    println!("a + b = {:?}", c.to_vec_f32());
+    match command.as_str() {
+        "run" => {
+            if args.len() < 3 {
+                eprintln!("Error: Missing file path");
+                eprintln!("Usage: {} run <file.tl>", args[0]);
+                std::process::exit(1);
+            }
+            let file_path = &args[2];
+            if let Err(e) = run_file(file_path) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        "repl" => {
+            if let Err(e) = run_repl() {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        "help" | "--help" | "-h" => {
+            print_usage(&args[0]);
+        }
+        "version" | "--version" | "-v" => {
+            println!("TensorLogic v{}", env!("CARGO_PKG_VERSION"));
+        }
+        _ => {
+            eprintln!("Error: Unknown command '{}'", command);
+            print_usage(&args[0]);
+            std::process::exit(1);
+        }
+    }
+}
 
-    let d = b.mul(&b)?;
-    println!("b * b = {:?}", d.to_vec_f32());
+fn print_usage(program_name: &str) {
+    println!("TensorLogic v{}", env!("CARGO_PKG_VERSION"));
+    println!();
+    println!("USAGE:");
+    println!("    {} <COMMAND>", program_name);
+    println!();
+    println!("COMMANDS:");
+    println!("    run <file>    Run a TensorLogic program file");
+    println!("    repl          Start an interactive REPL session");
+    println!("    help          Print this help message");
+    println!("    version       Print version information");
+    println!();
+    println!("EXAMPLES:");
+    println!("    {} run examples/linear_regression.tl", program_name);
+    println!("    {} repl", program_name);
+}
 
-    // Test activation functions
-    println!("\nTesting activation functions...");
-    let x = Tensor::from_vec_metal(
-        &device,
-        vec![
-            half::f16::from_f32(-2.0),
-            half::f16::from_f32(-1.0),
-            half::f16::from_f32(0.0),
-            half::f16::from_f32(1.0),
-            half::f16::from_f32(2.0),
-        ],
-        vec![5],
-    )?;
+fn run_file(file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Check if file exists
+    let path = Path::new(file_path);
+    if !path.exists() {
+        return Err(format!("File not found: {}", file_path).into());
+    }
 
-    let relu_result = x.relu()?;
-    println!("ReLU({:?}) = {:?}", x.to_vec_f32(), relu_result.to_vec_f32());
+    // Read file contents
+    let source = fs::read_to_string(path)?;
 
-    let gelu_result = x.gelu()?;
-    println!("GELU({:?}) = {:?}", x.to_vec_f32(), gelu_result.to_vec_f32());
+    // Parse program
+    println!("Parsing {}...", file_path);
+    let program = TensorLogicParser::parse_program(&source)
+        .map_err(|e| format!("Parse error: {}", e))?;
 
-    let softmax_input = Tensor::from_vec_metal(
-        &device,
-        vec![
-            half::f16::from_f32(1.0),
-            half::f16::from_f32(2.0),
-            half::f16::from_f32(3.0),
-        ],
-        vec![3],
-    )?;
-    let softmax_result = softmax_input.softmax()?;
-    println!("Softmax({:?}) = {:?}", softmax_input.to_vec_f32(), softmax_result.to_vec_f32());
+    println!("Parsed {} declarations", program.declarations.len());
+    if program.main_block.is_some() {
+        println!("Found main block");
+    }
 
-    // Test matrix multiplication
-    println!("\nTesting matrix multiplication...");
-    let mat_a = Tensor::from_vec_metal(
-        &device,
-        vec![
-            half::f16::from_f32(1.0),
-            half::f16::from_f32(2.0),
-            half::f16::from_f32(3.0),
-            half::f16::from_f32(4.0),
-            half::f16::from_f32(5.0),
-            half::f16::from_f32(6.0),
-        ],
-        vec![2, 3],
-    )?;
+    // Execute program
+    println!("\nExecuting...\n");
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| format!("Runtime error: {}", e))?;
 
-    let mat_b = Tensor::from_vec_metal(
-        &device,
-        vec![
-            half::f16::from_f32(1.0),
-            half::f16::from_f32(2.0),
-            half::f16::from_f32(3.0),
-            half::f16::from_f32(4.0),
-            half::f16::from_f32(5.0),
-            half::f16::from_f32(6.0),
-        ],
-        vec![3, 2],
-    )?;
+    println!("\n✅ Program executed successfully!");
 
-    let mat_c = mat_a.matmul(&mat_b)?;
-    println!("Matrix A [2x3]: {:?}", mat_a.to_vec_f32());
-    println!("Matrix B [3x2]: {:?}", mat_b.to_vec_f32());
-    println!("A @ B [2x2]: {:?}", mat_c.to_vec_f32());
-
-    // Test broadcasting
-    println!("\nTesting broadcasting...");
-    let vec = Tensor::from_vec_metal(
-        &device,
-        vec![
-            half::f16::from_f32(1.0),
-            half::f16::from_f32(2.0),
-            half::f16::from_f32(3.0),
-        ],
-        vec![3],
-    )?;
-
-    let broadcast_shape = TensorShape::new(vec![2, 3]);
-    let broadcasted = vec.broadcast_to(&broadcast_shape)?;
-    println!("Vector [3]: {:?}", vec.to_vec_f32());
-    println!("Broadcasted to [2x3]: {:?}", broadcasted.to_vec_f32());
-
-    // Test reduction operations
-    println!("\nTesting reduction operations...");
-    let matrix = Tensor::from_vec_metal(
-        &device,
-        vec![
-            half::f16::from_f32(1.0),
-            half::f16::from_f32(2.0),
-            half::f16::from_f32(3.0),
-            half::f16::from_f32(4.0),
-            half::f16::from_f32(5.0),
-            half::f16::from_f32(6.0),
-        ],
-        vec![2, 3],
-    )?;
-
-    println!("Matrix [2x3]: {:?}", matrix.to_vec_f32());
-    println!("Sum: {}", matrix.sum()?.to_f32());
-    println!("Mean: {}", matrix.mean()?.to_f32());
-    println!("Max: {}", matrix.max()?.to_f32());
-    println!("Min: {}", matrix.min()?.to_f32());
-
-    let sum_rows = matrix.sum_dim(0, false)?;
-    println!("Sum along rows: {:?}", sum_rows.to_vec_f32());
-
-    let sum_cols = matrix.sum_dim(1, false)?;
-    println!("Sum along columns: {:?}", sum_cols.to_vec_f32());
-
-    // Test einsum operations
-    println!("\nTesting einsum operations...");
-
-    // Matrix multiplication via einsum
-    let a = Tensor::from_vec_metal(
-        &device,
-        vec![
-            half::f16::from_f32(1.0),
-            half::f16::from_f32(2.0),
-            half::f16::from_f32(3.0),
-            half::f16::from_f32(4.0),
-        ],
-        vec![2, 2],
-    )?;
-
-    let b = Tensor::from_vec_metal(
-        &device,
-        vec![
-            half::f16::from_f32(5.0),
-            half::f16::from_f32(6.0),
-            half::f16::from_f32(7.0),
-            half::f16::from_f32(8.0),
-        ],
-        vec![2, 2],
-    )?;
-
-    println!("Matrix A: {:?}", a.to_vec_f32());
-    println!("Matrix B: {:?}", b.to_vec_f32());
-
-    let c = Tensor::einsum("ij,jk->ik", &[&a, &b])?;
-    println!("einsum('ij,jk->ik'): {:?}", c.to_vec_f32());
-
-    // Transpose via einsum
-    let transposed = Tensor::einsum("ij->ji", &[&a])?;
-    println!("einsum('ij->ji') (transpose): {:?}", transposed.to_vec_f32());
-
-    // Trace via einsum
-    let trace = Tensor::einsum("ii->", &[&a])?;
-    println!("einsum('ii->') (trace): {:?}", trace.to_vec_f32());
-
-    // Outer product via einsum
-    let v1 = Tensor::from_vec_metal(
-        &device,
-        vec![half::f16::from_f32(1.0), half::f16::from_f32(2.0)],
-        vec![2],
-    )?;
-
-    let v2 = Tensor::from_vec_metal(
-        &device,
-        vec![half::f16::from_f32(3.0), half::f16::from_f32(4.0)],
-        vec![2],
-    )?;
-
-    let outer = Tensor::einsum("i,j->ij", &[&v1, &v2])?;
-    println!("einsum('i,j->ij') (outer product): {:?}", outer.to_vec_f32());
-
-    // Test Metal ↔ Neural Engine conversion
-    println!("\nTesting Metal ↔ Neural Engine conversion...");
-
-    use tensorlogic::device::{MetalBuffer, NeuralEngineBuffer, NeuralEngineOps};
-
-    // Create Metal buffer
-    let metal_data = vec![
-        half::f16::from_f32(1.0),
-        half::f16::from_f32(2.0),
-        half::f16::from_f32(3.0),
-        half::f16::from_f32(4.0),
-    ];
-    let metal_buf = MetalBuffer::from_f16_slice(device.metal_device(), &metal_data)?;
-    println!("Metal buffer: {:?}", metal_buf.to_vec().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
-
-    // Convert Metal → Neural Engine
-    let ne_buf = metal_buf.to_neural_engine(&vec![2, 2])?;
-    println!("Neural Engine buffer shape: {:?}", ne_buf.shape());
-    println!("Neural Engine buffer data: {:?}", ne_buf.to_f16_vec().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
-
-    // Convert Neural Engine → Metal (roundtrip)
-    let metal_buf2 = ne_buf.to_metal_buffer(device.metal_device())?;
-    println!("Roundtrip Metal buffer: {:?}", metal_buf2.to_vec().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
-
-    // Test Neural Engine operations
-    println!("\nTesting Neural Engine operations...");
-    println!("Neural Engine: {}", NeuralEngineOps::info());
-
-    // Neural Engine matmul
-    let ne_a = NeuralEngineBuffer::from_f16_slice(
-        &vec![
-            half::f16::from_f32(1.0),
-            half::f16::from_f32(2.0),
-            half::f16::from_f32(3.0),
-            half::f16::from_f32(4.0),
-        ],
-        &[2, 2],
-    )?;
-
-    let ne_b = NeuralEngineBuffer::from_f16_slice(
-        &vec![
-            half::f16::from_f32(5.0),
-            half::f16::from_f32(6.0),
-            half::f16::from_f32(7.0),
-            half::f16::from_f32(8.0),
-        ],
-        &[2, 2],
-    )?;
-
-    let ne_c = NeuralEngineOps::matmul(&ne_a, &ne_b, 2, 2, 2)?;
-    println!("Neural Engine matmul result: {:?}", ne_c.to_f16_vec().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
-
-    // Neural Engine ReLU
-    let ne_input = NeuralEngineBuffer::from_f16_slice(
-        &vec![
-            half::f16::from_f32(-2.0),
-            half::f16::from_f32(-1.0),
-            half::f16::from_f32(0.0),
-            half::f16::from_f32(1.0),
-            half::f16::from_f32(2.0),
-        ],
-        &[5],
-    )?;
-
-    let ne_relu = NeuralEngineOps::relu(&ne_input)?;
-    println!("Neural Engine ReLU result: {:?}", ne_relu.to_f16_vec().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
-
-    println!("\n✅ All operations completed successfully!");
-    println!("   - Element-wise: add, sub, mul, div");
-    println!("   - Activations: ReLU, GELU, Softmax");
-    println!("   - Matrix ops: matmul");
-    println!("   - Broadcasting: broadcast_to");
-    println!("   - Reductions: sum, mean, max, min, sum_dim");
-    println!("   - Einsum: ij,jk->ik, ij->ji, ii->, i,j->ij");
-    println!("   - Neural Engine: Metal ↔ CoreML conversion + operations");
-    println!("   - All running on Metal GPU with f16 precision! 🚀");
+    // Print final state
+    print_final_state(&interpreter);
 
     Ok(())
+}
+
+fn run_repl() -> Result<(), Box<dyn std::error::Error>> {
+    println!("TensorLogic REPL v{}", env!("CARGO_PKG_VERSION"));
+    println!("Type 'exit' or 'quit' to exit, 'help' for help");
+    println!();
+
+    let mut interpreter = Interpreter::new();
+    let mut line_num = 1;
+
+    loop {
+        // Print prompt
+        print!("tl[{}]> ", line_num);
+        io::stdout().flush()?;
+
+        // Read input
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+
+        let input = input.trim();
+
+        // Handle special commands
+        match input {
+            "" => continue,
+            "exit" | "quit" => {
+                println!("Goodbye!");
+                break;
+            }
+            "help" => {
+                print_repl_help();
+                continue;
+            }
+            "vars" => {
+                print_variables(&interpreter);
+                continue;
+            }
+            "clear" => {
+                interpreter = Interpreter::new();
+                println!("Environment cleared");
+                continue;
+            }
+            _ => {}
+        }
+
+        // Try to parse and execute
+        match execute_repl_input(&mut interpreter, input) {
+            Ok(result) => {
+                if let Some(msg) = result {
+                    println!("{}", msg);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+            }
+        }
+
+        line_num += 1;
+    }
+
+    Ok(())
+}
+
+fn execute_repl_input(
+    interpreter: &mut Interpreter,
+    input: &str,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    // Try to parse as a complete program
+    let wrapped = format!("main {{ {} }}", input);
+
+    match TensorLogicParser::parse_program(&wrapped) {
+        Ok(program) => {
+            interpreter.execute(&program)?;
+            Ok(Some("✓".to_string()))
+        }
+        Err(_) => {
+            // Try as a declaration
+            match TensorLogicParser::parse_program(input) {
+                Ok(program) => {
+                    interpreter.execute(&program)?;
+                    Ok(Some("✓".to_string()))
+                }
+                Err(e) => Err(format!("Parse error: {}", e).into()),
+            }
+        }
+    }
+}
+
+fn print_repl_help() {
+    println!("REPL Commands:");
+    println!("  exit, quit    Exit the REPL");
+    println!("  help          Show this help message");
+    println!("  vars          Show all variables");
+    println!("  clear         Clear the environment");
+    println!();
+    println!("TensorLogic Syntax:");
+    println!("  tensor w: float32[10, 20]           # Declare tensor");
+    println!("  x := 10                              # Assignment");
+    println!("  y := x + 5                           # Expression");
+    println!("  if x > 0 {{ y := 1 }}                 # Control flow");
+    println!("  for i in range(5) {{ x := x + i }}   # Loop");
+    println!();
+}
+
+fn print_variables(interpreter: &Interpreter) {
+    println!("Variables:");
+    let vars = interpreter.get_all_variables();
+    if vars.is_empty() {
+        println!("  (none)");
+    } else {
+        for (name, value) in vars {
+            println!("  {} = {:?}", name, value);
+        }
+    }
+}
+
+fn print_final_state(interpreter: &Interpreter) {
+    let vars = interpreter.get_all_variables();
+    if !vars.is_empty() {
+        println!("\nFinal state:");
+        for (name, value) in vars {
+            match value {
+                tensorlogic::interpreter::Value::Float(f) => {
+                    println!("  {} = {}", name, f);
+                }
+                tensorlogic::interpreter::Value::Integer(i) => {
+                    println!("  {} = {}", name, i);
+                }
+                tensorlogic::interpreter::Value::Boolean(b) => {
+                    println!("  {} = {}", name, b);
+                }
+                tensorlogic::interpreter::Value::Tensor(t) => {
+                    println!("  {} = Tensor{:?}", name, t.shape());
+                }
+                _ => {
+                    println!("  {} = {:?}", name, value);
+                }
+            }
+        }
+    }
 }
