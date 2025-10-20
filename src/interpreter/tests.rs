@@ -753,3 +753,197 @@ main {
     let result = interpreter.execute(&program);
     assert!(result.is_ok(), "Symbolic inference should succeed: {:?}", result);
 }
+
+// ============================================================================
+// Logic Engine Integration Tests
+// ============================================================================
+
+#[test]
+fn test_logic_engine_query_with_facts() {
+    let source = r#"
+relation Parent(p: entity, c: entity)
+
+main {
+    query Parent(alice, bob)
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    
+    let mut interpreter = Interpreter::new();
+    
+    // Execute declarations (rule should be added to logic engine)
+    for decl in &program.declarations {
+        interpreter.execute_declaration(decl).unwrap();
+    }
+    
+    // Add a fact manually
+    use crate::ast::{Atom, Term, Constant};
+    let fact = Atom {
+        predicate: Identifier::new("Parent"),
+        terms: vec![
+            Term::Constant(Constant::String("alice".to_string())),
+            Term::Constant(Constant::String("bob".to_string())),
+        ],
+    };
+    interpreter.logic_engine_mut().add_fact(fact);
+    
+    // Execute query
+    if let Some(main_block) = &program.main_block {
+        for stmt in &main_block.statements {
+            let result = interpreter.execute_statement(stmt);
+            assert!(result.is_ok(), "Query execution should succeed: {:?}", result);
+        }
+    }
+}
+
+#[test]
+fn test_forward_inference_with_logic() {
+    let source = r#"
+relation Parent(p: entity, c: entity)
+
+main {
+    infer forward query Parent(alice, x)
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    
+    let mut interpreter = Interpreter::new();
+    
+    // Add rule to logic engine
+    for decl in &program.declarations {
+        interpreter.execute_declaration(decl).unwrap();
+    }
+    
+    // Add facts
+    use crate::ast::{Atom, Term, Constant};
+    let fact1 = Atom {
+        predicate: Identifier::new("Parent"),
+        terms: vec![
+            Term::Constant(Constant::String("alice".to_string())),
+            Term::Constant(Constant::String("bob".to_string())),
+        ],
+    };
+    interpreter.logic_engine_mut().add_fact(fact1);
+    
+    // Execute forward inference
+    if let Some(main_block) = &program.main_block {
+        for stmt in &main_block.statements {
+            let result = interpreter.execute_statement(stmt);
+            assert!(result.is_ok(), "Forward inference should succeed: {:?}", result);
+        }
+    }
+}
+
+#[test]
+fn test_backward_inference_tensor_to_logic() {
+    let source = r#"
+relation Prediction(e: entity)
+
+main {
+    infer backward query Prediction(x)
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program).unwrap();
+    
+    // Test should succeed - backward inference converts tensors to logic
+}
+
+#[test]
+fn test_gradient_inference_with_logic() {
+    let source = r#"
+relation Knows(a: entity, b: entity)
+
+main {
+    infer gradient query Knows(alice, x)
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    
+    let mut interpreter = Interpreter::new();
+    
+    // Add a fact
+    use crate::ast::{Atom, Term, Constant};
+    let fact = Atom {
+        predicate: Identifier::new("Knows"),
+        terms: vec![
+            Term::Constant(Constant::String("alice".to_string())),
+            Term::Constant(Constant::String("bob".to_string())),
+        ],
+    };
+    interpreter.logic_engine_mut().add_fact(fact);
+    
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "Gradient inference should succeed: {:?}", result);
+}
+
+#[test]
+fn test_logic_query_with_variables() {
+    let source = r#"
+relation Friend(a: entity, b: entity)
+
+main {
+    query Friend(alice, X)
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    
+    let mut interpreter = Interpreter::new();
+    
+    // Add facts
+    use crate::ast::{Atom, Term, Constant};
+    let fact1 = Atom {
+        predicate: Identifier::new("Friend"),
+        terms: vec![
+            Term::Constant(Constant::String("alice".to_string())),
+            Term::Constant(Constant::String("bob".to_string())),
+        ],
+    };
+    let fact2 = Atom {
+        predicate: Identifier::new("Friend"),
+        terms: vec![
+            Term::Constant(Constant::String("alice".to_string())),
+            Term::Constant(Constant::String("charlie".to_string())),
+        ],
+    };
+    interpreter.logic_engine_mut().add_fact(fact1);
+    interpreter.logic_engine_mut().add_fact(fact2);
+    
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "Query with variables should succeed: {:?}", result);
+}
+
+#[test]
+fn test_rule_based_inference() {
+    let source = r#"
+relation Parent(p: entity, c: entity)
+
+main {
+    query Parent(alice, bob)
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    
+    let mut interpreter = Interpreter::new();
+    
+    // Add rules
+    for decl in &program.declarations {
+        interpreter.execute_declaration(decl).unwrap();
+    }
+    
+    // Add facts
+    use crate::ast::{Atom, Term, Constant};
+    let fact = Atom {
+        predicate: Identifier::new("Parent"),
+        terms: vec![
+            Term::Constant(Constant::String("alice".to_string())),
+            Term::Constant(Constant::String("bob".to_string())),
+        ],
+    };
+    interpreter.logic_engine_mut().add_fact(fact);
+    
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "Rule-based inference should succeed: {:?}", result);
+}

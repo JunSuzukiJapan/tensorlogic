@@ -23,9 +23,7 @@
 //! let output = model.predict(input_tensor)?;
 //! ```
 
-use crate::tensor::Tensor;
 use crate::error::TensorError;
-use std::path::Path;
 
 pub mod model;
 pub mod conversion;
