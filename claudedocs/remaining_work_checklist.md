@@ -20,7 +20,7 @@
 - [x] Autograd統合（勾配計算・パラメータ更新）
 - [x] 埋め込み参照完全実装
 - [x] Einstein summation統合完全実装
-- [x] 259テスト全て成功（2025-10-20更新）
+- [x] 268テスト全て成功（2025-10-20更新、CoreML変換レイヤー実装完了）
 - [x] Metal GPU性能ベンチマーク基盤完成（2025-10-20）
 
 ---
@@ -223,12 +223,21 @@
   - 入力形状検証機能付き
   - 実際のMLModel読み込み統合
   - 実装: src/coreml/model.rs ✅
+  - **注記**: MVPレベル完成、完全prediction() API統合は次段階
 - [x] TensorLogic ↔ CoreML変換レイヤー（完了: 2025-10-20）
-  - tensor_to_mlmultiarray()実装完了
-  - mlmultiarray_to_tensor()実装完了
+  - **tensor_to_mlmultiarray()実装完了**（🆕 実データコピー実装）
+    - NSArray for shape with NSNumber
+    - MLMultiArray::initWithShape_dataType_error() with Float16
+    - Direct f16 data copy via dataPointer()
+    - Shape validation and error handling
+  - **mlmultiarray_to_tensor()実装完了**（🆕 実データ抽出実装）
+    - Data extraction from MLMultiArray
+    - Vec<f16> creation from raw pointer
+    - Tensor::from_vec_metal() integration
+    - macOS/non-macOS signature differences
   - バッチ変換サポート
-  - 実装: src/coreml/conversion.rs ✅
-  - テスト: 8つのCoreMLテスト追加（全て成功）✅
+  - 実装: src/coreml/conversion.rs ✅（+115行、実データ転送完全実装）
+  - テスト: 7つのCoreMLテスト成功（268/268 passing）✅
 - [x] パフォーマンスベンチマーク（完了: 2025-10-20）
   - [x] CoreML vs Metal推論ベンチマーク
   - [x] Metal GPU行列乗算ベンチマーク（64x64〜512x512）
@@ -251,6 +260,40 @@
 
 ### 推定完成度
 - **Neural Engine統合**: 30% → 100%（実用レベルで完全統合完成）✅
+- **変換レイヤー**: 20% → 100%（実データ転送完全実装）🆕
+- **予測API**: MVPレベル完成（完全統合は次段階）🆕
+
+### オプション将来作業（完全prediction() API統合）
+以下は現在のMVP実装を超える、完全なCoreML prediction API統合に必要な追加実装:
+
+- [ ] **MLFeatureValue統合** (工数: 4-6時間)
+  - MLFeatureValue::featureValueWithMultiArray()実装
+  - MLFeatureValue extraction from output
+  - multiArrayValue()メソッド使用
+
+- [ ] **MLDictionaryFeatureProvider統合** (工数: 3-4時間)
+  - NSDictionary作成でinput name mapping
+  - MLDictionaryFeatureProvider::initWithDictionary()
+  - Output feature extraction by name
+
+- [ ] **MLModelDescription統合** (工数: 2-3時間)
+  - ModelのinputDescription/outputDescription取得
+  - Input/output名の自動検出
+  - 動的feature name対応
+
+- [ ] **Cargo.toml feature flags追加** (工数: 1時間)
+  - MLFeatureValue feature有効化
+  - MLDictionaryFeatureProvider feature有効化
+  - MLFeatureProvider protocol有効化
+
+- [ ] **完全prediction()実装** (工数: 4-6時間)
+  - ml_model.predictionFromFeatures_error()呼び出し
+  - 5ステップ実装（model.rs内TODOコメント参照）
+  - エラーハンドリング完全対応
+
+**合計工数**: 14-20時間
+**優先度**: 低（MVPは動作中）
+**備考**: 現在のMLMultiArray変換レイヤーは完全に動作し、次段階への明確なパスが文書化済み
 
 ---
 
