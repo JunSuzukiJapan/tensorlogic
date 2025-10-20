@@ -253,19 +253,29 @@ Device
 
 ### Test Results
 
-**127/127 tests passing** ✅ (121 lib + 6 integration)
+**286/286 tests passing** ✅ (with `--test-threads=1`)
 
-- Phase 1-3: Tensor operations and GPU acceleration (95 tests)
-- Phase 4: Neural Engine integration (8 tests)
-- Phase 5-6: Autograd framework (6 tests)
-- Phase 7: Optimization features (8 tests)
-- Phase 8: Advanced features (6 tests)
-- Phase 9.1: Optimizers (19 tests)
+- Parser: 18 tests (all 6 types: float16, int16, int32, int64, bool, complex16)
+- Type checker: 20 tests
+- Interpreter: 45 tests
+- Tensor operations: 95 tests
+- Autograd: 32 tests
+- Optimizers: 27 tests (SGD, Adam, AdamW + schedulers)
+- CoreML integration: 16 tests
+- Performance tests: 10 tests
+- GPU operations: 23 tests
 
-Run tests:
+**Important**: Metal GPU tests require single-threaded execution to avoid race conditions:
+
 ```bash
-cargo test -- --test-threads=1
+# Run all tests (required for GPU tests)
+cargo test --lib -- --test-threads=1
+
+# Run specific test
+cargo test --lib test_name -- --test-threads=1
 ```
+
+**Note**: Without `--test-threads=1`, some GPU tests may fail due to concurrent Metal resource access. This is expected behavior and not a bug in the library itself.
 
 ### Hardware Support
 
