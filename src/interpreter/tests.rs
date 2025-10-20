@@ -662,3 +662,94 @@ main {
     let result_val = result.as_integer().unwrap();
     assert_eq!(result_val, 1, "Combined AND constraint should be true (5 > 3 and 5 < 10)");
 }
+
+// ============================================================================
+// Inference Execution Tests (MVP)
+// ============================================================================
+
+#[test]
+fn test_query_basic() {
+    // Test basic query statement execution
+    let source = r#"
+relation Parent(p: entity, c: entity)
+
+main {
+    query Parent(alice, bob)
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+
+    let mut interpreter = Interpreter::new();
+    // Should execute without errors (even if query returns no results)
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "Query execution should succeed: {:?}", result);
+}
+
+#[test]
+fn test_inference_forward() {
+    // Test forward inference statement
+    let source = r#"
+relation Ancestor(a: entity, d: entity)
+
+main {
+    infer forward query Ancestor(alice, x)
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+
+    let mut interpreter = Interpreter::new();
+    // Should execute without errors (MVP placeholder)
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "Forward inference should succeed: {:?}", result);
+}
+
+#[test]
+fn test_inference_backward() {
+    // Test backward inference statement
+    let source = r#"
+relation Knows(p: entity, q: entity)
+
+main {
+    infer backward query Knows(x, y)
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "Backward inference should succeed: {:?}", result);
+}
+
+#[test]
+fn test_inference_gradient() {
+    // Test gradient inference statement
+    let source = r#"
+relation Similar(a: entity, b: entity)
+
+main {
+    infer gradient query Similar(a, b)
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "Gradient inference should succeed: {:?}", result);
+}
+
+#[test]
+fn test_inference_symbolic() {
+    // Test symbolic inference statement
+    let source = r#"
+relation Likes(p: entity, q: entity)
+
+main {
+    infer symbolic query Likes(john, mary)
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "Symbolic inference should succeed: {:?}", result);
+}

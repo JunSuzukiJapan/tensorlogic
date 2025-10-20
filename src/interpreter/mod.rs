@@ -318,6 +318,53 @@ impl Interpreter {
                     "Control flow type not yet implemented".to_string(),
                 )),
             },
+            Statement::Query { atom, constraints } => {
+                // Query execution placeholder
+                // In a full implementation, this would query the logic engine
+                println!("Query: {:?}", atom);
+                if !constraints.is_empty() {
+                    println!("  with {} constraints", constraints.len());
+                }
+                // For MVP, we just acknowledge the query
+                Ok(())
+            }
+            Statement::Inference { method, query } => {
+                // Inference execution
+                match method {
+                    InferenceMethod::Forward => {
+                        // Forward inference: Logic → Tensor conversion
+                        println!("Forward inference requested");
+                        // Execute the nested query
+                        self.execute_statement(query)?;
+                        // In a full implementation, this would convert logic results to tensors
+                        Ok(())
+                    }
+                    InferenceMethod::Backward => {
+                        // Backward inference: Tensor → Logic conversion
+                        println!("Backward inference requested");
+                        // Execute the nested query
+                        self.execute_statement(query)?;
+                        // In a full implementation, this would convert tensor results to logic facts
+                        Ok(())
+                    }
+                    InferenceMethod::Gradient => {
+                        // Gradient inference: propagate differential information
+                        println!("Gradient inference requested");
+                        // Execute the nested query
+                        self.execute_statement(query)?;
+                        // In a full implementation, this would propagate gradients through logic rules
+                        Ok(())
+                    }
+                    InferenceMethod::Symbolic => {
+                        // Symbolic inference: symbolic reasoning
+                        println!("Symbolic inference requested");
+                        // Execute the nested query
+                        self.execute_statement(query)?;
+                        // In a full implementation, this would perform symbolic reasoning
+                        Ok(())
+                    }
+                }
+            }
             _ => Err(RuntimeError::NotImplemented(
                 "Statement type not yet implemented".to_string(),
             )),
