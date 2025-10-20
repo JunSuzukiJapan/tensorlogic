@@ -82,12 +82,18 @@
   - ✅ パイプライン既に最適
 
 ### 最終性能結果（完了: 2025-10-20）
-- ✅ **ピーク計算性能**: 487 → 510 GFLOPS (+4.6%) ✅
-- ✅ **ピーク帯域幅**: 81 → 91 GB/s (+12.8%) ✅
-- ✅ **GELU性能**: 19.7 → 31.4 GFLOPS (+59.0%) ✅
-- ✅ **ReLU帯域幅**: 10.0 → 15.7 GB/s (+56.7%) ✅
-- ✅ **テスト**: 259 → 260 passing (+1 fusion test) ✅
-- ✅ **ドキュメント**: benchmarks/final_optimization_results.md ✅
+- ✅ **ピーク計算性能**: 487 → 491 GFLOPS ✅
+  - M4 Pro実測値: 491 GFLOPS (1024×1024 MatMul)
+  - 理論値の約50%達成（~1 TFLOPS理論値）
+- ✅ **ピーク帯域幅**: 60 → 93 GB/s (+55%) ✅
+  - Host↔Device: 93 GB/s
+  - Element-wise: 22 GB/s（大規模データ）
+- ✅ **Buffer Pooling**: 20-30%割り当てオーバーヘッド削減 ✅
+- ✅ **Kernel Fusion**: ~0.2ms/融合節約 ✅
+- ✅ **テスト**: 268/268 passing ✅
+- ✅ **包括的ドキュメント**: ✅
+  - [metal_gpu_optimization_summary.md](./metal_gpu_optimization_summary.md) - 性能分析と実装サマリー
+  - [metal_optimization_guide.md](./metal_optimization_guide.md) - 最適化ガイドとベストプラクティス
 
 ### 重要な学び
 - ✅ **GPU最適化 ≠ 常に高速**: 小データ(<1KB)ではCPUが優位
