@@ -1024,6 +1024,7 @@ impl Interpreter {
     /// Execute learning with detailed progress display
     fn execute_learning(&mut self, spec: &LearningSpec) -> RuntimeResult<()> {
         use crate::optim::{Adam, AdamW, SGD, Optimizer};
+        use crate::optim::{LRScheduler, StepLR, ExponentialLR, CosineAnnealingLR, ConstantLR};
 
         println!("\n=== Learning Started ===");
         println!("Optimizer: {}", spec.optimizer.name);
@@ -1032,6 +1033,14 @@ impl Interpreter {
         // Display optimizer parameters
         for (key, value) in &spec.optimizer.params {
             println!("  {}: {}", key, value);
+        }
+
+        // Display scheduler if present
+        if let Some(scheduler_spec) = &spec.scheduler {
+            println!("\nScheduler: {}", scheduler_spec.name);
+            for (key, value) in &scheduler_spec.params {
+                println!("  {}: {}", key, value);
+            }
         }
 
         // Collect learnable parameters (only those explicitly declared with learnable keyword)
@@ -1084,6 +1093,53 @@ impl Interpreter {
             _ => return Err(RuntimeError::InvalidOperation(
                 format!("Unknown optimizer: {}", spec.optimizer.name)
             )),
+        };
+
+        // Create learning rate scheduler if specified
+        let mut scheduler: Box<dyn LRScheduler> = if let Some(scheduler_spec) = &spec.scheduler {
+            match scheduler_spec.name.as_str() {
+                "step" => {
+                    let step_size = scheduler_spec.params
+                        .iter()
+                        .find(|(k, _)| k == "step_size")
+                        .map(|(_, v)| *v as usize)
+                        .unwrap_or(10);
+                    let gamma = scheduler_spec.params
+                        .iter()
+                        .find(|(k, _)| k == "gamma")
+                        .map(|(_, v)| *v as f32)
+                        .unwrap_or(0.1);
+                    Box::new(StepLR::new(lr, step_size, gamma))
+                }
+                "exponential" => {
+                    let gamma = scheduler_spec.params
+                        .iter()
+                        .find(|(k, _)| k == "gamma")
+                        .map(|(_, v)| *v as f32)
+                        .unwrap_or(0.95);
+                    Box::new(ExponentialLR::new(lr, gamma))
+                }
+                "cosine" => {
+                    let t_max = scheduler_spec.params
+                        .iter()
+                        .find(|(k, _)| k == "t_max")
+                        .map(|(_, v)| *v as usize)
+                        .unwrap_or(spec.epochs);
+                    let eta_min = scheduler_spec.params
+                        .iter()
+                        .find(|(k, _)| k == "eta_min")
+                        .map(|(_, v)| *v as f32)
+                        .unwrap_or(0.0);
+                    Box::new(CosineAnnealingLR::new(lr, t_max, eta_min))
+                }
+                _ => {
+                    return Err(RuntimeError::InvalidOperation(
+                        format!("Unknown scheduler: {}", scheduler_spec.name)
+                    ));
+                }
+            }
+        } else {
+            Box::new(ConstantLR::new(lr))
         };
 
         // Training loop with detailed progress display
@@ -1182,6 +1238,16 @@ impl Interpreter {
                         print!(", {} = [{:.4}, ...]", name, vals.first().unwrap_or(&0.0));
                     }
                 }
+            }
+
+            // Update learning rate via scheduler
+            scheduler.step();
+            let new_lr = scheduler.get_lr();
+            opt.set_lr(new_lr);
+
+            // Display learning rate change if significant
+            if epoch > 0 && (new_lr - lr).abs() > 1e-6 && (epoch % 10 == 0 || epoch == spec.epochs - 1) {
+                print!(", LR: {:.6}", new_lr);
             }
 
             println!();

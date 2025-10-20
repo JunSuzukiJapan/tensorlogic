@@ -114,6 +114,7 @@ mod tests {
                 params: vec![("lr".to_string(), 0.001)],
             },
             epochs: 1000,
+            scheduler: None,
         };
 
         assert_eq!(spec.epochs, 1000);

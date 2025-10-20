@@ -406,6 +406,7 @@ pub struct LearningSpec {
     pub objective: TensorExpr,
     pub optimizer: OptimizerSpec,
     pub epochs: usize,
+    pub scheduler: Option<SchedulerSpec>,
 }
 
 /// Optimizer specification
@@ -413,6 +414,13 @@ pub struct LearningSpec {
 pub struct OptimizerSpec {
     pub name: String,
     pub params: Vec<(String, f64)>, // e.g., [("lr", 0.001)]
+}
+
+/// Learning rate scheduler specification
+#[derive(Debug, Clone, PartialEq)]
+pub struct SchedulerSpec {
+    pub name: String, // "step", "exponential", "cosine"
+    pub params: Vec<(String, f64)>, // e.g., [("step_size", 10), ("gamma", 0.1)]
 }
 
 // ============================================================================

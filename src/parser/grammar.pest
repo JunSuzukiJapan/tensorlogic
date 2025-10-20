@@ -205,6 +205,7 @@ learning_spec = {
     "objective" ~ ":" ~ tensor_expr ~ ","
     ~ "optimizer" ~ ":" ~ optimizer_spec ~ ","
     ~ "epochs" ~ ":" ~ integer
+    ~ ("," ~ "scheduler" ~ ":" ~ scheduler_spec)?
 }
 
 optimizer_spec = { identifier ~ "(" ~ optimizer_params? ~ ")" }
@@ -212,6 +213,12 @@ optimizer_spec = { identifier ~ "(" ~ optimizer_params? ~ ")" }
 optimizer_params = { optimizer_param ~ ("," ~ optimizer_param)* }
 
 optimizer_param = { identifier ~ ("=" | ":") ~ number }
+
+scheduler_spec = { identifier ~ "(" ~ scheduler_params? ~ ")" }
+
+scheduler_params = { scheduler_param ~ ("," ~ scheduler_param)* }
+
+scheduler_param = { identifier ~ ("=" | ":") ~ number }
 
 // ============================================================================
 // Control Flow

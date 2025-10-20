@@ -1202,3 +1202,116 @@ main {
         panic!("Expected Tensor value for C");
     }
 }
+
+// ============================================================================
+// Learning Rate Scheduler Tests
+// ============================================================================
+
+#[test]
+fn test_learning_with_step_scheduler() {
+    let source = r#"
+tensor w: float32[1] learnable = [5.0]
+
+main {
+    learn {
+        objective: w * w,
+        optimizer: sgd(lr: 0.1),
+        epochs: 25,
+        scheduler: step(step_size: 10, gamma: 0.1)
+    }
+}
+"#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    let mut interpreter = Interpreter::new();
+    
+    let result = interpreter.execute(&program);
+    // Should succeed or have expected gradient error
+    assert!(
+        result.is_ok() || 
+        matches!(result, Err(RuntimeError::TensorError(_))),
+        "Learning with step scheduler should execute: {:?}", 
+        result
+    );
+}
+
+#[test]
+fn test_learning_with_exponential_scheduler() {
+    let source = r#"
+tensor w: float32[1] learnable = [3.0]
+
+main {
+    learn {
+        objective: w * w,
+        optimizer: adam(lr: 0.05),
+        epochs: 20,
+        scheduler: exponential(gamma: 0.95)
+    }
+}
+"#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    let mut interpreter = Interpreter::new();
+    
+    let result = interpreter.execute(&program);
+    assert!(
+        result.is_ok() || 
+        matches!(result, Err(RuntimeError::TensorError(_))),
+        "Learning with exponential scheduler should execute: {:?}", 
+        result
+    );
+}
+
+#[test]
+fn test_learning_with_cosine_scheduler() {
+    let source = r#"
+tensor w: float32[1] learnable = [2.0]
+
+main {
+    learn {
+        objective: w * w,
+        optimizer: adamw(lr: 0.1),
+        epochs: 30,
+        scheduler: cosine(t_max: 30, eta_min: 0.001)
+    }
+}
+"#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    let mut interpreter = Interpreter::new();
+    
+    let result = interpreter.execute(&program);
+    assert!(
+        result.is_ok() || 
+        matches!(result, Err(RuntimeError::TensorError(_))),
+        "Learning with cosine scheduler should execute: {:?}", 
+        result
+    );
+}
+
+#[test]
+fn test_learning_without_scheduler() {
+    // Ensure backward compatibility - no scheduler should still work
+    let source = r#"
+tensor w: float32[1] learnable = [1.0]
+
+main {
+    learn {
+        objective: w * w,
+        optimizer: sgd(lr: 0.01),
+        epochs: 10
+    }
+}
+"#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    let mut interpreter = Interpreter::new();
+    
+    let result = interpreter.execute(&program);
+    assert!(
+        result.is_ok() || 
+        matches!(result, Err(RuntimeError::TensorError(_))),
+        "Learning without scheduler should execute: {:?}", 
+        result
+    );
+}

@@ -981,10 +981,18 @@ impl TensorLogicParser {
         })?;
         let epochs = Self::parse_number(epochs_val)? as usize;
 
+        // Parse optional scheduler: scheduler_spec
+        let scheduler = if let Some(scheduler_pair) = inner.next() {
+            Some(Self::parse_scheduler_spec(scheduler_pair)?)
+        } else {
+            None
+        };
+
         Ok(LearningSpec {
             objective,
             optimizer,
             epochs,
+            scheduler,
         })
     }
 
@@ -1005,6 +1013,37 @@ impl TensorLogicParser {
     }
 
     fn parse_optimizer_params(pair: pest::iterators::Pair<Rule>) -> Result<Vec<(String, f64)>, ParseError> {
+        pair.into_inner()
+            .map(|param_pair| {
+                let mut inner = param_pair.into_inner();
+                let name = Self::parse_identifier(inner.next().ok_or_else(|| {
+                    ParseError::MissingField("parameter name".to_string())
+                })?)?.as_str().to_string();
+                let value = Self::parse_number(inner.next().ok_or_else(|| {
+                    ParseError::MissingField("parameter value".to_string())
+                })?)?;
+                Ok((name, value))
+            })
+            .collect()
+    }
+
+    fn parse_scheduler_spec(pair: pest::iterators::Pair<Rule>) -> Result<SchedulerSpec, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let name = Self::parse_identifier(inner.next().ok_or_else(|| {
+            ParseError::MissingField("scheduler name".to_string())
+        })?)?.as_str().to_string();
+
+        let params = if let Some(params_pair) = inner.next() {
+            Self::parse_scheduler_params(params_pair)?
+        } else {
+            Vec::new()
+        };
+
+        Ok(SchedulerSpec { name, params })
+    }
+
+    fn parse_scheduler_params(pair: pest::iterators::Pair<Rule>) -> Result<Vec<(String, f64)>, ParseError> {
         pair.into_inner()
             .map(|param_pair| {
                 let mut inner = param_pair.into_inner();
