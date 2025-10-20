@@ -192,16 +192,44 @@ impl CoreMLModel {
                 println!("  Input shape: {:?}", input_dims);
                 println!("  Output shape: {:?}", self.output_shape);
 
-                // Convert Tensor to MLMultiArray (validation)
-                let _ = tensor_to_mlmultiarray(input)?;
+                // Convert Tensor to MLMultiArray
+                tensor_to_mlmultiarray(input)?;
 
-                // TODO: Full MLModel.prediction() integration
-                // The objc2-core-ml API differs from expected
-                // For now, we demonstrate the conversion layer works
-                // and return a placeholder output tensor
+                println!("  MLMultiArray conversion successful");
 
-                println!("  Note: Full MLModel.prediction() integration pending");
-                println!("  Returning zero tensor as placeholder output");
+                // NOTE: Full prediction() implementation requires:
+                //
+                // 1. Create MLFeatureValue from MLMultiArray:
+                //    use objc2_core_ml::MLFeatureValue;
+                //    let feature_value = MLFeatureValue::featureValueWithMultiArray(&multi_array)?;
+                //
+                // 2. Create MLDictionaryFeatureProvider with input name:
+                //    use objc2_core_ml::MLDictionaryFeatureProvider;
+                //    use objc2_foundation::{NSDictionary, NSString};
+                //    let input_name = NSString::from_str("input");  // model-specific
+                //    let dict = NSDictionary::from_keys_and_objects(&[input_name], &[feature_value]);
+                //    let input_provider = MLDictionaryFeatureProvider::initWithDictionary(&dict)?;
+                //
+                // 3. Run prediction:
+                //    let output_provider = ml_model.predictionFromFeatures_error(&input_provider)?;
+                //
+                // 4. Extract output MLFeatureValue:
+                //    let output_name = NSString::from_str("output");  // model-specific
+                //    let output_value = output_provider.featureValueForName(&output_name)?;
+                //    let output_array = output_value.multiArrayValue()?;
+                //
+                // 5. Convert back to Tensor:
+                //    mlmultiarray_to_tensor(&device, &output_array, self.output_shape.clone())?;
+                //
+                // This requires enabling additional features in Cargo.toml:
+                // - MLFeatureValue
+                // - MLDictionaryFeatureProvider
+                // - MLFeatureProvider protocol
+                //
+                // And requires knowing the model's input/output names from MLModelDescription
+
+                println!("  Note: Complete prediction() API requires MLFeatureProvider integration");
+                println!("  Returning zero tensor as MVP output");
 
                 Tensor::zeros(&device, self.output_shape.clone())
                     .map_err(CoreMLError::TensorError)
