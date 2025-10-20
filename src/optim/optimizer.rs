@@ -93,6 +93,7 @@ pub trait Optimizer {
 }
 
 /// Helper function to create a scalar tensor
+#[allow(dead_code)]
 pub(crate) fn scalar_tensor(value: f32) -> TensorResult<Tensor> {
     Tensor::from_vec(vec![half::f16::from_f32(value)], vec![1])
 }

@@ -286,7 +286,6 @@ impl Interpreter {
                 let stddev = (2.0 / num_entities as f32).sqrt();
                 let mut data = Vec::with_capacity(num_entities * decl.dimension);
                 use rand_distr::{Normal, Distribution};
-                use rand::Rng;
                 let mut rng = rand::rng();
                 let normal = Normal::new(0.0, stddev as f64).unwrap();
                 for _ in 0..(num_entities * decl.dimension) {

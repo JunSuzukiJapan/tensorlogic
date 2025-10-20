@@ -19,6 +19,7 @@ pub struct GradientBackward {
     /// Index of the input for which gradient was computed
     input_index: usize,
     /// The gradient output from first backward pass
+    #[allow(dead_code)]
     grad_output: Tensor,
 }
 
