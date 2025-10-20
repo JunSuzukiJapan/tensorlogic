@@ -25,7 +25,7 @@ use crate::tensor::Tensor;
 /// On macOS: A CoreML MLMultiArray containing the tensor data
 /// On other platforms: An empty result (placeholder)
 #[cfg(target_os = "macos")]
-pub fn tensor_to_mlmultiarray(tensor: &Tensor) -> CoreMLResult<()> {
+pub fn tensor_to_mlmultiarray(tensor: &Tensor) -> CoreMLResult<objc2::rc::Retained<objc2_core_ml::MLMultiArray>> {
     use objc2::rc::Retained;
     use objc2_core_ml::MLMultiArray;
     use objc2_foundation::{NSArray, NSNumber};
@@ -85,7 +85,7 @@ pub fn tensor_to_mlmultiarray(tensor: &Tensor) -> CoreMLResult<()> {
     }
 
     println!("  MLMultiArray created and populated successfully");
-    Ok(())
+    Ok(multi_array)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -98,6 +98,59 @@ pub fn tensor_to_mlmultiarray(tensor: &Tensor) -> CoreMLResult<()> {
     println!("  Rank: {}", tensor.rank());
 
     Ok(())
+}
+
+/// Convert MLMultiArray to MLFeatureValue
+///
+/// This creates an MLFeatureValue from an MLMultiArray for use with CoreML prediction.
+///
+/// # Arguments
+///
+/// * `ml_array` - The MLMultiArray to wrap
+///
+/// # Returns
+///
+/// MLFeatureValue containing the array
+#[cfg(target_os = "macos")]
+pub fn mlmultiarray_to_feature_value(
+    ml_array: &objc2_core_ml::MLMultiArray
+) -> CoreMLResult<objc2::rc::Retained<objc2_core_ml::MLFeatureValue>> {
+    use objc2_core_ml::MLFeatureValue;
+
+    println!("Converting MLMultiArray to MLFeatureValue");
+
+    let feature_value = unsafe {
+        MLFeatureValue::featureValueWithMultiArray(ml_array)
+    };
+
+    println!("  MLFeatureValue created successfully");
+    Ok(feature_value)
+}
+
+/// Extract MLMultiArray from MLFeatureValue
+///
+/// # Arguments
+///
+/// * `feature_value` - The MLFeatureValue containing an array
+///
+/// # Returns
+///
+/// The MLMultiArray from the feature value
+#[cfg(target_os = "macos")]
+pub fn feature_value_to_mlmultiarray(
+    feature_value: &objc2_core_ml::MLFeatureValue
+) -> CoreMLResult<objc2::rc::Retained<objc2_core_ml::MLMultiArray>> {
+    println!("Extracting MLMultiArray from MLFeatureValue");
+
+    let ml_array = unsafe {
+        feature_value.multiArrayValue()
+            .ok_or_else(|| CoreMLError::ConversionError(
+                "FeatureValue does not contain MLMultiArray".to_string()
+            ))?
+    };
+
+    println!("  MLMultiArray extracted successfully");
+    Ok(ml_array)
 }
 
 /// Convert a CoreML MLMultiArray to TensorLogic Tensor
@@ -163,6 +216,17 @@ pub fn mlmultiarray_to_tensor(
 }
 
 /// Batch conversion: Tensors to MLMultiArray
+#[cfg(target_os = "macos")]
+pub fn tensors_to_mlmultiarray_batch(
+    tensors: &[Tensor]
+) -> CoreMLResult<Vec<objc2::rc::Retained<objc2_core_ml::MLMultiArray>>> {
+    tensors
+        .iter()
+        .map(tensor_to_mlmultiarray)
+        .collect()
+}
+
+#[cfg(not(target_os = "macos"))]
 pub fn tensors_to_mlmultiarray_batch(tensors: &[Tensor]) -> CoreMLResult<Vec<()>> {
     tensors
         .iter()
@@ -207,7 +271,24 @@ mod tests {
         let tensor = Tensor::zeros(&device, vec![1, 3, 224, 224]).unwrap();
 
         let result = tensor_to_mlmultiarray(&tensor);
+        #[cfg(target_os = "macos")]
         assert!(result.is_ok());
+        #[cfg(not(target_os = "macos"))]
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_mlmultiarray_to_feature_value() {
+        let device = MetalDevice::new().unwrap();
+        let tensor = Tensor::ones(&device, vec![1, 10]).unwrap();
+
+        let ml_array = tensor_to_mlmultiarray(&tensor).unwrap();
+        let feature_value = mlmultiarray_to_feature_value(&ml_array).unwrap();
+
+        // Verify we can extract it back
+        let _recovered = feature_value_to_mlmultiarray(&feature_value).unwrap();
+        // Retained<T> is never null, just verify we got it successfully
     }
 
     #[test]

@@ -24,6 +24,10 @@ pub struct CoreMLModel {
     input_shape: Vec<usize>,
     /// Output shape produced by the model
     output_shape: Vec<usize>,
+    /// Input feature name
+    input_name: String,
+    /// Output feature name
+    output_name: String,
     /// The actual MLModel instance (macOS only)
     #[cfg(target_os = "macos")]
     ml_model: Option<Retained<MLModel>>,
@@ -81,28 +85,58 @@ impl CoreMLModel {
             };
 
             // Try to load MLModel
-            let ml_model_result = unsafe {
+            let ml_model = unsafe {
                 MLModel::modelWithContentsOfURL_error(&url)
+                    .map_err(|_| CoreMLError::ModelLoadError(
+                        "Failed to load MLModel".to_string()
+                    ))?
             };
 
-            match ml_model_result {
-                Ok(ml_model) => {
-                    // TODO: Extract input/output shapes from model description
-                    // For now, use default ImageNet shapes
-                    Ok(CoreMLModel {
-                        name,
-                        path: path_str,
-                        input_shape: vec![1, 3, 224, 224],
-                        output_shape: vec![1, 1000],
-                        ml_model: Some(ml_model),
-                    })
-                }
-                Err(_) => {
-                    Err(CoreMLError::ModelLoadError(
-                        "Failed to load MLModel".to_string()
-                    ))
-                }
+            // Get model description
+            let description = unsafe { ml_model.modelDescription() };
+
+            // Extract input information
+            let input_dict = unsafe { description.inputDescriptionsByName() };
+            let input_keys = unsafe { input_dict.allKeys() };
+
+            if input_keys.count() == 0 {
+                return Err(CoreMLError::ModelLoadError(
+                    "No input descriptions found".to_string()
+                ));
             }
+
+            // Use first input
+            let input_name_ns = unsafe { input_keys.objectAtIndex(0) };
+            let input_name = input_name_ns.as_ref().to_string();
+
+            // Extract output information
+            let output_dict = unsafe { description.outputDescriptionsByName() };
+            let output_keys = unsafe { output_dict.allKeys() };
+
+            if output_keys.count() == 0 {
+                return Err(CoreMLError::ModelLoadError(
+                    "No output descriptions found".to_string()
+                ));
+            }
+
+            // Use first output
+            let output_name_ns = unsafe { output_keys.objectAtIndex(0) };
+            let output_name = output_name_ns.as_ref().to_string();
+
+            println!("CoreML Model loaded successfully:");
+            println!("  Input: {} -> Output: {}", input_name, output_name);
+
+            // For now, use default ImageNet shapes
+            // TODO: Extract actual shapes from MLFeatureDescription
+            Ok(CoreMLModel {
+                name,
+                path: path_str,
+                input_shape: vec![1, 3, 224, 224],
+                output_shape: vec![1, 1000],
+                input_name,
+                output_name,
+                ml_model: Some(ml_model),
+            })
         }
 
         #[cfg(not(target_os = "macos"))]
@@ -113,6 +147,8 @@ impl CoreMLModel {
                 path: path_str,
                 input_shape: vec![1, 3, 224, 224],
                 output_shape: vec![1, 1000],
+                input_name: "input".to_string(),
+                output_name: "output".to_string(),
             })
         }
     }
@@ -129,9 +165,21 @@ impl CoreMLModel {
             path,
             input_shape,
             output_shape,
+            input_name: "input".to_string(),
+            output_name: "output".to_string(),
             #[cfg(target_os = "macos")]
             ml_model: None,
         }
+    }
+
+    /// Get the input feature name
+    pub fn input_name(&self) -> &str {
+        &self.input_name
+    }
+
+    /// Get the output feature name
+    pub fn output_name(&self) -> &str {
+        &self.output_name
     }
 
     /// Get the expected input shape
@@ -184,58 +232,112 @@ impl CoreMLModel {
 
         #[cfg(target_os = "macos")]
         {
-            if let Some(ref _ml_model) = self.ml_model {
-                use super::conversion::tensor_to_mlmultiarray;
+            if let Some(ref ml_model) = self.ml_model {
+                use super::conversion::{
+                    tensor_to_mlmultiarray,
+                    mlmultiarray_to_feature_value,
+                    mlmultiarray_to_tensor,
+                };
+                use objc2_foundation::{NSString, NSDictionary};
+                use objc2_core_ml::{MLDictionaryFeatureProvider, MLFeatureProvider};
+                use objc2::{ClassType, runtime::ProtocolObject};
 
                 println!("Running CoreML inference on Neural Engine...");
+                println!("  Model: {}", self.name);
+                println!("  Input: {} → Output: {}", self.input_name, self.output_name);
+
+                // Step 1: Tensor → MLMultiArray
+                let ml_array = tensor_to_mlmultiarray(input)?;
+                println!("  ✓ MLMultiArray created");
+
+                // Step 2: MLMultiArray → MLFeatureValue
+                let feature_value = mlmultiarray_to_feature_value(&ml_array)?;
+                println!("  ✓ MLFeatureValue created");
+
+                // Step 3 & 4: Create MLDictionaryFeatureProvider directly
+                // We'll use a simpler approach: create a dict with NSString keys
+                let input_name_ns = NSString::from_str(&self.input_name);
+
+                // Create a dictionary manually using objc2 msg_send
+                use objc2::rc::Retained;
+                use objc2::msg_send_id;
+
+                let input_dict: Retained<NSDictionary<NSString, objc2::runtime::AnyObject>> = unsafe {
+                    let dict_class = objc2::class!(NSMutableDictionary);
+                    let dict: Retained<objc2::runtime::AnyObject> = msg_send_id![dict_class, new];
+
+                    // Set the feature value in the dictionary
+                    let _: () = objc2::msg_send![
+                        &*dict,
+                        setObject: &*feature_value,
+                        forKey: &*input_name_ns
+                    ];
+
+                    // Convert NSMutableDictionary to NSDictionary
+                    std::mem::transmute(dict)
+                };
+                println!("  ✓ Input dictionary created");
+
+                // Step 4: Create MLDictionaryFeatureProvider
+                let input_provider = unsafe {
+                    let allocated = MLDictionaryFeatureProvider::alloc();
+                    MLDictionaryFeatureProvider::initWithDictionary_error(allocated, &input_dict)
+                        .map_err(|e| CoreMLError::ConversionError(
+                            format!("Failed to create feature provider: {:?}", e)
+                        ))?
+                };
+                println!("  ✓ Feature provider created");
+
+                // Step 5: Cast to ProtocolObject<dyn MLFeatureProvider>
+                let provider_protocol: &ProtocolObject<dyn MLFeatureProvider> =
+                    ProtocolObject::from_ref(&*input_provider);
+
+                // Step 6: Run prediction on Neural Engine
+                println!("  → Running Neural Engine inference...");
+                let output_provider = unsafe {
+                    ml_model.predictionFromFeatures_error(provider_protocol)
+                        .map_err(|e| CoreMLError::InferenceError(
+                            format!("Prediction failed: {:?}", e)
+                        ))?
+                };
+                println!("  ✓ Neural Engine inference completed");
+
+                // Step 7: Extract output MLFeatureValue
+                let output_name_ns = NSString::from_str(&self.output_name);
+                let output_value = unsafe {
+                    output_provider.featureValueForName(&output_name_ns)
+                        .ok_or_else(|| CoreMLError::ConversionError(
+                            format!("Output '{}' not found", self.output_name)
+                        ))?
+                };
+                println!("  ✓ Output feature extracted: {}", self.output_name);
+
+                // Step 8: Extract MLMultiArray from output
+                let output_array = unsafe {
+                    output_value.multiArrayValue()
+                        .ok_or_else(|| CoreMLError::ConversionError(
+                            "Output is not MLMultiArray".to_string()
+                        ))?
+                };
+                println!("  ✓ Output MLMultiArray extracted");
+
+                // Step 9: Convert MLMultiArray back to Tensor
+                let output_tensor = mlmultiarray_to_tensor(
+                    &device,
+                    &output_array,
+                    self.output_shape.clone(),
+                )?;
+                println!("  ✓ Output tensor created");
+
+                println!("=== Neural Engine inference successful ===");
+                Ok(output_tensor)
+            } else {
+                // No MLModel loaded: Return dummy output tensor (like non-macOS version)
+                println!("Running CoreML inference (placeholder - no model loaded)...");
                 println!("  Model: {}", self.name);
                 println!("  Input shape: {:?}", input_dims);
                 println!("  Output shape: {:?}", self.output_shape);
 
-                // Convert Tensor to MLMultiArray
-                tensor_to_mlmultiarray(input)?;
-
-                println!("  MLMultiArray conversion successful");
-
-                // NOTE: Full prediction() implementation requires:
-                //
-                // 1. Create MLFeatureValue from MLMultiArray:
-                //    use objc2_core_ml::MLFeatureValue;
-                //    let feature_value = MLFeatureValue::featureValueWithMultiArray(&multi_array)?;
-                //
-                // 2. Create MLDictionaryFeatureProvider with input name:
-                //    use objc2_core_ml::MLDictionaryFeatureProvider;
-                //    use objc2_foundation::{NSDictionary, NSString};
-                //    let input_name = NSString::from_str("input");  // model-specific
-                //    let dict = NSDictionary::from_keys_and_objects(&[input_name], &[feature_value]);
-                //    let input_provider = MLDictionaryFeatureProvider::initWithDictionary(&dict)?;
-                //
-                // 3. Run prediction:
-                //    let output_provider = ml_model.predictionFromFeatures_error(&input_provider)?;
-                //
-                // 4. Extract output MLFeatureValue:
-                //    let output_name = NSString::from_str("output");  // model-specific
-                //    let output_value = output_provider.featureValueForName(&output_name)?;
-                //    let output_array = output_value.multiArrayValue()?;
-                //
-                // 5. Convert back to Tensor:
-                //    mlmultiarray_to_tensor(&device, &output_array, self.output_shape.clone())?;
-                //
-                // This requires enabling additional features in Cargo.toml:
-                // - MLFeatureValue
-                // - MLDictionaryFeatureProvider
-                // - MLFeatureProvider protocol
-                //
-                // And requires knowing the model's input/output names from MLModelDescription
-
-                println!("  Note: Complete prediction() API requires MLFeatureProvider integration");
-                println!("  Returning zero tensor as MVP output");
-
-                Tensor::zeros(&device, self.output_shape.clone())
-                    .map_err(CoreMLError::TensorError)
-            } else {
-                // No MLModel loaded, return zero tensor
-                println!("No MLModel loaded, returning zero tensor");
                 Tensor::zeros(&device, self.output_shape.clone())
                     .map_err(CoreMLError::TensorError)
             }

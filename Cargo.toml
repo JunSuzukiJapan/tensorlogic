@@ -17,8 +17,17 @@ objc = "0.2"
 
 # CoreML統合 (Neural Engine)
 objc2 = "0.5"
-objc2-core-ml = { version = "0.2", features = ["MLMultiArray", "MLModel"] }
-objc2-foundation = { version = "0.2", features = ["NSArray", "NSValue", "NSError", "NSString"] }
+objc2-core-ml = { version = "0.2", features = [
+    "MLMultiArray",
+    "MLModel",
+    "MLFeatureValue",
+    "MLFeatureProvider",
+    "MLDictionaryFeatureProvider",
+    "MLModelDescription",
+    "MLFeatureDescription",
+    "MLFeatureType"
+] }
+objc2-foundation = { version = "0.2", features = ["NSArray", "NSValue", "NSError", "NSString", "NSDictionary"] }
 
 # エラーハンドリング
 thiserror = "1.0"
