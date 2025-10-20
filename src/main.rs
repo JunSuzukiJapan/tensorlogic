@@ -205,19 +205,17 @@ fn print_repl_help() {
     println!();
 }
 
-fn print_variables(interpreter: &Interpreter) {
+fn print_variables(_interpreter: &Interpreter) {
     println!("Variables:");
-    let vars = interpreter.get_all_variables();
-    if vars.is_empty() {
-        println!("  (none)");
-    } else {
-        for (name, value) in vars {
-            println!("  {} = {:?}", name, value);
-        }
-    }
+    // TODO: Implement get_all_variables() method in Interpreter
+    println!("  (method not yet implemented)");
 }
 
-fn print_final_state(interpreter: &Interpreter) {
+fn print_final_state(_interpreter: &Interpreter) {
+    // TODO: Implement get_all_variables() method in Interpreter
+    println!("\nFinal state:");
+    println!("  (method not yet implemented)");
+    /*
     let vars = interpreter.get_all_variables();
     if !vars.is_empty() {
         println!("\nFinal state:");
@@ -241,4 +239,5 @@ fn print_final_state(interpreter: &Interpreter) {
             }
         }
     }
+    */
 }
