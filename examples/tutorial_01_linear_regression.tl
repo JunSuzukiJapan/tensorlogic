@@ -6,8 +6,8 @@
 // Problem: Learn parameters w and b to minimize loss
 
 // Declare learnable parameters
-tensor w: float32[1] learnable = [0.5]
-tensor b: float32[1] learnable = [0.5]
+tensor w: float16[1] learnable = [0.5]
+tensor b: float16[1] learnable = [0.5]
 
 main {
     // Training: minimize a simple loss function

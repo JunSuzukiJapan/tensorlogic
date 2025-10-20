@@ -29,7 +29,7 @@ tensor_decl = { "tensor" ~ identifier ~ ":" ~ tensor_type ~ ("=" ~ tensor_expr)?
 tensor_type = { base_type ~ "[" ~ dimension_list ~ "]" ~ learnable? }
 
 base_type = {
-    "float32" | "float64" | "int32" | "int64" | "bool" | "complex64"
+    "float16"
 }
 
 dimension_list = { dimension ~ ("," ~ dimension)* }

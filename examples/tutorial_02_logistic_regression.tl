@@ -6,8 +6,8 @@
 // Problem: Learn two parameters to minimize a combined loss function
 
 // Declare learnable parameters with different initial values
-tensor w1: float32[1] learnable = [1.0]
-tensor w2: float32[1] learnable = [0.5]
+tensor w1: float16[1] learnable = [1.0]
+tensor w2: float16[1] learnable = [0.5]
 
 main {
     // Multi-parameter optimization

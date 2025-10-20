@@ -6,9 +6,9 @@
 // Problem: Minimize squared magnitude of 3 network weights
 
 // Three learnable weights for a simple network
-tensor w1: float32[1] learnable = [0.5]
-tensor w2: float32[1] learnable = [1.0]
-tensor w3: float32[1] learnable = [0.3]
+tensor w1: float16[1] learnable = [0.5]
+tensor w2: float16[1] learnable = [1.0]
+tensor w3: float16[1] learnable = [0.3]
 
 main {
     // Neural network weight regularization: minimize sum of squared weights

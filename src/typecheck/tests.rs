@@ -9,7 +9,7 @@ fn test_type_checker_creation() {
 
 #[test]
 fn test_simple_tensor_decl() {
-    let source = "tensor w: float32[10, 20]";
+    let source = "tensor w: float16[10, 20]";
     let program = TensorLogicParser::parse_program(source).unwrap();
 
     let mut checker = TypeChecker::new();
@@ -23,7 +23,7 @@ fn test_simple_tensor_decl() {
 
 #[test]
 fn test_learnable_tensor_decl() {
-    let source = "tensor w: float32[10, 20] learnable";
+    let source = "tensor w: float16[10, 20] learnable";
     let program = TensorLogicParser::parse_program(source).unwrap();
 
     let mut checker = TypeChecker::new();
@@ -36,8 +36,8 @@ fn test_learnable_tensor_decl() {
 #[test]
 fn test_duplicate_declaration() {
     let source = r#"
-        tensor w: float32[10]
-        tensor w: float32[20]
+        tensor w: float16[10]
+        tensor w: float16[20]
     "#;
     let program = TensorLogicParser::parse_program(source).unwrap();
 
@@ -50,7 +50,7 @@ fn test_duplicate_declaration() {
 
 #[test]
 fn test_variable_dimension() {
-    let source = "tensor w: float32[n, m]";
+    let source = "tensor w: float16[n, m]";
     let program = TensorLogicParser::parse_program(source).unwrap();
 
     let mut checker = TypeChecker::new();
@@ -63,7 +63,7 @@ fn test_variable_dimension() {
 
 #[test]
 fn test_dynamic_dimension() {
-    let source = "tensor w: float32[?]";
+    let source = "tensor w: float16[?]";
     let program = TensorLogicParser::parse_program(source).unwrap();
 
     let mut checker = TypeChecker::new();
@@ -90,7 +90,7 @@ fn test_relation_decl() {
 #[test]
 fn test_function_decl() {
     let source = r#"
-        function sigmoid(x: float32[?]) -> float32[?] {
+        function sigmoid(x: float16[?]) -> float16[?] {
             y := x
         }
     "#;
@@ -107,7 +107,7 @@ fn test_function_decl() {
 #[test]
 fn test_assignment_statement() {
     let source = r#"
-        tensor x: float32[10]
+        tensor x: float16[10]
         main {
             y := x
         }
@@ -177,7 +177,7 @@ fn test_literal_type_inference_array() {
 fn test_binary_op_add() {
     let mut checker = TypeChecker::new();
 
-    // Add two float32[10] tensors
+    // Add two float16[10] tensors
     checker
         .env
         .add_variable(
@@ -307,13 +307,11 @@ fn test_variable_dimension_matching() {
 
 #[test]
 fn test_multiple_base_types() {
+    // TensorLogic only supports float16 type (internally mapped to Float32)
     let test_cases = vec![
-        ("tensor a: float32[1]", BaseType::Float32),
-        ("tensor b: float64[1]", BaseType::Float64),
-        ("tensor c: int32[1]", BaseType::Int32),
-        ("tensor d: int64[1]", BaseType::Int64),
-        ("tensor e: bool[1]", BaseType::Bool),
-        ("tensor f: complex64[1]", BaseType::Complex64),
+        ("tensor a: float16[1]", BaseType::Float32),
+        ("tensor b: float16[2, 3]", BaseType::Float32),
+        ("tensor c: float16[?]", BaseType::Float32),
     ];
 
     for (source, expected_type) in test_cases {

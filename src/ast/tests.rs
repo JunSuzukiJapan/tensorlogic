@@ -8,7 +8,7 @@ mod tests {
     fn test_tensor_decl_creation() {
         let decl = TensorDecl {
             name: Identifier::new("w"),
-            tensor_type: TensorType::learnable_float32(vec![10, 20]),
+            tensor_type: TensorType::learnable_float16(vec![10, 20]),
             init_expr: None,
         };
 
@@ -159,9 +159,9 @@ mod tests {
             name: Identifier::new("sigmoid"),
             params: vec![Param {
                 name: Identifier::new("x"),
-                entity_type: EntityType::Tensor(TensorType::float32(vec![])),
+                entity_type: EntityType::Tensor(TensorType::float16(vec![])),
             }],
-            return_type: ReturnType::Tensor(TensorType::float32(vec![])),
+            return_type: ReturnType::Tensor(TensorType::float16(vec![])),
             body: vec![Statement::Assignment {
                 target: Identifier::new("result"),
                 value: TensorExpr::var("x"),
@@ -230,7 +230,7 @@ mod tests {
         let program = Program {
             declarations: vec![Declaration::Tensor(TensorDecl {
                 name: Identifier::new("w"),
-                tensor_type: TensorType::float32(vec![10]),
+                tensor_type: TensorType::float16(vec![10]),
                 init_expr: Some(TensorExpr::var("x")),
             })],
             main_block: None,

@@ -10,7 +10,7 @@ fn test_interpreter_creation() {
 
 #[test]
 fn test_simple_tensor_decl() {
-    let source = "tensor w: float32[10, 20]";
+    let source = "tensor w: float16[10, 20]";
     let program = TensorLogicParser::parse_program(source).unwrap();
 
     let mut interpreter = Interpreter::new();
@@ -23,7 +23,7 @@ fn test_simple_tensor_decl() {
 
 #[test]
 fn test_learnable_tensor() {
-    let source = "tensor w: float32[10] learnable";
+    let source = "tensor w: float16[10] learnable";
     let program = TensorLogicParser::parse_program(source).unwrap();
 
     let mut interpreter = Interpreter::new();
@@ -39,7 +39,7 @@ fn test_learnable_tensor() {
 
 #[test]
 fn test_tensor_with_init() {
-    let source = "tensor w: float32[3] = [1.0, 2.0, 3.0]";
+    let source = "tensor w: float16[3] = [1.0, 2.0, 3.0]";
     let program = TensorLogicParser::parse_program(source).unwrap();
 
     let mut interpreter = Interpreter::new();
@@ -56,7 +56,7 @@ fn test_tensor_with_init() {
 #[test]
 fn test_assignment_statement() {
     let source = r#"
-        tensor x: float32[5]
+        tensor x: float16[5]
         main {
             y := x
         }
@@ -178,8 +178,8 @@ fn test_array_literal_2d() {
 #[test]
 fn test_binary_op_add_tensors() {
     let source = r#"
-        tensor a: float32[3] = [1.0, 2.0, 3.0]
-        tensor b: float32[3] = [4.0, 5.0, 6.0]
+        tensor a: float16[3] = [1.0, 2.0, 3.0]
+        tensor b: float16[3] = [4.0, 5.0, 6.0]
         main {
             c := a + b
         }
@@ -305,9 +305,9 @@ fn test_unary_op_not_boolean() {
 #[test]
 fn test_multiple_declarations() {
     let source = r#"
-        tensor w: float32[10]
-        tensor b: float32[10]
-        tensor x: float32[5, 10]
+        tensor w: float16[10]
+        tensor b: float16[10]
+        tensor x: float16[5, 10]
     "#;
     let program = TensorLogicParser::parse_program(source).unwrap();
 
@@ -322,8 +322,8 @@ fn test_multiple_declarations() {
 #[test]
 fn test_main_block_execution() {
     let source = r#"
-        tensor a: float32[2] = [1.0, 2.0]
-        tensor b: float32[2] = [3.0, 4.0]
+        tensor a: float16[2] = [1.0, 2.0]
+        tensor b: float16[2] = [3.0, 4.0]
 
         main {
             sum := a + b
@@ -423,7 +423,7 @@ fn test_value_as_bool() {
 #[test]
 fn test_learning_parameter_update() {
     let source = r#"
-tensor w: float32[1] learnable = [5.0]
+tensor w: float16[1] learnable = [5.0]
 
 main {
     // Simple loss: w * w
@@ -493,7 +493,7 @@ main {
 #[test]
 fn test_learning_loss_convergence() {
     let source = r#"
-tensor w: float32[1] learnable = [5.0]
+tensor w: float16[1] learnable = [5.0]
 
 main {
     loss := w * w
@@ -532,8 +532,8 @@ main {
 fn test_learning_linear_regression() {
     // Simple linear regression: minimize w^2 + b^2
     let source = r#"
-tensor w: float32[1] learnable = [3.0]
-tensor b: float32[1] learnable = [2.0]
+tensor w: float16[1] learnable = [3.0]
+tensor b: float16[1] learnable = [2.0]
 
 main {
     // Minimize w^2 + b^2 (should converge to w=0, b=0)
@@ -1210,7 +1210,7 @@ main {
 #[test]
 fn test_learning_with_step_scheduler() {
     let source = r#"
-tensor w: float32[1] learnable = [5.0]
+tensor w: float16[1] learnable = [5.0]
 
 main {
     learn {
@@ -1238,7 +1238,7 @@ main {
 #[test]
 fn test_learning_with_exponential_scheduler() {
     let source = r#"
-tensor w: float32[1] learnable = [3.0]
+tensor w: float16[1] learnable = [3.0]
 
 main {
     learn {
@@ -1265,7 +1265,7 @@ main {
 #[test]
 fn test_learning_with_cosine_scheduler() {
     let source = r#"
-tensor w: float32[1] learnable = [2.0]
+tensor w: float16[1] learnable = [2.0]
 
 main {
     learn {
@@ -1293,7 +1293,7 @@ main {
 fn test_learning_without_scheduler() {
     // Ensure backward compatibility - no scheduler should still work
     let source = r#"
-tensor w: float32[1] learnable = [1.0]
+tensor w: float16[1] learnable = [1.0]
 
 main {
     learn {

@@ -12,7 +12,7 @@ relation Parent(x: entity, y: entity)
 relation Sibling(x: entity, y: entity)
 
 // Relations can have embeddings for neural-symbolic learning
-relation Friend(x: entity, y: entity) embed float32[32]
+relation Friend(x: entity, y: entity) embed float16[32]
 
 main {
     // Future features:

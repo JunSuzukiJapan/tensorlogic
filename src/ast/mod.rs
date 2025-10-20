@@ -499,7 +499,7 @@ impl fmt::Display for Identifier {
 // ============================================================================
 
 impl TensorType {
-    /// Create a simple float32 tensor type
+    /// Create a simple float32 tensor type (internally float16)
     pub fn float32(dims: Vec<usize>) -> Self {
         TensorType {
             base_type: BaseType::Float32,
@@ -508,13 +508,23 @@ impl TensorType {
         }
     }
 
-    /// Create a learnable float32 tensor type
+    /// Create a simple float16 tensor type (alias for float32)
+    pub fn float16(dims: Vec<usize>) -> Self {
+        Self::float32(dims)
+    }
+
+    /// Create a learnable float32 tensor type (internally float16)
     pub fn learnable_float32(dims: Vec<usize>) -> Self {
         TensorType {
             base_type: BaseType::Float32,
             dimensions: dims.into_iter().map(Dimension::Fixed).collect(),
             learnable: LearnableStatus::Learnable,
         }
+    }
+
+    /// Create a learnable float16 tensor type (alias for learnable_float32)
+    pub fn learnable_float16(dims: Vec<usize>) -> Self {
+        Self::learnable_float32(dims)
     }
 }
 

@@ -58,60 +58,171 @@ See the [**Getting Started Guide**](claudedocs/getting_started.md) for comprehen
 
 ### Installation
 
+Install the TensorLogic interpreter as a binary:
+
+```bash
+cargo install --git https://github.com/JunSuzukiJapan/tensorlogic.git
+```
+
+Or build from source:
+
 ```bash
 git clone https://github.com/JunSuzukiJapan/tensorlogic.git
 cd tensorlogic
 cargo build --release
-```
-
-### Run Example
-
-```bash
-# Simple training example
-cargo run --example simple_training --release
+# Binary will be at: target/release/tensorlogic
 ```
 
 ### Basic Usage
 
-```rust
-use tensorlogic::{Tensor, TensorResult};
-use tensorlogic::optim::{Optimizer, Adam};
-use tensorlogic::autograd::AutogradContext;
-use half::f16;
+TensorLogic is an interpreted language for tensor operations and neural network training.
 
-fn main() -> TensorResult<()> {
-    // Create parameter
-    let mut w = Tensor::from_vec(vec![f16::from_f32(0.5)], vec![1])?;
-    w.set_requires_grad(true);
+#### 1. Tensor Declaration
 
-    // Create optimizer
-    let mut optimizer = Adam::new(vec![w.clone()], 0.01);
+Declare tensors with the `float16` type (TensorLogic uses 16-bit floating point for GPU efficiency):
 
-    // Training loop
-    for epoch in 0..100 {
-        optimizer.zero_grad();
-        AutogradContext::clear();
+```tensorlogic
+// Scalar tensor
+tensor x: float16[1] = [2.0]
 
-        // Forward pass: y = w * x
-        let x = Tensor::from_vec(vec![f16::from_f32(2.0)], vec![1])?;
-        let y = w.mul(&x)?;
+// Vector tensor
+tensor v: float16[3] = [1.0, 2.0, 3.0]
 
-        // Backward pass
-        let mut loss = y.clone();
-        loss.backward()?;
+// Matrix tensor
+tensor W: float16[2, 3] = [[1.0, 2.0, 3.0],
+                           [4.0, 5.0, 6.0]]
 
-        // Update weights
-        optimizer.step()?;
-    }
+// Learnable parameter (for training)
+tensor w: float16[1] learnable = [0.5]
+```
 
-    Ok(())
+#### 2. Tensor Operations
+
+Perform element-wise and matrix operations:
+
+```tensorlogic
+main {
+    // Element-wise operations
+    result := a + b      // Addition
+    result := a - b      // Subtraction
+    result := a * b      // Multiplication
+    result := a / b      // Division
+
+    // Matrix operations
+    result := A @ B      // Matrix multiplication
+    result := a ** 2     // Power
+
+    // Activation functions
+    result := relu(x)
+    result := gelu(x)
+
+    // Reductions
+    sum := sum(tensor)
+    mean := mean(tensor)
 }
 ```
 
-For more examples, see:
-- [Getting Started Guide](claudedocs/getting_started.md) - Complete tutorial with examples
-- [Optimizer Tutorial](claudedocs/optimizer_tutorial.md) - In-depth optimizer guide
-- [Examples Directory](examples/) - Working code examples
+#### 3. Control Flow
+
+Use conditionals and loops:
+
+```tensorlogic
+main {
+    // If statement
+    if x > 0 {
+        y := x * 2
+    }
+
+    // If-else statement
+    if x > 0 {
+        y := x * 2
+    } else {
+        y := x * 0.5
+    }
+
+    // For loop
+    for i in 0..10 {
+        x := x + i
+    }
+
+    // While loop
+    while x < 100 {
+        x := x * 1.1
+    }
+}
+```
+
+#### 4. Training with Gradient Descent
+
+Train models using the `learn` statement:
+
+```tensorlogic
+// Declare learnable parameters
+tensor w: float16[1] learnable = [0.5]
+tensor b: float16[1] learnable = [0.5]
+
+main {
+    // Define and minimize loss function
+    learn {
+        objective: w * w + b * b,
+        optimizer: sgd(lr: 0.1),
+        epochs: 50
+    }
+}
+```
+
+Available optimizers:
+- `sgd(lr: 0.1)` - Stochastic Gradient Descent
+- `adam(lr: 0.001)` - Adam optimizer
+- `adamw(lr: 0.001, weight_decay: 0.01)` - AdamW with weight decay
+
+#### 5. Run Your Program
+
+```bash
+# Run TensorLogic script
+tensorlogic run your_script.tl
+
+# With debug mode
+tensorlogic run your_script.tl --debug
+
+# Start REPL (interactive mode)
+tensorlogic repl
+```
+
+### Complete Example
+
+Here's a complete linear regression example ([examples/tutorial_01_linear_regression.tl](examples/tutorial_01_linear_regression.tl)):
+
+```tensorlogic
+// Declare learnable parameters
+tensor w: float16[1] learnable = [0.5]
+tensor b: float16[1] learnable = [0.5]
+
+main {
+    // Training: minimize loss function
+    // Loss = w^2 + b^2 (converges to w=0, b=0)
+
+    learn {
+        objective: w * w + b * b,
+        optimizer: sgd(lr: 0.1),
+        epochs: 50
+    }
+}
+```
+
+Run it:
+```bash
+tensorlogic run examples/tutorial_01_linear_regression.tl
+```
+
+### More Examples
+
+- [Tutorial 01: Linear Regression](examples/tutorial_01_linear_regression.tl) - Basic optimization
+- [Tutorial 02: Multi-Parameter Optimization](examples/tutorial_02_logistic_regression.tl) - Multiple parameters
+- [Tutorial 03: Neural Network Weights](examples/tutorial_03_neural_network.tl) - Weight regularization
+- [Tutorial 04: Logic Programming](examples/tutorial_04_logic_programming.tl) - Neural-symbolic integration
+- [Getting Started Guide](claudedocs/getting_started.md) - Comprehensive tutorials
+- [Language Reference](docs/en/language_reference.md) - Complete syntax reference
 
 ## Architecture
 

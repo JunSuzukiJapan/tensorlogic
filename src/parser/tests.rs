@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_parse_tensor_decl_simple() {
-    let source = "tensor w: float32[10, 20]";
+    let source = "tensor w: float16[10, 20]";
     let program = TensorLogicParser::parse_program(source).unwrap();
 
     assert_eq!(program.declarations.len(), 1);
@@ -20,7 +20,7 @@ fn test_parse_tensor_decl_simple() {
 
 #[test]
 fn test_parse_tensor_decl_learnable() {
-    let source = "tensor w: float32[10, 20] learnable";
+    let source = "tensor w: float16[10, 20] learnable";
     let program = TensorLogicParser::parse_program(source).unwrap();
 
     assert_eq!(program.declarations.len(), 1);
@@ -52,7 +52,7 @@ fn test_parse_relation_decl() {
 
 #[test]
 fn test_parse_relation_with_embed() {
-    let source = "relation Parent(x: entity, y: entity) embed float32[64]";
+    let source = "relation Parent(x: entity, y: entity) embed float16[64]";
     let program = TensorLogicParser::parse_program(source).unwrap();
 
     assert_eq!(program.declarations.len(), 1);
@@ -105,7 +105,7 @@ fn test_parse_embedding_decl() {
 #[test]
 fn test_parse_function_decl() {
     let source = r#"
-        function sigmoid(x: float32[?]) -> float32[?] {
+        function sigmoid(x: float16[?]) -> float16[?] {
             x := x
         }
     "#;
@@ -156,7 +156,7 @@ fn test_parse_main_block() {
 
 #[test]
 fn test_parse_variable_dimension() {
-    let source = "tensor w: float32[n, m]";
+    let source = "tensor w: float16[n, m]";
     let program = TensorLogicParser::parse_program(source).unwrap();
 
     if let Declaration::Tensor(decl) = &program.declarations[0] {
@@ -178,7 +178,7 @@ fn test_parse_variable_dimension() {
 
 #[test]
 fn test_parse_dynamic_dimension() {
-    let source = "tensor w: float32[?]";
+    let source = "tensor w: float16[?]";
     let program = TensorLogicParser::parse_program(source).unwrap();
 
     if let Declaration::Tensor(decl) = &program.declarations[0] {
@@ -190,8 +190,8 @@ fn test_parse_dynamic_dimension() {
 #[test]
 fn test_parse_multiple_declarations() {
     let source = r#"
-        tensor w: float32[10] learnable
-        tensor b: float32[10] learnable
+        tensor w: float16[10] learnable
+        tensor b: float16[10] learnable
         relation Parent(x: entity, y: entity)
     "#;
 
@@ -205,13 +205,11 @@ fn test_parse_multiple_declarations() {
 
 #[test]
 fn test_parse_base_types() {
+    // TensorLogic only supports float16 type
     let test_cases = vec![
-        ("tensor a: float32[1]", BaseType::Float32),
-        ("tensor b: float64[1]", BaseType::Float64),
-        ("tensor c: int32[1]", BaseType::Int32),
-        ("tensor d: int64[1]", BaseType::Int64),
-        ("tensor e: bool[1]", BaseType::Bool),
-        ("tensor f: complex64[1]", BaseType::Complex64),
+        ("tensor a: float16[1]", BaseType::Float32),
+        ("tensor b: float16[2, 3]", BaseType::Float32),
+        ("tensor c: float16[?]", BaseType::Float32),
     ];
 
     for (source, expected_type) in test_cases {
@@ -275,7 +273,7 @@ fn test_parse_init_methods() {
 #[test]
 fn test_parse_tensor_literal_scalar() {
     let source = r#"
-        tensor w: float32[1] = 3.14
+        tensor w: float16[1] = 3.14
     "#;
 
     let program = TensorLogicParser::parse_program(source).unwrap();
