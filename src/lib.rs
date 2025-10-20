@@ -8,6 +8,7 @@ pub mod autograd;
 pub mod coreml;
 pub mod device;
 pub mod error;
+pub mod error_reporting;
 pub mod interpreter;
 pub mod logic;
 pub mod ops;
