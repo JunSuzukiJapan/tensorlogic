@@ -72,3 +72,8 @@ harness = false
 name = "advanced_fusion_benchmark"
 path = "benches/advanced_fusion_benchmark.rs"
 harness = false
+
+[[bench]]
+name = "coreml_neural_engine_benchmark"
+path = "benches/coreml_neural_engine_benchmark.rs"
+harness = false

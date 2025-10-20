@@ -1,0 +1,2749 @@
+╔════════════════════════════════════════════════════════════╗
+║  TensorLogic CoreML Neural Engine Performance Benchmark   ║
+╚════════════════════════════════════════════════════════════╝
+
+Configuration:
+  Iterations: 100
+  Warmup: 10
+
+═══════════════════════════════════════════════════════════
+1. Metal GPU Baseline Performance
+═══════════════════════════════════════════════════════════
+
+  Metal GPU MatMul 64×64
+    Avg: 0.4730 ms
+    Min: 0.2745 ms
+    Max: 1.2853 ms
+    Throughput: 2114.36 ops/sec
+
+  Metal GPU MatMul 128×128
+    Avg: 0.2989 ms
+    Min: 0.2617 ms
+    Max: 0.4939 ms
+    Throughput: 3345.95 ops/sec
+
+  Metal GPU MatMul 256×256
+    Avg: 0.4374 ms
+    Min: 0.3961 ms
+    Max: 0.8787 ms
+    Throughput: 2286.38 ops/sec
+
+  Metal GPU MatMul 512×512
+    Avg: 1.2626 ms
+    Min: 1.1937 ms
+    Max: 1.6262 ms
+    Throughput: 792.04 ops/sec
+
+═══════════════════════════════════════════════════════════
+2. Tensor↔MLMultiArray Conversion Overhead
+═══════════════════════════════════════════════════════════
+
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 224, 224]
+  Data length: 150528
+  MLMultiArray created and populated successfully
+  Tensor→MLMultiArray (150528 elements)
+    Avg: 0.0137 ms
+    Min: 0.0123 ms
+    Max: 0.0210 ms
+    Throughput: 73215.50 ops/sec
+
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 3, 512, 512]
+  Data length: 786432
+  MLMultiArray created and populated successfully
+  Tensor→MLMultiArray (786432 elements)
+    Avg: 0.1148 ms
+    Min: 0.0691 ms
+    Max: 0.2122 ms
+    Throughput: 8714.38 ops/sec
+
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [1, 768]
+  Data length: 768
+  MLMultiArray created and populated successfully
+  Tensor→MLMultiArray (768 elements)
+    Avg: 0.0024 ms
+    Min: 0.0017 ms
+    Max: 0.0113 ms
+    Throughput: 415161.71 ops/sec
+
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+Converting Tensor to MLMultiArray:
+  Shape: [16, 128, 128]
+  Data length: 262144
+  MLMultiArray created and populated successfully
+  Tensor→MLMultiArray (262144 elements)
+    Avg: 0.0306 ms
+    Min: 0.0190 ms
+    Max: 0.0664 ms
+    Throughput: 32657.09 ops/sec
+
+═══════════════════════════════════════════════════════════
+3. CoreML Neural Engine Inference
+═══════════════════════════════════════════════════════════
+
+Testing with placeholder CoreML models...
+
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: ImageNet Classifier
+  Input shape: [1, 3, 224, 224]
+  Output shape: [1, 1000]
+  CoreML Inference (1×3×224×224 input, 100/100 success)
+    Avg: 0.1113 ms
+    Min: 0.0584 ms
+    Max: 1.3532 ms
+    Throughput: 8986.34 ops/sec
+
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+Running CoreML inference (placeholder - no model loaded)...
+  Model: Object Detector
+  Input shape: [1, 3, 640, 640]
+  Output shape: [1, 25200, 85]
+  CoreML Inference (1×3×640×640 input, 100/100 success)
+    Avg: 0.2584 ms
+    Min: 0.2040 ms
+    Max: 2.0861 ms
+    Throughput: 3870.22 ops/sec
+
+═══════════════════════════════════════════════════════════
+Performance Summary
+═══════════════════════════════════════════════════════════
+
+Metal GPU Characteristics:
+  ✓ General-purpose tensor operations
+  ✓ High throughput for large matrices (1129 GFLOPS peak)
+  ✓ Excellent for training and custom operations
+
+CoreML Neural Engine Characteristics:
+  ✓ Optimized for neural network inference
+  ✓ Energy-efficient execution on Apple Silicon
+  ✓ Hardware-accelerated for supported model types
+
+Conversion Overhead:
+  • Tensor→MLMultiArray: Minimal overhead (~1-2ms for typical inputs)
+  • Best practice: Batch multiple inferences to amortize conversion cost
+
+Note: Current benchmarks use placeholder CoreML models.
+For accurate Neural Engine measurements:
+  1. Export actual trained models to .mlmodelc format
+  2. Place .mlmodelc files in accessible directory
+  3. Update benchmark to load real models with CoreMLModel::load()
+
+═══════════════════════════════════════════════════════════
+Benchmark Complete
+═══════════════════════════════════════════════════════════
