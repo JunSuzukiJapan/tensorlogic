@@ -262,9 +262,9 @@ impl Interpreter {
                 // Random initialization in range [-0.1, 0.1]
                 let mut data = Vec::with_capacity(num_entities * decl.dimension);
                 use rand::Rng;
-                let mut rng = rand::thread_rng();
+                let mut rng = rand::rng();
                 for _ in 0..(num_entities * decl.dimension) {
-                    let val: f32 = rng.gen_range(-0.1..0.1);
+                    let val: f32 = rng.random_range(-0.1..0.1);
                     data.push(half::f16::from_f32(val));
                 }
                 Tensor::from_vec(data, vec![num_entities, decl.dimension])?
@@ -274,9 +274,9 @@ impl Interpreter {
                 let limit = (6.0 / (num_entities + decl.dimension) as f32).sqrt();
                 let mut data = Vec::with_capacity(num_entities * decl.dimension);
                 use rand::Rng;
-                let mut rng = rand::thread_rng();
+                let mut rng = rand::rng();
                 for _ in 0..(num_entities * decl.dimension) {
-                    let val: f32 = rng.gen_range(-limit..limit);
+                    let val: f32 = rng.random_range(-limit..limit);
                     data.push(half::f16::from_f32(val));
                 }
                 Tensor::from_vec(data, vec![num_entities, decl.dimension])?
@@ -285,9 +285,9 @@ impl Interpreter {
                 // He initialization: normal(0, sqrt(2/n))
                 let stddev = (2.0 / num_entities as f32).sqrt();
                 let mut data = Vec::with_capacity(num_entities * decl.dimension);
-                use rand::Rng;
                 use rand_distr::{Normal, Distribution};
-                let mut rng = rand::thread_rng();
+                use rand::Rng;
+                let mut rng = rand::rng();
                 let normal = Normal::new(0.0, stddev as f64).unwrap();
                 for _ in 0..(num_entities * decl.dimension) {
                     let val: f32 = normal.sample(&mut rng) as f32;

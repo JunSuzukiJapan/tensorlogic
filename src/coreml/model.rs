@@ -4,11 +4,17 @@ use super::{CoreMLError, CoreMLResult};
 use crate::tensor::Tensor;
 use std::path::Path;
 
+#[cfg(target_os = "macos")]
+use objc2::rc::Retained;
+#[cfg(target_os = "macos")]
+use objc2_core_ml::MLModel;
+#[cfg(target_os = "macos")]
+use objc2_foundation::NSURL;
+
 /// CoreML Model wrapper
 ///
 /// This struct wraps a CoreML model and provides methods for loading
 /// and executing inference on the Neural Engine.
-#[derive(Debug)]
 pub struct CoreMLModel {
     /// Model name/identifier
     name: String,
@@ -18,6 +24,21 @@ pub struct CoreMLModel {
     input_shape: Vec<usize>,
     /// Output shape produced by the model
     output_shape: Vec<usize>,
+    /// The actual MLModel instance (macOS only)
+    #[cfg(target_os = "macos")]
+    ml_model: Option<Retained<MLModel>>,
+}
+
+// Manual Debug implementation since MLModel doesn't implement Debug
+impl std::fmt::Debug for CoreMLModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CoreMLModel")
+            .field("name", &self.name)
+            .field("path", &self.path)
+            .field("input_shape", &self.input_shape)
+            .field("output_shape", &self.output_shape)
+            .finish()
+    }
 }
 
 impl CoreMLModel {
@@ -43,18 +64,57 @@ impl CoreMLModel {
             )));
         }
 
-        // For MVP, we create a placeholder model
-        // In a full implementation, this would use objc2-core-ml to load the model
-        Ok(CoreMLModel {
-            name: path.as_ref()
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("unknown")
-                .to_string(),
-            path: path_str,
-            input_shape: vec![1, 3, 224, 224], // Default ImageNet input shape
-            output_shape: vec![1, 1000],        // Default ImageNet output shape
-        })
+        let name = path.as_ref()
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        #[cfg(target_os = "macos")]
+        {
+            // macOS: Load actual MLModel using objc2-core-ml
+            use objc2_foundation::NSString;
+
+            let path_nsstring = NSString::from_str(&path_str);
+            let url = unsafe {
+                NSURL::fileURLWithPath(&path_nsstring)
+            };
+
+            // Try to load MLModel
+            let ml_model_result = unsafe {
+                MLModel::modelWithContentsOfURL_error(&url)
+            };
+
+            match ml_model_result {
+                Ok(ml_model) => {
+                    // TODO: Extract input/output shapes from model description
+                    // For now, use default ImageNet shapes
+                    Ok(CoreMLModel {
+                        name,
+                        path: path_str,
+                        input_shape: vec![1, 3, 224, 224],
+                        output_shape: vec![1, 1000],
+                        ml_model: Some(ml_model),
+                    })
+                }
+                Err(_) => {
+                    Err(CoreMLError::ModelLoadError(
+                        "Failed to load MLModel".to_string()
+                    ))
+                }
+            }
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            // Non-macOS: Create placeholder model
+            Ok(CoreMLModel {
+                name,
+                path: path_str,
+                input_shape: vec![1, 3, 224, 224],
+                output_shape: vec![1, 1000],
+            })
+        }
     }
 
     /// Create a CoreML model with custom input/output shapes
@@ -69,6 +129,8 @@ impl CoreMLModel {
             path,
             input_shape,
             output_shape,
+            #[cfg(target_os = "macos")]
+            ml_model: None,
         }
     }
 
@@ -117,22 +179,51 @@ impl CoreMLModel {
             });
         }
 
-        // For MVP, we return a dummy output tensor
-        // In a full implementation, this would:
-        // 1. Convert Tensor to MLMultiArray
-        // 2. Run inference using MLModel
-        // 3. Convert MLMultiArray back to Tensor
-        println!("Running CoreML inference on Neural Engine...");
-        println!("  Model: {}", self.name);
-        println!("  Input shape: {:?}", input_dims);
-        println!("  Output shape: {:?}", self.output_shape);
-
-        // Create dummy output tensor with the correct shape
-        // Note: In MVP, we create a zero tensor. Full implementation would run actual inference.
         use crate::device::MetalDevice;
         let device = MetalDevice::new().map_err(|e| CoreMLError::TensorError(e))?;
-        Tensor::zeros(&device, self.output_shape.clone())
-            .map_err(CoreMLError::TensorError)
+
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(ref _ml_model) = self.ml_model {
+                use super::conversion::tensor_to_mlmultiarray;
+
+                println!("Running CoreML inference on Neural Engine...");
+                println!("  Model: {}", self.name);
+                println!("  Input shape: {:?}", input_dims);
+                println!("  Output shape: {:?}", self.output_shape);
+
+                // Convert Tensor to MLMultiArray (validation)
+                let _ = tensor_to_mlmultiarray(input)?;
+
+                // TODO: Full MLModel.prediction() integration
+                // The objc2-core-ml API differs from expected
+                // For now, we demonstrate the conversion layer works
+                // and return a placeholder output tensor
+
+                println!("  Note: Full MLModel.prediction() integration pending");
+                println!("  Returning zero tensor as placeholder output");
+
+                Tensor::zeros(&device, self.output_shape.clone())
+                    .map_err(CoreMLError::TensorError)
+            } else {
+                // No MLModel loaded, return zero tensor
+                println!("No MLModel loaded, returning zero tensor");
+                Tensor::zeros(&device, self.output_shape.clone())
+                    .map_err(CoreMLError::TensorError)
+            }
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            // Non-macOS: Return dummy output tensor
+            println!("Running CoreML inference (non-macOS placeholder)...");
+            println!("  Model: {}", self.name);
+            println!("  Input shape: {:?}", input_dims);
+            println!("  Output shape: {:?}", self.output_shape);
+
+            Tensor::zeros(&device, self.output_shape.clone())
+                .map_err(CoreMLError::TensorError)
+        }
     }
 
     /// Run batch inference
