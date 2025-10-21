@@ -55,6 +55,14 @@ TensorLogic is a unified tensor algebra library designed specifically for Apple 
   - Metal GPU gradient kernels
   - ExecutionPlanner for automatic device selection
 
+- **Python Integration** (Phase 1-3) 🐍 NEW
+  - Python module import: `python import numpy as np`
+  - Call Python functions: `python.call("np.sum", x)`
+  - Seamless Tensor ↔ NumPy conversion (f16 ↔ f32)
+  - NumPy, PyTorch, SciKit-Learn integration
+  - Python bindings via PyO3
+  - Jupyter-ready architecture
+
 ### 🚧 Advanced Features (Optional)
 
 - **Neural Engine Inference**: Full CoreML model integration (foundation complete, deferred)
@@ -66,6 +74,8 @@ TensorLogic is a unified tensor algebra library designed specifically for Apple 
 See the [**Getting Started Guide**](claudedocs/getting_started.md) for comprehensive tutorials.
 
 ### Installation
+
+**Option 1: CLI Binary**
 
 Install the TensorLogic interpreter as a binary:
 
@@ -80,6 +90,45 @@ git clone https://github.com/JunSuzukiJapan/tensorlogic.git
 cd tensorlogic
 cargo build --release
 # Binary will be at: target/release/tensorlogic
+```
+
+**Option 2: Python Module** 🐍 NEW
+
+Install TensorLogic as a Python package:
+
+```bash
+# Install maturin
+pip install maturin
+
+# Build and install wheel
+git clone https://github.com/JunSuzukiJapan/tensorlogic.git
+cd tensorlogic
+maturin build --features python-extension --release
+pip install target/wheels/tensorlogic-*.whl
+```
+
+Use in Python:
+
+```python
+import tensorlogic as tl
+import numpy as np
+
+# Create interpreter
+interp = tl.Interpreter()
+
+# Execute TensorLogic code
+interp.execute("""
+    main {
+        python import numpy as np
+
+        tensor x: float16[3] = [1.0, 2.0, 3.0]
+        tensor sum_x: float16[1] = python.call("np.sum", x)
+
+        print("Sum:", sum_x)
+    }
+""")
+# Output: ✓ Python import: numpy (as np)
+#         Sum: [6.0000]
 ```
 
 ### Basic Usage
@@ -232,6 +281,76 @@ tensorlogic run examples/tutorial_01_linear_regression.tl
 - [Tutorial 04: Logic Programming](examples/tutorial_04_logic_programming.tl) - Neural-symbolic integration
 - [Getting Started Guide](claudedocs/getting_started.md) - Comprehensive tutorials
 - [Language Reference](docs/en/language_reference.md) - Complete syntax reference
+
+## Python Integration 🐍
+
+TensorLogic can seamlessly integrate with Python libraries like NumPy, PyTorch, and SciKit-Learn.
+
+### Importing Python Modules
+
+```tensorlogic
+main {
+    // Import Python modules with optional aliases
+    python import numpy as np
+    python import torch
+    python import sklearn.preprocessing as preprocessing
+}
+```
+
+### Calling Python Functions
+
+```tensorlogic
+main {
+    python import numpy as np
+
+    // Create TensorLogic tensor
+    tensor x: float16[3] = [1.0, 2.0, 3.0]
+    tensor y: float16[3] = [4.0, 5.0, 6.0]
+
+    // Call NumPy functions
+    tensor sum_result: float16[3] = python.call("np.add", x, y)
+    tensor mean_x: float16[1] = python.call("np.mean", x)
+    tensor max_y: float16[1] = python.call("np.max", y)
+
+    print("Add:", sum_result)   // [5.0, 7.0, 9.0]
+    print("Mean:", mean_x)      // [2.0]
+    print("Max:", max_y)        // [6.0]
+}
+```
+
+### Tensor ↔ NumPy Conversion
+
+TensorLogic automatically converts between f16 tensors and NumPy arrays:
+
+- **TensorLogic → NumPy**: f16 → f32 (small precision loss)
+- **NumPy → TensorLogic**: f32/f64 → f16
+- GPU tensors are automatically moved to CPU for conversion
+
+### Using from Python
+
+```python
+import tensorlogic as tl
+import numpy as np
+
+# Create interpreter
+interp = tl.Interpreter()
+
+# Execute TensorLogic with Python integration
+code = """
+main {
+    python import numpy as np
+
+    tensor data: float16[5] = [1.0, 2.0, 3.0, 4.0, 5.0]
+    tensor normalized: float16[5] = python.call("preprocessing.normalize", data)
+
+    print("Normalized:", normalized)
+}
+"""
+
+interp.execute(code)
+```
+
+See [examples/python_integration_test.tl](examples/python_integration_test.tl) for more examples.
 
 ## Architecture
 
