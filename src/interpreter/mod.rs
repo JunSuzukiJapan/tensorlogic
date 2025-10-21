@@ -887,6 +887,85 @@ impl Interpreter {
                 Ok(Value::Tensor(tensor))
             }
 
+            "apply_mask" => {
+                // apply_mask(scores, mask)
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("apply_mask() expects 2 arguments (scores, mask), got {}", args.len())
+                    ));
+                }
+
+                let scores = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let mask_val = self.eval_expr(&args[1])?;
+                let mask = mask_val.as_tensor()?;
+
+                let result = scores.apply_attention_mask(mask)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(result))
+            }
+
+            "causal_mask" => {
+                // causal_mask(seq_len)
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("causal_mask() expects 1 argument (seq_len), got {}", args.len())
+                    ));
+                }
+
+                let seq_len_val = self.eval_expr(&args[0])?;
+                let seq_len = match seq_len_val {
+                    Value::Integer(i) => i as usize,
+                    _ => return Err(RuntimeError::TypeError(
+                        "causal_mask() argument must be an integer".to_string()
+                    )),
+                };
+
+                let mask = Tensor::causal_mask(seq_len)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(mask))
+            }
+
+            "batch_norm" => {
+                // batch_norm(x, gamma, beta, eps)
+                if args.len() != 4 {
+                    return Err(RuntimeError::TypeError(
+                        format!("batch_norm() expects 4 arguments (x, gamma, beta, eps), got {}", args.len())
+                    ));
+                }
+
+                let x = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let gamma_val = self.eval_expr(&args[1])?;
+                let gamma = gamma_val.as_tensor()?;
+                let beta_val = self.eval_expr(&args[2])?;
+                let beta = beta_val.as_tensor()?;
+                let eps = self.eval_expr(&args[3])?.as_float()? as f32;
+
+                let result = x.batch_norm(gamma, beta, eps)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(result))
+            }
+
+            "dropout" => {
+                // dropout(x, p, training)
+                if args.len() != 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("dropout() expects 3 arguments (x, p, training), got {}", args.len())
+                    ));
+                }
+
+                let x = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let p = self.eval_expr(&args[1])?.as_float()? as f32;
+                let training = self.eval_expr(&args[2])?.as_bool()?;
+
+                let result = x.dropout(p, training)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(result))
+            }
+
             _ => Err(RuntimeError::NotImplemented(
                 format!("Function '{}' not yet implemented", name.as_str()),
             ))
