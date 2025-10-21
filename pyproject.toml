@@ -1,0 +1,60 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "tensorlogic"
+version = "0.1.0"
+description = "TensorLogic: A unified tensor algebra and logic programming language with f16-only operations on Apple Silicon"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+keywords = ["tensor", "logic-programming", "metal", "gpu", "apple-silicon", "f16"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-benchmark>=4.0.0",
+    "ipykernel>=6.0.0",
+    "jupyter>=1.0.0",
+]
+jupyter = [
+    "ipykernel>=6.0.0",
+    "jupyter>=1.0.0",
+    "jupyterlab>=3.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/tensorlogic"
+Repository = "https://github.com/yourusername/tensorlogic"
+Issues = "https://github.com/yourusername/tensorlogic/issues"
+
+[tool.maturin]
+features = ["python-extension"]
+python-source = "python"
+module-name = "tensorlogic._native"
+bindings = "pyo3"
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"

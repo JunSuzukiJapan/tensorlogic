@@ -607,6 +607,9 @@ impl TensorLogicParser {
 
                 Ok(TensorExpr::EmbeddingLookup { embedding, entity })
             }
+            Rule::python_call => {
+                Self::parse_python_call(inner)
+            }
             Rule::string_literal => {
                 // String literals in expressions (e.g., for save/load filenames)
                 let s = Self::parse_string_literal(inner)?;
@@ -918,6 +921,9 @@ impl TensorLogicParser {
             }
             Rule::tensor_equation => {
                 Ok(Statement::Equation(Self::parse_tensor_equation(inner)?))
+            }
+            Rule::python_import => {
+                Self::parse_python_import(inner)
             }
             Rule::function_call => {
                 let mut inner_pairs = inner.into_inner();
@@ -1335,6 +1341,43 @@ impl TensorLogicParser {
                 }
             }
         }
+    }
+
+    // ========================================================================
+    // Python Integration Parsing
+    // ========================================================================
+
+    fn parse_python_import(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+        let mut inner = pair.into_inner();
+
+        // Parse module name
+        let module = inner.next()
+            .ok_or_else(|| ParseError::MissingField("python module".to_string()))?
+            .as_str()
+            .to_string();
+
+        // Parse optional alias
+        let alias = inner.next().map(|alias_pair| alias_pair.as_str().to_string());
+
+        Ok(Statement::PythonImport { module, alias })
+    }
+
+    fn parse_python_call(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+        let mut inner = pair.into_inner();
+
+        // Parse function name (string literal)
+        let function = Self::parse_string_literal(inner.next().ok_or_else(|| {
+            ParseError::MissingField("python function name".to_string())
+        })?)?;
+
+        // Parse optional arguments
+        let args = if let Some(tensor_list) = inner.next() {
+            Self::parse_tensor_list(tensor_list)?
+        } else {
+            Vec::new()
+        };
+
+        Ok(TensorExpr::PythonCall { function, args })
     }
 }
 

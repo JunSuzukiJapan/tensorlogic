@@ -204,6 +204,12 @@ pub fn walk_tensor_expr<V: Visitor>(visitor: &mut V, expr: &TensorExpr) -> Resul
             }
             Ok(())
         }
+        TensorExpr::PythonCall { args, .. } => {
+            for arg in args {
+                visitor.visit_tensor_expr(arg)?;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -302,6 +308,10 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
                 Ok(())
             }
         },
+        Statement::PythonImport { .. } => {
+            // No sub-expressions to visit
+            Ok(())
+        }
     }
 }
 

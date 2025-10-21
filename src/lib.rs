@@ -20,6 +20,10 @@ pub mod prelude;
 pub mod tensor;
 pub mod typecheck;
 
+// Python bindings (optional, enabled with "python" or "python-extension" feature)
+#[cfg(any(feature = "python", feature = "python-extension"))]
+pub mod python;
+
 // Re-export main types
 pub use error::{TensorError, TensorResult};
 pub use tensor::Tensor;

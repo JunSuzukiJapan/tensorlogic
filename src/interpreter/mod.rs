@@ -193,6 +193,9 @@ pub struct Interpreter {
     logic_engine: LogicEngine,
     // Embedding storage: (embedding_name, entity_index_map, embedding_matrix)
     embeddings: HashMap<String, (HashMap<String, usize>, Tensor)>,
+    // Python execution environment (when python feature is enabled)
+    #[cfg(any(feature = "python", feature = "python-extension"))]
+    python_env: Option<crate::python::environment::PythonEnvironment>,
 }
 
 impl Interpreter {
@@ -201,6 +204,8 @@ impl Interpreter {
             env: RuntimeEnvironment::new(),
             logic_engine: LogicEngine::new(),
             embeddings: HashMap::new(),
+            #[cfg(any(feature = "python", feature = "python-extension"))]
+            python_env: None,
         }
     }
 
@@ -637,6 +642,31 @@ impl Interpreter {
                 // Learning execution with detailed progress display
                 self.execute_learning(spec)
             }
+            Statement::PythonImport { module, alias } => {
+                #[cfg(any(feature = "python", feature = "python-extension"))]
+                {
+                    // Initialize Python environment if needed
+                    if self.python_env.is_none() {
+                        self.python_env = Some(crate::python::environment::PythonEnvironment::new());
+                    }
+
+                    // Import the module
+                    let name = alias.as_deref();
+                    self.python_env.as_mut().unwrap()
+                        .import_module(module, name)
+                        .map_err(|e| RuntimeError::InvalidOperation(e))?;
+
+                    let display_name = alias.as_ref().unwrap_or(module);
+                    println!("✓ Python import: {} (as {})", module, display_name);
+                    Ok(())
+                }
+                #[cfg(not(any(feature = "python", feature = "python-extension")))]
+                {
+                    Err(RuntimeError::NotImplemented(
+                        "Python integration not enabled (compile with --features python)".to_string()
+                    ))
+                }
+            }
         }
     }
 
@@ -675,6 +705,44 @@ impl Interpreter {
 
             TensorExpr::EmbeddingLookup { embedding, entity } => {
                 self.eval_embedding_lookup(embedding, entity)
+            }
+
+            TensorExpr::PythonCall { function, args } => {
+                #[cfg(any(feature = "python", feature = "python-extension"))]
+                {
+                    // Ensure Python environment is initialized
+                    if self.python_env.is_none() {
+                        return Err(RuntimeError::InvalidOperation(
+                            "Python environment not initialized. Import a module first with 'python import'".to_string()
+                        ));
+                    }
+
+                    // Evaluate all arguments
+                    let tensor_args: Result<Vec<_>, _> = args.iter()
+                        .map(|arg| {
+                            let val = self.eval_expr(arg)?;
+                            val.as_tensor().map(|t| t.clone())
+                        })
+                        .collect();
+                    let tensor_args = tensor_args?;
+
+                    // Create references for the call
+                    let tensor_refs: Vec<&Tensor> = tensor_args.iter().collect();
+
+                    // Call Python function
+                    let result = self.python_env.as_ref().unwrap()
+                        .call_function(function, tensor_refs)
+                        .map_err(|e| RuntimeError::InvalidOperation(e))?;
+
+                    println!("✓ Python call: {}({} args)", function, args.len());
+                    Ok(Value::Tensor(result))
+                }
+                #[cfg(not(any(feature = "python", feature = "python-extension")))]
+                {
+                    Err(RuntimeError::NotImplemented(
+                        "Python integration not enabled (compile with --features python)".to_string()
+                    ))
+                }
             }
         }
     }

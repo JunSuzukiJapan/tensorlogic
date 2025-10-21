@@ -15,6 +15,12 @@ half = "2.4"
 metal = "0.29"
 objc = "0.2"
 
+# Python統合
+# extension-module: Pythonモジュール(.so)ビルド用 (maturinで使用)
+# auto-initialize: スタンドアロンバイナリ用 (CLIで使用)
+pyo3 = { version = "0.21", features = ["auto-initialize"], optional = true }
+numpy = { version = "0.21", optional = true }
+
 # CoreML統合 (Neural Engine)
 objc2 = "0.5"
 objc2-core-ml = { version = "0.2", features = [
@@ -40,6 +46,13 @@ rand_distr = "0.5.1"
 
 [dev-dependencies]
 criterion = "0.5"
+
+[features]
+default = []
+# python: CLIバイナリ用 (auto-initialize)
+python = ["pyo3", "numpy"]
+# python-extension: Pythonモジュール(.so)用 (extension-module)
+python-extension = ["pyo3/extension-module", "pyo3/abi3-py38", "numpy"]
 
 [profile.release]
 opt-level = 3

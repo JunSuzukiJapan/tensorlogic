@@ -250,6 +250,11 @@ pub enum TensorExpr {
         embedding: Identifier,
         entity: EntityRef,
     },
+    /// Python function call: python.call("function", args)
+    PythonCall {
+        function: String,
+        args: Vec<TensorExpr>,
+    },
 }
 
 /// Index expression for tensor indexing
@@ -414,6 +419,11 @@ pub enum Statement {
     Learning(LearningSpec),
     /// Control flow
     ControlFlow(ControlFlow),
+    /// Python import: python import module [as alias]
+    PythonImport {
+        module: String,
+        alias: Option<String>,
+    },
 }
 
 /// Inference methods

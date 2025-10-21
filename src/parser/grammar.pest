@@ -111,6 +111,7 @@ tensor_term = {
     | tensor_index
     | embedding_lookup
     | einstein_sum
+    | python_call
     | function_call
     | tensor_literal
     | string_literal
@@ -192,6 +193,7 @@ statement = {
     tensor_decl
     | assignment
     | tensor_equation
+    | python_import
     | function_call
     | query
     | inference_call
@@ -294,4 +296,17 @@ reserved_keyword = {
     | "objective" | "optimizer" | "epochs" | "auto"
     | "random" | "xavier" | "he" | "zeros" | "ones" | "void"
     | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
+    | "python" | "import" | "as"
 }
+
+// ============================================================================
+// Python Integration
+// ============================================================================
+
+// Python import: python import module [as alias]
+python_import = { "python" ~ "import" ~ python_module ~ ("as" ~ identifier)? }
+
+python_module = @{ identifier ~ ("." ~ identifier)* }
+
+// Python function call: python.call("function_name", args)
+python_call = { "python" ~ "." ~ "call" ~ "(" ~ string_literal ~ ("," ~ tensor_list)? ~ ")" }

@@ -432,6 +432,15 @@ impl TypeChecker {
                     vec![Dimension::Dynamic],
                 ))
             }
+
+            TensorExpr::PythonCall { .. } => {
+                // TODO: Python function type inference
+                // Phase 2: Infer return type from Python function signature
+                Ok(TensorTypeInfo::new(
+                    BaseType::Float32,
+                    vec![Dimension::Dynamic],
+                ))
+            }
         }
     }
 

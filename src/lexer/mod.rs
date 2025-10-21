@@ -63,6 +63,9 @@ pub enum TokenType {
     Int64,
     Bool,
     Complex16,
+    Python,
+    Import,
+    As,
 
     // Identifiers and literals
     Identifier(String),
@@ -102,6 +105,7 @@ pub enum TokenType {
     RBrace,
     Question,
     Exclamation,
+    Dot,             // .
 
     // Special
     Whitespace,
@@ -213,6 +217,7 @@ impl Lexer {
             | "objective" | "optimizer" | "epochs" | "auto"
             | "random" | "xavier" | "he" | "zeros" | "ones" | "void"
             | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
+            | "python" | "import" | "as"
         )
     }
 
@@ -395,6 +400,12 @@ impl Lexer {
                 self.advance();
                 Ok(Token::new(TokenType::Question, "?".to_string(), start_line, start_column))
             }
+            '.' => {
+                // Check if this is a decimal point in a number (already handled in read_number)
+                // or a standalone dot for python.call syntax
+                self.advance();
+                Ok(Token::new(TokenType::Dot, ".".to_string(), start_line, start_column))
+            }
             _ => Err(format!("Unexpected character '{}' at {}:{}", ch, start_line, start_column))
         }
     }
@@ -472,6 +483,9 @@ impl Lexer {
             "int64" => TokenType::Int64,
             "bool" => TokenType::Bool,
             "complex16" => TokenType::Complex16,
+            "python" => TokenType::Python,
+            "import" => TokenType::Import,
+            "as" => TokenType::As,
             _ => TokenType::Identifier(lexeme.clone()),
         };
 
