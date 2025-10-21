@@ -267,7 +267,7 @@ impl Interpreter {
                     let val: f32 = rng.random_range(-0.1..0.1);
                     data.push(half::f16::from_f32(val));
                 }
-                Tensor::from_vec(data, vec![num_entities, decl.dimension])?
+                Tensor::from_vec_metal(device, data, vec![num_entities, decl.dimension])?
             }
             InitMethod::Xavier => {
                 // Xavier initialization: uniform(-sqrt(6/(n+m)), sqrt(6/(n+m)))
@@ -279,7 +279,7 @@ impl Interpreter {
                     let val: f32 = rng.random_range(-limit..limit);
                     data.push(half::f16::from_f32(val));
                 }
-                Tensor::from_vec(data, vec![num_entities, decl.dimension])?
+                Tensor::from_vec_metal(device, data, vec![num_entities, decl.dimension])?
             }
             InitMethod::He => {
                 // He initialization: normal(0, sqrt(2/n))
@@ -292,7 +292,7 @@ impl Interpreter {
                     let val: f32 = normal.sample(&mut rng) as f32;
                     data.push(half::f16::from_f32(val));
                 }
-                Tensor::from_vec(data, vec![num_entities, decl.dimension])?
+                Tensor::from_vec_metal(device, data, vec![num_entities, decl.dimension])?
             }
             InitMethod::Zeros => Tensor::zeros(&device, vec![num_entities, decl.dimension])?,
             InitMethod::Ones => Tensor::ones(&device, vec![num_entities, decl.dimension])?,
@@ -796,8 +796,12 @@ impl Interpreter {
         let end_idx = start_idx + dimension;
         let entity_embedding = embedding_vec[start_idx..end_idx].to_vec();
 
-        // Create tensor from embedding vector
-        let embedding_tensor = Tensor::from_vec(entity_embedding, vec![dimension])?;
+        // Create tensor from embedding vector on Metal GPU
+        let embedding_tensor = Tensor::from_vec_metal(
+            self.env.metal_device(),
+            entity_embedding,
+            vec![dimension]
+        )?;
 
         Ok(Value::Tensor(embedding_tensor))
     }
@@ -875,9 +879,8 @@ impl Interpreter {
                     )),
                 };
 
-                // Load tensor from file (create Metal device for loading)
-                let metal_device = MetalDevice::new().map_err(|e| RuntimeError::TensorError(e))?;
-                let device = Device::Metal(metal_device);
+                // Load tensor from file using existing Metal device
+                let device = Device::Metal(self.env.metal_device().clone());
                 let tensor = Tensor::load(&device, &filename).map_err(|e| RuntimeError::TensorError(e))?;
 
                 println!("Loaded tensor from: {} (shape: {:?})", filename, tensor.dims());
