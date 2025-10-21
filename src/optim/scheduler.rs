@@ -23,6 +23,7 @@ pub trait LRScheduler {
 ///
 /// # Example
 /// ```
+/// use tensorlogic::optim::StepLR;
 /// let scheduler = StepLR::new(0.1, 10, 0.1);
 /// // epoch 0-9: lr = 0.1
 /// // epoch 10-19: lr = 0.01
@@ -79,6 +80,7 @@ impl LRScheduler for StepLR {
 ///
 /// # Example
 /// ```
+/// use tensorlogic::optim::ExponentialLR;
 /// let scheduler = ExponentialLR::new(0.1, 0.95);
 /// // epoch 0: lr = 0.1
 /// // epoch 1: lr = 0.095
@@ -128,6 +130,7 @@ impl LRScheduler for ExponentialLR {
 ///
 /// # Example
 /// ```
+/// use tensorlogic::optim::CosineAnnealingLR;
 /// let scheduler = CosineAnnealingLR::new(0.1, 100, 0.001);
 /// // Smoothly decreases from 0.1 to 0.001 over 100 epochs
 /// ```

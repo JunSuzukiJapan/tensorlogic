@@ -2,6 +2,15 @@
 
 A production-ready f16 tensor library for Apple Silicon with automatic differentiation and optimizers, featuring Metal GPU and Neural Engine acceleration.
 
+> **⚠️ Experimental Project Notice**
+>
+> This is an **experimental research project** with the following constraints:
+> - **Apple Silicon Only**: Requires macOS with M-series chips (M1/M2/M3/M4)
+> - **f16 (half-precision) Only**: All floating-point operations use 16-bit floats exclusively
+> - **Metal Framework Required**: GPU acceleration relies on Apple's Metal framework
+>
+> Not intended for production use on non-Apple hardware or general-purpose computing.
+
 ## Overview
 
 TensorLogic is a unified tensor algebra library designed specifically for Apple Silicon (M-series chips), providing seamless integration between Metal GPU and Neural Engine through CoreML. All operations maintain f16 (half-precision) throughout for optimal Neural Engine compatibility and performance.

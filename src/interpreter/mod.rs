@@ -456,9 +456,76 @@ impl Interpreter {
                     }
                     Ok(())
                 }
-                _ => Err(RuntimeError::NotImplemented(
-                    "Control flow type not yet implemented".to_string(),
-                )),
+                ControlFlow::For {
+                    variable,
+                    iterable,
+                    body,
+                } => {
+                    // Evaluate iterable
+                    let items = match iterable {
+                        Iterable::Range(n) => {
+                            // Create range 0..n
+                            (0..*n).map(|i| Value::Integer(i as i64)).collect::<Vec<_>>()
+                        }
+                        Iterable::Tensor(expr) => {
+                            // Iterate over tensor elements
+                            let tensor_val = self.eval_expr(expr)?;
+                            let tensor = tensor_val.as_tensor()?;
+                            let data = tensor.to_vec();
+                            data.iter().map(|&v| Value::Float(v.to_f32() as f64)).collect()
+                        }
+                        Iterable::EntitySet(entity_set) => {
+                            // Get entities from set
+                            match entity_set {
+                                EntitySet::Auto => {
+                                    return Err(RuntimeError::InvalidOperation(
+                                        "Cannot iterate over 'auto' entity set".to_string()
+                                    ));
+                                }
+                                EntitySet::Explicit(entities) => {
+                                    entities.iter()
+                                        .map(|id| Value::String(id.as_str().to_string()))
+                                        .collect()
+                                }
+                            }
+                        }
+                    };
+
+                    // Execute body for each item
+                    for item in items {
+                        self.env.set_variable(variable.as_str().to_string(), item);
+                        for stmt in body {
+                            self.execute_statement(stmt)?;
+                        }
+                    }
+
+                    Ok(())
+                }
+                ControlFlow::While {
+                    condition,
+                    body,
+                } => {
+                    // Execute while condition is true
+                    loop {
+                        let condition_result = match condition {
+                            Condition::Constraint(c) => self.eval_constraint(c)?,
+                            Condition::Tensor(expr) => {
+                                let val = self.eval_expr(expr)?;
+                                val.as_bool()?
+                            }
+                        };
+
+                        if !condition_result {
+                            break;
+                        }
+
+                        for stmt in body {
+                            self.execute_statement(stmt)?;
+                        }
+                    }
+
+                    Ok(())
+                }
             },
             Statement::Query { atom, constraints } => {
                 // Query execution with logic engine

@@ -20,9 +20,12 @@ impl Tensor {
     /// # Example
     /// ```
     /// use tensorlogic::prelude::*;
-    /// let device = Device::cpu();
-    /// let x = Tensor::randn(&device, vec![2, 3, 4]).unwrap();
-    /// let normalized = x.layer_norm(vec![4], None, None, 1e-5).unwrap();
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let data: Vec<f16> = (0..24).map(|i| f16::from_f32(i as f32)).collect();
+    /// let x = Tensor::from_vec(data, vec![2, 3, 4])?;
+    /// let normalized = x.layer_norm(vec![4], None, None, 1e-5)?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn layer_norm(
         &self,

@@ -6,4 +6,9 @@ jobs = 8
 
 # Note: Metal GPU tests require single-threaded execution
 # Run tests with: cargo test -- --test-threads=1
-# See: claudedocs/metal_backward_pass_investigation.md
+#
+# This is because Metal GPU access has race conditions when
+# multiple tests try to use the GPU simultaneously.
+#
+# The .cargo/config.toml cannot set test-threads globally,
+# so you must pass it as a command-line argument.

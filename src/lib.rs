@@ -10,11 +10,13 @@ pub mod device;
 pub mod error;
 pub mod error_reporting;
 pub mod interpreter;
+pub mod lexer;
 pub mod logic;
 pub mod ops;
 pub mod optim;
 pub mod parser;
 pub mod planner;
+pub mod prelude;
 pub mod tensor;
 pub mod typecheck;
 

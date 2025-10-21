@@ -18,17 +18,19 @@ impl Tensor {
     /// # Example
     /// ```
     /// use tensorlogic::prelude::*;
-    /// let device = Device::CPU;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let x = Tensor::from_vec(
     ///     vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
     ///     vec![3]
-    /// ).unwrap();
+    /// )?;
     /// let indices = Tensor::from_vec(
     ///     vec![f16::from_f32(0.0), f16::from_f32(2.0), f16::from_f32(1.0)],
     ///     vec![3]
-    /// ).unwrap();
-    /// let result = x.gather(0, &indices).unwrap();
+    /// )?;
+    /// let result = x.gather(0, &indices)?;
     /// // result = [1.0, 3.0, 2.0]
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn gather(&self, dim: usize, indices: &Tensor) -> TensorResult<Self> {
         if dim >= self.dims().len() {
@@ -240,18 +242,21 @@ impl Tensor {
     /// # Example
     /// ```
     /// use tensorlogic::prelude::*;
-    /// let device = Device::CPU;
-    /// let x = Tensor::zeros(&device, vec![5]).unwrap();
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let device = MetalDevice::new()?;
+    /// let x = Tensor::zeros(&device, vec![5])?;
     /// let indices = Tensor::from_vec(
     ///     vec![f16::from_f32(0.0), f16::from_f32(2.0), f16::from_f32(4.0)],
     ///     vec![3]
-    /// ).unwrap();
+    /// )?;
     /// let src = Tensor::from_vec(
     ///     vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
     ///     vec![3]
-    /// ).unwrap();
-    /// let result = x.scatter(0, &indices, &src).unwrap();
+    /// )?;
+    /// let result = x.scatter(0, &indices, &src)?;
     /// // result = [1.0, 0.0, 2.0, 0.0, 3.0]
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn scatter(&self, dim: usize, indices: &Tensor, src: &Tensor) -> TensorResult<Self> {
         if dim >= self.dims().len() {

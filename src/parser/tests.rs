@@ -459,7 +459,7 @@ main {
         if let Statement::ControlFlow(ControlFlow::For { variable, iterable, body }) = &main.statements[0] {
             // Check variable
             assert_eq!(variable.as_str(), "i");
-            
+
             // Check iterable
             assert!(matches!(iterable, Iterable::Range(10)));
             

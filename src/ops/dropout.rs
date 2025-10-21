@@ -23,9 +23,14 @@ impl Tensor {
     ///
     /// # Example
     /// ```
-    /// let x = Tensor::from_vec(..., vec![10, 64])?;
+    /// use tensorlogic::prelude::*;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let data: Vec<f16> = (0..640).map(|i| f16::from_f32(i as f32)).collect();
+    /// let x = Tensor::from_vec(data, vec![10, 64])?;
     /// let dropped = x.dropout(0.5, true)?;  // 50% dropout during training
     /// let inference = x.dropout(0.5, false)?;  // No dropout during inference
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn dropout(&self, p: f32, training: bool) -> TensorResult<Tensor> {
         // Validation

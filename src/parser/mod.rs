@@ -46,6 +46,12 @@ impl From<pest::error::Error<Rule>> for ParseError {
 impl TensorLogicParser {
     /// Parse a complete TensorLogic program from source code
     pub fn parse_program(source: &str) -> Result<Program, ParseError> {
+        // Validate with lexer to ensure no keywords are used as identifiers
+        use crate::lexer::Lexer;
+        Lexer::validate_identifiers(source)
+            .map_err(|e| ParseError::PestError(format!("Lexer validation error: {}", e)))?;
+
+        // Parse with Pest
         let pairs = Self::parse(Rule::program, source)?;
 
         let mut declarations = Vec::new();
@@ -647,12 +653,20 @@ impl TensorLogicParser {
 
         match inner.as_rule() {
             Rule::tensor_literal => Self::parse_tensor_literal(inner),
+            Rule::tensor_expr => {
+                // tensor_expr in array context - for now, only handle simple numbers
+                // Full support would require evaluating expressions during parsing
+                // which is not appropriate for the parser layer
+                Err(ParseError::InvalidValue(
+                    "Complex tensor expressions in array literals not yet supported. Use simple numbers.".to_string()
+                ))
+            }
             Rule::number => {
                 let value = Self::parse_number(inner)?;
                 Ok(TensorLiteral::Scalar(ScalarLiteral::Float(value)))
             }
             _ => Err(ParseError::UnexpectedRule {
-                expected: "tensor literal or number".to_string(),
+                expected: "tensor literal, number, or tensor expression".to_string(),
                 found: format!("{:?}", inner.as_rule()),
             }),
         }

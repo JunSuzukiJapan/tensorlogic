@@ -97,8 +97,8 @@ main {
     print("Learnable Weight Matrix (W)")
     print("=" * 70)
     print("\nWeight matrix W [2, 2]:")
-    print("  Row 0:", [W[0, 0], W[0, 1]])
-    print("  Row 1:", [W[1, 0], W[1, 1]])
+    print("  W[0,0]:", W[0, 0], "  W[0,1]:", W[0, 1])
+    print("  W[1,0]:", W[1, 0], "  W[1,1]:", W[1, 1])
     print("\nPurpose: Transform node features to new representation space")
 
     // ========================================

@@ -145,7 +145,7 @@ tensor_literal = { "[" ~ tensor_elements ~ "]" | scalar_literal }
 
 tensor_elements = { tensor_element ~ ("," ~ tensor_element)* }
 
-tensor_element = { tensor_literal | tensor_expr }
+tensor_element = { tensor_literal }
 
 scalar_literal = { complex_number | number | boolean }
 
@@ -247,7 +247,7 @@ for_statement = {
     "for" ~ identifier ~ "in" ~ iterable ~ "{" ~ statement* ~ "}"
 }
 
-iterable = { tensor_expr | entity_set | range_expr }
+iterable = { range_expr | entity_set | tensor_expr }
 
 range_expr = { "range" ~ "(" ~ integer ~ ")" }
 
@@ -277,11 +277,13 @@ string_literal = @{ "\"" ~ (!"\"" ~ (escape_sequence | ANY))* ~ "\"" }
 
 escape_sequence = @{ "\\\\" | "\\\"" | "\\n" | "\\t" | "\\r" }
 
+// Identifier: Simple rule since lexer handles keyword distinction
+// The lexer ensures keywords are not parsed as identifiers
 identifier = @{
-    !(keyword ~ !(ASCII_ALPHANUMERIC | "_")) ~ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")*
+    (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")*
 }
 
-keyword = @{
+reserved_keyword = {
     "tensor" | "relation" | "rule" | "embedding" | "function" | "main"
     | "learnable" | "frozen" | "entity" | "concept" | "embed"
     | "einsum" | "query" | "infer" | "learn"
@@ -293,6 +295,3 @@ keyword = @{
     | "random" | "xavier" | "he" | "zeros" | "ones" | "void"
     | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
 }
-
-// Deprecated: use keyword instead
-reserved_keyword = { keyword }

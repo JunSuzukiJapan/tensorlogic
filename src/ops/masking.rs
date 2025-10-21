@@ -20,12 +20,16 @@ impl Tensor {
     ///
     /// # Example
     /// ```
+    /// use tensorlogic::prelude::*;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// // Causal mask for autoregressive models
     /// let scores = Tensor::from_vec(vec![f16::from_f32(1.0), f16::from_f32(2.0),
     ///                                     f16::from_f32(3.0), f16::from_f32(4.0)], vec![2, 2])?;
     /// let mask = Tensor::from_vec(vec![f16::ONE, f16::ZERO, f16::ONE, f16::ONE], vec![2, 2])?;
     /// let masked = scores.apply_attention_mask(&mask)?;
     /// // masked[0,1] will be -10000.0 (masked out)
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn apply_attention_mask(&self, mask: &Tensor) -> TensorResult<Tensor> {
         // Verify shapes match
@@ -73,10 +77,14 @@ impl Tensor {
     ///
     /// # Example
     /// ```
+    /// use tensorlogic::prelude::*;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let mask = Tensor::causal_mask(3)?;
     /// // [[1, 0, 0],
     /// //  [1, 1, 0],
     /// //  [1, 1, 1]]
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn causal_mask(seq_len: usize) -> TensorResult<Tensor> {
         let mut data = Vec::with_capacity(seq_len * seq_len);
@@ -110,9 +118,13 @@ impl Tensor {
     ///
     /// # Example
     /// ```
+    /// use tensorlogic::prelude::*;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let mask = Tensor::padding_mask(&[2, 3], 4)?;
     /// // [[1, 1, 0, 0],  // first sequence has length 2
     /// //  [1, 1, 1, 0]]  // second sequence has length 3
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn padding_mask(lengths: &[usize], max_len: usize) -> TensorResult<Tensor> {
         let batch_size = lengths.len();
@@ -137,9 +149,15 @@ impl Tensor {
     ///
     /// # Example
     /// ```
+    /// use tensorlogic::prelude::*;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let causal = Tensor::causal_mask(4)?;
-    /// let padding = Tensor::padding_mask(&[2, 3], 4)?;
+    /// // Create matching 4x4 padding mask (not 2x4)
+    /// let padding_data = vec![f16::ONE; 16];  // All ones for simplicity
+    /// let padding = Tensor::from_vec(padding_data, vec![4, 4])?;
     /// let combined = causal.combine_masks(&padding)?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn combine_masks(&self, other: &Tensor) -> TensorResult<Tensor> {
         if self.dims() != other.dims() {

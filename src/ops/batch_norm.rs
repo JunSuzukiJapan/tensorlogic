@@ -28,10 +28,16 @@ impl Tensor {
     ///
     /// # Example
     /// ```
-    /// let x = Tensor::from_vec(..., vec![8, 64])?;  // batch=8, features=64
-    /// let gamma = Tensor::ones(device, vec![64])?;
-    /// let beta = Tensor::zeros(device, vec![64])?;
+    /// use tensorlogic::prelude::*;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let device = MetalDevice::new()?;
+    /// let data: Vec<f16> = (0..512).map(|i| f16::from_f32(i as f32)).collect();
+    /// let x = Tensor::from_vec(data, vec![8, 64])?;  // batch=8, features=64
+    /// let gamma = Tensor::ones(&device, vec![64])?;
+    /// let beta = Tensor::zeros(&device, vec![64])?;
     /// let normalized = x.batch_norm(&gamma, &beta, 1e-5)?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn batch_norm(&self, gamma: &Tensor, beta: &Tensor, eps: f32) -> TensorResult<Tensor> {
         // Verify shapes
