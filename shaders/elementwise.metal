@@ -177,3 +177,85 @@ kernel void gelu_f16(
     half inner = sqrt_2_over_pi * (x + coeff * x3);
     output[index] = half(0.5) * x * (half(1.0) + tanh(inner));
 }
+
+/// Exponential: f(x) = e^x
+kernel void exp_f16(
+    device const half* input [[buffer(0)]],
+    device half* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = exp(input[index]);
+}
+
+/// Natural logarithm: f(x) = log(x)
+kernel void log_f16(
+    device const half* input [[buffer(0)]],
+    device half* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = log(input[index]);
+}
+
+/// Square root: f(x) = sqrt(x)
+kernel void sqrt_f16(
+    device const half* input [[buffer(0)]],
+    device half* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = sqrt(input[index]);
+}
+
+/// Power: f(x) = x^exponent
+kernel void pow_f16(
+    device const half* input [[buffer(0)]],
+    device const half* exponent [[buffer(1)]],
+    device half* output [[buffer(2)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = pow(input[index], exponent[0]);
+}
+
+/// Sine: f(x) = sin(x)
+kernel void sin_f16(
+    device const half* input [[buffer(0)]],
+    device half* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = sin(input[index]);
+}
+
+/// Cosine: f(x) = cos(x)
+kernel void cos_f16(
+    device const half* input [[buffer(0)]],
+    device half* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = cos(input[index]);
+}
+
+/// Tangent: f(x) = tan(x)
+kernel void tan_f16(
+    device const half* input [[buffer(0)]],
+    device half* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = tan(input[index]);
+}
+
+/// Sigmoid: f(x) = 1 / (1 + exp(-x))
+kernel void sigmoid_f16(
+    device const half* input [[buffer(0)]],
+    device half* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = half(1.0) / (half(1.0) + exp(-input[index]));
+}
+
+/// Hyperbolic tangent: f(x) = tanh(x)
+kernel void tanh_f16(
+    device const half* input [[buffer(0)]],
+    device half* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = tanh(input[index]);
+}

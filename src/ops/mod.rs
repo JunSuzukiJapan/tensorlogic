@@ -9,6 +9,7 @@ pub mod einsum;
 pub mod fused;
 pub mod advanced_fusion;
 pub mod inplace;
+pub mod tensor_ops;
 
 // Re-export commonly used types
 pub use fused::Activation;

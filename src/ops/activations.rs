@@ -208,6 +208,103 @@ impl Tensor {
 
         Tensor::from_vec(output, self.shape().dims().to_vec())
     }
+
+    /// Sigmoid activation: σ(x) = 1 / (1 + exp(-x))
+    pub fn sigmoid(&self) -> TensorResult<Self> {
+        if self.buffer().is_metal() {
+            self.sigmoid_metal()
+        } else {
+            self.sigmoid_cpu()
+        }
+    }
+
+    fn sigmoid_metal(&self) -> TensorResult<Self> {
+        let input_buf = self.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/elementwise.metal");
+            device.load_library(shader_source)?;
+        }
+
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+
+        let mut executor = crate::device::KernelExecutor::new(device);
+        executor.execute_unary_op("sigmoid_f16", input_buf, &result_buf)?;
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
+    }
+
+    fn sigmoid_cpu(&self) -> TensorResult<Self> {
+        let input = self.to_vec();
+        let result: Vec<f16> = input
+            .iter()
+            .map(|&x| {
+                let val = x.to_f32();
+                f16::from_f32(1.0 / (1.0 + (-val).exp()))
+            })
+            .collect();
+
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
+
+    /// Hyperbolic tangent activation: tanh(x)
+    pub fn tanh(&self) -> TensorResult<Self> {
+        if self.buffer().is_metal() {
+            self.tanh_metal()
+        } else {
+            self.tanh_cpu()
+        }
+    }
+
+    fn tanh_metal(&self) -> TensorResult<Self> {
+        let input_buf = self.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/elementwise.metal");
+            device.load_library(shader_source)?;
+        }
+
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+
+        let mut executor = crate::device::KernelExecutor::new(device);
+        executor.execute_unary_op("tanh_f16", input_buf, &result_buf)?;
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
+    }
+
+    fn tanh_cpu(&self) -> TensorResult<Self> {
+        let input = self.to_vec();
+        let result: Vec<f16> = input
+            .iter()
+            .map(|&x| f16::from_f32(x.to_f32().tanh()))
+            .collect();
+
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -333,5 +430,72 @@ mod tests {
         // Check values are in ascending order (softmax is monotonic)
         assert!(result[0] < result[1]);
         assert!(result[1] < result[2]);
+    }
+
+    #[test]
+    fn test_sigmoid() {
+        let device = MetalDevice::new().unwrap();
+
+        let input = Tensor::from_vec_metal(
+            &device,
+            vec![
+                f16::from_f32(-2.0),
+                f16::from_f32(-1.0),
+                f16::from_f32(0.0),
+                f16::from_f32(1.0),
+                f16::from_f32(2.0),
+            ],
+            vec![5],
+        )
+        .unwrap();
+
+        let output = input.sigmoid().unwrap();
+        let result = output.to_vec();
+
+        // Sigmoid should be in range (0, 1)
+        for val in &result {
+            let f = val.to_f32();
+            assert!(f > 0.0 && f < 1.0);
+        }
+
+        // Check specific values
+        assert!((result[2].to_f32() - 0.5).abs() < 0.01); // sigmoid(0) = 0.5
+        assert!((result[3].to_f32() - 0.731).abs() < 0.01); // sigmoid(1) ≈ 0.731
+        assert!((result[4].to_f32() - 0.881).abs() < 0.01); // sigmoid(2) ≈ 0.881
+    }
+
+    #[test]
+    fn test_tanh() {
+        let device = MetalDevice::new().unwrap();
+
+        let input = Tensor::from_vec_metal(
+            &device,
+            vec![
+                f16::from_f32(-2.0),
+                f16::from_f32(-1.0),
+                f16::from_f32(0.0),
+                f16::from_f32(1.0),
+                f16::from_f32(2.0),
+            ],
+            vec![5],
+        )
+        .unwrap();
+
+        let output = input.tanh().unwrap();
+        let result = output.to_vec();
+
+        // tanh should be in range (-1, 1)
+        for val in &result {
+            let f = val.to_f32();
+            assert!(f > -1.0 && f < 1.0);
+        }
+
+        // Check specific values
+        assert!((result[2].to_f32() - 0.0).abs() < 0.01); // tanh(0) = 0
+        assert!((result[3].to_f32() - 0.762).abs() < 0.01); // tanh(1) ≈ 0.762
+        assert!((result[4].to_f32() - 0.964).abs() < 0.01); // tanh(2) ≈ 0.964
+
+        // Check symmetry
+        assert!((result[0].to_f32() + result[4].to_f32()).abs() < 0.01); // tanh(-x) = -tanh(x)
     }
 }

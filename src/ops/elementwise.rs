@@ -286,6 +286,344 @@ impl Tensor {
             _ => Tensor::from_vec(result, self.dims().to_vec()),
         }
     }
+
+    /// Element-wise exponential: e^x
+    pub fn exp(&self) -> TensorResult<Self> {
+        if self.buffer().is_metal() {
+            self.exp_metal()
+        } else {
+            self.exp_cpu()
+        }
+    }
+
+    fn exp_metal(&self) -> TensorResult<Self> {
+        let input_buf = self.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/elementwise.metal");
+            device.load_library(shader_source)?;
+        }
+
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+
+        let mut executor = crate::device::KernelExecutor::new(device);
+        executor.execute_unary_op("exp_f16", input_buf, &result_buf)?;
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
+    }
+
+    fn exp_cpu(&self) -> TensorResult<Self> {
+        let input = self.to_vec();
+        let result: Vec<f16> = input.iter().map(|&x| f16::from_f32(x.to_f32().exp())).collect();
+
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
+
+    /// Element-wise natural logarithm: log(x)
+    pub fn log(&self) -> TensorResult<Self> {
+        if self.buffer().is_metal() {
+            self.log_metal()
+        } else {
+            self.log_cpu()
+        }
+    }
+
+    fn log_metal(&self) -> TensorResult<Self> {
+        let input_buf = self.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/elementwise.metal");
+            device.load_library(shader_source)?;
+        }
+
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+
+        let mut executor = crate::device::KernelExecutor::new(device);
+        executor.execute_unary_op("log_f16", input_buf, &result_buf)?;
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
+    }
+
+    fn log_cpu(&self) -> TensorResult<Self> {
+        let input = self.to_vec();
+        let result: Vec<f16> = input.iter().map(|&x| f16::from_f32(x.to_f32().ln())).collect();
+
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
+
+    /// Element-wise square root: sqrt(x)
+    pub fn sqrt(&self) -> TensorResult<Self> {
+        if self.buffer().is_metal() {
+            self.sqrt_metal()
+        } else {
+            self.sqrt_cpu()
+        }
+    }
+
+    fn sqrt_metal(&self) -> TensorResult<Self> {
+        let input_buf = self.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/elementwise.metal");
+            device.load_library(shader_source)?;
+        }
+
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+
+        let mut executor = crate::device::KernelExecutor::new(device);
+        executor.execute_unary_op("sqrt_f16", input_buf, &result_buf)?;
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
+    }
+
+    fn sqrt_cpu(&self) -> TensorResult<Self> {
+        let input = self.to_vec();
+        let result: Vec<f16> = input.iter().map(|&x| f16::from_f32(x.to_f32().sqrt())).collect();
+
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
+
+    /// Element-wise power: x^exponent
+    pub fn pow(&self, exponent: f32) -> TensorResult<Self> {
+        if self.buffer().is_metal() {
+            self.pow_metal(exponent)
+        } else {
+            self.pow_cpu(exponent)
+        }
+    }
+
+    fn pow_metal(&self, exponent: f32) -> TensorResult<Self> {
+        let input_buf = self.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/elementwise.metal");
+            device.load_library(shader_source)?;
+        }
+
+        // Create buffer for exponent scalar
+        let exp_buf = MetalBuffer::from_f16_slice(
+            device.metal_device(),
+            &[f16::from_f32(exponent)]
+        )?;
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+
+        let kernel_name = "pow_f16";
+        let pipeline = device.library()
+            .as_ref()
+            .ok_or_else(|| TensorError::MetalError("Library not loaded".to_string()))?
+            .get_function(kernel_name, None)
+            .map_err(|e| TensorError::MetalError(format!("Failed to get kernel {}: {:?}", kernel_name, e)))?;
+
+        let pipeline_state = device.metal_device()
+            .new_compute_pipeline_state_with_function(&pipeline)
+            .map_err(|e| TensorError::MetalError(format!("Failed to create pipeline: {:?}", e)))?;
+
+        let command_queue = device.command_queue();
+        let command_buffer = command_queue.new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline_state);
+        encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
+        encoder.set_buffer(1, Some(exp_buf.metal_buffer()), 0);
+        encoder.set_buffer(2, Some(result_buf.metal_buffer()), 0);
+
+        let grid_size = metal::MTLSize::new(self.numel() as u64, 1, 1);
+        let thread_group_size = metal::MTLSize::new(256, 1, 1);
+
+        encoder.dispatch_threads(grid_size, thread_group_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
+    }
+
+    fn pow_cpu(&self, exponent: f32) -> TensorResult<Self> {
+        let input = self.to_vec();
+        let result: Vec<f16> = input.iter().map(|&x| f16::from_f32(x.to_f32().powf(exponent))).collect();
+
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
+
+    /// Element-wise sine: sin(x)
+    pub fn sin(&self) -> TensorResult<Self> {
+        if self.buffer().is_metal() {
+            self.sin_metal()
+        } else {
+            self.sin_cpu()
+        }
+    }
+
+    fn sin_metal(&self) -> TensorResult<Self> {
+        let input_buf = self.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/elementwise.metal");
+            device.load_library(shader_source)?;
+        }
+
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+
+        let mut executor = crate::device::KernelExecutor::new(device);
+        executor.execute_unary_op("sin_f16", input_buf, &result_buf)?;
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
+    }
+
+    fn sin_cpu(&self) -> TensorResult<Self> {
+        let input = self.to_vec();
+        let result: Vec<f16> = input.iter().map(|&x| f16::from_f32(x.to_f32().sin())).collect();
+
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
+
+    /// Element-wise cosine: cos(x)
+    pub fn cos(&self) -> TensorResult<Self> {
+        if self.buffer().is_metal() {
+            self.cos_metal()
+        } else {
+            self.cos_cpu()
+        }
+    }
+
+    fn cos_metal(&self) -> TensorResult<Self> {
+        let input_buf = self.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/elementwise.metal");
+            device.load_library(shader_source)?;
+        }
+
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+
+        let mut executor = crate::device::KernelExecutor::new(device);
+        executor.execute_unary_op("cos_f16", input_buf, &result_buf)?;
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
+    }
+
+    fn cos_cpu(&self) -> TensorResult<Self> {
+        let input = self.to_vec();
+        let result: Vec<f16> = input.iter().map(|&x| f16::from_f32(x.to_f32().cos())).collect();
+
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
+
+    /// Element-wise tangent: tan(x)
+    pub fn tan(&self) -> TensorResult<Self> {
+        if self.buffer().is_metal() {
+            self.tan_metal()
+        } else {
+            self.tan_cpu()
+        }
+    }
+
+    fn tan_metal(&self) -> TensorResult<Self> {
+        let input_buf = self.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/elementwise.metal");
+            device.load_library(shader_source)?;
+        }
+
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+
+        let mut executor = crate::device::KernelExecutor::new(device);
+        executor.execute_unary_op("tan_f16", input_buf, &result_buf)?;
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
+    }
+
+    fn tan_cpu(&self) -> TensorResult<Self> {
+        let input = self.to_vec();
+        let result: Vec<f16> = input.iter().map(|&x| f16::from_f32(x.to_f32().tan())).collect();
+
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -401,5 +739,124 @@ mod tests {
         let b = Tensor::zeros(&device, vec![3, 2]).unwrap();
 
         assert!(a.add(&b).is_err());
+    }
+
+    #[test]
+    fn test_exp() {
+        let device = get_test_device();
+        let a = Tensor::from_vec_metal(
+            &device,
+            vec![f16::from_f32(0.0), f16::from_f32(1.0), f16::from_f32(2.0)],
+            vec![3],
+        )
+        .unwrap();
+
+        let result = a.exp().unwrap();
+        let values = result.to_vec();
+
+        assert!((values[0].to_f32() - 1.0).abs() < 0.01);
+        assert!((values[1].to_f32() - 2.718).abs() < 0.01);
+        assert!((values[2].to_f32() - 7.389).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_log() {
+        let device = get_test_device();
+        let a = Tensor::from_vec_metal(
+            &device,
+            vec![f16::from_f32(1.0), f16::from_f32(2.718), f16::from_f32(7.389)],
+            vec![3],
+        )
+        .unwrap();
+
+        let result = a.log().unwrap();
+        let values = result.to_vec();
+
+        assert!((values[0].to_f32() - 0.0).abs() < 0.01);
+        assert!((values[1].to_f32() - 1.0).abs() < 0.01);
+        assert!((values[2].to_f32() - 2.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_sqrt() {
+        let device = get_test_device();
+        let a = Tensor::from_vec_metal(
+            &device,
+            vec![f16::from_f32(1.0), f16::from_f32(4.0), f16::from_f32(9.0)],
+            vec![3],
+        )
+        .unwrap();
+
+        let result = a.sqrt().unwrap();
+        let expected = vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)];
+        assert_eq!(result.to_vec(), expected);
+    }
+
+    #[test]
+    fn test_pow() {
+        let device = get_test_device();
+        let a = Tensor::from_vec_metal(
+            &device,
+            vec![f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)],
+            vec![3],
+        )
+        .unwrap();
+
+        let result = a.pow(2.0).unwrap();
+        let expected = vec![f16::from_f32(4.0), f16::from_f32(9.0), f16::from_f32(16.0)];
+        assert_eq!(result.to_vec(), expected);
+    }
+
+    #[test]
+    fn test_sin() {
+        let device = get_test_device();
+        let a = Tensor::from_vec_metal(
+            &device,
+            vec![f16::from_f32(0.0), f16::from_f32(std::f32::consts::PI / 2.0), f16::from_f32(std::f32::consts::PI)],
+            vec![3],
+        )
+        .unwrap();
+
+        let result = a.sin().unwrap();
+        let values = result.to_vec();
+
+        assert!((values[0].to_f32() - 0.0).abs() < 0.01);
+        assert!((values[1].to_f32() - 1.0).abs() < 0.01);
+        assert!((values[2].to_f32() - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_cos() {
+        let device = get_test_device();
+        let a = Tensor::from_vec_metal(
+            &device,
+            vec![f16::from_f32(0.0), f16::from_f32(std::f32::consts::PI / 2.0), f16::from_f32(std::f32::consts::PI)],
+            vec![3],
+        )
+        .unwrap();
+
+        let result = a.cos().unwrap();
+        let values = result.to_vec();
+
+        assert!((values[0].to_f32() - 1.0).abs() < 0.01);
+        assert!((values[1].to_f32() - 0.0).abs() < 0.01);
+        assert!((values[2].to_f32() + 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_tan() {
+        let device = get_test_device();
+        let a = Tensor::from_vec_metal(
+            &device,
+            vec![f16::from_f32(0.0), f16::from_f32(std::f32::consts::PI / 4.0)],
+            vec![2],
+        )
+        .unwrap();
+
+        let result = a.tan().unwrap();
+        let values = result.to_vec();
+
+        assert!((values[0].to_f32() - 0.0).abs() < 0.01);
+        assert!((values[1].to_f32() - 1.0).abs() < 0.01);
     }
 }
