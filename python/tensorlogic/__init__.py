@@ -20,3 +20,11 @@ except ImportError as e:
         "Failed to import TensorLogic native module. "
         "Make sure you have installed the package with: pip install -e ."
     ) from e
+
+# Optional Jupyter kernel support
+try:
+    from . import kernel
+    __all__.append("kernel")
+except ImportError:
+    # ipykernel not installed, skip kernel support
+    pass

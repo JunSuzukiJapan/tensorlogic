@@ -1,0 +1,16 @@
+{
+  "argv": [
+    "python3",
+    "-m",
+    "tensorlogic.kernel",
+    "-f",
+    "{connection_file}"
+  ],
+  "display_name": "TensorLogic",
+  "language": "tensorlogic",
+  "interrupt_mode": "signal",
+  "env": {},
+  "metadata": {
+    "debugger": false
+  }
+}
