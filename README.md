@@ -83,9 +83,7 @@ Install the TensorLogic interpreter as a binary:
 cargo install --git https://github.com/JunSuzukiJapan/tensorlogic.git
 ```
 
-This installs **two** commands:
-- `tensorlogic` - Full command name
-- `tl` - Short alias for convenience
+This installs the `tl` command.
 
 Or build from source:
 
@@ -93,7 +91,7 @@ Or build from source:
 git clone https://github.com/JunSuzukiJapan/tensorlogic.git
 cd tensorlogic
 cargo build --release
-# Binaries will be at: target/release/tensorlogic and target/release/tl
+# Binary will be at: target/release/tl
 ```
 
 **Option 2: Python Module** 🐍 NEW
@@ -262,9 +260,8 @@ Available optimizers:
 #### 6. Run Your Program
 
 ```bash
-# Run TensorLogic script (use either tensorlogic or tl)
+# Run TensorLogic script
 tl run your_script.tl
-tensorlogic run your_script.tl
 
 # With debug mode
 tl run your_script.tl --debug
@@ -303,8 +300,6 @@ main {
 Run it:
 ```bash
 tl run examples/tutorial_01_linear_regression.tl
-# or
-tensorlogic run examples/tutorial_01_linear_regression.tl
 ```
 
 ### More Examples
