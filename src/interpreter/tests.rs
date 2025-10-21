@@ -67,8 +67,8 @@ fn test_assignment_statement() {
     interpreter.execute(&program).unwrap();
 
     // Both x and y should exist
-    assert!(interpreter.get_variable("x").is_ok());
-    assert!(interpreter.get_variable("y").is_ok());
+    assert!(interpreter.get_variable("x").is_some());
+    assert!(interpreter.get_variable("y").is_some());
 }
 
 #[test]
@@ -314,9 +314,9 @@ fn test_multiple_declarations() {
     let mut interpreter = Interpreter::new();
     interpreter.execute(&program).unwrap();
 
-    assert!(interpreter.get_variable("w").is_ok());
-    assert!(interpreter.get_variable("b").is_ok());
-    assert!(interpreter.get_variable("x").is_ok());
+    assert!(interpreter.get_variable("w").is_some());
+    assert!(interpreter.get_variable("b").is_some());
+    assert!(interpreter.get_variable("x").is_some());
 }
 
 #[test]
@@ -335,8 +335,8 @@ fn test_main_block_execution() {
     let mut interpreter = Interpreter::new();
     interpreter.execute(&program).unwrap();
 
-    assert!(interpreter.get_variable("sum").is_ok());
-    assert!(interpreter.get_variable("diff").is_ok());
+    assert!(interpreter.get_variable("sum").is_some());
+    assert!(interpreter.get_variable("diff").is_some());
 }
 
 #[test]

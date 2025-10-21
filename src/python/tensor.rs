@@ -114,6 +114,101 @@ impl PyTensor {
 
         Ok(data)
     }
+
+    /// Get requires_grad flag
+    #[getter]
+    fn requires_grad(&self) -> bool {
+        self.inner.requires_grad()
+    }
+
+    /// Set requires_grad flag
+    #[setter]
+    fn set_requires_grad(&mut self, requires: bool) {
+        self.inner.set_requires_grad(requires);
+    }
+
+    /// Get gradient tensor (if available)
+    #[getter]
+    fn grad(&self, py: Python<'_>) -> PyResult<Option<PyObject>> {
+        if let Some(grad_tensor) = self.inner.grad() {
+            let py_grad = PyTensor::from_tensor(grad_tensor.clone());
+            Ok(Some(py_grad.into_py(py)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Zero the gradient
+    fn zero_grad(&mut self) {
+        self.inner.zero_grad();
+    }
+
+    /// Perform backward pass
+    fn backward(&mut self) -> PyResult<()> {
+        self.inner.backward()
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+    }
+
+    /// Detach tensor from computation graph
+    fn detach(&self) -> PyTensor {
+        PyTensor::from_tensor(self.inner.detach())
+    }
+
+    /// Element-wise addition
+    fn add(&self, other: &PyTensor) -> PyResult<PyTensor> {
+        let result = (&self.inner + &other.inner)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(PyTensor::from_tensor(result))
+    }
+
+    /// Element-wise subtraction
+    fn sub(&self, other: &PyTensor) -> PyResult<PyTensor> {
+        let result = (&self.inner - &other.inner)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(PyTensor::from_tensor(result))
+    }
+
+    /// Element-wise multiplication
+    fn mul(&self, other: &PyTensor) -> PyResult<PyTensor> {
+        let result = (&self.inner * &other.inner)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(PyTensor::from_tensor(result))
+    }
+
+    /// Matrix multiplication
+    fn matmul(&self, other: &PyTensor) -> PyResult<PyTensor> {
+        let result = self.inner.matmul(&other.inner)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(PyTensor::from_tensor(result))
+    }
+
+    /// ReLU activation
+    fn relu(&self) -> PyResult<PyTensor> {
+        let result = self.inner.relu()
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(PyTensor::from_tensor(result))
+    }
+
+    /// Softmax activation
+    fn softmax(&self, dim: isize) -> PyResult<PyTensor> {
+        let result = self.inner.softmax(dim)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(PyTensor::from_tensor(result))
+    }
+
+    /// Sum reduction
+    fn sum(&self) -> PyResult<PyTensor> {
+        let result = self.inner.sum()
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(PyTensor::from_tensor(result))
+    }
+
+    /// Mean reduction
+    fn mean(&self) -> PyResult<PyTensor> {
+        let result = self.inner.mean()
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(PyTensor::from_tensor(result))
+    }
 }
 
 impl PyTensor {
