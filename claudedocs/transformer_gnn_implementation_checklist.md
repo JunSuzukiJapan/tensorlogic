@@ -339,24 +339,39 @@ Layer Normalization を実装
 
 ---
 
-## Phase 5: インデックス操作 (オプション, 2-3日)
+## Phase 5: インデックス操作 (オプション, 2-3日) ✅ COMPLETED
 
 ### 目標
-gather と scatter を実装 (後回し可)
+gather と scatter を実装
 
 ### タスクリスト
 
 #### 5.1 新規ファイル作成
-- [ ] `src/ops/indexing.rs` 作成
-- [ ] `shaders/indexing.metal` 作成
-- [ ] `src/ops/mod.rs` に追加
+- [x] `src/ops/indexing.rs` 作成
+- [x] `shaders/indexing.metal` 作成
+- [x] `src/ops/mod.rs` に追加
 
 #### 5.2 Gather/Scatter実装
-- [ ] `pub fn gather(&self, dim: usize, indices: &Tensor) -> TensorResult<Tensor>`
-- [ ] `pub fn scatter(&self, dim: usize, indices: &Tensor, src: &Tensor) -> TensorResult<Tensor>`
-- [ ] Metal実装
-- [ ] CPU実装
-- [ ] テスト
+- [x] `pub fn gather(&self, dim: usize, indices: &Tensor) -> TensorResult<Tensor>`
+  - [x] Metal実装（GPU並列処理）
+  - [x] CPU実装
+- [x] `pub fn scatter(&self, dim: usize, indices: &Tensor, src: &Tensor) -> TensorResult<Tensor>`
+  - [x] Metal実装（GPU並列処理）
+  - [x] CPU実装
+- [x] テスト
+  - [x] `test_gather_1d()`: 1次元配列でのgather
+  - [x] `test_gather_2d()`: 2次元配列でのgather
+  - [x] `test_scatter_1d()`: 1次元配列でのscatter
+  - [x] `test_scatter_2d()`: 2次元配列でのscatter
+  - [x] `test_gather_out_of_bounds()`: 境界外エラーハンドリング
+  - [x] `test_scatter_overwrite()`: 重複インデックス処理
+  - [x] `test_gather_gpu()`: GPU実装の検証
+  - [x] `test_scatter_gpu()`: GPU実装の検証
+
+#### 5.3 検証
+- [x] 全テストがパス - 8/8 tests passing
+- [x] Metal/CPU両実装の動作確認
+- [x] GNN での利用可能性確認
 
 ---
 
