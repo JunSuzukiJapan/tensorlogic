@@ -240,11 +240,27 @@ pub enum TensorExpr {
         name: Identifier,
         args: Vec<TensorExpr>,
     },
+    /// Tensor indexing: tensor[i, j, ...]
+    TensorIndex {
+        tensor: Identifier,
+        indices: Vec<IndexExpr>,
+    },
     /// Embedding lookup: embed[entity]
     EmbeddingLookup {
         embedding: Identifier,
         entity: EntityRef,
     },
+}
+
+/// Index expression for tensor indexing
+#[derive(Debug, Clone, PartialEq)]
+pub enum IndexExpr {
+    /// Integer index
+    Int(i64),
+    /// Variable index
+    Var(Identifier),
+    /// Slice (colon)
+    Slice,
 }
 
 /// Binary operators

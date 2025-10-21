@@ -416,6 +416,15 @@ impl TypeChecker {
                 ))
             }
 
+            TensorExpr::TensorIndex { tensor, .. } => {
+                // Tensor indexing returns a scalar value
+                let tensor_type = self.env.get_variable(tensor.as_str())?;
+                Ok(TensorTypeInfo::new(
+                    tensor_type.base_type,
+                    vec![], // Scalar result
+                ))
+            }
+
             TensorExpr::EmbeddingLookup { .. } => {
                 // Simplified: embedding lookup type inference deferred
                 Ok(TensorTypeInfo::new(

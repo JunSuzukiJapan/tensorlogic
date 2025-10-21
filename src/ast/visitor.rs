@@ -188,6 +188,15 @@ pub fn walk_tensor_expr<V: Visitor>(visitor: &mut V, expr: &TensorExpr) -> Resul
             }
             Ok(())
         }
+        TensorExpr::TensorIndex { tensor, indices } => {
+            visitor.visit_identifier(tensor)?;
+            for idx_expr in indices {
+                if let crate::ast::IndexExpr::Var(var) = idx_expr {
+                    visitor.visit_identifier(var)?;
+                }
+            }
+            Ok(())
+        }
         TensorExpr::EmbeddingLookup { embedding, entity } => {
             visitor.visit_identifier(embedding)?;
             if let EntityRef::Variable(id) = entity {

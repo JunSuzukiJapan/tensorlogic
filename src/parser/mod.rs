@@ -575,6 +575,20 @@ impl TensorLogicParser {
 
                 Ok(TensorExpr::FunctionCall { name, args })
             }
+            Rule::tensor_index => {
+                let mut inner_pairs = inner.into_inner();
+                let tensor = Self::parse_identifier(inner_pairs.next().ok_or_else(|| {
+                    ParseError::MissingField("tensor name".to_string())
+                })?)?;
+
+                let index_list = inner_pairs.next().ok_or_else(|| {
+                    ParseError::MissingField("index list".to_string())
+                })?;
+
+                let indices = Self::parse_index_list(index_list)?;
+
+                Ok(TensorExpr::TensorIndex { tensor, indices })
+            }
             Rule::embedding_lookup => {
                 let mut inner_pairs = inner.into_inner();
                 let embedding = Self::parse_identifier(inner_pairs.next().ok_or_else(|| {
@@ -1272,6 +1286,40 @@ impl TensorLogicParser {
             Ok(s[1..s.len() - 1].to_string())
         } else {
             Err(ParseError::InvalidValue(format!("Invalid string literal: {}", s)))
+        }
+    }
+
+    fn parse_index_list(pair: pest::iterators::Pair<Rule>) -> Result<Vec<IndexExpr>, ParseError> {
+        pair.into_inner()
+            .map(|index_pair| Self::parse_index_expr(index_pair))
+            .collect()
+    }
+
+    fn parse_index_expr(pair: pest::iterators::Pair<Rule>) -> Result<IndexExpr, ParseError> {
+        let inner = pair.into_inner().next().ok_or_else(|| {
+            ParseError::MissingField("index expression content".to_string())
+        })?;
+
+        match inner.as_rule() {
+            Rule::integer => {
+                let val = inner.as_str().parse::<i64>()
+                    .map_err(|e| ParseError::InvalidValue(format!("Invalid integer: {}", e)))?;
+                Ok(IndexExpr::Int(val))
+            }
+            Rule::identifier => {
+                Ok(IndexExpr::Var(Self::parse_identifier(inner)?))
+            }
+            _ => {
+                // Check if it's a colon (slice)
+                if inner.as_str() == ":" {
+                    Ok(IndexExpr::Slice)
+                } else {
+                    Err(ParseError::UnexpectedRule {
+                        expected: "index expression".to_string(),
+                        found: format!("{:?}", inner.as_rule()),
+                    })
+                }
+            }
         }
     }
 }

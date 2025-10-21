@@ -598,6 +598,10 @@ impl Interpreter {
                 self.eval_function_call(name, args)
             }
 
+            TensorExpr::TensorIndex { tensor, indices } => {
+                self.eval_tensor_index(tensor, indices)
+            }
+
             TensorExpr::EinSum { spec, tensors } => {
                 self.eval_einsum(spec, tensors)
             }
@@ -866,6 +870,76 @@ impl Interpreter {
         )?;
 
         Ok(Value::Tensor(embedding_tensor))
+    }
+
+    /// Evaluate tensor indexing: tensor[i, j, ...]
+    fn eval_tensor_index(&mut self, tensor_id: &Identifier, indices: &[IndexExpr]) -> RuntimeResult<Value> {
+        use crate::ast::IndexExpr;
+
+        // Get the tensor
+        let tensor_value = self.env.get_variable(tensor_id.as_str())?;
+        let tensor = tensor_value.as_tensor()?;
+
+        // Convert indices to usizes
+        let mut idx_values = Vec::new();
+        for idx_expr in indices {
+            match idx_expr {
+                IndexExpr::Int(i) => {
+                    if *i < 0 {
+                        return Err(RuntimeError::InvalidOperation(
+                            "Negative indices not supported".to_string()
+                        ));
+                    }
+                    idx_values.push(*i as usize);
+                }
+                IndexExpr::Var(var) => {
+                    let val = self.env.get_variable(var.as_str())?;
+                    let i = val.as_integer()?;
+                    if i < 0 {
+                        return Err(RuntimeError::InvalidOperation(
+                            "Negative indices not supported".to_string()
+                        ));
+                    }
+                    idx_values.push(i as usize);
+                }
+                IndexExpr::Slice => {
+                    return Err(RuntimeError::NotImplemented(
+                        "Slice indexing not yet implemented".to_string()
+                    ));
+                }
+            }
+        }
+
+        // Calculate linear index
+        let dims = tensor.dims();
+        if idx_values.len() != dims.len() {
+            return Err(RuntimeError::InvalidOperation(format!(
+                "Index dimension mismatch: tensor has {} dimensions, got {} indices",
+                dims.len(),
+                idx_values.len()
+            )));
+        }
+
+        // Compute linear index
+        let mut linear_idx = 0;
+        let mut stride = 1;
+        for i in (0..dims.len()).rev() {
+            if idx_values[i] >= dims[i] {
+                return Err(RuntimeError::InvalidOperation(format!(
+                    "Index out of bounds: index {} = {}, dimension size = {}",
+                    i, idx_values[i], dims[i]
+                )));
+            }
+            linear_idx += idx_values[i] * stride;
+            stride *= dims[i];
+        }
+
+        // Get the value at the index
+        let data = tensor.to_vec();
+        let value = data[linear_idx];
+
+        // Return as a scalar float
+        Ok(Value::Float(value.to_f32() as f64))
     }
 
     /// Evaluate Einstein summation: einsum("ij,jk->ik", A, B)
