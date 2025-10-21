@@ -8,6 +8,17 @@ mod softmax;
 mod sub;
 mod utils;
 mod gradient_op;
+mod exp;
+mod log;
+mod sqrt;
+mod pow;
+mod trig;
+mod activation;
+mod tensor_ops;
+mod layer_norm;
+
+#[cfg(test)]
+mod tests;
 
 pub use add::AddBackward;
 pub use div::DivBackward;
@@ -19,3 +30,11 @@ pub use softmax::SoftmaxBackward;
 pub use sub::SubBackward;
 pub use utils::reduce_grad_for_broadcast;
 pub use gradient_op::GradientBackward;
+pub use exp::ExpBackward;
+pub use log::LogBackward;
+pub use sqrt::SqrtBackward;
+pub use pow::PowBackward;
+pub use trig::{SinBackward, CosBackward};
+pub use activation::{SigmoidBackward, TanhBackward};
+pub use tensor_ops::{ConcatBackward, TransposeBackward};
+pub use layer_norm::LayerNormBackward;

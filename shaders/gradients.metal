@@ -136,3 +136,88 @@ kernel void sum_reduction_f16(
         output[bid] = shared_data[0];
     }
 }
+
+// Exp backward: d/dx exp(x) = exp(x)
+kernel void exp_backward_f16(
+    device const half* grad_output [[buffer(0)]],
+    device const half* output [[buffer(1)]],  // exp(x)
+    device half* grad_input [[buffer(2)]],
+    uint id [[thread_position_in_grid]]
+) {
+    grad_input[id] = grad_output[id] * output[id];
+}
+
+// Log backward: d/dx log(x) = 1/x
+kernel void log_backward_f16(
+    device const half* grad_output [[buffer(0)]],
+    device const half* input [[buffer(1)]],
+    device half* grad_input [[buffer(2)]],
+    uint id [[thread_position_in_grid]]
+) {
+    grad_input[id] = grad_output[id] / input[id];
+}
+
+// Sqrt backward: d/dx sqrt(x) = 1/(2*sqrt(x))
+kernel void sqrt_backward_f16(
+    device const half* grad_output [[buffer(0)]],
+    device const half* output [[buffer(1)]],  // sqrt(x)
+    device half* grad_input [[buffer(2)]],
+    uint id [[thread_position_in_grid]]
+) {
+    grad_input[id] = grad_output[id] / (half(2.0) * output[id]);
+}
+
+// Pow backward: d/dx x^n = n*x^(n-1)
+kernel void pow_backward_f16(
+    device const half* grad_output [[buffer(0)]],
+    device const half* input [[buffer(1)]],
+    device const half* exponent_ptr [[buffer(2)]],
+    device half* grad_input [[buffer(3)]],
+    uint id [[thread_position_in_grid]]
+) {
+    half n = exponent_ptr[0];
+    half x = input[id];
+    grad_input[id] = grad_output[id] * n * pow(x, n - half(1.0));
+}
+
+// Sin backward: d/dx sin(x) = cos(x)
+kernel void sin_backward_f16(
+    device const half* grad_output [[buffer(0)]],
+    device const half* input [[buffer(1)]],
+    device half* grad_input [[buffer(2)]],
+    uint id [[thread_position_in_grid]]
+) {
+    grad_input[id] = grad_output[id] * cos(input[id]);
+}
+
+// Cos backward: d/dx cos(x) = -sin(x)
+kernel void cos_backward_f16(
+    device const half* grad_output [[buffer(0)]],
+    device const half* input [[buffer(1)]],
+    device half* grad_input [[buffer(2)]],
+    uint id [[thread_position_in_grid]]
+) {
+    grad_input[id] = grad_output[id] * (-sin(input[id]));
+}
+
+// Sigmoid backward: d/dx σ(x) = σ(x)*(1-σ(x))
+kernel void sigmoid_backward_f16(
+    device const half* grad_output [[buffer(0)]],
+    device const half* output [[buffer(1)]],  // σ(x)
+    device half* grad_input [[buffer(2)]],
+    uint id [[thread_position_in_grid]]
+) {
+    half sigmoid = output[id];
+    grad_input[id] = grad_output[id] * sigmoid * (half(1.0) - sigmoid);
+}
+
+// Tanh backward: d/dx tanh(x) = 1 - tanh²(x)
+kernel void tanh_backward_f16(
+    device const half* grad_output [[buffer(0)]],
+    device const half* output [[buffer(1)]],  // tanh(x)
+    device half* grad_input [[buffer(2)]],
+    uint id [[thread_position_in_grid]]
+) {
+    half tanh_val = output[id];
+    grad_input[id] = grad_output[id] * (half(1.0) - tanh_val * tanh_val);
+}
