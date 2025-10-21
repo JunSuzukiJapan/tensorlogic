@@ -1,83 +1,62 @@
 # TensorLogic 语言参考
 
-**版本**: 0.2.0-alpha
-**最后更新**: 2025-10-20
+**Version**: 0.1.1
+**Last Updated**: 2025-10-21
 
-## 目录
+## 主要特性
 
-1. [简介](#简介)
-2. [程序结构](#程序结构)
-3. [数据类型](#数据类型)
-4. [声明](#声明)
-5. [表达式](#表达式)
-6. [语句](#语句)
-7. [运算符](#运算符)
-8. [内置函数](#内置函数)
-9. [学习系统](#学习系统)
-10. [逻辑编程](#逻辑编程)
+- **GPU**: TensorLogic 是一种将张量代数与逻辑编程统一的编程语言，实现神经符号AI。
+- **优化器**: SGD, Adam, AdamW
+- **learn 块中的局部变量**: `:=`
+- **Import**: `import "file.tl"`
 
 ---
 
-## 1. 简介
+## 运算符
 
-TensorLogic是一种编程语言，将张量代数与逻辑编程统一起来，实现神经符号AI。
-
-### 主要特性
-
-- **张量运算**: GPU加速的高性能计算
-- **自动微分**: 内置梯度计算
-- **学习系统**: 多种优化器的梯度下降
-- **逻辑编程**: 关系、规则和查询
-- **神经符号集成**: 实体和关系的嵌入
+`+` `-` `*` `/` `@` `**` `==` `!=` `<` `>` `<=` `>=`
 
 ---
 
-## 2. 程序结构
+## 内置函数
 
 ```tensorlogic
-// 声明
-tensor w: float32[10] learnable = [...]
-relation Parent(x: entity, y: entity)
-
-// 主执行块
-main {
-    result := w * w
-
-    learn {
-        objective: result,
-        optimizer: sgd(lr: 0.1),
-        epochs: 50
-    }
-}
+relu(x), gelu(x), softmax(x)
+sum(x), mean(x), max(x), min(x)
 ```
 
 ---
 
-## 3. 数据类型
+## 学习系统
 
-| 类型 | 描述 | 精度 |
-|------|-------------|-----------|
-| `float32` | 32位浮点数 | 单精度 |
-| `float64` | 64位浮点数 | 双精度 |
-| `int32` | 32位整数 | 有符号整数 |
-| `int64` | 64位整数 | 长整数 |
-| `bool` | 布尔型 | 真/假 |
+### 优化器
+
+```tensorlogic
+optimizer: sgd(lr: 0.1)
+optimizer: adam(lr: 0.001)
+optimizer: adamw(lr: 0.001, weight_decay: 0.01)
+```
+
+### learn 块中的局部变量
+
+```tensorlogic
+tensor W: float16[1] learnable = [0.5]
+
+main {
+    learn {
+        pred1 := x1 * W
+        pred2 := x2 * W
+        loss := (pred1 - y1) ** 2 + (pred2 - y2) ** 2
+        
+        objective: loss,
+        optimizer: sgd(lr: 0.01),
+        epochs: 100
+    }
+}
+```
+
+**注意：只有 `learnable` 张量被优化，局部变量不会被优化。**
 
 ---
 
-## 7. 运算符
-
-| 运算符 | 名称 | 示例 |
-|----------|------|---------|
-| `+` | 加法 | `a + b` |
-| `-` | 减法 | `a - b` |
-| `*` | 乘法 | `a * b` |
-| `/` | 除法 | `a / b` |
-| `@` | 矩阵乘法 | `A @ B` |
-| `**` | 幂运算 | `a ** 2` |
-
----
-
-**语言参考结束**
-
-如有问题或贡献，请访问: https://github.com/JunSuzukiJapan/tensorlogic
+GitHub: https://github.com/JunSuzukiJapan/tensorlogic

@@ -1,83 +1,62 @@
-# Riferimento Linguaggio TensorLogic
+# Riferimento del Linguaggio TensorLogic
 
-**Versione**: 0.2.0-alpha
-**Ultimo aggiornamento**: 2025-10-20
+**Version**: 0.1.1
+**Last Updated**: 2025-10-21
 
-## Sommario
+## Caratteristiche principali
 
-1. [Introduzione](#introduzione)
-2. [Struttura del Programma](#struttura-del-programma)
-3. [Tipi di Dati](#tipi-di-dati)
-4. [Dichiarazioni](#dichiarazioni)
-5. [Espressioni](#espressioni)
-6. [Istruzioni](#istruzioni)
-7. [Operatori](#operatori)
-8. [Funzioni Integrate](#funzioni-integrate)
-9. [Sistema di Apprendimento](#sistema-di-apprendimento)
-10. [Programmazione Logica](#programmazione-logica)
+- **GPU**: TensorLogic è un linguaggio di programmazione che unifica l'algebra tensoriale con la programmazione logica, abilitando l'IA neuro-simbolica.
+- **Ottimizzatori**: SGD, Adam, AdamW
+- **Variabili locali in learn**: `:=`
+- **Import**: `import "file.tl"`
 
 ---
 
-## 1. Introduzione
+## Operatori
 
-TensorLogic è un linguaggio di programmazione che unifica l'algebra tensoriale con la programmazione logica, abilitando l'IA neuro-simbolica.
-
-### Caratteristiche Principali
-
-- **Operazioni Tensoriali**: Calcoli ad alte prestazioni accelerati da GPU
-- **Differenziazione Automatica**: Calcolo del gradiente integrato
-- **Sistema di Apprendimento**: Discesa del gradiente con multipli ottimizzatori
-- **Programmazione Logica**: Relazioni, regole e query
-- **Integrazione Neuro-Simbolica**: Embedding per entità e relazioni
+`+` `-` `*` `/` `@` `**` `==` `!=` `<` `>` `<=` `>=`
 
 ---
 
-## 2. Struttura del Programma
+## Funzioni integrate
 
 ```tensorlogic
-// Dichiarazioni
-tensor w: float32[10] learnable = [...]
-relation Parent(x: entity, y: entity)
-
-// Blocco di esecuzione principale
-main {
-    result := w * w
-
-    learn {
-        objective: result,
-        optimizer: sgd(lr: 0.1),
-        epochs: 50
-    }
-}
+relu(x), gelu(x), softmax(x)
+sum(x), mean(x), max(x), min(x)
 ```
 
 ---
 
-## 3. Tipi di Dati
+## Sistema di apprendimento
 
-| Tipo | Descrizione | Precisione |
-|------|-------------|-----------|
-| `float32` | Virgola mobile 32-bit | Singola precisione |
-| `float64` | Virgola mobile 64-bit | Doppia precisione |
-| `int32` | Intero 32-bit | Intero con segno |
-| `int64` | Intero 64-bit | Intero lungo con segno |
-| `bool` | Booleano | vero/falso |
+### Ottimizzatori
+
+```tensorlogic
+optimizer: sgd(lr: 0.1)
+optimizer: adam(lr: 0.001)
+optimizer: adamw(lr: 0.001, weight_decay: 0.01)
+```
+
+### Variabili locali in learn
+
+```tensorlogic
+tensor W: float16[1] learnable = [0.5]
+
+main {
+    learn {
+        pred1 := x1 * W
+        pred2 := x2 * W
+        loss := (pred1 - y1) ** 2 + (pred2 - y2) ** 2
+        
+        objective: loss,
+        optimizer: sgd(lr: 0.01),
+        epochs: 100
+    }
+}
+```
+
+**Nota: Solo i tensori `learnable` sono ottimizzati, non le variabili locali.**
 
 ---
 
-## 7. Operatori
-
-| Operatore | Nome | Esempio |
-|----------|------|---------|
-| `+` | Addizione | `a + b` |
-| `-` | Sottrazione | `a - b` |
-| `*` | Moltiplicazione | `a * b` |
-| `/` | Divisione | `a / b` |
-| `@` | Moltiplicazione Matriciale | `A @ B` |
-| `**` | Potenza | `a ** 2` |
-
----
-
-**Fine del Riferimento Linguaggio**
-
-Per domande o contributi, visita: https://github.com/JunSuzukiJapan/tensorlogic
+GitHub: https://github.com/JunSuzukiJapan/tensorlogic

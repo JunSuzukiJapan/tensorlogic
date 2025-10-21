@@ -1,54 +1,59 @@
 # Référence du Langage TensorLogic
 
-**Version**: 0.2.0-alpha
-**Dernière mise à jour**: 2025-10-20
+**Version**: 0.1.1
+**Dernière mise à jour**: 2025-10-21
 
-## Table des Matières
+## Table des matières
 
 1. [Introduction](#introduction)
-2. [Structure du Programme](#structure-du-programme)
-3. [Types de Données](#types-de-données)
-4. [Déclarations](#déclarations)
-5. [Expressions](#expressions)
-6. [Instructions](#instructions)
+2. [Structure du programme](#structure-du-programme)
+3. [Types de données](#types-de-données)
 7. [Opérateurs](#opérateurs)
-8. [Fonctions Intégrées](#fonctions-intégrées)
-9. [Système d'Apprentissage](#système-dapprentissage)
-10. [Programmation Logique](#programmation-logique)
+8. [Fonctions intégrées](#fonctions-intégrées)
+9. [Système d'apprentissage](#système-dapprentissage)
+10. [Programmation logique](#programmation-logique)
 
 ---
 
 ## 1. Introduction
 
-TensorLogic est un langage de programmation qui unifie l'algèbre tensorielle avec la programmation logique, permettant l'IA neuro-symbolique. Il combine les opérations tensorielles différentiables avec le raisonnement logique pour les systèmes d'IA de nouvelle génération.
+TensorLogic est un langage de programmation qui unifie l'algèbre tensorielle avec la programmation logique, permettant l'IA neuro-symbolique.
 
-### Caractéristiques Principales
+### Caractéristiques principales
 
-- **Opérations Tensorielles**: Calculs accélérés par GPU haute performance
-- **Différentiation Automatique**: Calcul de gradient intégré
-- **Système d'Apprentissage**: Descente de gradient avec plusieurs optimiseurs
-- **Programmation Logique**: Relations, règles et requêtes
-- **Intégration Neuro-Symbolique**: Embeddings pour entités et relations
+- **Opérations tensorielles**: Calculs haute performance accélérés par GPU
+- **Différentiation automatique**: Calcul de gradient intégré
+- **Système d'apprentissage**: Descente de gradient avec plusieurs optimiseurs (SGD, Adam, AdamW)
+- **Variables locales**: Support des variables locales dans les blocs `learn` avec `:=`
+- **Nombres négatifs**: Support complet des littéraux numériques négatifs
+- **Importation de fichiers**: Import de déclarations depuis des fichiers externes
 
 ---
 
-## 2. Structure du Programme
+## 2. Structure du programme
 
-### 2.1 Structure de Base
+### 2.1 Importer des fichiers externes
 
 ```tensorlogic
-// Déclarations
-tensor w: float32[10] learnable = [...]
-relation Parent(x: entity, y: entity)
+import "path/to/module.tl"
 
-// Bloc d'exécution principal
 main {
-    // Instructions
-    result := w * w
+    result := imported_tensor * 2
+}
+```
 
-    // Apprentissage
+### 2.2 Structure de base
+
+```tensorlogic
+tensor w: float16[10] learnable = [...]
+
+main {
     learn {
-        objective: result,
+        // Variables locales pour calculs intermédiaires
+        pred := x * w
+        loss := pred * pred
+        
+        objective: loss,
         optimizer: sgd(lr: 0.1),
         epochs: 50
     }
@@ -57,70 +62,71 @@ main {
 
 ---
 
-## 3. Types de Données
+## 3. Types de données
 
-### 3.1 Types de Base
+| Type | Description |
+|------|-------------|
+| `float16` | 16 bits (optimisé Apple Silicon) |
+| `float32` | 32 bits simple précision |
+| `float64` | 64 bits double précision |
+| `int32` | Entier 32 bits |
+| `bool` | Booléen |
 
-| Type | Description | Précision |
-|------|-------------|-----------|
-| `float32` | Flottant 32 bits | Simple précision |
-| `float64` | Flottant 64 bits | Double précision |
-| `int32` | Entier 32 bits | Entier signé |
-| `int64` | Entier 64 bits | Long entier signé |
-| `bool` | Booléen | vrai/faux |
-| `complex64` | Nombre complexe 64 bits | Complexe float32 |
+**Littéraux numériques**: `[3.14]`, `[-2.71]`, `[-42.0]`
 
 ---
 
 ## 7. Opérateurs
 
-### 7.1 Opérateurs Arithmétiques
-
-| Opérateur | Nom | Description | Exemple |
-|----------|------|-------------|---------|
-| `+` | Addition | Addition élément par élément | `a + b` |
-| `-` | Soustraction | Soustraction élément par élément | `a - b` |
-| `*` | Multiplication | Multiplication élément par élément (Hadamard) | `a * b` |
-| `/` | Division | Division élément par élément | `a / b` |
-| `@` | Multiplication Matricielle | Contraction tensorielle | `A @ B` |
-| `**` | Puissance | Puissance élément par élément | `a ** 2` |
+| Opérateur | Description |
+|-----------|-------------|
+| `+` `-` `*` `/` | Arithmétique |
+| `@` | Multiplication matricielle |
+| `**` | Puissance |
+| `==` `!=` `<` `>` `<=` `>=` | Comparaison |
 
 ---
 
-## 9. Système d'Apprentissage
-
-### 9.1 Paramètres Apprenables
+## 8. Fonctions intégrées
 
 ```tensorlogic
-tensor w: float32[10] learnable = [...]
-tensor b: float32[1] learnable = [0.0]
+relu(x), gelu(x), softmax(x)      // Activations
+sum(x), mean(x), max(x), min(x)   // Réductions
 ```
 
-### 9.2 Optimiseurs
+---
 
-#### SGD (Descente de Gradient Stochastique)
+## 9. Système d'apprentissage
+
+### 9.1 Optimiseurs
 
 ```tensorlogic
 optimizer: sgd(lr: 0.1)
+optimizer: adam(lr: 0.001)
+optimizer: adamw(lr: 0.001, weight_decay: 0.01)
 ```
 
-**Paramètres**:
-- `lr`: Taux d'apprentissage (par défaut: 0.01)
-
-#### Adam
+### 9.2 Variables locales dans learn
 
 ```tensorlogic
-optimizer: adam(lr: 0.001)
+tensor W: float16[1] learnable = [0.5]
+
+main {
+    learn {
+        // Variables locales
+        pred1 := x1 * W
+        pred2 := x2 * W
+        loss := (pred1 - y1) * (pred1 - y1) + (pred2 - y2) * (pred2 - y2)
+        
+        objective: loss,
+        optimizer: sgd(lr: 0.01),
+        epochs: 100
+    }
+}
 ```
 
-**Paramètres**:
-- `lr`: Taux d'apprentissage (par défaut: 0.001)
-- `beta1`: Décroissance du premier moment (par défaut: 0.9)
-- `beta2`: Décroissance du second moment (par défaut: 0.999)
-- `epsilon`: Petite constante (par défaut: 1e-8)
+**Note**: Seuls les tenseurs `learnable` sont optimisés, pas les variables locales.
 
 ---
 
-**Fin de la Référence du Langage**
-
-Pour questions ou contributions, visitez: https://github.com/JunSuzukiJapan/tensorlogic
+Pour plus d'informations: https://github.com/JunSuzukiJapan/tensorlogic

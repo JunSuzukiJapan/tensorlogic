@@ -1,83 +1,62 @@
-# TensorLogic 언어 참조
+# TensorLogic 언어 레퍼런스
 
-**버전**: 0.2.0-alpha
-**마지막 업데이트**: 2025-10-20
+**Version**: 0.1.1
+**Last Updated**: 2025-10-21
 
-## 목차
+## 주요 기능
 
-1. [소개](#소개)
-2. [프로그램 구조](#프로그램-구조)
-3. [데이터 타입](#데이터-타입)
-4. [선언](#선언)
-5. [표현식](#표현식)
-6. [문장](#문장)
-7. [연산자](#연산자)
-8. [내장 함수](#내장-함수)
-9. [학습 시스템](#학습-시스템)
-10. [논리 프로그래밍](#논리-프로그래밍)
+- **GPU**: TensorLogic은 텐서 대수와 논리 프로그래밍을 통합하여 신경-기호 AI를 가능하게 하는 프로그래밍 언어입니다.
+- **최적화기**: SGD, Adam, AdamW
+- **learn 블록의 로컬 변수**: `:=`
+- **Import**: `import "file.tl"`
 
 ---
 
-## 1. 소개
+## 연산자
 
-TensorLogic은 텐서 대수와 논리 프로그래밍을 통합한 프로그래밍 언어로, 신경-기호 AI를 가능하게 합니다.
-
-### 주요 기능
-
-- **텐서 연산**: GPU 가속 고성능 계산
-- **자동 미분**: 내장 그래디언트 계산
-- **학습 시스템**: 여러 최적화 알고리즘 지원
-- **논리 프로그래밍**: 관계, 규칙, 쿼리
-- **신경-기호 통합**: 엔티티 및 관계 임베딩
+`+` `-` `*` `/` `@` `**` `==` `!=` `<` `>` `<=` `>=`
 
 ---
 
-## 2. 프로그램 구조
+## 내장 함수
 
 ```tensorlogic
-// 선언
-tensor w: float32[10] learnable = [...]
-relation Parent(x: entity, y: entity)
-
-// 메인 실행 블록
-main {
-    result := w * w
-
-    learn {
-        objective: result,
-        optimizer: sgd(lr: 0.1),
-        epochs: 50
-    }
-}
+relu(x), gelu(x), softmax(x)
+sum(x), mean(x), max(x), min(x)
 ```
 
 ---
 
-## 3. 데이터 타입
+## 학습 시스템
 
-| 타입 | 설명 | 정밀도 |
-|------|-------------|-----------|
-| `float32` | 32비트 부동소수점 | 단정밀도 |
-| `float64` | 64비트 부동소수점 | 배정밀도 |
-| `int32` | 32비트 정수 | 부호있는 정수 |
-| `int64` | 64비트 정수 | 긴 정수 |
-| `bool` | 불리언 | 참/거짓 |
+### 최적화기
+
+```tensorlogic
+optimizer: sgd(lr: 0.1)
+optimizer: adam(lr: 0.001)
+optimizer: adamw(lr: 0.001, weight_decay: 0.01)
+```
+
+### learn 블록의 로컬 변수
+
+```tensorlogic
+tensor W: float16[1] learnable = [0.5]
+
+main {
+    learn {
+        pred1 := x1 * W
+        pred2 := x2 * W
+        loss := (pred1 - y1) ** 2 + (pred2 - y2) ** 2
+        
+        objective: loss,
+        optimizer: sgd(lr: 0.01),
+        epochs: 100
+    }
+}
+```
+
+**참고: `learnable` 텐서만 최적화되며 로컬 변수는 최적화되지 않습니다.**
 
 ---
 
-## 7. 연산자
-
-| 연산자 | 이름 | 예제 |
-|----------|------|---------|
-| `+` | 덧셈 | `a + b` |
-| `-` | 뺄셈 | `a - b` |
-| `*` | 곱셈 | `a * b` |
-| `/` | 나눗셈 | `a / b` |
-| `@` | 행렬 곱셈 | `A @ B` |
-| `**` | 거듭제곱 | `a ** 2` |
-
----
-
-**언어 참조 끝**
-
-질문이나 기여는 다음을 방문하세요: https://github.com/JunSuzukiJapan/tensorlogic
+GitHub: https://github.com/JunSuzukiJapan/tensorlogic

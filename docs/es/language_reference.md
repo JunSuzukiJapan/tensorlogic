@@ -1,50 +1,58 @@
 # Referencia del Lenguaje TensorLogic
 
-**Versión**: 0.2.0-alpha
-**Última actualización**: 2025-10-20
+**Versión**: 0.1.1
+**Última actualización**: 2025-10-21
 
-## Tabla de Contenidos
+## Tabla de contenidos
 
 1. [Introducción](#introducción)
-2. [Estructura del Programa](#estructura-del-programa)
-3. [Tipos de Datos](#tipos-de-datos)
-4. [Declaraciones](#declaraciones)
-5. [Expresiones](#expresiones)
-6. [Sentencias](#sentencias)
+2. [Estructura del programa](#estructura-del-programa)
+3. [Tipos de datos](#tipos-de-datos)
 7. [Operadores](#operadores)
-8. [Funciones Integradas](#funciones-integradas)
-9. [Sistema de Aprendizaje](#sistema-de-aprendizaje)
-10. [Programación Lógica](#programación-lógica)
+8. [Funciones integradas](#funciones-integradas)
+9. [Sistema de aprendizaje](#sistema-de-aprendizaje)
 
 ---
 
 ## 1. Introducción
 
-TensorLogic es un lenguaje de programación que unifica el álgebra tensorial con la programación lógica, habilitando la IA neuro-simbólica.
+TensorLogic es un lenguaje de programación que unifica el álgebra tensorial con la programación lógica, permitiendo IA neuro-simbólica.
 
-### Características Principales
+### Características principales
 
-- **Operaciones Tensoriales**: Cálculos de alto rendimiento acelerados por GPU
-- **Diferenciación Automática**: Cálculo de gradiente integrado
-- **Sistema de Aprendizaje**: Descenso de gradiente con múltiples optimizadores
-- **Programación Lógica**: Relaciones, reglas y consultas
-- **Integración Neuro-Simbólica**: Embeddings para entidades y relaciones
+- **Operaciones tensoriales**: Cálculos de alto rendimiento acelerados por GPU
+- **Diferenciación automática**: Cálculo de gradientes incorporado
+- **Sistema de aprendizaje**: Descenso de gradiente con múltiples optimizadores (SGD, Adam, AdamW)
+- **Variables locales**: Soporte de variables locales en bloques `learn` con `:=`
+- **Números negativos**: Soporte completo de literales numéricos negativos
+- **Importación de archivos**: Importar declaraciones desde archivos externos
 
 ---
 
-## 2. Estructura del Programa
+## 2. Estructura del programa
+
+### 2.1 Importar archivos externos
 
 ```tensorlogic
-// Declaraciones
-tensor w: float32[10] learnable = [...]
-relation Parent(x: entity, y: entity)
+import "path/to/module.tl"
 
-// Bloque de ejecución principal
 main {
-    result := w * w
+    result := imported_tensor * 2
+}
+```
 
+### 2.2 Estructura básica
+
+```tensorlogic
+tensor w: float16[10] learnable = [...]
+
+main {
     learn {
-        objective: result,
+        // Variables locales para cálculos intermedios
+        pred := x * w
+        loss := pred * pred
+        
+        objective: loss,
         optimizer: sgd(lr: 0.1),
         epochs: 50
     }
@@ -53,31 +61,71 @@ main {
 
 ---
 
-## 3. Tipos de Datos
+## 3. Tipos de datos
 
-| Tipo | Descripción | Precisión |
-|------|-------------|-----------|
-| `float32` | Punto flotante 32-bit | Precisión simple |
-| `float64` | Punto flotante 64-bit | Precisión doble |
-| `int32` | Entero 32-bit | Entero con signo |
-| `int64` | Entero 64-bit | Entero largo con signo |
-| `bool` | Booleano | verdadero/falso |
+| Tipo | Descripción |
+|------|-------------|
+| `float16` | 16 bits (optimizado Apple Silicon) |
+| `float32` | 32 bits precisión simple |
+| `float64` | 64 bits precisión doble |
+| `int32` | Entero 32 bits |
+| `bool` | Booleano |
+
+**Literales numéricos**: `[3.14]`, `[-2.71]`, `[-42.0]`
 
 ---
 
 ## 7. Operadores
 
-| Operador | Nombre | Ejemplo |
-|----------|------|---------|
-| `+` | Adición | `a + b` |
-| `-` | Sustracción | `a - b` |
-| `*` | Multiplicación | `a * b` |
-| `/` | División | `a / b` |
-| `@` | Multiplicación Matricial | `A @ B` |
-| `**` | Potencia | `a ** 2` |
+| Operador | Descripción |
+|-----------|-------------|
+| `+` `-` `*` `/` | Aritmética |
+| `@` | Multiplicación matricial |
+| `**` | Potencia |
+| `==` `!=` `<` `>` `<=` `>=` | Comparación |
 
 ---
 
-**Fin de la Referencia del Lenguaje**
+## 8. Funciones integradas
 
-Para preguntas o contribuciones, visita: https://github.com/JunSuzukiJapan/tensorlogic
+```tensorlogic
+relu(x), gelu(x), softmax(x)      // Activaciones
+sum(x), mean(x), max(x), min(x)   // Reducciones
+```
+
+---
+
+## 9. Sistema de aprendizaje
+
+### 9.1 Optimizadores
+
+```tensorlogic
+optimizer: sgd(lr: 0.1)
+optimizer: adam(lr: 0.001)
+optimizer: adamw(lr: 0.001, weight_decay: 0.01)
+```
+
+### 9.2 Variables locales en learn
+
+```tensorlogic
+tensor W: float16[1] learnable = [0.5]
+
+main {
+    learn {
+        // Variables locales
+        pred1 := x1 * W
+        pred2 := x2 * W
+        loss := (pred1 - y1) * (pred1 - y1) + (pred2 - y2) * (pred2 - y2)
+        
+        objective: loss,
+        optimizer: sgd(lr: 0.01),
+        epochs: 100
+    }
+}
+```
+
+**Nota**: Solo los tensores `learnable` son optimizados, no las variables locales.
+
+---
+
+Para más información: https://github.com/JunSuzukiJapan/tensorlogic
