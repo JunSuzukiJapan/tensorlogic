@@ -117,6 +117,35 @@ impl Value {
     }
 }
 
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Tensor(t) => {
+                // Display tensor in a compact format
+                let data = t.to_vec();
+                if data.len() <= 10 {
+                    write!(f, "[")?;
+                    for (i, val) in data.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{:.4}", val.to_f32())?;
+                    }
+                    write!(f, "]")
+                } else {
+                    write!(f, "[{:.4}, {:.4}, ..., {:.4}] (len={})",
+                        data[0].to_f32(), data[1].to_f32(), data[data.len()-1].to_f32(), data.len())
+                }
+            }
+            Value::Boolean(b) => write!(f, "{}", b),
+            Value::Integer(i) => write!(f, "{}", i),
+            Value::Float(fl) => write!(f, "{}", fl),
+            Value::String(s) => write!(f, "{}", s),
+            Value::Void => write!(f, "()"),
+        }
+    }
+}
+
 /// Runtime environment
 #[derive(Debug)]
 pub struct RuntimeEnvironment {
@@ -354,6 +383,20 @@ impl Interpreter {
     /// Execute a statement
     fn execute_statement(&mut self, stmt: &Statement) -> RuntimeResult<()> {
         match stmt {
+            Statement::TensorDecl(decl) => {
+                // Handle tensor declaration in main block
+                if let Some(init_expr) = &decl.init_expr {
+                    let value = self.eval_expr(init_expr)?;
+                    self.env
+                        .set_variable(decl.name.as_str().to_string(), value);
+                } else {
+                    // No initializer - create uninitialized tensor (would need default value)
+                    return Err(RuntimeError::TypeError(
+                        "Tensor declarations in main block must have initializers".to_string(),
+                    ));
+                }
+                Ok(())
+            }
             Statement::Assignment { target, value } => {
                 let evaluated_value = self.eval_expr(value)?;
                 self.env
@@ -366,6 +409,25 @@ impl Interpreter {
                 let _right = self.eval_expr(&eq.right)?;
                 // In a full implementation, this would perform unification or constraint solving
                 Ok(())
+            }
+            Statement::FunctionCall { name, args } => {
+                // Handle function calls as statements (e.g., print)
+                if name.as_str() == "print" {
+                    // Special handling for print
+                    for (i, arg) in args.iter().enumerate() {
+                        if i > 0 {
+                            print!(" ");
+                        }
+                        let val = self.eval_expr(arg)?;
+                        print!("{}", val);
+                    }
+                    println!();
+                    Ok(())
+                } else {
+                    // Other function calls - evaluate and discard result
+                    self.eval_function_call(name, args)?;
+                    Ok(())
+                }
             }
             Statement::ControlFlow(cf) => match cf {
                 ControlFlow::If {

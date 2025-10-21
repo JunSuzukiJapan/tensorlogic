@@ -182,8 +182,10 @@ eq_type = { ":=" | "~" | "=" }
 // ============================================================================
 
 statement = {
-    assignment
+    tensor_decl
+    | assignment
     | tensor_equation
+    | function_call
     | query
     | inference_call
     | learning_call

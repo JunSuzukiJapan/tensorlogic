@@ -875,6 +875,9 @@ impl TensorLogicParser {
         })?;
 
         match inner.as_rule() {
+            Rule::tensor_decl => {
+                Ok(Statement::TensorDecl(Self::parse_tensor_decl(inner)?))
+            }
             Rule::assignment => {
                 let mut inner_pairs = inner.into_inner();
                 let target = Self::parse_identifier(inner_pairs.next().ok_or_else(|| {
@@ -887,6 +890,20 @@ impl TensorLogicParser {
             }
             Rule::tensor_equation => {
                 Ok(Statement::Equation(Self::parse_tensor_equation(inner)?))
+            }
+            Rule::function_call => {
+                let mut inner_pairs = inner.into_inner();
+                let name = Self::parse_identifier(inner_pairs.next().ok_or_else(|| {
+                    ParseError::MissingField("function name".to_string())
+                })?)?;
+
+                let args = if let Some(tensor_list) = inner_pairs.next() {
+                    Self::parse_tensor_list(tensor_list)?
+                } else {
+                    Vec::new()
+                };
+
+                Ok(Statement::FunctionCall { name, args })
             }
             Rule::query => {
                 Self::parse_query(inner)

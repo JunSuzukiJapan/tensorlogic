@@ -212,6 +212,13 @@ pub fn walk_atom<V: Visitor>(visitor: &mut V, atom: &Atom) -> Result<(), V::Erro
 
 pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(), V::Error> {
     match stmt {
+        Statement::TensorDecl(decl) => {
+            visitor.visit_identifier(&decl.name)?;
+            if let Some(init_expr) = &decl.init_expr {
+                visitor.visit_tensor_expr(init_expr)?;
+            }
+            Ok(())
+        }
         Statement::Assignment { target, value } => {
             visitor.visit_identifier(target)?;
             visitor.visit_tensor_expr(value)
@@ -219,6 +226,13 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
         Statement::Equation(eq) => {
             visitor.visit_tensor_expr(&eq.left)?;
             visitor.visit_tensor_expr(&eq.right)
+        }
+        Statement::FunctionCall { name, args } => {
+            visitor.visit_identifier(name)?;
+            for arg in args {
+                visitor.visit_tensor_expr(arg)?;
+            }
+            Ok(())
         }
         Statement::Query { atom, constraints } => {
             visitor.visit_atom(atom)?;

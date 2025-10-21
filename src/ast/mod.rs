@@ -370,6 +370,8 @@ pub enum EquationType {
 /// Statements in imperative code
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
+    /// Tensor declaration: tensor name: type = expr?
+    TensorDecl(TensorDecl),
     /// Assignment: x := expr
     Assignment {
         target: Identifier,
@@ -377,6 +379,11 @@ pub enum Statement {
     },
     /// Tensor equation
     Equation(TensorEquation),
+    /// Function call (e.g., print)
+    FunctionCall {
+        name: Identifier,
+        args: Vec<TensorExpr>,
+    },
     /// Query: query pred(x, y) where constraints
     Query {
         atom: Atom,
