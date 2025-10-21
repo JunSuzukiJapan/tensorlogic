@@ -219,44 +219,11 @@ impl Tensor {
     }
 
     fn sigmoid_metal(&self) -> TensorResult<Self> {
-        let input_buf = self.buffer().as_metal()?;
-
-        let mut device = match self.device() {
-            Device::Metal(dev) => dev.clone(),
-            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
-        };
-
-        if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/elementwise.metal");
-            device.load_library(shader_source)?;
-        }
-
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
-
-        let mut executor = crate::device::KernelExecutor::new(device);
-        executor.execute_unary_op("sigmoid_f16", input_buf, &result_buf)?;
-
-        Tensor::new(
-            BufferHandle::Metal(result_buf),
-            self.shape().clone(),
-            self.device().clone(),
-        )
+        super::helpers::execute_unary_metal_op(self, "sigmoid_f16")
     }
 
     fn sigmoid_cpu(&self) -> TensorResult<Self> {
-        let input = self.to_vec();
-        let result: Vec<f16> = input
-            .iter()
-            .map(|&x| {
-                let val = x.to_f32();
-                f16::from_f32(1.0 / (1.0 + (-val).exp()))
-            })
-            .collect();
-
-        match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
-        }
+        super::helpers::execute_unary_cpu_op(self, |x| 1.0 / (1.0 + (-x).exp()))
     }
 
     /// Hyperbolic tangent activation: tanh(x)
@@ -269,41 +236,11 @@ impl Tensor {
     }
 
     fn tanh_metal(&self) -> TensorResult<Self> {
-        let input_buf = self.buffer().as_metal()?;
-
-        let mut device = match self.device() {
-            Device::Metal(dev) => dev.clone(),
-            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
-        };
-
-        if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/elementwise.metal");
-            device.load_library(shader_source)?;
-        }
-
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
-
-        let mut executor = crate::device::KernelExecutor::new(device);
-        executor.execute_unary_op("tanh_f16", input_buf, &result_buf)?;
-
-        Tensor::new(
-            BufferHandle::Metal(result_buf),
-            self.shape().clone(),
-            self.device().clone(),
-        )
+        super::helpers::execute_unary_metal_op(self, "tanh_f16")
     }
 
     fn tanh_cpu(&self) -> TensorResult<Self> {
-        let input = self.to_vec();
-        let result: Vec<f16> = input
-            .iter()
-            .map(|&x| f16::from_f32(x.to_f32().tanh()))
-            .collect();
-
-        match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
-        }
+        super::helpers::execute_unary_cpu_op(self, |x| x.tanh())
     }
 }
 

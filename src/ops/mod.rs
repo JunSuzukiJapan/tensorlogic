@@ -1,5 +1,6 @@
 //! Tensor operations
 
+mod helpers;
 pub mod elementwise;
 pub mod matmul;
 pub mod activations;
