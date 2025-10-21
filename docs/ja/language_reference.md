@@ -55,7 +55,47 @@ main {
 }
 ```
 
-### 2.2 コメント
+### 2.2 外部ファイルのインポート
+
+TensorLogicは外部ファイルから宣言をインポートできます:
+
+```tensorlogic
+// 別のファイルから宣言をインポート
+import "path/to/module.tl"
+import "../lib/constants.tl"
+
+main {
+    // インポートしたテンソルと関数を使用
+    result := imported_tensor * 2
+}
+```
+
+**機能**:
+- 相対パス解決（インポートするファイルからの相対パス）
+- 循環依存検出（無限ループを防止）
+- 重複インポート防止（同じファイルは2回インポートされない）
+- 宣言のみがインポートされる（メインブロックは実行されない）
+
+**例**:
+
+ファイル: `lib/constants.tl`
+```tensorlogic
+tensor pi: float16[1] = [3.14159]
+tensor e: float16[1] = [2.71828]
+```
+
+ファイル: `main.tl`
+```tensorlogic
+import "lib/constants.tl"
+
+main {
+    tensor circumference: float16[1] = [2.0]
+    result := circumference * pi  // インポートしたpiを使用
+    print("結果:", result)
+}
+```
+
+### 2.3 コメント
 
 ```tensorlogic
 // 単一行コメント
@@ -72,12 +112,26 @@ main {
 
 | 型 | 説明 | 精度 |
 |------|-------------|-----------|
+| `float16` | 16ビット浮動小数点（f16） | 半精度（Apple Silicon最適化） |
 | `float32` | 32ビット浮動小数点 | 単精度 |
 | `float64` | 64ビット浮動小数点 | 倍精度 |
 | `int32` | 32ビット整数 | 符号付き整数 |
 | `int64` | 64ビット整数 | 符号付き長整数 |
 | `bool` | 真偽値 | true/false |
 | `complex64` | 64ビット複素数 | 複素float32 |
+
+**注意**: TensorLogicは、Apple Silicon（Metal GPUおよびNeural Engine）での最適なパフォーマンスのために主に`float16`を使用します。
+
+### 3.1.1 数値リテラル
+
+TensorLogicは正負の数値リテラルをサポートします:
+
+```tensorlogic
+tensor positive: float16[1] = [3.14]
+tensor negative: float16[1] = [-2.71]
+tensor zero: float16[1] = [0.0]
+tensor neg_int: float16[1] = [-42.0]
+```
 
 ### 3.2 テンソル型
 
@@ -450,6 +504,10 @@ optimizer: adamw(lr: 0.001, weight_decay: 0.01)
 
 ```tensorlogic
 learn {
+    // オプション: 中間計算のためのローカル変数宣言
+    intermediate := some_expression
+    another_var := other_expression
+
     objective: loss_expression,
     optimizer: optimizer_spec,
     epochs: number
@@ -460,8 +518,10 @@ learn {
 - `objective`はスカラーテンソル式である必要があります
 - `learnable`マークされた全テンソルが最適化されます
 - 勾配は自動微分により計算されます
+- `objective`の前に`:=`でローカル変数を中間計算に使用できます
+- ローカル変数は各エポックで再計算されます
 
-**例**:
+**例 - 基本的な学習**:
 
 ```tensorlogic
 tensor w: float32[10] learnable = [...]
@@ -478,6 +538,39 @@ main {
     }
 }
 ```
+
+**例 - ローカル変数を使用**:
+
+```tensorlogic
+tensor W: float16[1] learnable = [0.5]
+tensor x1: float16[1] = [1.0]
+tensor y1: float16[1] = [3.0]
+tensor x2: float16[1] = [-2.0]  // 負の数がサポートされています
+tensor y2: float16[1] = [-6.0]
+
+main {
+    learn {
+        // 中間計算のためのローカル変数
+        pred1 := x1 * W
+        pred2 := x2 * W
+
+        // 誤差を計算
+        err1 := pred1 - y1
+        err2 := pred2 - y2
+
+        // 二乗誤差の合計
+        total_loss := err1 * err1 + err2 * err2
+
+        objective: total_loss,
+        optimizer: sgd(lr: 0.01),
+        epochs: 100
+    }
+
+    print("学習したW:", W)  // 3.0に近い値になるはず
+}
+```
+
+**注意**: `learnable`キーワードで明示的に宣言されたテンソルのみが最適化されます。`learn`ブロック内で計算されたローカル変数は学習可能パラメータとして扱われません。
 
 ---
 

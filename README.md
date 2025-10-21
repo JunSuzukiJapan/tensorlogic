@@ -235,22 +235,43 @@ main {
 
 #### 5. Training with Gradient Descent
 
-Train models using the `learn` statement:
+Train models using the `learn` statement with support for local variables:
 
 ```tensorlogic
 // Declare learnable parameters
-tensor w: float16[1] learnable = [0.5]
-tensor b: float16[1] learnable = [0.5]
+tensor W: float16[1] learnable = [0.5]
 
 main {
-    // Define and minimize loss function
+    // Training data
+    tensor x1: float16[1] = [1.0]
+    tensor y1: float16[1] = [3.0]
+    tensor x2: float16[1] = [-2.0]  // Negative numbers supported
+    tensor y2: float16[1] = [-6.0]
+
+    // Train model with local variables in learn block
     learn {
-        objective: w * w + b * b,
-        optimizer: sgd(lr: 0.1),
-        epochs: 50
+        // Local variables for intermediate computations
+        pred1 := x1 * W
+        pred2 := x2 * W
+
+        // Compute loss
+        err1 := pred1 - y1
+        err2 := pred2 - y2
+        loss := err1 * err1 + err2 * err2
+
+        objective: loss,
+        optimizer: sgd(lr: 0.01),
+        epochs: 100
     }
+
+    print("Learned W:", W)  // Should be close to 3.0
 }
 ```
+
+**Features**:
+- **Local variables**: Use `:=` inside `learn` blocks for intermediate computations
+- **Negative numbers**: Full support for negative numeric literals
+- **Multiple optimizers**: SGD, Adam, AdamW with customizable hyperparameters
 
 Available optimizers:
 - `sgd(lr: 0.1)` - Stochastic Gradient Descent
@@ -304,10 +325,12 @@ tl run examples/tutorial_01_linear_regression.tl
 
 ### More Examples
 
+- [Simple Linear Model](examples/simple_linear_model.tl) - Training and inference example with local variables
 - [Tutorial 01: Linear Regression](examples/tutorial_01_linear_regression.tl) - Basic optimization
 - [Tutorial 02: Multi-Parameter Optimization](examples/tutorial_02_logistic_regression.tl) - Multiple parameters
 - [Tutorial 03: Neural Network Weights](examples/tutorial_03_neural_network.tl) - Weight regularization
 - [Tutorial 04: Logic Programming](examples/tutorial_04_logic_programming.tl) - Neural-symbolic integration
+- [Import Test](examples/import_test/) - External file imports with circular dependency detection
 - [Getting Started Guide](claudedocs/getting_started.md) - Comprehensive tutorials
 - [Language Reference](docs/en/language_reference.md) - Complete syntax reference
 
@@ -380,6 +403,68 @@ interp.execute(code)
 ```
 
 See [examples/python_integration_test.tl](examples/python_integration_test.tl) for more examples.
+
+## Jupyter Notebook Support 📊
+
+TensorLogic includes a Jupyter kernel for interactive development in Jupyter notebooks.
+
+### Installation
+
+```bash
+# Install the TensorLogic Jupyter kernel
+jupyter kernelspec install --user jupyter/tensorlogic
+
+# Verify installation
+jupyter kernelspec list
+```
+
+### Usage
+
+1. **Start Jupyter**:
+```bash
+jupyter notebook
+# or
+jupyter lab
+```
+
+2. **Create a new notebook** and select "TensorLogic" as the kernel
+
+3. **Write TensorLogic code** in cells:
+
+```tensorlogic
+// Cell 1: Declare tensors
+tensor W: float16[1] learnable = [0.5]
+```
+
+```tensorlogic
+// Cell 2: Train model
+tensor x: float16[1] = [2.0]
+tensor y: float16[1] = [6.0]
+
+learn {
+    pred := x * W
+    loss := (pred - y) * (pred - y)
+
+    objective: loss,
+    optimizer: sgd(lr: 0.1),
+    epochs: 50
+}
+
+print("Trained W:", W)  // Should be ~3.0
+```
+
+4. **Run cells** with `Shift+Enter`
+
+### Features
+
+- **Interactive execution**: Run TensorLogic code cell-by-cell
+- **Variable persistence**: Variables persist across cells within a session
+- **Real-time output**: See training progress and results immediately
+- **Mixed workflows**: Combine with Python cells for data preprocessing/visualization
+
+### Example Notebook
+
+See [examples/jupyter_tutorial.ipynb](examples/jupyter_tutorial.ipynb) for a complete tutorial.
 
 ## Architecture
 

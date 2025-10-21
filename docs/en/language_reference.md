@@ -55,7 +55,47 @@ main {
 }
 ```
 
-### 2.2 Comments
+### 2.2 Importing External Files
+
+TensorLogic supports importing declarations from external files:
+
+```tensorlogic
+// Import declarations from another file
+import "path/to/module.tl"
+import "../lib/constants.tl"
+
+main {
+    // Use imported tensors and functions
+    result := imported_tensor * 2
+}
+```
+
+**Features**:
+- Relative path resolution (relative to the importing file)
+- Circular dependency detection (prevents infinite loops)
+- Duplicate import prevention (same file won't be imported twice)
+- Only declarations are imported (main blocks are not executed)
+
+**Example**:
+
+File: `lib/constants.tl`
+```tensorlogic
+tensor pi: float16[1] = [3.14159]
+tensor e: float16[1] = [2.71828]
+```
+
+File: `main.tl`
+```tensorlogic
+import "lib/constants.tl"
+
+main {
+    tensor circumference: float16[1] = [2.0]
+    result := circumference * pi  // Uses imported pi
+    print("Result:", result)
+}
+```
+
+### 2.3 Comments
 
 ```tensorlogic
 // Single-line comment
@@ -72,12 +112,26 @@ main {
 
 | Type | Description | Precision |
 |------|-------------|-----------|
+| `float16` | 16-bit floating point (f16) | Half precision (Apple Silicon optimized) |
 | `float32` | 32-bit floating point | Single precision |
 | `float64` | 64-bit floating point | Double precision |
 | `int32` | 32-bit integer | Signed integer |
 | `int64` | 64-bit integer | Signed long integer |
 | `bool` | Boolean | true/false |
 | `complex64` | 64-bit complex number | Complex float32 |
+
+**Note**: TensorLogic primarily uses `float16` for optimal performance on Apple Silicon (Metal GPU and Neural Engine).
+
+### 3.1.1 Numeric Literals
+
+TensorLogic supports positive and negative numeric literals:
+
+```tensorlogic
+tensor positive: float16[1] = [3.14]
+tensor negative: float16[1] = [-2.71]
+tensor zero: float16[1] = [0.0]
+tensor neg_int: float16[1] = [-42.0]
+```
 
 ### 3.2 Tensor Types
 
@@ -459,6 +513,10 @@ optimizer: adamw(lr: 0.001, weight_decay: 0.01)
 
 ```tensorlogic
 learn {
+    // Optional: Local variable declarations for intermediate computations
+    intermediate := some_expression
+    another_var := other_expression
+
     objective: loss_expression,
     optimizer: optimizer_spec,
     epochs: number
@@ -469,8 +527,10 @@ learn {
 - `objective` must be a scalar tensor expression
 - All tensors marked `learnable` will be optimized
 - Gradients computed via automatic differentiation
+- Local variables (`:=`) can be used before `objective` for intermediate computations
+- Local variables are re-computed at each epoch
 
-**Example**:
+**Example - Basic Learning**:
 
 ```tensorlogic
 tensor w: float32[10] learnable = [...]
@@ -487,6 +547,39 @@ main {
     }
 }
 ```
+
+**Example - With Local Variables**:
+
+```tensorlogic
+tensor W: float16[1] learnable = [0.5]
+tensor x1: float16[1] = [1.0]
+tensor y1: float16[1] = [3.0]
+tensor x2: float16[1] = [-2.0]  // Negative numbers supported
+tensor y2: float16[1] = [-6.0]
+
+main {
+    learn {
+        // Local variables for intermediate computations
+        pred1 := x1 * W
+        pred2 := x2 * W
+
+        // Compute errors
+        err1 := pred1 - y1
+        err2 := pred2 - y2
+
+        // Sum of squared errors
+        total_loss := err1 * err1 + err2 * err2
+
+        objective: total_loss,
+        optimizer: sgd(lr: 0.01),
+        epochs: 100
+    }
+
+    print("Learned W:", W)  // Should be close to 3.0
+}
+```
+
+**Note**: Only tensors explicitly declared with the `learnable` keyword are optimized. Local variables computed within the `learn` block are not treated as learnable parameters.
 
 ---
 
