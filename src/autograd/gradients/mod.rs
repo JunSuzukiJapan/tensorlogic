@@ -16,6 +16,7 @@ mod trig;
 mod activation;
 mod tensor_ops;
 mod layer_norm;
+mod metal_helper;
 
 #[cfg(test)]
 mod tests;
