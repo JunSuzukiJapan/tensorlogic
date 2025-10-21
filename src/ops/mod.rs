@@ -11,6 +11,7 @@ pub mod fused;
 pub mod advanced_fusion;
 pub mod inplace;
 pub mod tensor_ops;
+pub mod normalization;
 
 // Re-export commonly used types
 pub use fused::Activation;
