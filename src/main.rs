@@ -131,6 +131,10 @@ fn run_file(file_path: &str, debug_mode: bool) -> Result<(), Box<dyn std::error:
     // Execute program
     println!("\nExecuting...\n");
     let mut interpreter = Interpreter::new();
+
+    // Set current file path for import resolution
+    interpreter.set_current_file(path.canonicalize()?);
+
     if let Err(e) = interpreter.execute(&program) {
         // Build stack trace from error context
         let mut stack_trace = StackTrace::new();

@@ -23,6 +23,10 @@ pub trait Visitor: Sized {
         walk_declaration(self, decl)
     }
 
+    fn visit_import_decl(&mut self, decl: &ImportDecl) -> Result<(), Self::Error> {
+        walk_import_decl(self, decl)
+    }
+
     fn visit_tensor_decl(&mut self, decl: &TensorDecl) -> Result<(), Self::Error> {
         walk_tensor_decl(self, decl)
     }
@@ -89,12 +93,18 @@ pub fn walk_main_block<V: Visitor>(visitor: &mut V, block: &MainBlock) -> Result
 
 pub fn walk_declaration<V: Visitor>(visitor: &mut V, decl: &Declaration) -> Result<(), V::Error> {
     match decl {
+        Declaration::Import(d) => visitor.visit_import_decl(d),
         Declaration::Tensor(d) => visitor.visit_tensor_decl(d),
         Declaration::Relation(d) => visitor.visit_relation_decl(d),
         Declaration::Rule(d) => visitor.visit_rule_decl(d),
         Declaration::Embedding(d) => visitor.visit_embedding_decl(d),
         Declaration::Function(d) => visitor.visit_function_decl(d),
     }
+}
+
+pub fn walk_import_decl<V: Visitor>(_visitor: &mut V, _decl: &ImportDecl) -> Result<(), V::Error> {
+    // Import declarations have no sub-nodes to visit
+    Ok(())
 }
 
 pub fn walk_tensor_decl<V: Visitor>(visitor: &mut V, decl: &TensorDecl) -> Result<(), V::Error> {

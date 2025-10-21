@@ -11,7 +11,8 @@ COMMENT = _{ "//" ~ (!"\n" ~ ANY)* ~ "\n" | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 program = { SOI ~ declaration* ~ main_block? ~ EOI }
 
 declaration = {
-    tensor_decl
+    import_decl
+    | tensor_decl
     | relation_decl
     | rule_decl
     | embedding_decl
@@ -19,6 +20,12 @@ declaration = {
 }
 
 main_block = { "main" ~ "{" ~ statement* ~ "}" }
+
+// ============================================================================
+// Import Declarations
+// ============================================================================
+
+import_decl = { "import" ~ string_literal }
 
 // ============================================================================
 // Tensor Declarations

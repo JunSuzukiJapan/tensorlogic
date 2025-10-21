@@ -180,7 +180,28 @@ main {
 }
 ```
 
-#### 3. Control Flow
+#### 3. Importing External Files
+
+Import declarations from other TensorLogic files:
+
+```tensorlogic
+// Import tensor and function definitions from another file
+import "path/to/module.tl"
+
+main {
+    // Use imported tensors and functions
+    result := imported_tensor * 2
+}
+```
+
+**Features**:
+- Relative path resolution (relative to the importing file)
+- Duplicate import prevention (same file won't be imported twice)
+- No main block execution (only declarations are imported)
+
+**Example**: See [examples/import_test/](examples/import_test/)
+
+#### 4. Control Flow
 
 Use conditionals and loops:
 
@@ -210,7 +231,7 @@ main {
 }
 ```
 
-#### 4. Training with Gradient Descent
+#### 5. Training with Gradient Descent
 
 Train models using the `learn` statement:
 
@@ -234,7 +255,7 @@ Available optimizers:
 - `adam(lr: 0.001)` - Adam optimizer
 - `adamw(lr: 0.001, weight_decay: 0.01)` - AdamW with weight decay
 
-#### 5. Run Your Program
+#### 6. Run Your Program
 
 ```bash
 # Run TensorLogic script

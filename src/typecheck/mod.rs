@@ -231,6 +231,11 @@ impl TypeChecker {
     /// Type check a declaration
     fn check_declaration(&mut self, decl: &Declaration) -> TypeResult<()> {
         match decl {
+            Declaration::Import(_) => {
+                // Import declarations don't need type checking
+                // Type checking happens when the imported file is parsed
+                Ok(())
+            }
             Declaration::Tensor(tensor_decl) => self.check_tensor_decl(tensor_decl),
             Declaration::Relation(relation_decl) => self.check_relation_decl(relation_decl),
             Declaration::Rule(rule_decl) => self.check_rule_decl(rule_decl),

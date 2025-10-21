@@ -106,6 +106,7 @@ impl TensorLogicParser {
         })?;
 
         match inner.as_rule() {
+            Rule::import_decl => Ok(Declaration::Import(Self::parse_import_decl(inner)?)),
             Rule::tensor_decl => Ok(Declaration::Tensor(Self::parse_tensor_decl(inner)?)),
             Rule::relation_decl => Ok(Declaration::Relation(Self::parse_relation_decl(inner)?)),
             Rule::rule_decl => Ok(Declaration::Rule(Self::parse_rule_decl(inner)?)),
@@ -116,6 +117,18 @@ impl TensorLogicParser {
                 found: format!("{:?}", inner.as_rule()),
             }),
         }
+    }
+
+    fn parse_import_decl(pair: pest::iterators::Pair<Rule>) -> Result<ImportDecl, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let path_pair = inner.next().ok_or_else(|| {
+            ParseError::MissingField("import path".to_string())
+        })?;
+
+        let path = Self::parse_string_literal(path_pair)?;
+
+        Ok(ImportDecl { path })
     }
 
     fn parse_tensor_decl(pair: pest::iterators::Pair<Rule>) -> Result<TensorDecl, ParseError> {

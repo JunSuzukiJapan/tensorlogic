@@ -22,7 +22,9 @@
 //! interpreter.execute(&program)?;
 //! ```
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::fs;
 
 use crate::ast::*;
 use crate::tensor::Tensor;
@@ -54,6 +56,18 @@ pub enum RuntimeError {
 
     #[error("Invalid dimensions for operation")]
     InvalidDimensions,
+
+    #[error("File not found: {0}")]
+    FileNotFound(String),
+
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+
+    #[error("Parse error: {0}")]
+    ParseError(String),
+
+    #[error("Circular import detected: {0}")]
+    CircularImport(String),
 }
 
 pub type RuntimeResult<T> = Result<T, RuntimeError>;
@@ -201,6 +215,10 @@ pub struct Interpreter {
     // Python execution environment (when python feature is enabled)
     #[cfg(any(feature = "python", feature = "python-extension"))]
     python_env: Option<crate::python::environment::PythonEnvironment>,
+    // Track imported files to detect circular dependencies
+    imported_files: HashSet<PathBuf>,
+    // Current file being executed (for resolving relative imports)
+    current_file: Option<PathBuf>,
 }
 
 impl Interpreter {
@@ -211,7 +229,14 @@ impl Interpreter {
             embeddings: HashMap::new(),
             #[cfg(any(feature = "python", feature = "python-extension"))]
             python_env: None,
+            imported_files: HashSet::new(),
+            current_file: None,
         }
+    }
+
+    /// Set the current file being executed (for import resolution)
+    pub fn set_current_file(&mut self, path: impl Into<PathBuf>) {
+        self.current_file = Some(path.into());
     }
 
     /// Execute a complete program
@@ -247,6 +272,7 @@ impl Interpreter {
     /// Execute a declaration
     fn execute_declaration(&mut self, decl: &Declaration) -> RuntimeResult<()> {
         match decl {
+            Declaration::Import(import_decl) => self.execute_import(import_decl),
             Declaration::Tensor(tensor_decl) => self.execute_tensor_decl(tensor_decl),
             Declaration::Relation(_) => {
                 // Relations are metadata, no runtime execution needed
@@ -263,6 +289,61 @@ impl Interpreter {
                 Ok(())
             }
         }
+    }
+
+    /// Execute an import declaration
+    fn execute_import(&mut self, import_decl: &ImportDecl) -> RuntimeResult<()> {
+        // Resolve the import path relative to current file (if any)
+        let import_path = if let Some(current) = &self.current_file {
+            let current_dir = current.parent().ok_or_else(|| {
+                RuntimeError::FileNotFound(format!("Cannot get parent directory of {:?}", current))
+            })?;
+            current_dir.join(&import_decl.path)
+        } else {
+            PathBuf::from(&import_decl.path)
+        };
+
+        // Canonicalize the path to handle .. and symlinks
+        let canonical_path = import_path.canonicalize().map_err(|e| {
+            RuntimeError::FileNotFound(format!(
+                "Cannot resolve import path '{}': {}",
+                import_decl.path, e
+            ))
+        })?;
+
+        // Check for circular imports
+        if self.imported_files.contains(&canonical_path) {
+            return Err(RuntimeError::CircularImport(format!(
+                "File already imported: {:?}",
+                canonical_path
+            )));
+        }
+
+        // Add to imported files set
+        self.imported_files.insert(canonical_path.clone());
+
+        // Read and parse the imported file
+        let source = fs::read_to_string(&canonical_path)?;
+        let program = crate::parser::TensorLogicParser::parse_program(&source).map_err(|e| {
+            RuntimeError::ParseError(format!("Error parsing {:?}: {}", canonical_path, e))
+        })?;
+
+        // Save current file context
+        let previous_file = self.current_file.clone();
+        self.current_file = Some(canonical_path.clone());
+
+        // Execute imported program's declarations
+        for decl in &program.declarations {
+            self.execute_declaration(decl)?;
+        }
+
+        // Note: We intentionally do NOT execute the main block of imported files
+        // Only declarations (functions, tensors, etc.) are imported
+
+        // Restore previous file context
+        self.current_file = previous_file;
+
+        Ok(())
     }
 
     /// Execute a tensor declaration

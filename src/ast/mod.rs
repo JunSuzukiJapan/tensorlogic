@@ -35,11 +35,22 @@ pub struct MainBlock {
 /// Top-level declarations
 #[derive(Debug, Clone, PartialEq)]
 pub enum Declaration {
+    Import(ImportDecl),
     Tensor(TensorDecl),
     Relation(RelationDecl),
     Rule(RuleDecl),
     Embedding(EmbeddingDecl),
     Function(FunctionDecl),
+}
+
+// ============================================================================
+// Import Declarations
+// ============================================================================
+
+/// Import declaration: import "path/to/module.tl"
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportDecl {
+    pub path: String,
 }
 
 // ============================================================================
