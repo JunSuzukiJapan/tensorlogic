@@ -175,6 +175,11 @@ impl RuntimeEnvironment {
             .ok_or_else(|| RuntimeError::UndefinedVariable(name.to_string()))
     }
 
+    /// List all variable names
+    pub fn list_variables(&self) -> Vec<String> {
+        self.variables.keys().cloned().collect()
+    }
+
     /// Get current Metal device
     pub fn metal_device(&self) -> &MetalDevice {
         &self.metal_device
@@ -222,6 +227,21 @@ impl Interpreter {
         }
 
         Ok(())
+    }
+
+    /// Get a variable from the interpreter's environment
+    pub fn get_variable(&self, name: &str) -> Option<Value> {
+        self.env.get_variable(name).ok().cloned()
+    }
+
+    /// Set a variable in the interpreter's environment
+    pub fn set_variable(&mut self, name: String, value: Value) {
+        self.env.set_variable(name, value);
+    }
+
+    /// List all variables in the environment
+    pub fn list_variables(&self) -> Vec<String> {
+        self.env.list_variables()
     }
 
     /// Execute a declaration
@@ -1381,11 +1401,6 @@ impl Interpreter {
                 Ok(result)
             }
         }
-    }
-
-    /// Get a variable's value
-    pub fn get_variable(&self, name: &str) -> RuntimeResult<&Value> {
-        self.env.get_variable(name)
     }
 
     /// Get mutable reference to logic engine (for testing)
