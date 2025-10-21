@@ -221,7 +221,8 @@ inference_method = { "forward" | "backward" | "gradient" | "symbolic" }
 learning_call = { "learn" ~ "{" ~ learning_spec ~ "}" }
 
 learning_spec = {
-    "objective" ~ ":" ~ tensor_expr ~ ","
+    statement*
+    ~ "objective" ~ ":" ~ tensor_expr ~ ","
     ~ "optimizer" ~ ":" ~ optimizer_spec ~ ","
     ~ "epochs" ~ ":" ~ integer
     ~ ("," ~ "scheduler" ~ ":" ~ scheduler_spec)?
@@ -268,7 +269,7 @@ while_statement = { "while" ~ condition ~ "{" ~ statement* ~ "}" }
 
 constant = { number | string_literal | boolean }
 
-number = @{ float | integer }
+number = @{ "-"? ~ (float | integer) }
 
 integer = @{ ASCII_DIGIT+ }
 

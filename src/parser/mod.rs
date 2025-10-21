@@ -1032,32 +1032,54 @@ impl TensorLogicParser {
     fn parse_learning_spec(pair: pest::iterators::Pair<Rule>) -> Result<LearningSpec, ParseError> {
         let mut inner = pair.into_inner();
 
-        // Parse objective: tensor_expr
-        let objective_expr = inner.next().ok_or_else(|| {
+        // Parse optional statements
+        let mut statements = Vec::new();
+        let mut objective_expr = None;
+        let mut optimizer_spec = None;
+        let mut epochs_val = None;
+        let mut scheduler_spec = None;
+
+        for pair in inner {
+            match pair.as_rule() {
+                Rule::statement => {
+                    statements.push(Self::parse_statement(pair)?);
+                }
+                Rule::tensor_expr => {
+                    objective_expr = Some(pair);
+                }
+                Rule::optimizer_spec => {
+                    optimizer_spec = Some(pair);
+                }
+                Rule::integer => {
+                    epochs_val = Some(pair);
+                }
+                Rule::scheduler_spec => {
+                    scheduler_spec = Some(pair);
+                }
+                _ => {}
+            }
+        }
+
+        let objective = Self::parse_tensor_expr(objective_expr.ok_or_else(|| {
             ParseError::MissingField("objective expression".to_string())
-        })?;
-        let objective = Self::parse_tensor_expr(objective_expr)?;
+        })?)?;
 
-        // Parse optimizer: optimizer_spec
-        let optimizer_spec = inner.next().ok_or_else(|| {
+        let optimizer = Self::parse_optimizer_spec(optimizer_spec.ok_or_else(|| {
             ParseError::MissingField("optimizer spec".to_string())
-        })?;
-        let optimizer = Self::parse_optimizer_spec(optimizer_spec)?;
+        })?)?;
 
-        // Parse epochs: integer
-        let epochs_val = inner.next().ok_or_else(|| {
+        let epochs = Self::parse_number(epochs_val.ok_or_else(|| {
             ParseError::MissingField("epochs value".to_string())
-        })?;
-        let epochs = Self::parse_number(epochs_val)? as usize;
+        })?)? as usize;
 
-        // Parse optional scheduler: scheduler_spec
-        let scheduler = if let Some(scheduler_pair) = inner.next() {
-            Some(Self::parse_scheduler_spec(scheduler_pair)?)
+        let scheduler = if let Some(s) = scheduler_spec {
+            Some(Self::parse_scheduler_spec(s)?)
         } else {
             None
         };
 
         Ok(LearningSpec {
+            statements,
             objective,
             optimizer,
             epochs,

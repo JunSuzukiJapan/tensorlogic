@@ -1553,25 +1553,16 @@ impl Interpreter {
             }
         }
 
-        // Collect learnable parameters (only those explicitly declared with learnable keyword)
-        // We need to track which tensors were declared as learnable vs computed
-        // For now, we collect all tensors with requires_grad=true, but exclude the objective
-        let objective_name = if let TensorExpr::Variable(id) = &spec.objective {
-            Some(id.as_str())
-        } else {
-            None
-        };
-
+        // Collect learnable parameters BEFORE executing statements
+        // This ensures only explicitly declared 'learnable' tensors are optimized,
+        // not intermediate variables computed in the learn block
         let mut learnable_params = Vec::new();
+        let mut learnable_param_names = Vec::new(); // Store names for later rebuilding
         for (name, value) in &self.env.variables {
-            // Skip the objective tensor
-            if Some(name.as_str()) == objective_name {
-                continue;
-            }
-
             if let Value::Tensor(tensor) = value {
                 if tensor.requires_grad() {
                     learnable_params.push((name.clone(), tensor.clone()));
+                    learnable_param_names.push(name.clone());
                     println!("\nLearnable parameter: {}", name);
                     println!("  Shape: {:?}", tensor.shape().dims());
                     println!("  Initial values: {:?}", &tensor.to_vec()[..std::cmp::min(5, tensor.shape().dims()[0])].iter().map(|v| v.to_f32()).collect::<Vec<_>>());
@@ -1583,6 +1574,12 @@ impl Interpreter {
             return Err(RuntimeError::InvalidOperation(
                 "No learnable parameters found. Declare tensors with 'learnable' keyword.".to_string()
             ));
+        }
+
+        // Execute preamble statements AFTER collecting learnable params
+        // These create local variables for intermediate computations
+        for stmt in &spec.statements {
+            self.execute_statement(stmt)?;
         }
 
         // Get learning rate from optimizer params
@@ -1660,6 +1657,11 @@ impl Interpreter {
                 opt.zero_grad();
             }
 
+            // Re-execute statements for each epoch (recompute intermediate variables)
+            for stmt in &spec.statements {
+                self.execute_statement(stmt)?;
+            }
+
             // Compute loss
             let loss_val = self.eval_expr(&spec.objective)?;
             let loss_tensor = loss_val.as_tensor()?;
@@ -1714,15 +1716,11 @@ impl Interpreter {
 
                             // 5. Rebuild learnable_params vector to point to updated tensors
                             // This ensures the next epoch's backward pass can find the parameters
+                            // Only rebuild from the original learnable parameter names (not local variables)
                             learnable_params.clear();
-                            for (name, value) in &self.env.variables {
-                                if Some(name.as_str()) == objective_name {
-                                    continue;
-                                }
-                                if let Value::Tensor(tensor) = value {
-                                    if tensor.requires_grad() {
-                                        learnable_params.push((name.clone(), tensor.clone()));
-                                    }
+                            for name in &learnable_param_names {
+                                if let Ok(Value::Tensor(tensor)) = self.env.get_variable(name) {
+                                    learnable_params.push((name.clone(), tensor.clone()));
                                 }
                             }
                         }

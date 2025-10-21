@@ -449,6 +449,7 @@ pub enum InferenceMethod {
 /// Learning specification
 #[derive(Debug, Clone, PartialEq)]
 pub struct LearningSpec {
+    pub statements: Vec<Statement>,
     pub objective: TensorExpr,
     pub optimizer: OptimizerSpec,
     pub epochs: usize,
