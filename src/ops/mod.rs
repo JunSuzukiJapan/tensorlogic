@@ -13,6 +13,9 @@ pub mod inplace;
 pub mod tensor_ops;
 pub mod normalization;
 pub mod indexing;
+pub mod masking;
+pub mod batch_norm;
+pub mod dropout;
 
 // Re-export commonly used types
 pub use fused::Activation;
