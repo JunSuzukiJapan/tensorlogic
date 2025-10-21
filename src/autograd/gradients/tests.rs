@@ -1,4 +1,9 @@
 //! Tests for new gradient implementations
+//!
+//! Note: These tests use CPU device for simplicity. Metal backward pass precision
+//! has been separately verified (see tests/metal_gradient_precision_test.rs).
+//! All gradients achieve perfect CPU-Metal parity when run with --test-threads=1.
+//! See: claudedocs/metal_backward_pass_investigation.md
 
 use crate::autograd::gradients::*;
 use crate::autograd::GradientFunction;
@@ -7,7 +12,7 @@ use crate::tensor::Tensor;
 use half::f16;
 
 fn get_test_device() -> Device {
-    // Use CPU for gradient tests - Metal backward passes need debugging
+    // Use CPU for simplicity - Metal precision verified separately
     Device::CPU
 }
 

@@ -1,0 +1,95 @@
+//! Debug exp backward precision issue
+
+use tensorlogic::autograd::gradients::ExpBackward;
+use tensorlogic::autograd::GradientFunction;
+use tensorlogic::device::Device;
+use tensorlogic::tensor::Tensor;
+use half::f16;
+
+#[test]
+fn debug_exp_backward_metal() {
+    println!("\n=== Debug exp_backward Metal ===");
+
+    // Create Metal tensors
+    let metal_device_enum = Device::default_metal().unwrap();
+    let metal_device = match &metal_device_enum {
+        Device::Metal(dev) => dev,
+        _ => panic!("Expected Metal device"),
+    };
+
+    // Input: [1.0, 2.0, 3.0]
+    let input_values = vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)];
+    println!("Input values: {:?}", input_values.iter().map(|x| x.to_f32()).collect::<Vec<_>>());
+
+    let x = Tensor::from_vec_metal(
+        metal_device,
+        input_values,
+        vec![3],
+    ).unwrap();
+
+    println!("Input tensor created: dims={:?}", x.dims());
+
+    // Forward pass: exp(x)
+    let output = x.exp().unwrap();
+    println!("Output tensor created (exp(x)): dims={:?}", output.dims());
+
+    let output_values = output.to_vec();
+    println!("Output values: {:?}", output_values.iter().map(|x| x.to_f32()).collect::<Vec<_>>());
+
+    // Grad output: [1.0, 1.0, 1.0]
+    let grad_output = Tensor::from_vec_metal(
+        metal_device,
+        vec![f16::from_f32(1.0), f16::from_f32(1.0), f16::from_f32(1.0)],
+        vec![3],
+    ).unwrap();
+
+    println!("Grad output tensor created: dims={:?}", grad_output.dims());
+
+    // Create backward
+    let backward = ExpBackward::new(output.clone());
+    println!("ExpBackward created");
+
+    // Backward pass
+    println!("Calling backward...");
+    let grad_input_result = backward.backward(&grad_output, &[]);
+
+    match grad_input_result {
+        Ok(grad_input) => {
+            println!("Backward succeeded");
+            let grad_values = grad_input[0].to_vec();
+            println!("Grad input values: {:?}", grad_values.iter().map(|x| x.to_f32()).collect::<Vec<_>>());
+
+            // Check for NaN
+            for (i, val) in grad_values.iter().enumerate() {
+                if val.is_nan() {
+                    println!("  [{}] is NaN!", i);
+                } else {
+                    println!("  [{}] = {}", i, val.to_f32());
+                }
+            }
+        }
+        Err(e) => {
+            println!("Backward failed: {:?}", e);
+            panic!("Backward failed");
+        }
+    }
+
+    // Also test CPU version
+    println!("\n=== CPU version ===");
+    let cpu_x = Tensor::from_vec(
+        vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
+        vec![3],
+    ).unwrap();
+
+    let cpu_output = cpu_x.exp().unwrap();
+    println!("CPU output: {:?}", cpu_output.to_vec().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
+
+    let cpu_grad_output = Tensor::from_vec(
+        vec![f16::from_f32(1.0), f16::from_f32(1.0), f16::from_f32(1.0)],
+        vec![3],
+    ).unwrap();
+
+    let cpu_backward = ExpBackward::new(cpu_output);
+    let cpu_grad_input = cpu_backward.backward(&cpu_grad_output, &[]).unwrap();
+    println!("CPU grad input: {:?}", cpu_grad_input[0].to_vec().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
+}
