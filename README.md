@@ -15,7 +15,21 @@ A production-ready f16 tensor library for Apple Silicon with automatic different
 
 TensorLogic is a unified tensor algebra library designed specifically for Apple Silicon (M-series chips), providing seamless integration between Metal GPU and Neural Engine through CoreML. All operations maintain f16 (half-precision) throughout for optimal Neural Engine compatibility and performance.
 
-**📚 [Getting Started Guide](claudedocs/getting_started.md)** | **🤖 [LLM Learning Guide](examples/LLM_GUIDE.md)** | **📖 [Optimizer Tutorial](claudedocs/optimizer_tutorial.md)** | **📦 [Model Loading](examples/model_loading.tl)** | **⚡ [GGUF Quantization](examples/gguf_quantized_models.tl)** | **🧠 [CoreML & Neural Engine](examples/coreml_neural_engine.tl)** | **🔧 [Full Specification](claudedocs/f16_neural_engine_metal_spec.md)**
+**📚 [Getting Started Guide](claudedocs/getting_started.md)** | **🤖 [LLM Learning Guide](examples/LLM_GUIDE.md)** | **📖 [Optimizer Tutorial](claudedocs/optimizer_tutorial.md)** | **💬 [Local LLM Chat](examples/local_llm_chat.tl)** | **📦 [Model Loading](examples/model_loading.tl)** | **⚡ [GGUF Quantization](examples/gguf_quantized_models.tl)** | **🧠 [CoreML & Neural Engine](examples/coreml_neural_engine.tl)** | **🔧 [Full Specification](claudedocs/f16_neural_engine_metal_spec.md)**
+
+## 🚀 Quick Start: Local LLM Chat
+
+```bash
+# Download a model (choose one)
+cargo run --bin download_model -- --model tinyllama   # ~600MB, fast
+cargo run --bin download_model -- --model phi2        # ~1.6GB, better quality
+
+# Run the chat
+cargo build
+./target/debug/tl run examples/local_llm_chat.tl
+```
+
+Models are cached in `~/.tensorlogic/models/` for reuse.
 
 ## 📖 Documentation
 
