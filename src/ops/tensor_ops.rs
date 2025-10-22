@@ -335,6 +335,124 @@ impl Tensor {
 
         self.reshape(final_shape)
     }
+
+    /// Split tensor into chunks along a dimension
+    ///
+    /// # Arguments
+    /// * `chunks` - Number of chunks to split into
+    /// * `dim` - Dimension along which to split
+    ///
+    /// # Example
+    /// ```ignore
+    /// let a = Tensor::zeros(&device, vec![6, 4]).unwrap();  // Shape: [6, 4]
+    /// let parts = a.chunk(3, 0).unwrap();  // Split into 3 chunks along dim 0
+    /// // parts[0]: [2, 4], parts[1]: [2, 4], parts[2]: [2, 4]
+    /// ```
+    pub fn chunk(&self, chunks: usize, dim: usize) -> TensorResult<Vec<Self>> {
+        if chunks == 0 {
+            return Err(TensorError::InvalidOperation(
+                "Number of chunks must be > 0".to_string(),
+            ));
+        }
+
+        let dims = self.shape().dims();
+        if dim >= dims.len() {
+            return Err(TensorError::InvalidDimension { dim });
+        }
+
+        let dim_size = dims[dim];
+        let chunk_size = (dim_size + chunks - 1) / chunks;  // Ceiling division
+
+        self.split(chunk_size, dim)
+    }
+
+    /// Split tensor into parts of specified size along a dimension
+    ///
+    /// # Arguments
+    /// * `split_size` - Size of each split (last split may be smaller)
+    /// * `dim` - Dimension along which to split
+    ///
+    /// # Example
+    /// ```ignore
+    /// let a = Tensor::zeros(&device, vec![7, 4]).unwrap();  // Shape: [7, 4]
+    /// let parts = a.split(3, 0).unwrap();  // Split into size-3 chunks along dim 0
+    /// // parts[0]: [3, 4], parts[1]: [3, 4], parts[2]: [1, 4]
+    /// ```
+    pub fn split(&self, split_size: usize, dim: usize) -> TensorResult<Vec<Self>> {
+        if split_size == 0 {
+            return Err(TensorError::InvalidOperation(
+                "Split size must be > 0".to_string(),
+            ));
+        }
+
+        let dims = self.shape().dims();
+        if dim >= dims.len() {
+            return Err(TensorError::InvalidDimension { dim });
+        }
+
+        let dim_size = dims[dim];
+        let num_splits = (dim_size + split_size - 1) / split_size;
+
+        let mut result = Vec::with_capacity(num_splits);
+        let data = self.to_vec();
+
+        // Calculate strides for indexing
+        let mut strides = vec![1; dims.len()];
+        for i in (0..dims.len() - 1).rev() {
+            strides[i] = strides[i + 1] * dims[i + 1];
+        }
+
+        for split_idx in 0..num_splits {
+            let start = split_idx * split_size;
+            let end = (start + split_size).min(dim_size);
+            let current_split_size = end - start;
+
+            // Create output shape for this split
+            let mut split_dims = dims.to_vec();
+            split_dims[dim] = current_split_size;
+
+            let split_numel: usize = split_dims.iter().product();
+            let mut split_data = Vec::with_capacity(split_numel);
+
+            // Extract data for this split
+            for out_idx in 0..split_numel {
+                // Convert output index to coordinates in the split tensor
+                let mut coords = vec![0; dims.len()];
+                let mut remaining = out_idx;
+
+                for i in 0..dims.len() {
+                    let size = if i == dim {
+                        current_split_size
+                    } else {
+                        dims[i]
+                    };
+                    coords[i] = remaining % size;
+                    remaining /= size;
+                }
+
+                // Adjust coordinate for the split dimension
+                coords[dim] += start;
+
+                // Calculate index in original tensor
+                let mut in_idx = 0;
+                for (i, &coord) in coords.iter().enumerate() {
+                    in_idx += coord * strides[i];
+                }
+
+                split_data.push(data[in_idx]);
+            }
+
+            // Create split tensor
+            let split_tensor = match self.device() {
+                Device::Metal(dev) => Tensor::from_vec_metal(dev, split_data, split_dims)?,
+                _ => Tensor::from_vec(split_data, split_dims)?,
+            };
+
+            result.push(split_tensor);
+        }
+
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
@@ -521,5 +639,65 @@ mod tests {
         // Test squeeze specific dimension
         let c = a.squeeze(Some(0)).unwrap();
         assert_eq!(c.dims(), &[3, 1]);
+    }
+
+    #[test]
+    fn test_split() {
+        let device = crate::device::MetalDevice::new().unwrap();
+
+        // Test split on [6, 4] tensor
+        let data: Vec<f16> = (0..24).map(|i| f16::from_f32(i as f32)).collect();
+        let a = Tensor::from_vec_metal(&device, data, vec![6, 4]).unwrap();
+
+        // Split into size 2 chunks along dim 0
+        let splits = a.split(2, 0).unwrap();
+        assert_eq!(splits.len(), 3);
+        assert_eq!(splits[0].dims(), &[2, 4]);
+        assert_eq!(splits[1].dims(), &[2, 4]);
+        assert_eq!(splits[2].dims(), &[2, 4]);
+
+        // Test split with uneven division
+        let b = Tensor::from_vec_metal(
+            &device,
+            (0..28).map(|i| f16::from_f32(i as f32)).collect(),
+            vec![7, 4],
+        )
+        .unwrap();
+
+        let splits2 = b.split(3, 0).unwrap();
+        assert_eq!(splits2.len(), 3);
+        assert_eq!(splits2[0].dims(), &[3, 4]);
+        assert_eq!(splits2[1].dims(), &[3, 4]);
+        assert_eq!(splits2[2].dims(), &[1, 4]);  // Last split is smaller
+    }
+
+    #[test]
+    fn test_chunk() {
+        let device = crate::device::MetalDevice::new().unwrap();
+
+        // Test chunk on [6, 4] tensor
+        let data: Vec<f16> = (0..24).map(|i| f16::from_f32(i as f32)).collect();
+        let a = Tensor::from_vec_metal(&device, data, vec![6, 4]).unwrap();
+
+        // Split into 3 chunks along dim 0
+        let chunks = a.chunk(3, 0).unwrap();
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(chunks[0].dims(), &[2, 4]);
+        assert_eq!(chunks[1].dims(), &[2, 4]);
+        assert_eq!(chunks[2].dims(), &[2, 4]);
+
+        // Test chunk with uneven division
+        let b = Tensor::from_vec_metal(
+            &device,
+            (0..28).map(|i| f16::from_f32(i as f32)).collect(),
+            vec![7, 4],
+        )
+        .unwrap();
+
+        let chunks2 = b.chunk(3, 0).unwrap();
+        assert_eq!(chunks2.len(), 3);
+        assert_eq!(chunks2[0].dims(), &[3, 4]);
+        assert_eq!(chunks2[1].dims(), &[3, 4]);
+        assert_eq!(chunks2[2].dims(), &[1, 4]);  // Last chunk is smaller
     }
 }

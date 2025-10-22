@@ -1719,6 +1719,86 @@ impl Interpreter {
                 Ok(Value::Tensor(result))
             }
 
+            "split" => {
+                // split(tensor, split_size: int, dim: int) -> returns first split only (simplified)
+                if args.len() != 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("split() expects 3 arguments (tensor, split_size, dim), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+
+                let split_size = match self.eval_expr(&args[1])? {
+                    Value::Integer(i) => i as usize,
+                    Value::Float(f) => f as usize,
+                    _ => return Err(RuntimeError::TypeError(
+                        "split() split_size must be a number".to_string()
+                    )),
+                };
+
+                let dim = match self.eval_expr(&args[2])? {
+                    Value::Integer(i) => i as usize,
+                    Value::Float(f) => f as usize,
+                    _ => return Err(RuntimeError::TypeError(
+                        "split() dim must be a number".to_string()
+                    )),
+                };
+
+                let splits = tensor.split(split_size, dim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                // For simplicity, return first split only
+                // TODO: Add list type to return all splits
+                if splits.is_empty() {
+                    return Err(RuntimeError::InvalidOperation(
+                        "split() produced no results".to_string()
+                    ));
+                }
+
+                Ok(Value::Tensor(splits[0].clone()))
+            }
+
+            "chunk" => {
+                // chunk(tensor, chunks: int, dim: int) -> returns first chunk only (simplified)
+                if args.len() != 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("chunk() expects 3 arguments (tensor, chunks, dim), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+
+                let chunks = match self.eval_expr(&args[1])? {
+                    Value::Integer(i) => i as usize,
+                    Value::Float(f) => f as usize,
+                    _ => return Err(RuntimeError::TypeError(
+                        "chunk() chunks must be a number".to_string()
+                    )),
+                };
+
+                let dim = match self.eval_expr(&args[2])? {
+                    Value::Integer(i) => i as usize,
+                    Value::Float(f) => f as usize,
+                    _ => return Err(RuntimeError::TypeError(
+                        "chunk() dim must be a number".to_string()
+                    )),
+                };
+
+                let chunks_result = tensor.chunk(chunks, dim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                // For simplicity, return first chunk only
+                // TODO: Add list type to return all chunks
+                if chunks_result.is_empty() {
+                    return Err(RuntimeError::InvalidOperation(
+                        "chunk() produced no results".to_string()
+                    ));
+                }
+
+                Ok(Value::Tensor(chunks_result[0].clone()))
+            }
+
             "load_model" => {
                 // load_model("path/to/model.gguf")
                 if args.len() != 1 {
