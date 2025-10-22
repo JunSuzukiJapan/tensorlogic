@@ -1,4 +1,4 @@
-//! Layer normalization operations
+//! Normalization operations (LayerNorm, RMSNorm)
 
 use crate::device::{Device, MetalBuffer};
 use crate::error::{TensorError, TensorResult};
@@ -6,6 +6,213 @@ use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
 
 impl Tensor {
+    /// RMS Normalization (Root Mean Square Normalization)
+    ///
+    /// Simpler than LayerNorm - used in LLaMA, TinyLlama models.
+    /// Normalizes by RMS instead of mean and variance.
+    ///
+    /// Formula: output = (x / rms(x)) * weight
+    /// where rms(x) = sqrt(mean(x^2) + eps)
+    ///
+    /// # Arguments
+    /// * `normalized_shape` - Shape of the dimensions to normalize over (from the end)
+    /// * `weight` - Learnable weight (gamma) for scaling
+    /// * `eps` - Small value for numerical stability (default: 1e-6 for LLaMA)
+    ///
+    /// # Example
+    /// ```
+    /// use tensorlogic::prelude::*;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let data: Vec<f16> = (0..24).map(|i| f16::from_f32(i as f32)).collect();
+    /// let x = Tensor::from_vec(data, vec![2, 3, 4])?;
+    /// let weight = Tensor::ones(vec![4])?;
+    /// let normalized = x.rms_norm(vec![4], &weight, 1e-6)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn rms_norm(
+        &self,
+        normalized_shape: Vec<usize>,
+        weight: &Tensor,
+        eps: f32,
+    ) -> TensorResult<Self> {
+        // Validate normalized_shape
+        let dims = self.dims();
+        let ndim = dims.len();
+        let norm_ndim = normalized_shape.len();
+
+        if norm_ndim > ndim {
+            return Err(TensorError::InvalidOperation(
+                format!(
+                    "normalized_shape length {} exceeds tensor ndim {}",
+                    norm_ndim, ndim
+                ),
+            ));
+        }
+
+        // Check that normalized_shape matches the last dimensions
+        for i in 0..norm_ndim {
+            if dims[ndim - norm_ndim + i] != normalized_shape[i] {
+                return Err(TensorError::InvalidOperation(
+                    format!(
+                        "normalized_shape {:?} does not match tensor shape {:?}",
+                        normalized_shape, dims
+                    ),
+                ));
+            }
+        }
+
+        // Validate weight shape
+        if weight.dims() != &normalized_shape {
+            return Err(TensorError::ShapeMismatch {
+                expected: normalized_shape.clone(),
+                actual: weight.dims().to_vec(),
+            });
+        }
+
+        match self.device() {
+            Device::Metal(_) if self.buffer().is_metal() => {
+                self.rms_norm_metal(&normalized_shape, weight, eps)
+            }
+            _ => self.rms_norm_cpu(&normalized_shape, weight, eps),
+        }
+    }
+
+    /// Metal GPU implementation of RMS normalization
+    fn rms_norm_metal(
+        &self,
+        normalized_shape: &[usize],
+        weight: &Tensor,
+        eps: f32,
+    ) -> TensorResult<Self> {
+        let input_buf = self.buffer().as_metal()?;
+        let weight_buf = weight.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => {
+                return Err(TensorError::DeviceConversionError(
+                    "Not on Metal device".to_string(),
+                ))
+            }
+        };
+
+        // Load shader if not already loaded
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/normalization.metal");
+            device.load_library(shader_source)?;
+        }
+
+        // Calculate normalized size
+        let normalized_size: usize = normalized_shape.iter().product();
+        let batch_size = self.numel() / normalized_size;
+
+        // Create output buffer
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+
+        // Create buffers for scalar parameters
+        let normalized_size_buf = MetalBuffer::from_f16_slice(
+            device.metal_device(),
+            &[f16::from_f32(normalized_size as f32)],
+        )?;
+        let eps_buf = MetalBuffer::from_f16_slice(device.metal_device(), &[f16::from_f32(eps)])?;
+
+        // Get pipeline
+        let kernel_name = if normalized_size <= 256 {
+            "rms_norm_simple_f16"
+        } else {
+            "rms_norm_f16"
+        };
+
+        let library_ref = device.library();
+        let library = library_ref.as_ref().ok_or_else(|| {
+            TensorError::MetalError("Library not loaded".to_string())
+        })?;
+        let pipeline = library
+            .get_function(kernel_name, None)
+            .map_err(|e| {
+                TensorError::MetalError(format!("Failed to get kernel {}: {:?}", kernel_name, e))
+            })?;
+
+        let pipeline_state = device
+            .metal_device()
+            .new_compute_pipeline_state_with_function(&pipeline)
+            .map_err(|e| {
+                TensorError::MetalError(format!("Failed to create pipeline: {:?}", e))
+            })?;
+
+        // Execute kernel
+        let command_queue = device.command_queue();
+        let command_buffer = command_queue.new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline_state);
+        encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
+        encoder.set_buffer(1, Some(weight_buf.metal_buffer()), 0);
+        encoder.set_buffer(2, Some(result_buf.metal_buffer()), 0);
+        encoder.set_buffer(3, Some(normalized_size_buf.metal_buffer()), 0);
+        encoder.set_buffer(4, Some(eps_buf.metal_buffer()), 0);
+
+        let grid_size = metal::MTLSize::new(batch_size as u64, 1, 1);
+        let threadgroup_size = if normalized_size <= 256 {
+            metal::MTLSize::new(1, 1, 1)
+        } else {
+            metal::MTLSize::new(256, 1, 1)
+        };
+
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        Tensor::new(
+            BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+            self.device().clone(),
+        )
+    }
+
+    /// CPU implementation of RMS normalization
+    fn rms_norm_cpu(
+        &self,
+        normalized_shape: &[usize],
+        weight: &Tensor,
+        eps: f32,
+    ) -> TensorResult<Self> {
+        let input = self.to_vec();
+        let normalized_size: usize = normalized_shape.iter().product();
+        let batch_size = self.numel() / normalized_size;
+
+        let mut output = vec![f16::ZERO; self.numel()];
+        let weight_vec = weight.to_vec();
+
+        for batch_idx in 0..batch_size {
+            let offset = batch_idx * normalized_size;
+            let slice = &input[offset..offset + normalized_size];
+
+            // Compute RMS: sqrt(mean(x^2) + eps)
+            let sq_sum: f32 = slice.iter().map(|&x| {
+                let val = x.to_f32();
+                val * val
+            }).sum();
+            let mean_sq = sq_sum / normalized_size as f32;
+            let rms = (mean_sq + eps).sqrt();
+            let inv_rms = 1.0 / rms;
+
+            // Normalize and scale by weight
+            for i in 0..normalized_size {
+                let normalized = slice[i].to_f32() * inv_rms;
+                let scaled = normalized * weight_vec[i].to_f32();
+                output[offset + i] = f16::from_f32(scaled);
+            }
+        }
+
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, output, self.dims().to_vec()),
+            _ => Tensor::from_vec(output, self.dims().to_vec()),
+        }
+    }
+
     /// Layer Normalization
     ///
     /// Normalizes the input over the last dimensions specified by `normalized_shape`.

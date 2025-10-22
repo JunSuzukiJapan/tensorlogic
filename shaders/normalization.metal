@@ -130,3 +130,88 @@ kernel void layer_norm_simple_f16(
         output[offset + i] = half(normalized);
     }
 }
+// ============================================================================
+// RMS Normalization (Root Mean Square Normalization)
+// Used in LLaMA, TinyLlama models
+// Formula: output = (x / rms(x)) * weight
+// where rms(x) = sqrt(mean(x^2) + eps)
+// ============================================================================
+
+/// RMS Norm (simple version for small tensors)
+kernel void rms_norm_simple_f16(
+    device const half* input [[buffer(0)]],
+    device const half* weight [[buffer(1)]],
+    device half* output [[buffer(2)]],
+    device const half* normalized_size_ptr [[buffer(3)]],
+    device const half* eps_ptr [[buffer(4)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    uint normalized_size = uint(float(*normalized_size_ptr));
+    float eps = float(*eps_ptr);
+    uint offset = gid * normalized_size;
+
+    // Compute RMS: sqrt(mean(x^2) + eps)
+    float sq_sum = 0.0f;
+    for (uint i = 0; i < normalized_size; ++i) {
+        float val = float(input[offset + i]);
+        sq_sum += val * val;
+    }
+    float mean_sq = sq_sum / float(normalized_size);
+    float rms = sqrt(mean_sq + eps);
+    float inv_rms = 1.0f / rms;
+
+    // Normalize and scale by weight
+    for (uint i = 0; i < normalized_size; ++i) {
+        float normalized = float(input[offset + i]) * inv_rms;
+        float scaled = normalized * float(weight[i]);
+        output[offset + i] = half(scaled);
+    }
+}
+
+/// RMS Norm (optimized version with threadgroup reduction for large tensors)
+kernel void rms_norm_f16(
+    device const half* input [[buffer(0)]],
+    device const half* weight [[buffer(1)]],
+    device half* output [[buffer(2)]],
+    device const half* normalized_size_ptr [[buffer(3)]],
+    device const half* eps_ptr [[buffer(4)]],
+    uint gid [[thread_position_in_grid]],
+    uint tid [[thread_position_in_threadgroup]],
+    uint tgsize [[threads_per_threadgroup]]
+) {
+    uint normalized_size = uint(float(*normalized_size_ptr));
+    float eps = float(*eps_ptr);
+    uint offset = gid * normalized_size;
+
+    // Thread-local sum for reduction
+    threadgroup float local_sums[256];
+    float thread_sq_sum = 0.0f;
+
+    // Parallel computation of squared sum
+    for (uint i = tid; i < normalized_size; i += tgsize) {
+        float val = float(input[offset + i]);
+        thread_sq_sum += val * val;
+    }
+    local_sums[tid] = thread_sq_sum;
+
+    // Reduction in shared memory
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint stride = tgsize / 2; stride > 0; stride /= 2) {
+        if (tid < stride) {
+            local_sums[tid] += local_sums[tid + stride];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    float sq_sum = local_sums[0];
+    float mean_sq = sq_sum / float(normalized_size);
+    float rms = sqrt(mean_sq + eps);
+    float inv_rms = 1.0f / rms;
+
+    // Normalize and scale by weight (parallel)
+    for (uint i = tid; i < normalized_size; i += tgsize) {
+        float normalized = float(input[offset + i]) * inv_rms;
+        float scaled = normalized * float(weight[i]);
+        output[offset + i] = half(scaled);
+    }
+}
