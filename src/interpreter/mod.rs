@@ -2550,6 +2550,367 @@ impl Interpreter {
                 }
             }
 
+            // Tensor creation functions
+            "zeros" => {
+                // zeros([shape])
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("zeros() expects 1 argument (shape), got {}", args.len())
+                    ));
+                }
+
+                // Evaluate the shape argument (array literal becomes a 1D tensor)
+                let shape_value = self.eval_expr(&args[0])?;
+                let shape = match shape_value {
+                    Value::Tensor(t) => {
+                        // Convert tensor data to Vec<usize>
+                        t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                    }
+                    _ => return Err(RuntimeError::TypeError(
+                        "zeros() shape must be an array".to_string()
+                    )),
+                };
+                let device = MetalDevice::new().map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor = Tensor::zeros(&device, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(tensor))
+            }
+
+            "ones" => {
+                // ones([shape])
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("ones() expects 1 argument (shape), got {}", args.len())
+                    ));
+                }
+
+                let shape_value = self.eval_expr(&args[0])?;
+                let shape = match shape_value {
+                    Value::Tensor(t) => {
+                        t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                    }
+                    _ => return Err(RuntimeError::TypeError(
+                        "ones() shape must be an array".to_string()
+                    )),
+                };
+                let device = MetalDevice::new().map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor = Tensor::ones(&device, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(tensor))
+            }
+
+            // Tensor shape functions
+            "reshape" => {
+                // reshape(tensor, [new_shape])
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("reshape() expects 2 arguments (tensor, new_shape), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let shape_value = self.eval_expr(&args[1])?;
+                let new_shape = match shape_value {
+                    Value::Tensor(t) => {
+                        t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                    }
+                    _ => return Err(RuntimeError::TypeError(
+                        "reshape() new_shape must be an array".to_string()
+                    )),
+                };
+
+                let output = tensor.reshape(new_shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "flatten" => {
+                // flatten(tensor)
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("flatten() expects 1 argument (tensor), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let output = tensor.flatten()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "transpose" => {
+                // transpose(tensor)
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("transpose() expects 1 argument (tensor), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let output = tensor.transpose()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "permute" => {
+                // permute(tensor, [dims])
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("permute() expects 2 arguments (tensor, dims), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let dims_value = self.eval_expr(&args[1])?;
+                let dims = match dims_value {
+                    Value::Tensor(t) => {
+                        t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                    }
+                    _ => return Err(RuntimeError::TypeError(
+                        "permute() dims must be an array".to_string()
+                    )),
+                };
+
+                let output = tensor.permute(dims)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            // Indexing functions
+            "gather" => {
+                // gather(tensor, dim, indices)
+                if args.len() != 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("gather() expects 3 arguments (tensor, dim, indices), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let dim = match self.eval_expr(&args[1])? {
+                    Value::Integer(i) => i as usize,
+                    Value::Float(f) => f as usize,
+                    v => return Err(RuntimeError::TypeError(
+                        format!("gather() dim must be a number, got {:?}", v)
+                    )),
+                };
+                let indices = self.eval_expr(&args[2])?.as_tensor()?.clone();
+
+                let output = tensor.gather(dim, &indices)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "scatter" => {
+                // scatter(tensor, dim, indices, src)
+                if args.len() != 4 {
+                    return Err(RuntimeError::TypeError(
+                        format!("scatter() expects 4 arguments (tensor, dim, indices, src), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let dim = match self.eval_expr(&args[1])? {
+                    Value::Integer(i) => i as usize,
+                    Value::Float(f) => f as usize,
+                    v => return Err(RuntimeError::TypeError(
+                        format!("scatter() dim must be a number, got {:?}", v)
+                    )),
+                };
+                let indices = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let src = self.eval_expr(&args[3])?.as_tensor()?.clone();
+
+                let output = tensor.scatter(dim, &indices, &src)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            // Reduction functions (max, min)
+            "max" => {
+                // max(tensor) -> scalar or max(tensor, dim, keepdim) -> tensor
+                if args.is_empty() || args.len() > 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("max() expects 1 to 3 arguments, got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+
+                if args.len() == 1 {
+                    // max(tensor) -> scalar
+                    let result = tensor.max().map_err(|e| RuntimeError::TensorError(e))?;
+                    Ok(Value::Float(result.to_f32() as f64))
+                } else {
+                    return Err(RuntimeError::InvalidOperation(
+                        "max() with dimension not yet implemented".to_string()
+                    ));
+                }
+            }
+
+            "min" => {
+                // min(tensor) -> scalar or min(tensor, dim, keepdim) -> tensor
+                if args.is_empty() || args.len() > 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("min() expects 1 to 3 arguments, got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+
+                if args.len() == 1 {
+                    // min(tensor) -> scalar
+                    let result = tensor.min().map_err(|e| RuntimeError::TensorError(e))?;
+                    Ok(Value::Float(result.to_f32() as f64))
+                } else {
+                    return Err(RuntimeError::InvalidOperation(
+                        "min() with dimension not yet implemented".to_string()
+                    ));
+                }
+            }
+
+            // Activation functions
+            "gelu" => {
+                // gelu(tensor)
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("gelu() expects 1 argument (tensor), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let output = tensor.gelu().map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "tanh" => {
+                // tanh(tensor)
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("tanh() expects 1 argument (tensor), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let output = tensor.tanh().map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            // Math functions
+            "exp" => {
+                // exp(tensor)
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("exp() expects 1 argument (tensor), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let output = tensor.exp().map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "log" => {
+                // log(tensor)
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("log() expects 1 argument (tensor), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let output = tensor.log().map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "sqrt" => {
+                // sqrt(tensor)
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("sqrt() expects 1 argument (tensor), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let output = tensor.sqrt().map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "pow" => {
+                // pow(tensor, exponent)
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("pow() expects 2 arguments (tensor, exponent), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let exponent = match self.eval_expr(&args[1])? {
+                    Value::Integer(i) => i as f32,
+                    Value::Float(f) => f as f32,
+                    v => return Err(RuntimeError::TypeError(
+                        format!("pow() exponent must be a number, got {:?}", v)
+                    )),
+                };
+
+                let output = tensor.pow(exponent).map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "sin" => {
+                // sin(tensor)
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("sin() expects 1 argument (tensor), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let output = tensor.sin().map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "cos" => {
+                // cos(tensor)
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("cos() expects 1 argument (tensor), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let output = tensor.cos().map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "tan" => {
+                // tan(tensor)
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("tan() expects 1 argument (tensor), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let output = tensor.tan().map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
             "env" => {
                 // env("VAR_NAME")
                 if args.len() != 1 {
