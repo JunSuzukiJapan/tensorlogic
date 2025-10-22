@@ -2358,6 +2358,107 @@ impl Interpreter {
                 Ok(Value::Integer(sampled_idx as i64))
             }
 
+            "relu" => {
+                // relu(tensor) -> Tensor
+                // Apply ReLU activation: max(0, x)
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("relu() expects 1 argument (tensor), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let output = tensor.relu().map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "matmul" => {
+                // matmul(a, b) -> Tensor
+                // Matrix multiplication: a @ b
+                // Supports batch matrix multiplication
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("matmul() expects 2 arguments (a, b), got {}", args.len())
+                    ));
+                }
+
+                let a = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let b = self.eval_expr(&args[1])?.as_tensor()?.clone();
+
+                // Use einsum for matrix multiplication
+                let output = a.matmul(&b).map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "layer_norm" => {
+                // layer_norm(tensor, normalized_shape, eps=1e-5) -> Tensor
+                // Layer normalization
+                if args.len() < 1 || args.len() > 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("layer_norm() expects 1-3 arguments (tensor, optional normalized_shape, optional eps), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+
+                // Default: normalize over last dimension
+                let shape = tensor.shape();
+                let dims = shape.dims();
+                let default_normalized_shape = vec![dims[dims.len() - 1]];
+
+                let normalized_shape = if args.len() >= 2 {
+                    // TODO: parse normalized_shape from argument
+                    default_normalized_shape
+                } else {
+                    default_normalized_shape
+                };
+
+                let eps = if args.len() >= 3 {
+                    match self.eval_expr(&args[2])? {
+                        Value::Float(f) => f as f32,
+                        Value::Integer(i) => i as f32,
+                        _ => 1e-5_f32,
+                    }
+                } else {
+                    1e-5_f32
+                };
+
+                let output = tensor.layer_norm(normalized_shape, None, None, eps)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "concat" => {
+                // concat(tensors, dim) -> Tensor
+                // Concatenate tensors along dimension
+                // For now, simplified version that takes 2 tensors
+                if args.len() != 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("concat() expects 3 arguments (tensor1, tensor2, dim), got {}", args.len())
+                    ));
+                }
+
+                let tensor1 = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor2 = self.eval_expr(&args[1])?.as_tensor()?.clone();
+
+                let dim = match self.eval_expr(&args[2])? {
+                    Value::Integer(i) => i as usize,
+                    Value::Float(f) => f as usize,
+                    v => return Err(RuntimeError::TypeError(
+                        format!("concat() dim argument must be a number, got {:?}", v)
+                    )),
+                };
+
+                let tensors = vec![&tensor1, &tensor2];
+                let output = crate::tensor::Tensor::concat(&tensors, dim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
             "env" => {
                 // env("VAR_NAME")
                 if args.len() != 1 {
