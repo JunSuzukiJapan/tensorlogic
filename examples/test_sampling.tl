@@ -1,0 +1,63 @@
+// Test for LLM sampling operations: top_k, top_p, temperature
+
+main {
+    print("=== LLM Sampling Operations Test ===")
+    print("")
+
+    print("Sampling functions available for LLM inference:")
+    print("")
+
+    print("1. temperature(logits, temp) -> Tensor")
+    print("   - Scales logits by temperature: logits / temp")
+    print("   - Higher temp (e.g., 2.0) = more random")
+    print("   - Lower temp (e.g., 0.5) = more deterministic")
+    print("   - temp=1.0 = no change")
+    print("")
+
+    print("2. top_k(logits, k) -> Tensor")
+    print("   - Keeps only top-k most likely tokens")
+    print("   - Sets all other logits to -inf")
+    print("   - Example: k=5 means only consider top 5 tokens")
+    print("")
+
+    print("3. top_p(logits, p) -> Tensor")
+    print("   - Nucleus sampling: keeps smallest set with cumulative prob >= p")
+    print("   - Sets non-nucleus logits to -inf")
+    print("   - Example: p=0.9 means consider tokens covering 90% probability")
+    print("")
+
+    print("Typical LLM Inference Pipeline:")
+    print("  1. logits = model(input_embeddings)  // Model forward pass")
+    print("  2. logits = temperature(logits, 0.8) // Optional: control randomness")
+    print("  3. logits = top_k(logits, 50)        // Optional: limit to top 50")
+    print("  4. logits = top_p(logits, 0.95)      // Optional: nucleus sampling")
+    print("  5. probs = softmax(logits)           // Convert to probabilities")
+    print("  6. next_token = sample(probs)        // Sample next token")
+    print("  7. Repeat for autoregressive generation")
+    print("")
+
+    print("Usage Examples:")
+    print("")
+    print("  Greedy decoding (deterministic):")
+    print("    logits = temperature(logits, 0.1)")
+    print("    next_token = argmax(logits)")
+    print("")
+    print("  Balanced sampling:")
+    print("    logits = temperature(logits, 0.8)")
+    print("    logits = top_p(logits, 0.95)")
+    print("    next_token = sample(softmax(logits))")
+    print("")
+    print("  Creative generation:")
+    print("    logits = temperature(logits, 1.5)")
+    print("    logits = top_k(logits, 100)")
+    print("    next_token = sample(softmax(logits))")
+    print("")
+
+    print("All sampling operations documented!")
+    print("")
+    print("Summary:")
+    print("  - temperature: Controls randomness")
+    print("  - top_k: Limits to k most likely tokens")
+    print("  - top_p: Nucleus sampling with cumulative probability")
+    print("  - These can be combined for flexible generation control")
+}

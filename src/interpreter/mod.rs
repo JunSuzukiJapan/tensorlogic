@@ -2041,6 +2041,208 @@ impl Interpreter {
                 Ok(Value::Tensor(output))
             }
 
+            "top_k" => {
+                // top_k(logits, k) -> Tensor
+                // Keep only top-k logits, set others to -inf
+                // Input: logits [vocab_size] or [..., vocab_size]
+                // Output: same shape as input, with non-top-k values set to -inf
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("top_k() expects 2 arguments (logits, k), got {}", args.len())
+                    ));
+                }
+
+                let logits = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let k = match self.eval_expr(&args[1])? {
+                    Value::Integer(i) => i as usize,
+                    Value::Float(f) => f as usize,
+                    v => return Err(RuntimeError::TypeError(
+                        format!("top_k() second argument must be a number (k), got {:?}", v)
+                    )),
+                };
+
+                let shape = logits.shape();
+                let dims = shape.dims();
+                let vocab_size = dims[dims.len() - 1];
+
+                if k > vocab_size {
+                    return Err(RuntimeError::TensorError(
+                        crate::error::TensorError::InvalidOperation(
+                            format!("k ({}) cannot be larger than vocab_size ({})", k, vocab_size)
+                        )
+                    ));
+                }
+
+                // Get logits data
+                let data = logits.to_vec();
+                let mut output_data = data.clone();
+
+                // Process each sequence (last dimension is vocab)
+                let batch_size = data.len() / vocab_size;
+
+                for batch_idx in 0..batch_size {
+                    let start_idx = batch_idx * vocab_size;
+                    let end_idx = start_idx + vocab_size;
+                    let logits_slice = &data[start_idx..end_idx];
+
+                    // Get indices sorted by logit value (descending)
+                    let mut indexed_logits: Vec<(usize, f32)> = logits_slice
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &v)| (i, v.to_f32()))
+                        .collect();
+                    indexed_logits.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+                    // Set non-top-k to -inf
+                    for i in k..vocab_size {
+                        let idx = indexed_logits[i].0;
+                        output_data[start_idx + idx] = half::f16::from_f32(f32::NEG_INFINITY);
+                    }
+                }
+
+                // Create output tensor
+                let output = crate::tensor::Tensor::from_vec_metal(
+                    self.env.metal_device(),
+                    output_data,
+                    dims.to_vec()
+                ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "top_p" => {
+                // top_p(logits, p) -> Tensor
+                // Nucleus sampling: keep smallest set of logits with cumulative probability >= p
+                // Input: logits [vocab_size] or [..., vocab_size]
+                // Output: same shape, with non-nucleus values set to -inf
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("top_p() expects 2 arguments (logits, p), got {}", args.len())
+                    ));
+                }
+
+                let logits = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let p = match self.eval_expr(&args[1])? {
+                    Value::Float(f) => f as f32,
+                    Value::Integer(i) => i as f32,
+                    v => return Err(RuntimeError::TypeError(
+                        format!("top_p() second argument must be a number (p), got {:?}", v)
+                    )),
+                };
+
+                if p < 0.0 || p > 1.0 {
+                    return Err(RuntimeError::TensorError(
+                        crate::error::TensorError::InvalidOperation(
+                            format!("p must be in range [0, 1], got {}", p)
+                        )
+                    ));
+                }
+
+                let shape = logits.shape();
+                let dims = shape.dims();
+                let vocab_size = dims[dims.len() - 1];
+
+                // Get logits data
+                let data = logits.to_vec();
+                let mut output_data = data.clone();
+
+                // Process each sequence
+                let batch_size = data.len() / vocab_size;
+
+                for batch_idx in 0..batch_size {
+                    let start_idx = batch_idx * vocab_size;
+                    let end_idx = start_idx + vocab_size;
+                    let logits_slice = &data[start_idx..end_idx];
+
+                    // Convert to probabilities using softmax
+                    let max_logit = logits_slice.iter().map(|v| v.to_f32()).fold(f32::NEG_INFINITY, f32::max);
+                    let exp_logits: Vec<f32> = logits_slice
+                        .iter()
+                        .map(|v| (v.to_f32() - max_logit).exp())
+                        .collect();
+                    let sum_exp: f32 = exp_logits.iter().sum();
+                    let probs: Vec<f32> = exp_logits.iter().map(|e| e / sum_exp).collect();
+
+                    // Sort by probability (descending)
+                    let mut indexed_probs: Vec<(usize, f32)> = probs
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &p)| (i, p))
+                        .collect();
+                    indexed_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+                    // Find nucleus: smallest set with cumulative prob >= p
+                    let mut cumulative_prob = 0.0;
+                    let mut nucleus_size = 0;
+                    for (_, prob) in &indexed_probs {
+                        cumulative_prob += prob;
+                        nucleus_size += 1;
+                        if cumulative_prob >= p {
+                            break;
+                        }
+                    }
+
+                    // Set non-nucleus to -inf
+                    for i in nucleus_size..vocab_size {
+                        let idx = indexed_probs[i].0;
+                        output_data[start_idx + idx] = half::f16::from_f32(f32::NEG_INFINITY);
+                    }
+                }
+
+                // Create output tensor
+                let output = crate::tensor::Tensor::from_vec_metal(
+                    self.env.metal_device(),
+                    output_data,
+                    dims.to_vec()
+                ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "temperature" => {
+                // temperature(logits, temp) -> Tensor
+                // Scale logits by temperature: logits / temp
+                // Higher temp = more random, lower temp = more deterministic
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("temperature() expects 2 arguments (logits, temp), got {}", args.len())
+                    ));
+                }
+
+                let logits = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let temp = match self.eval_expr(&args[1])? {
+                    Value::Float(f) => f as f32,
+                    Value::Integer(i) => i as f32,
+                    v => return Err(RuntimeError::TypeError(
+                        format!("temperature() second argument must be a number (temp), got {:?}", v)
+                    )),
+                };
+
+                if temp <= 0.0 {
+                    return Err(RuntimeError::TensorError(
+                        crate::error::TensorError::InvalidOperation(
+                            format!("temperature must be positive, got {}", temp)
+                        )
+                    ));
+                }
+
+                // Scale logits by temperature
+                let data = logits.to_vec();
+                let output_data: Vec<half::f16> = data
+                    .iter()
+                    .map(|&v| half::f16::from_f32(v.to_f32() / temp))
+                    .collect();
+
+                // Create output tensor
+                let output = crate::tensor::Tensor::from_vec_metal(
+                    self.env.metal_device(),
+                    output_data,
+                    logits.shape().dims().to_vec()
+                ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
             "env" => {
                 // env("VAR_NAME")
                 if args.len() != 1 {
