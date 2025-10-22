@@ -115,6 +115,7 @@ mod tests {
             },
             epochs: 1000,
             scheduler: None,
+            statements: vec![],
         };
 
         assert_eq!(spec.epochs, 1000);

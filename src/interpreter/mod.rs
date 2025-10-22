@@ -33,6 +33,15 @@ use crate::error::TensorError;
 use crate::logic::LogicEngine;
 use half::f16;
 
+/// Epsilon for floating-point comparisons
+const FLOAT_EPSILON: f64 = 1e-6;
+
+/// Default display limit for large tensors
+const DISPLAY_LIMIT: usize = 10;
+
+/// Default epoch reporting interval
+const EPOCH_REPORT_INTERVAL: usize = 10;
+
 /// Runtime errors
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
@@ -137,7 +146,7 @@ impl std::fmt::Display for Value {
             Value::Tensor(t) => {
                 // Display tensor in a compact format
                 let data = t.to_vec();
-                if data.len() <= 10 {
+                if data.len() <= DISPLAY_LIMIT {
                     write!(f, "[")?;
                     for (i, val) in data.iter().enumerate() {
                         if i > 0 {
@@ -1381,8 +1390,8 @@ impl Interpreter {
                 // Compare values based on operator
                 let result = match (left_val, right_val) {
                     (Value::Float(l), Value::Float(r)) => match op {
-                        CompOp::Eq => (l - r).abs() < 1e-6,
-                        CompOp::Ne => (l - r).abs() >= 1e-6,
+                        CompOp::Eq => (l - r).abs() < FLOAT_EPSILON,
+                        CompOp::Ne => (l - r).abs() >= FLOAT_EPSILON,
                         CompOp::Lt => l < r,
                         CompOp::Gt => l > r,
                         CompOp::Le => l <= r,
@@ -1401,8 +1410,8 @@ impl Interpreter {
                     (Value::Integer(l), Value::Float(r)) | (Value::Float(r), Value::Integer(l)) => {
                         let l = l as f64;
                         match op {
-                            CompOp::Eq => (l - r).abs() < 1e-6,
-                            CompOp::Ne => (l - r).abs() >= 1e-6,
+                            CompOp::Eq => (l - r).abs() < FLOAT_EPSILON,
+                            CompOp::Ne => (l - r).abs() >= FLOAT_EPSILON,
                             CompOp::Lt => l < r,
                             CompOp::Gt => l > r,
                             CompOp::Le => l <= r,
@@ -1497,8 +1506,8 @@ impl Interpreter {
 
                 // Compare using the comparison operator
                 let result = match op {
-                    CompOp::Eq => (norm as f64 - *value).abs() < 1e-6,
-                    CompOp::Ne => (norm as f64 - *value).abs() >= 1e-6,
+                    CompOp::Eq => (norm as f64 - *value).abs() < FLOAT_EPSILON,
+                    CompOp::Ne => (norm as f64 - *value).abs() >= FLOAT_EPSILON,
                     CompOp::Lt => (norm as f64) < *value,
                     CompOp::Gt => (norm as f64) > *value,
                     CompOp::Le => (norm as f64) <= *value,
@@ -1763,7 +1772,7 @@ impl Interpreter {
             }
 
             // Display parameter values for first parameter (if verbose)
-            if epoch % 10 == 0 || epoch == spec.epochs - 1 {
+            if epoch % EPOCH_REPORT_INTERVAL == 0 || epoch == spec.epochs - 1 {
                 if let Some((name, _)) = learnable_params.first() {
                     if let Ok(Value::Tensor(t)) = self.env.get_variable(name) {
                         let vals: Vec<f32> = t.to_vec()[..std::cmp::min(3, t.to_vec().len())]
@@ -1781,7 +1790,7 @@ impl Interpreter {
             opt.set_lr(new_lr);
 
             // Display learning rate change if significant
-            if epoch > 0 && (new_lr - lr).abs() > 1e-6 && (epoch % 10 == 0 || epoch == spec.epochs - 1) {
+            if epoch > 0 && (new_lr - lr).abs() > FLOAT_EPSILON as f32 && (epoch % EPOCH_REPORT_INTERVAL == 0 || epoch == spec.epochs - 1) {
                 print!(", LR: {:.6}", new_lr);
             }
 
