@@ -219,6 +219,8 @@ pub struct Interpreter {
     imported_files: HashSet<PathBuf>,
     // Current file being executed (for resolving relative imports)
     current_file: Option<PathBuf>,
+    // Track defined relation variables: predicate_name -> set of variable names
+    relation_variables: HashMap<String, HashSet<String>>,
 }
 
 impl Interpreter {
@@ -231,6 +233,7 @@ impl Interpreter {
             python_env: None,
             imported_files: HashSet::new(),
             current_file: None,
+            relation_variables: HashMap::new(),
         }
     }
 
@@ -274,12 +277,19 @@ impl Interpreter {
         match decl {
             Declaration::Import(import_decl) => self.execute_import(import_decl),
             Declaration::Tensor(tensor_decl) => self.execute_tensor_decl(tensor_decl),
-            Declaration::Relation(_) => {
-                // Relations are metadata, no runtime execution needed
+            Declaration::Relation(relation_decl) => {
+                // Collect variable names from relation parameters
+                let predicate_name = relation_decl.name.as_str().to_string();
+                let var_names: HashSet<String> = relation_decl.params.iter()
+                    .map(|param| param.name.as_str().to_string())
+                    .collect();
+
+                self.relation_variables.insert(predicate_name, var_names);
                 Ok(())
             }
             Declaration::Rule(rule) => {
-                // Add rule to logic engine
+                // Rules contain variables by definition - no conversion needed
+                // Add rule to logic engine as-is
                 self.logic_engine.add_rule(rule.clone());
                 Ok(())
             }
@@ -636,35 +646,45 @@ impl Interpreter {
             Statement::FactAssertion { atom } => {
                 // Add fact to logic engine
                 println!("Adding fact: {}", atom.predicate.as_str());
-                self.logic_engine.add_fact(atom.clone());
+
+                // Convert atom terms based on relation variable definitions
+                let converted_atom = self.convert_atom_terms(atom);
+
+                self.logic_engine.add_fact(converted_atom);
                 println!("  ✓ Fact added to knowledge base");
                 Ok(())
             }
             Statement::Query { atom, constraints } => {
                 // Query execution with logic engine
-                println!("Query: {} ({})", atom.predicate.as_str(), atom.terms.len());
+                println!("Query: {}", self.format_atom(atom));
+
+                // Convert atom terms based on relation variable definitions
+                let converted_atom = self.convert_atom_terms(atom);
 
                 // Query the logic engine
-                let results = self.logic_engine.query(atom)?;
+                let results = self.logic_engine.query(&converted_atom)?;
 
-                println!("  Found {} solution(s)", results.len());
+                if results.is_empty() {
+                    println!("  No solutions found");
+                } else {
+                    println!("  Found {} solution(s)", results.len());
 
-                // Apply constraints if any
-                if !constraints.is_empty() {
-                    println!("  Applying {} constraint(s)", constraints.len());
-                    // TODO: Filter results based on constraints
-                }
+                    // Apply constraints if any
+                    if !constraints.is_empty() {
+                        println!("  Applying {} constraint(s)", constraints.len());
+                        // TODO: Filter results based on constraints
+                    }
 
-                // Display results
-                for (i, sub) in results.iter().enumerate() {
-                    print!("  Solution {}: ", i + 1);
-                    if sub.is_empty() {
-                        println!("Yes (no variables)");
-                    } else {
-                        for (var, term) in sub {
-                            print!("{} = {:?}, ", var, term);
+                    // Display results
+                    for (i, sub) in results.iter().enumerate() {
+                        if sub.is_empty() {
+                            println!("  Solution {}: Yes", i + 1);
+                        } else {
+                            println!("  Solution {}:", i + 1);
+                            for (var, term) in sub {
+                                println!("    {} = {}", var, self.format_term(term));
+                            }
                         }
-                        println!();
                     }
                 }
 
@@ -1783,6 +1803,99 @@ impl Interpreter {
         }
 
         Ok(())
+    }
+
+    /// Format an atom for display
+    fn format_atom(&self, atom: &Atom) -> String {
+        let terms: Vec<String> = atom.terms.iter().map(|t| self.format_term(t)).collect();
+        format!("{}({})", atom.predicate.as_str(), terms.join(", "))
+    }
+
+    /// Format a term for display
+    fn format_term(&self, term: &Term) -> String {
+        match term {
+            Term::Variable(v) => v.as_str().to_string(),
+            Term::Constant(c) => self.format_constant(c),
+            Term::Tensor(_) => "<tensor>".to_string(),
+        }
+    }
+
+    /// Format a constant for display
+    fn format_constant(&self, constant: &Constant) -> String {
+        match constant {
+            Constant::Integer(n) => n.to_string(),
+            Constant::Float(n) => n.to_string(),
+            Constant::String(s) => s.clone(),
+            Constant::Boolean(b) => b.to_string(),
+        }
+    }
+
+    /// Convert an atom's terms based on relation variable definitions
+    /// Terms that match relation variables remain as variables, others become constants
+    fn convert_atom_terms(&self, atom: &Atom) -> Atom {
+        let predicate_name = atom.predicate.as_str();
+
+        // Get the defined variables for this predicate
+        let defined_vars = self.relation_variables.get(predicate_name);
+
+        let converted_terms: Vec<Term> = atom.terms.iter().map(|term| {
+            match term {
+                Term::Variable(ident) => {
+                    let var_name = ident.as_str();
+
+                    // Single uppercase letter is always a variable (Prolog convention)
+                    if var_name.len() == 1 && var_name.chars().next().unwrap().is_uppercase() {
+                        return term.clone();
+                    }
+
+                    // Check if this identifier is a defined variable for this predicate
+                    // Case-insensitive comparison (x matches X)
+                    if let Some(vars) = defined_vars {
+                        let var_name_lower = var_name.to_lowercase();
+                        let is_defined_var = vars.iter().any(|v| v.to_lowercase() == var_name_lower);
+
+                        if is_defined_var {
+                            // It's a defined variable - keep as Variable
+                            term.clone()
+                        } else {
+                            // Not a defined variable - convert to Constant (String)
+                            Term::Constant(Constant::String(var_name.to_string()))
+                        }
+                    } else {
+                        // No relation definition - treat as constant
+                        Term::Constant(Constant::String(var_name.to_string()))
+                    }
+                }
+                // Constants and Tensors remain unchanged
+                _ => term.clone(),
+            }
+        }).collect();
+
+        Atom {
+            predicate: atom.predicate.clone(),
+            terms: converted_terms,
+        }
+    }
+
+    /// Convert a rule's terms based on relation variable definitions
+    fn convert_rule_terms(&self, rule: &RuleDecl) -> RuleDecl {
+        let converted_head = match &rule.head {
+            RuleHead::Atom(atom) => RuleHead::Atom(self.convert_atom_terms(atom)),
+            RuleHead::Equation(eq) => RuleHead::Equation(eq.clone()),
+        };
+
+        let converted_body: Vec<BodyTerm> = rule.body.iter().map(|body_term| {
+            match body_term {
+                BodyTerm::Atom(atom) => BodyTerm::Atom(self.convert_atom_terms(atom)),
+                BodyTerm::Equation(eq) => BodyTerm::Equation(eq.clone()),
+                BodyTerm::Constraint(c) => BodyTerm::Constraint(c.clone()),
+            }
+        }).collect();
+
+        RuleDecl {
+            head: converted_head,
+            body: converted_body,
+        }
     }
 }
 
