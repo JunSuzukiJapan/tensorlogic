@@ -16,8 +16,7 @@ pub struct SafeTensorsLoader;
 
 impl SafeTensorsLoader {
     /// Load a SafeTensors file (tensors loaded to Metal GPU)
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Model, TensorError> {
-        let device = MetalDevice::new()?;
+    pub fn load<P: AsRef<Path>>(path: P, device: &MetalDevice) -> Result<Model, TensorError> {
         let path = path.as_ref();
         let buffer = fs::read(path)
             .map_err(|e| TensorError::InvalidOperation(format!("Failed to read file: {}", e)))?;
@@ -84,7 +83,7 @@ impl SafeTensorsLoader {
             };
 
             // Create TensorLogic tensor (on Metal GPU)
-            let tensor = Tensor::from_vec_metal(&device, f16_data, shape.to_vec())?;
+            let tensor = Tensor::from_vec_metal(device, f16_data, shape.to_vec())?;
             tensors.insert(name.to_string(), tensor);
         }
 

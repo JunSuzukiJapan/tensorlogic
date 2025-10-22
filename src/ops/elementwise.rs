@@ -410,6 +410,114 @@ impl Tensor {
     fn tan_cpu(&self) -> TensorResult<Self> {
         super::helpers::execute_unary_cpu_op(self, |x| x.tan())
     }
+
+    /// Element-wise addition with a scalar
+    pub fn add_scalar(&self, scalar: half::f16) -> TensorResult<Self> {
+        if self.buffer().is_metal() {
+            self.add_scalar_metal(scalar)
+        } else {
+            self.add_scalar_cpu(scalar)
+        }
+    }
+
+    fn add_scalar_metal(&self, scalar: half::f16) -> TensorResult<Self> {
+        let a = self.to_vec();
+        let result: Vec<f16> = a.iter().map(|&x| x + scalar).collect();
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
+
+    fn add_scalar_cpu(&self, scalar: half::f16) -> TensorResult<Self> {
+        let a = self.to_vec();
+        let result: Vec<f16> = a.iter().map(|&x| x + scalar).collect();
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
+
+    /// Element-wise subtraction with a scalar
+    pub fn sub_scalar(&self, scalar: half::f16) -> TensorResult<Self> {
+        if self.buffer().is_metal() {
+            self.sub_scalar_metal(scalar)
+        } else {
+            self.sub_scalar_cpu(scalar)
+        }
+    }
+
+    fn sub_scalar_metal(&self, scalar: half::f16) -> TensorResult<Self> {
+        let a = self.to_vec();
+        let result: Vec<f16> = a.iter().map(|&x| x - scalar).collect();
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
+
+    fn sub_scalar_cpu(&self, scalar: half::f16) -> TensorResult<Self> {
+        let a = self.to_vec();
+        let result: Vec<f16> = a.iter().map(|&x| x - scalar).collect();
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
+
+    /// Element-wise multiplication with a scalar
+    pub fn mul_scalar(&self, scalar: half::f16) -> TensorResult<Self> {
+        if self.buffer().is_metal() {
+            self.mul_scalar_metal(scalar)
+        } else {
+            self.mul_scalar_cpu(scalar)
+        }
+    }
+
+    fn mul_scalar_metal(&self, scalar: half::f16) -> TensorResult<Self> {
+        let a = self.to_vec();
+        let result: Vec<f16> = a.iter().map(|&x| x * scalar).collect();
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
+
+    fn mul_scalar_cpu(&self, scalar: half::f16) -> TensorResult<Self> {
+        let a = self.to_vec();
+        let result: Vec<f16> = a.iter().map(|&x| x * scalar).collect();
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
+
+    /// Element-wise division with a scalar
+    pub fn div_scalar(&self, scalar: half::f16) -> TensorResult<Self> {
+        if self.buffer().is_metal() {
+            self.div_scalar_metal(scalar)
+        } else {
+            self.div_scalar_cpu(scalar)
+        }
+    }
+
+    fn div_scalar_metal(&self, scalar: half::f16) -> TensorResult<Self> {
+        let a = self.to_vec();
+        let result: Vec<f16> = a.iter().map(|&x| x / scalar).collect();
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
+
+    fn div_scalar_cpu(&self, scalar: half::f16) -> TensorResult<Self> {
+        let a = self.to_vec();
+        let result: Vec<f16> = a.iter().map(|&x| x / scalar).collect();
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        }
+    }
 }
 
 #[cfg(test)]

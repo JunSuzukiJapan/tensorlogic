@@ -24,8 +24,7 @@ impl CoreMLLoader {
     /// Extracts weights from the CoreML model and converts to TensorLogic tensors.
     /// Note: CoreML models are typically used for inference, not training.
     #[cfg(target_os = "macos")]
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Model, TensorError> {
-        let device = MetalDevice::new()?;
+    pub fn load<P: AsRef<Path>>(path: P, _device: &MetalDevice) -> Result<Model, TensorError> {
         let path = path.as_ref();
 
         // Check if file exists
@@ -77,7 +76,7 @@ impl CoreMLLoader {
     }
 
     #[cfg(not(target_os = "macos"))]
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Model, TensorError> {
+    pub fn load<P: AsRef<Path>>(_path: P, _device: &MetalDevice) -> Result<Model, TensorError> {
         Err(TensorError::InvalidOperation(
             "CoreML is only available on macOS".to_string()
         ))

@@ -10,7 +10,7 @@ pub mod convert;
 pub mod formats;
 
 use crate::tensor::Tensor;
-use crate::device::Device;
+use crate::device::{Device, MetalDevice};
 use crate::error::TensorError;
 use std::collections::HashMap;
 use std::path::Path;
@@ -80,7 +80,7 @@ impl Model {
     /// - `.mlmodel`, `.mlpackage` → CoreML format
     ///
     /// Tensors are loaded directly to Metal GPU for optimal performance.
-    pub fn load<P: AsRef<Path>>(path: P) -> ModelResult<Self> {
+    pub fn load<P: AsRef<Path>>(path: P, device: &MetalDevice) -> ModelResult<Self> {
         let path = path.as_ref();
         let extension = path.extension()
             .and_then(|ext| ext.to_str())
@@ -89,9 +89,9 @@ impl Model {
             ))?;
 
         match extension {
-            "safetensors" => formats::SafeTensorsLoader::load(path),
-            "gguf" => formats::GGUFLoader::load(path),
-            "mlmodel" | "mlpackage" => formats::CoreMLLoader::load(path),
+            "safetensors" => formats::SafeTensorsLoader::load(path, device),
+            "gguf" => formats::GGUFLoader::load(path, device),
+            "mlmodel" | "mlpackage" => formats::CoreMLLoader::load(path, device),
             _ => Err(TensorError::InvalidOperation(
                 format!("Unsupported file extension: {}", extension)
             )),

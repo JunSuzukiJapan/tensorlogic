@@ -172,8 +172,7 @@ impl GGUFLoader {
     }
 
     /// Load a GGUF file and dequantize to f16 (tensors loaded to Metal GPU)
-    pub fn load<P: AsRef<Path>>(path: P) -> std::result::Result<Model, TensorError> {
-        let device = MetalDevice::new()?;
+    pub fn load<P: AsRef<Path>>(path: P, device: &MetalDevice) -> std::result::Result<Model, TensorError> {
         let path = path.as_ref();
 
         // Load GGUF file using file reader
@@ -312,7 +311,7 @@ impl GGUFLoader {
             };
 
             // Create TensorLogic tensor (on Metal GPU)
-            let tensor = Tensor::from_vec_metal(&device, f16_data, shape)?;
+            let tensor = Tensor::from_vec_metal(device, f16_data, shape)?;
             tensors.insert(name, tensor);
         }
 

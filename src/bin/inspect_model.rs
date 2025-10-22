@@ -1,4 +1,5 @@
 use tensorlogic::model::Model;
+use tensorlogic::device::MetalDevice;
 use std::env;
 
 fn main() {
@@ -14,7 +15,13 @@ fn main() {
     println!("Loading model from: {}", model_path);
     println!();
 
-    let model = Model::load(model_path).unwrap_or_else(|e| {
+    // Create Metal device for model loading
+    let device = MetalDevice::new().unwrap_or_else(|e| {
+        eprintln!("Error creating Metal device: {}", e);
+        std::process::exit(1);
+    });
+
+    let model = Model::load(model_path, &device).unwrap_or_else(|e| {
         eprintln!("Error loading model: {}", e);
         std::process::exit(1);
     });

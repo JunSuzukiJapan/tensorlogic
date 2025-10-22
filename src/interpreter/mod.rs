@@ -29,7 +29,7 @@ use std::path::PathBuf;
 use std::fs;
 
 use crate::ast::*;
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorShape};
 use crate::device::{Device, MetalDevice};
 use crate::error::TensorError;
 use crate::logic::LogicEngine;
@@ -86,6 +86,27 @@ pub enum RuntimeError {
 }
 
 pub type RuntimeResult<T> = Result<T, RuntimeError>;
+
+/// Function call frame for local scope management
+#[derive(Debug, Clone)]
+struct CallFrame {
+    /// Name of the function being executed
+    function_name: String,
+    /// Local variables in this scope
+    local_vars: HashMap<String, Value>,
+    /// Return value (set by last Assignment statement)
+    return_value: Option<Value>,
+}
+
+impl CallFrame {
+    fn new(function_name: String) -> Self {
+        Self {
+            function_name,
+            local_vars: HashMap::new(),
+            return_value: None,
+        }
+    }
+}
 
 /// Runtime value
 #[derive(Debug, Clone)]
@@ -262,6 +283,10 @@ pub struct Interpreter {
     current_file: Option<PathBuf>,
     // Track defined relation variables: predicate_name -> set of variable names
     relation_variables: HashMap<String, HashSet<String>>,
+    // User-defined functions: function_name -> FunctionDecl
+    functions: HashMap<String, FunctionDecl>,
+    // Function call stack for local scope management
+    call_stack: Vec<CallFrame>,
 }
 
 impl Interpreter {
@@ -275,6 +300,8 @@ impl Interpreter {
             imported_files: HashSet::new(),
             current_file: None,
             relation_variables: HashMap::new(),
+            functions: HashMap::new(),
+            call_stack: Vec::new(),
         }
     }
 
@@ -299,13 +326,29 @@ impl Interpreter {
     }
 
     /// Get a variable from the interpreter's environment
+    /// Checks local scope (call_stack) first, then global environment
     pub fn get_variable(&self, name: &str) -> Option<Value> {
+        // Check local scope first (most recent call frame)
+        if let Some(frame) = self.call_stack.last() {
+            if let Some(value) = frame.local_vars.get(name) {
+                return Some(value.clone());
+            }
+        }
+
+        // Fall back to global environment
         self.env.get_variable(name).ok().cloned()
     }
 
     /// Set a variable in the interpreter's environment
+    /// If in a function call, sets in local scope; otherwise in global environment
     pub fn set_variable(&mut self, name: String, value: Value) {
-        self.env.set_variable(name, value);
+        if let Some(frame) = self.call_stack.last_mut() {
+            // Inside a function: set in local scope
+            frame.local_vars.insert(name, value);
+        } else {
+            // Global scope
+            self.env.set_variable(name, value);
+        }
     }
 
     /// List all variables in the environment
@@ -335,8 +378,20 @@ impl Interpreter {
                 Ok(())
             }
             Declaration::Embedding(embedding_decl) => self.execute_embedding_decl(embedding_decl),
-            Declaration::Function(_) => {
-                // Functions are executed when called
+            Declaration::Function(func_decl) => {
+                // Register user-defined function
+                let func_name = func_decl.name.as_str().to_string();
+
+                // Check for duplicate function names
+                if self.functions.contains_key(&func_name) {
+                    return Err(RuntimeError::InvalidOperation(
+                        format!("Function '{}' is already defined", func_name)
+                    ));
+                }
+
+                // Store function definition
+                self.functions.insert(func_name.clone(), func_decl.clone());
+
                 Ok(())
             }
         }
@@ -585,18 +640,35 @@ impl Interpreter {
             }
             Statement::Let { target, value } => {
                 let evaluated_value = self.eval_expr(value)?;
-                self.env
-                    .declare_variable(target.as_str().to_string(), evaluated_value)?;
-                Ok(())
+
+                // Check if we're inside a function call
+                if let Some(frame) = self.call_stack.last_mut() {
+                    // Inside function: declare in local scope
+                    frame.local_vars.insert(target.as_str().to_string(), evaluated_value);
+                    Ok(())
+                } else {
+                    // Global scope: declare in environment
+                    self.env
+                        .declare_variable(target.as_str().to_string(), evaluated_value)?;
+                    Ok(())
+                }
             }
             Statement::Assignment { target, value } => {
                 let evaluated_value = self.eval_expr(value)?;
 
-                // Assignment (:=) auto-declares if variable doesn't exist
-                if self.env.has_variable(target.as_str()) {
-                    self.env.set_variable(target.as_str().to_string(), evaluated_value)?;
+                // If we're inside a function call, set as return value and local variable
+                if let Some(frame) = self.call_stack.last_mut() {
+                    // Set as return value (last assignment wins)
+                    frame.return_value = Some(evaluated_value.clone());
+                    // Also set in local scope
+                    frame.local_vars.insert(target.as_str().to_string(), evaluated_value);
                 } else {
-                    self.env.declare_variable(target.as_str().to_string(), evaluated_value)?;
+                    // Global scope: assignment (:=) auto-declares if variable doesn't exist
+                    if self.env.has_variable(target.as_str()) {
+                        self.env.set_variable(target.as_str().to_string(), evaluated_value)?;
+                    } else {
+                        self.env.declare_variable(target.as_str().to_string(), evaluated_value)?;
+                    }
                 }
                 Ok(())
             }
@@ -610,11 +682,18 @@ impl Interpreter {
                         if let TensorExpr::Variable(var_name) = &eq.left {
                             let value = self.eval_expr(&eq.right)?;
 
-                            // Try to set existing variable, if it doesn't exist, declare it
-                            if self.env.has_variable(var_name.as_str()) {
-                                self.env.set_variable(var_name.as_str().to_string(), value)?;
+                            // Check if we're inside a function call
+                            if let Some(frame) = self.call_stack.last_mut() {
+                                // Inside function: set as return value and update local variable
+                                frame.return_value = Some(value.clone());
+                                frame.local_vars.insert(var_name.as_str().to_string(), value);
                             } else {
-                                self.env.declare_variable(var_name.as_str().to_string(), value)?;
+                                // Global scope: try to set existing variable, if it doesn't exist, declare it
+                                if self.env.has_variable(var_name.as_str()) {
+                                    self.env.set_variable(var_name.as_str().to_string(), value)?;
+                                } else {
+                                    self.env.declare_variable(var_name.as_str().to_string(), value)?;
+                                }
                             }
                             Ok(())
                         } else {
@@ -719,11 +798,13 @@ impl Interpreter {
                         // For loop variable - directly set without checking
                         self.env.variables.insert(variable.as_str().to_string(), item);
                         for stmt in body {
-                            if let Err(RuntimeError::BreakOutsideLoop) = self.execute_statement(stmt) {
-                                should_break = true;
-                                break;
-                            } else {
-                                self.execute_statement(stmt)?;
+                            match self.execute_statement(stmt) {
+                                Err(RuntimeError::BreakOutsideLoop) => {
+                                    should_break = true;
+                                    break;
+                                }
+                                Err(e) => return Err(e),
+                                Ok(_) => {}
                             }
                         }
                         if should_break {
@@ -753,11 +834,13 @@ impl Interpreter {
 
                         let mut should_break = false;
                         for stmt in body {
-                            if let Err(RuntimeError::BreakOutsideLoop) = self.execute_statement(stmt) {
-                                should_break = true;
-                                break;
-                            } else {
-                                self.execute_statement(stmt)?;
+                            match self.execute_statement(stmt) {
+                                Err(RuntimeError::BreakOutsideLoop) => {
+                                    should_break = true;
+                                    break;
+                                }
+                                Err(e) => return Err(e),
+                                Ok(_) => {}
                             }
                         }
                         if should_break {
@@ -771,11 +854,13 @@ impl Interpreter {
                     loop {
                         let mut should_break = false;
                         for stmt in body {
-                            if let Err(RuntimeError::BreakOutsideLoop) = self.execute_statement(stmt) {
-                                should_break = true;
-                                break;
-                            } else {
-                                self.execute_statement(stmt)?;
+                            match self.execute_statement(stmt) {
+                                Err(RuntimeError::BreakOutsideLoop) => {
+                                    should_break = true;
+                                    break;
+                                }
+                                Err(e) => return Err(e),
+                                Ok(_) => {}
                             }
                         }
                         if should_break {
@@ -947,8 +1032,10 @@ impl Interpreter {
     fn eval_expr(&mut self, expr: &TensorExpr) -> RuntimeResult<Value> {
         match expr {
             TensorExpr::Variable(id) => {
-                let value = self.env.get_variable(id.as_str())?;
-                Ok(value.clone())
+                // Use self.get_variable() to check local scope first
+                let value = self.get_variable(id.as_str())
+                    .ok_or_else(|| RuntimeError::UndefinedVariable(id.as_str().to_string()))?;
+                Ok(value)
             }
 
             TensorExpr::Literal(lit) => self.eval_literal(lit),
@@ -1227,6 +1314,59 @@ impl Interpreter {
                         op
                     ))),
                 }
+            }
+            // Tensor-Float operations (e.g., tensor * 0.5)
+            (Value::Tensor(t), Value::Float(s)) => {
+                let scalar_f16 = half::f16::from_f32(s as f32);
+                let result = match op {
+                    BinaryOp::Add => t.add_scalar(scalar_f16),
+                    BinaryOp::Sub => t.sub_scalar(scalar_f16),
+                    BinaryOp::Mul => t.mul_scalar(scalar_f16),
+                    BinaryOp::Div => {
+                        if s == 0.0 {
+                            return Err(RuntimeError::DivisionByZero);
+                        }
+                        t.div_scalar(scalar_f16)
+                    }
+                    _ => {
+                        return Err(RuntimeError::InvalidOperation(format!(
+                            "Operation {:?} not supported for Tensor-Float",
+                            op
+                        )));
+                    }
+                }
+                .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::Tensor(result))
+            }
+            // Float-Tensor operations (e.g., 0.5 * tensor)
+            (Value::Float(s), Value::Tensor(t)) => {
+                let scalar_f16 = half::f16::from_f32(s as f32);
+                let result = match op {
+                    BinaryOp::Add => t.add_scalar(scalar_f16),
+                    BinaryOp::Mul => t.mul_scalar(scalar_f16),
+                    BinaryOp::Sub => {
+                        // s - tensor = -(tensor - s)
+                        let temp = t.sub_scalar(scalar_f16)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        let zero = Tensor::zeros(self.env.metal_device(), t.shape().dims().to_vec())
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        zero.sub(&temp)
+                    }
+                    BinaryOp::Div => {
+                        // s / tensor = s * (1/tensor)
+                        return Err(RuntimeError::InvalidOperation(
+                            "Scalar / Tensor not yet supported".to_string()
+                        ));
+                    }
+                    _ => {
+                        return Err(RuntimeError::InvalidOperation(format!(
+                            "Operation {:?} not supported for Float-Tensor",
+                            op
+                        )));
+                    }
+                }
+                .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::Tensor(result))
             }
             _ => Err(RuntimeError::TypeError(
                 "Binary operation requires compatible types".to_string(),
@@ -1841,7 +1981,7 @@ impl Interpreter {
                     )),
                 };
 
-                let model = Model::load(&path)
+                let model = Model::load(&path, self.env.metal_device())
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                 println!("Loaded model from: {} (format: {:?})", path, model.metadata.format);
@@ -1875,6 +2015,38 @@ impl Interpreter {
 
                 println!("Loaded tokenizer: {}", path_or_name);
                 Ok(Value::Tokenizer(std::sync::Arc::new(tokenizer)))
+            }
+
+            "get_tensor" => {
+                // get_tensor(model, "tensor_name")
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("get_tensor() expects 2 arguments (model, tensor_name), got {}", args.len())
+                    ));
+                }
+
+                let model_val = self.eval_expr(&args[0])?;
+                let model = match model_val {
+                    Value::Model(m) => m,
+                    _ => return Err(RuntimeError::TypeError(
+                        "get_tensor() first argument must be a Model".to_string()
+                    )),
+                };
+
+                let name_val = self.eval_expr(&args[1])?;
+                let tensor_name = match name_val {
+                    Value::String(s) => s,
+                    _ => return Err(RuntimeError::TypeError(
+                        "get_tensor() second argument must be a string (tensor name)".to_string()
+                    )),
+                };
+
+                let tensor = model.get_tensor(&tensor_name)
+                    .ok_or_else(|| RuntimeError::InvalidOperation(
+                        format!("Tensor '{}' not found in model", tensor_name)
+                    ))?;
+
+                Ok(Value::Tensor(tensor.clone()))
             }
 
             "tokenize" => {
@@ -2651,8 +2823,9 @@ impl Interpreter {
                         "ones() shape must be an array".to_string()
                     )),
                 };
-                let device = MetalDevice::new().map_err(|e| RuntimeError::TensorError(e))?;
-                let tensor = Tensor::ones(&device, shape)
+                // Use shared Metal device from environment
+                let device = self.env.metal_device();
+                let tensor = Tensor::ones(device, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::Tensor(tensor))
@@ -2717,6 +2890,33 @@ impl Interpreter {
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::Tensor(shape_tensor))
+            }
+
+            "broadcast_to" => {
+                // broadcast_to(tensor, [target_shape])
+                // Broadcast tensor to target shape following NumPy broadcasting rules
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("broadcast_to() expects 2 arguments (tensor, target_shape), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let shape_value = self.eval_expr(&args[1])?;
+                let target_shape = match shape_value {
+                    Value::Tensor(t) => {
+                        t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                    }
+                    _ => return Err(RuntimeError::TypeError(
+                        "broadcast_to() target_shape must be an array".to_string()
+                    )),
+                };
+
+                let target_tensor_shape = TensorShape::new(target_shape);
+                let output = tensor.broadcast_to(&target_tensor_shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
             }
 
             "transpose" => {
@@ -3299,9 +3499,60 @@ impl Interpreter {
                 Ok(Value::Void)
             }
 
-            _ => Err(RuntimeError::NotImplemented(
-                format!("Function '{}' not yet implemented", name.as_str()),
-            ))
+            _ => {
+                // Check if it's a user-defined function
+                let func_name = name.as_str();
+
+                if let Some(func_decl) = self.functions.get(func_name).cloned() {
+                    // User-defined function found!
+
+                    // 1. Check argument count
+                    if args.len() != func_decl.params.len() {
+                        return Err(RuntimeError::TypeError(
+                            format!(
+                                "Function '{}' expects {} arguments, got {}",
+                                func_name,
+                                func_decl.params.len(),
+                                args.len()
+                            )
+                        ));
+                    }
+
+                    // 2. Create new call frame
+                    let mut frame = CallFrame::new(func_name.to_string());
+
+                    // 3. Evaluate arguments and bind to parameters
+                    for (param, arg) in func_decl.params.iter().zip(args.iter()) {
+                        let arg_value = self.eval_expr(arg)?;
+                        frame.local_vars.insert(param.name.as_str().to_string(), arg_value);
+                    }
+
+                    // 4. Push call frame onto stack
+                    self.call_stack.push(frame);
+
+                    // 5. Execute function body
+                    for stmt in &func_decl.body {
+                        self.execute_statement(stmt)?;
+                    }
+
+                    // 6. Get return value
+                    let return_value = self
+                        .call_stack
+                        .last()
+                        .and_then(|f| f.return_value.clone())
+                        .unwrap_or(Value::Void);
+
+                    // 7. Pop call frame
+                    self.call_stack.pop();
+
+                    Ok(return_value)
+                } else {
+                    // Not a built-in or user-defined function
+                    Err(RuntimeError::NotImplemented(
+                        format!("Function '{}' not yet implemented", func_name),
+                    ))
+                }
+            }
         }
     }
 
