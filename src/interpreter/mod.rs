@@ -2453,6 +2453,37 @@ impl Interpreter {
                 Ok(Value::Tensor(output))
             }
 
+            "rms_norm" => {
+                // rms_norm(tensor, weight, eps=1e-6) -> Tensor
+                // RMS normalization (used in LLaMA, TinyLlama)
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("rms_norm() expects 2-3 arguments (tensor, weight, optional eps), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let weight = self.eval_expr(&args[1])?.as_tensor()?.clone();
+
+                // Infer normalized_shape from weight shape
+                let normalized_shape = weight.shape().dims().to_vec();
+
+                let eps = if args.len() >= 3 {
+                    match self.eval_expr(&args[2])? {
+                        Value::Float(f) => f as f32,
+                        Value::Integer(i) => i as f32,
+                        _ => 1e-6_f32,  // Default eps for RMSNorm (LLaMA uses 1e-6)
+                    }
+                } else {
+                    1e-6_f32
+                };
+
+                let output = tensor.rms_norm(normalized_shape, &weight, eps)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
             "concat" => {
                 // concat(tensors, dim) -> Tensor
                 // Concatenate tensors along dimension
@@ -2662,6 +2693,26 @@ impl Interpreter {
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::Tensor(output))
+            }
+
+            "shape" => {
+                // shape(tensor) -> returns shape as a 1D tensor of integers
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("shape() expects 1 argument (tensor), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let dims = tensor.dims();
+
+                // Convert shape dimensions to a 1D tensor
+                let device = MetalDevice::new().map_err(|e| RuntimeError::TensorError(e))?;
+                let shape_vec: Vec<f16> = dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
+                let shape_tensor = Tensor::from_vec_metal(&device, shape_vec, vec![dims.len()])
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(shape_tensor))
             }
 
             "transpose" => {
