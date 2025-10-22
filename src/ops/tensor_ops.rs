@@ -244,6 +244,97 @@ impl Tensor {
             _ => Tensor::from_vec(output_data, output_shape),
         }
     }
+
+    /// Add a dimension of size 1 at the specified position (unsqueeze)
+    ///
+    /// # Arguments
+    /// * `dim` - Position where to insert the new dimension (0-indexed)
+    ///
+    /// # Example
+    /// ```ignore
+    /// let a = Tensor::zeros(&device, vec![3, 4]).unwrap();  // Shape: [3, 4]
+    /// let b = a.unsqueeze(0).unwrap();  // Shape: [1, 3, 4]
+    /// let c = a.unsqueeze(1).unwrap();  // Shape: [3, 1, 4]
+    /// let d = a.unsqueeze(2).unwrap();  // Shape: [3, 4, 1]
+    /// ```
+    pub fn unsqueeze(&self, dim: usize) -> TensorResult<Self> {
+        let current_dims = self.shape().dims();
+        let rank = current_dims.len();
+
+        // dim can be 0 to rank (inclusive) to allow adding at the end
+        if dim > rank {
+            return Err(TensorError::InvalidDimension { dim });
+        }
+
+        // Create new shape with dimension 1 inserted at position dim
+        let mut new_shape = Vec::with_capacity(rank + 1);
+        for i in 0..=rank {
+            if i == dim {
+                new_shape.push(1);
+            }
+            if i < rank {
+                new_shape.push(current_dims[i]);
+            }
+        }
+
+        // Reshape is a view operation - no data copy
+        self.reshape(new_shape)
+    }
+
+    /// Remove dimensions of size 1 (squeeze)
+    ///
+    /// # Arguments
+    /// * `dim` - Optional specific dimension to squeeze. If None, squeeze all dimensions of size 1
+    ///
+    /// # Example
+    /// ```ignore
+    /// let a = Tensor::zeros(&device, vec![1, 3, 1, 4]).unwrap();  // Shape: [1, 3, 1, 4]
+    /// let b = a.squeeze(None).unwrap();  // Shape: [3, 4] - all 1s removed
+    /// let c = a.squeeze(Some(0)).unwrap();  // Shape: [3, 1, 4] - only dim 0 removed
+    /// ```
+    pub fn squeeze(&self, dim: Option<usize>) -> TensorResult<Self> {
+        let current_dims = self.shape().dims();
+
+        let new_shape: Vec<usize> = match dim {
+            None => {
+                // Remove all dimensions of size 1
+                current_dims
+                    .iter()
+                    .filter(|&&d| d != 1)
+                    .copied()
+                    .collect()
+            }
+            Some(d) => {
+                // Remove specific dimension if it has size 1
+                if d >= current_dims.len() {
+                    return Err(TensorError::InvalidDimension { dim: d });
+                }
+
+                if current_dims[d] != 1 {
+                    return Err(TensorError::InvalidOperation(format!(
+                        "Cannot squeeze dimension {} with size {}",
+                        d, current_dims[d]
+                    )));
+                }
+
+                current_dims
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| *i != d)
+                    .map(|(_, &size)| size)
+                    .collect()
+            }
+        };
+
+        // Handle case where all dimensions were 1 -> scalar with shape [1]
+        let final_shape = if new_shape.is_empty() {
+            vec![1]  // Workaround for numel() bug with empty shapes
+        } else {
+            new_shape
+        };
+
+        self.reshape(final_shape)
+    }
 }
 
 #[cfg(test)]
@@ -389,5 +480,46 @@ mod tests {
 
         assert_eq!(b.dims(), &[2, 2]);
         assert_eq!(a.to_vec(), b.to_vec());
+    }
+
+    #[test]
+    fn test_unsqueeze() {
+        let device = crate::device::MetalDevice::new().unwrap();
+
+        // Test unsqueeze on 1D tensor [3] -> [1, 3]
+        let a = Tensor::from_vec_metal(
+            &device,
+            vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
+            vec![3],
+        )
+        .unwrap();
+
+        let b = a.unsqueeze(0).unwrap();
+        assert_eq!(b.dims(), &[1, 3]);
+        assert_eq!(a.to_vec(), b.to_vec());
+
+        let c = a.unsqueeze(1).unwrap();
+        assert_eq!(c.dims(), &[3, 1]);
+    }
+
+    #[test]
+    fn test_squeeze() {
+        let device = crate::device::MetalDevice::new().unwrap();
+
+        // Test squeeze on [1, 3, 1] -> [3]
+        let a = Tensor::from_vec_metal(
+            &device,
+            vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
+            vec![1, 3, 1],
+        )
+        .unwrap();
+
+        let b = a.squeeze(None).unwrap();
+        assert_eq!(b.dims(), &[3]);
+        assert_eq!(a.to_vec(), b.to_vec());
+
+        // Test squeeze specific dimension
+        let c = a.squeeze(Some(0)).unwrap();
+        assert_eq!(c.dims(), &[3, 1]);
     }
 }

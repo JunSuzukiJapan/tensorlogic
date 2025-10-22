@@ -1665,6 +1665,60 @@ impl Interpreter {
                 Ok(Value::Tensor(result))
             }
 
+            "unsqueeze" => {
+                // unsqueeze(tensor, dim: int)
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("unsqueeze() expects 2 arguments (tensor, dim), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let dim_val = self.eval_expr(&args[1])?;
+
+                let dim = match dim_val {
+                    Value::Integer(i) => i as usize,
+                    Value::Float(f) => f as usize,
+                    _ => return Err(RuntimeError::TypeError(
+                        "unsqueeze() dim must be a number".to_string()
+                    )),
+                };
+
+                let result = tensor.unsqueeze(dim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(result))
+            }
+
+            "squeeze" => {
+                // squeeze(tensor, dim: Optional[int] = None)
+                if args.is_empty() || args.len() > 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("squeeze() expects 1-2 arguments (tensor, optional dim), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+
+                let dim = if args.len() >= 2 {
+                    let dim_val = self.eval_expr(&args[1])?;
+                    match dim_val {
+                        Value::Integer(i) => Some(i as usize),
+                        Value::Float(f) => Some(f as usize),
+                        _ => return Err(RuntimeError::TypeError(
+                            "squeeze() dim must be a number".to_string()
+                        )),
+                    }
+                } else {
+                    None  // Default: squeeze all dims of size 1
+                };
+
+                let result = tensor.squeeze(dim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(result))
+            }
+
             "load_model" => {
                 // load_model("path/to/model.gguf")
                 if args.len() != 1 {
