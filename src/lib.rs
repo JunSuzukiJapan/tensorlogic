@@ -19,6 +19,7 @@ pub mod parser;
 pub mod planner;
 pub mod prelude;
 pub mod tensor;
+pub mod tokenizer;
 pub mod typecheck;
 
 // Python bindings (optional, enabled with "python" or "python-extension" feature)

@@ -96,6 +96,7 @@ pub enum Value {
     Float(f64),
     String(String),
     Model(Model),
+    Tokenizer(std::sync::Arc<crate::tokenizer::Tokenizer>),
     Void,
 }
 
@@ -172,6 +173,7 @@ impl std::fmt::Display for Value {
             Value::Float(fl) => write!(f, "{}", fl),
             Value::String(s) => write!(f, "{}", s),
             Value::Model(m) => write!(f, "Model({:?})", m.metadata.format),
+            Value::Tokenizer(_) => write!(f, "Tokenizer"),
             Value::Void => write!(f, "()"),
         }
     }
@@ -1822,6 +1824,98 @@ impl Interpreter {
                 Ok(Value::Model(model))
             }
 
+            "load_tokenizer" => {
+                // load_tokenizer("path/to/tokenizer.json" or "model_name")
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("load_tokenizer() expects 1 argument (path or model name), got {}", args.len())
+                    ));
+                }
+
+                let path_val = self.eval_expr(&args[0])?;
+                let path_or_name = match path_val {
+                    Value::String(s) => s,
+                    _ => return Err(RuntimeError::TypeError(
+                        "load_tokenizer() argument must be a string".to_string()
+                    )),
+                };
+
+                // Try loading from file first, then from pretrained
+                let tokenizer = if std::path::Path::new(&path_or_name).exists() {
+                    crate::tokenizer::Tokenizer::from_file(&path_or_name)
+                        .map_err(|e| RuntimeError::TensorError(e))?
+                } else {
+                    crate::tokenizer::Tokenizer::from_pretrained(&path_or_name)
+                        .map_err(|e| RuntimeError::TensorError(e))?
+                };
+
+                println!("Loaded tokenizer: {}", path_or_name);
+                Ok(Value::Tokenizer(std::sync::Arc::new(tokenizer)))
+            }
+
+            "tokenize" => {
+                // tokenize(tokenizer, text, add_special_tokens=true)
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("tokenize() expects 2-3 arguments (tokenizer, text, optional add_special_tokens), got {}", args.len())
+                    ));
+                }
+
+                let tokenizer = match self.eval_expr(&args[0])? {
+                    Value::Tokenizer(t) => t.clone(),
+                    _ => return Err(RuntimeError::TypeError(
+                        "tokenize() first argument must be a tokenizer".to_string()
+                    )),
+                };
+
+                let text = match self.eval_expr(&args[1])? {
+                    Value::String(s) => s,
+                    _ => return Err(RuntimeError::TypeError(
+                        "tokenize() second argument must be a string".to_string()
+                    )),
+                };
+
+                let add_special_tokens = if args.len() >= 3 {
+                    self.eval_expr(&args[2])?.as_bool()?
+                } else {
+                    true
+                };
+
+                let tensor = tokenizer.encode_tensor(self.env.metal_device(), &text, add_special_tokens)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(tensor))
+            }
+
+            "detokenize" => {
+                // detokenize(tokenizer, tensor, skip_special_tokens=true)
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("detokenize() expects 2-3 arguments (tokenizer, tensor, optional skip_special_tokens), got {}", args.len())
+                    ));
+                }
+
+                let tokenizer = match self.eval_expr(&args[0])? {
+                    Value::Tokenizer(t) => t.clone(),
+                    _ => return Err(RuntimeError::TypeError(
+                        "detokenize() first argument must be a tokenizer".to_string()
+                    )),
+                };
+
+                let tensor = self.eval_expr(&args[1])?.as_tensor()?.clone();
+
+                let skip_special_tokens = if args.len() >= 3 {
+                    self.eval_expr(&args[2])?.as_bool()?
+                } else {
+                    true
+                };
+
+                let text = tokenizer.decode_tensor(&tensor, skip_special_tokens)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::String(text))
+            }
+
             "env" => {
                 // env("VAR_NAME")
                 if args.len() != 1 {
@@ -1957,6 +2051,7 @@ impl Interpreter {
                         Value::Boolean(b) => print!("{}", b),
                         Value::Tensor(t) => print!("{:?}", t),
                         Value::Model(m) => print!("Model({:?})", m.metadata.format),
+                        Value::Tokenizer(t) => print!("{:?}", t),
                         Value::Void => print!("void"),
                     }
                 }

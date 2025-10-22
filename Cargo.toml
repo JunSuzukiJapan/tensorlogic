@@ -48,6 +48,9 @@ rand_distr = "0.5.1"
 safetensors = "0.4"
 gguf-rs-lib = "0.2"
 
+# トークナイゼーション
+tokenizers = "0.20"
+
 [dev-dependencies]
 criterion = "0.5"
 
