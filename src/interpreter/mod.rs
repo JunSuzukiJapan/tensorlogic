@@ -2243,6 +2243,121 @@ impl Interpreter {
                 Ok(Value::Tensor(output))
             }
 
+            "softmax" => {
+                // softmax(logits, dim=-1) -> Tensor
+                // Convert logits to probability distribution
+                // Default: apply softmax on last dimension
+                if args.is_empty() || args.len() > 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("softmax() expects 1-2 arguments (logits, optional dim), got {}", args.len())
+                    ));
+                }
+
+                let logits = self.eval_expr(&args[0])?.as_tensor()?.clone();
+
+                // For now, always apply softmax on last dimension
+                // TODO: support custom dimension when needed
+                let shape = logits.shape();
+                let dims = shape.dims();
+                let last_dim_size = dims[dims.len() - 1];
+
+                // Get logits data
+                let data = logits.to_vec();
+                let mut output_data = Vec::with_capacity(data.len());
+
+                // Process each sequence (last dimension is vocab)
+                let batch_size = data.len() / last_dim_size;
+
+                for batch_idx in 0..batch_size {
+                    let start_idx = batch_idx * last_dim_size;
+                    let end_idx = start_idx + last_dim_size;
+                    let logits_slice = &data[start_idx..end_idx];
+
+                    // Compute softmax with numerical stability
+                    let max_logit = logits_slice.iter()
+                        .map(|v| v.to_f32())
+                        .fold(f32::NEG_INFINITY, f32::max);
+
+                    let exp_logits: Vec<f32> = logits_slice
+                        .iter()
+                        .map(|v| (v.to_f32() - max_logit).exp())
+                        .collect();
+
+                    let sum_exp: f32 = exp_logits.iter().sum();
+
+                    // Normalize to get probabilities
+                    for exp_val in exp_logits {
+                        output_data.push(half::f16::from_f32(exp_val / sum_exp));
+                    }
+                }
+
+                // Create output tensor
+                let output = crate::tensor::Tensor::from_vec_metal(
+                    self.env.metal_device(),
+                    output_data,
+                    dims.to_vec()
+                ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "sample" => {
+                // sample(probs) -> Integer
+                // Sample a single token index from probability distribution
+                // Input: probs [vocab_size] - probability distribution (should sum to 1.0)
+                // Output: Integer - sampled token index
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("sample() expects 1 argument (probs), got {}", args.len())
+                    ));
+                }
+
+                let probs_tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let shape = probs_tensor.shape();
+                let dims = shape.dims();
+
+                // For now, only support 1D probability distributions
+                if dims.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("sample() currently only supports 1D probability distributions, got shape {:?}", dims)
+                    ));
+                }
+
+                let vocab_size = dims[0];
+                let probs = probs_tensor.to_vec();
+
+                // Convert to f32 probabilities
+                let probs_f32: Vec<f32> = probs.iter().map(|v| v.to_f32()).collect();
+
+                // Verify it's a valid probability distribution
+                let sum: f32 = probs_f32.iter().sum();
+                if (sum - 1.0).abs() > 0.01 {
+                    return Err(RuntimeError::TensorError(
+                        crate::error::TensorError::InvalidOperation(
+                            format!("Probabilities must sum to ~1.0, got sum={}", sum)
+                        )
+                    ));
+                }
+
+                // Sample using cumulative distribution
+                use rand::Rng;
+                let mut rng = rand::thread_rng();
+                let random_val: f32 = rng.gen(); // [0, 1)
+
+                let mut cumulative = 0.0;
+                let mut sampled_idx = 0;
+
+                for (idx, &prob) in probs_f32.iter().enumerate() {
+                    cumulative += prob;
+                    if random_val < cumulative {
+                        sampled_idx = idx;
+                        break;
+                    }
+                }
+
+                Ok(Value::Integer(sampled_idx as i64))
+            }
+
             "env" => {
                 // env("VAR_NAME")
                 if args.len() != 1 {

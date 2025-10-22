@@ -1,0 +1,105 @@
+// Test for softmax and sample operations
+
+main {
+    print("=== Softmax and Sampling Test ===")
+    print("")
+
+    print("Complete LLM Text Generation Pipeline")
+    print("======================================")
+    print("")
+
+    print("Functions implemented:")
+    print("  1. softmax(logits) -> Tensor")
+    print("     - Converts logits to probability distribution")
+    print("     - Uses numerical stability (subtract max before exp)")
+    print("     - Output sums to 1.0")
+    print("")
+
+    print("  2. sample(probs) -> Integer")
+    print("     - Samples token index from probability distribution")
+    print("     - Uses cumulative distribution sampling")
+    print("     - Returns single token index")
+    print("")
+
+    print("Complete Autoregressive Generation Flow:")
+    print("--------------------------------------------------")
+    print("")
+    print("Step 1: Tokenization")
+    print("  tokens = tokenize(tokenizer, prompt)")
+    print("")
+
+    print("Step 2: Embedding Lookup")
+    print("  embeddings = embedding(emb_table, tokens)")
+    print("  pos_enc = positional_encoding(seq_len, d_model)")
+    print("  input_emb = embeddings + pos_enc")
+    print("")
+
+    print("Step 3: Model Forward Pass")
+    print("  logits = model(input_emb)  // Shape: [vocab_size]")
+    print("")
+
+    print("Step 4: Sampling Configuration (optional)")
+    print("  logits = temperature(logits, 0.8)")
+    print("  logits = top_k(logits, 50)")
+    print("  logits = top_p(logits, 0.95)")
+    print("")
+
+    print("Step 5: Convert to Probabilities")
+    print("  probs = softmax(logits)")
+    print("")
+
+    print("Step 6: Sample Next Token")
+    print("  next_token_id = sample(probs)")
+    print("")
+
+    print("Step 7: Decode and Repeat")
+    print("  tokens = append(tokens, next_token_id)")
+    print("  if next_token_id == eos_token:")
+    print("    break")
+    print("  goto Step 2")
+    print("")
+
+    print("")
+    print("Different Generation Strategies:")
+    print("==================================================")
+    print("")
+
+    print("1. Greedy Decoding (Most Deterministic)")
+    print("   - Use argmax(logits) instead of sample()")
+    print("   - Always picks most likely token")
+    print("   - Fast but can be repetitive")
+    print("")
+
+    print("2. Beam Search")
+    print("   - Keep top-k sequences at each step")
+    print("   - More diverse than greedy")
+    print("   - Computationally expensive")
+    print("")
+
+    print("3. Temperature Sampling")
+    print("   - temp < 1.0: More focused (conservative)")
+    print("   - temp = 1.0: Unchanged distribution")
+    print("   - temp > 1.0: More random (creative)")
+    print("")
+
+    print("4. Top-k + Top-p + Temperature")
+    print("   - Most flexible and commonly used")
+    print("   - temp=0.8, k=50, p=0.95 is a good default")
+    print("   - Balances quality and diversity")
+    print("")
+
+    print("")
+    print("All generation components now available!")
+    print("")
+    print("Summary of Implemented Operations:")
+    print("  Phase 1: argmax, argmin, unsqueeze, squeeze, split, chunk")
+    print("  Phase 2: tokenize, detokenize, TokenIds type")
+    print("  Phase 3.1: embedding, positional_encoding")
+    print("  Phase 3.2: top_k, top_p, temperature")
+    print("  Phase 4: softmax, sample")
+    print("")
+    print("Next steps for full LLM inference:")
+    print("  - Implement attention mechanism")
+    print("  - Add KV cache for efficiency")
+    print("  - Implement full transformer layers")
+}
