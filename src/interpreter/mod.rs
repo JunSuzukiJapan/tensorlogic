@@ -22,6 +22,8 @@
 //! interpreter.execute(&program)?;
 //! ```
 
+mod formatter;
+
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::fs;
@@ -665,7 +667,7 @@ impl Interpreter {
             }
             Statement::Query { atom, constraints } => {
                 // Query execution with logic engine
-                println!("Query: {}", self.format_atom(atom));
+                println!("Query: {}", formatter::format_atom(atom));
 
                 // Convert atom terms based on relation variable definitions
                 let converted_atom = self.convert_atom_terms(atom);
@@ -691,7 +693,7 @@ impl Interpreter {
                         } else {
                             println!("  Solution {}:", i + 1);
                             for (var, term) in sub {
-                                println!("    {} = {}", var, self.format_term(term));
+                                println!("    {} = {}", var, formatter::format_term(term));
                             }
                         }
                     }
@@ -1812,31 +1814,6 @@ impl Interpreter {
         }
 
         Ok(())
-    }
-
-    /// Format an atom for display
-    fn format_atom(&self, atom: &Atom) -> String {
-        let terms: Vec<String> = atom.terms.iter().map(|t| self.format_term(t)).collect();
-        format!("{}({})", atom.predicate.as_str(), terms.join(", "))
-    }
-
-    /// Format a term for display
-    fn format_term(&self, term: &Term) -> String {
-        match term {
-            Term::Variable(v) => v.as_str().to_string(),
-            Term::Constant(c) => self.format_constant(c),
-            Term::Tensor(_) => "<tensor>".to_string(),
-        }
-    }
-
-    /// Format a constant for display
-    fn format_constant(&self, constant: &Constant) -> String {
-        match constant {
-            Constant::Integer(n) => n.to_string(),
-            Constant::Float(n) => n.to_string(),
-            Constant::String(s) => s.clone(),
-            Constant::Boolean(b) => b.to_string(),
-        }
     }
 
     /// Convert an atom's terms based on relation variable definitions
