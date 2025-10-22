@@ -132,7 +132,7 @@ binary_op = {
 }
 
 unary_op = {
-    "transpose" | "inv" | "det" | "-" | "!"
+    "inv" | "det" | "-" | "!"
 }
 
 einstein_sum = { "einsum" ~ "(" ~ string_literal ~ "," ~ tensor_list ~ ")" }
@@ -317,7 +317,7 @@ reserved_keyword = {
     | "forward" | "backward" | "gradient" | "symbolic"
     | "if" | "else" | "for" | "while" | "loop" | "break" | "in" | "range"
     | "let" | "true" | "false" | "not" | "and" | "or"
-    | "shape" | "rank" | "norm" | "transpose" | "inv" | "det"
+    | "shape" | "rank" | "norm" | "inv" | "det"
     | "objective" | "optimizer" | "epochs" | "auto"
     | "random" | "xavier" | "he" | "zeros" | "ones" | "void"
     | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
