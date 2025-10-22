@@ -1876,27 +1876,6 @@ impl Interpreter {
             terms: converted_terms,
         }
     }
-
-    /// Convert a rule's terms based on relation variable definitions
-    fn convert_rule_terms(&self, rule: &RuleDecl) -> RuleDecl {
-        let converted_head = match &rule.head {
-            RuleHead::Atom(atom) => RuleHead::Atom(self.convert_atom_terms(atom)),
-            RuleHead::Equation(eq) => RuleHead::Equation(eq.clone()),
-        };
-
-        let converted_body: Vec<BodyTerm> = rule.body.iter().map(|body_term| {
-            match body_term {
-                BodyTerm::Atom(atom) => BodyTerm::Atom(self.convert_atom_terms(atom)),
-                BodyTerm::Equation(eq) => BodyTerm::Equation(eq.clone()),
-                BodyTerm::Constraint(c) => BodyTerm::Constraint(c.clone()),
-            }
-        }).collect();
-
-        RuleDecl {
-            head: converted_head,
-            body: converted_body,
-        }
-    }
 }
 
 impl Default for Interpreter {
