@@ -155,7 +155,7 @@ tensor_literal = { "[" ~ tensor_elements ~ "]" | scalar_literal }
 
 tensor_elements = { tensor_element ~ ("," ~ tensor_element)* }
 
-tensor_element = { tensor_literal }
+tensor_element = { tensor_expr | tensor_literal | number }
 
 scalar_literal = { complex_number | number | boolean }
 

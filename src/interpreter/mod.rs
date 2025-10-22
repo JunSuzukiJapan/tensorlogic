@@ -1021,7 +1021,7 @@ impl Interpreter {
     }
 
     /// Evaluate a literal
-    fn eval_literal(&self, lit: &TensorLiteral) -> RuntimeResult<Value> {
+    fn eval_literal(&mut self, lit: &TensorLiteral) -> RuntimeResult<Value> {
         match lit {
             TensorLiteral::Scalar(scalar) => match scalar {
                 ScalarLiteral::Float(f) => Ok(Value::Float(*f)),
@@ -1040,7 +1040,7 @@ impl Interpreter {
     }
 
     /// Evaluate an array literal to a tensor
-    fn eval_array_literal(&self, elements: &[TensorLiteral]) -> RuntimeResult<Value> {
+    fn eval_array_literal(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Value> {
         if elements.is_empty() {
             return Err(RuntimeError::InvalidOperation("Empty array not allowed".to_string()));
         }
@@ -1062,19 +1062,36 @@ impl Interpreter {
     }
 
     /// Collect all scalar values from nested arrays
-    fn collect_scalars(&self, elements: &[TensorLiteral]) -> RuntimeResult<Vec<f32>> {
+    fn collect_scalars(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Vec<f32>> {
         let mut values = Vec::new();
 
         for elem in elements {
             match elem {
-                TensorLiteral::Scalar(ScalarLiteral::Float(f)) => {
+                ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Float(f))) => {
                     values.push(*f as f32);
                 }
-                TensorLiteral::Scalar(ScalarLiteral::Integer(i)) => {
+                ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Integer(i))) => {
                     values.push(*i as f32);
                 }
-                TensorLiteral::Array(nested) => {
+                ArrayElement::Literal(TensorLiteral::Array(nested)) => {
                     values.extend(self.collect_scalars(nested)?);
+                }
+                ArrayElement::Expression(expr) => {
+                    // Evaluate the expression (e.g., variable reference like seq_len, d_model)
+                    let value = self.eval_expr(expr)?;
+                    match value {
+                        Value::Float(f) => {
+                            values.push(f as f32);
+                        }
+                        Value::Integer(i) => {
+                            values.push(i as f32);
+                        }
+                        _ => {
+                            return Err(RuntimeError::TypeError(
+                                "Array element expression must evaluate to a scalar number".to_string(),
+                            ));
+                        }
+                    }
                 }
                 _ => {
                     return Err(RuntimeError::NotImplemented(
@@ -1088,12 +1105,17 @@ impl Interpreter {
     }
 
     /// Infer shape from nested array structure
-    fn infer_shape(&self, elements: &[TensorLiteral]) -> RuntimeResult<Vec<usize>> {
+    fn infer_shape(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Vec<usize>> {
         let mut shape = vec![elements.len()];
 
-        if let TensorLiteral::Array(nested) = &elements[0] {
-            let nested_shape = self.infer_shape(nested)?;
-            shape.extend(nested_shape);
+        if let Some(first) = elements.first() {
+            match first {
+                ArrayElement::Literal(TensorLiteral::Array(nested)) => {
+                    let nested_shape = self.infer_shape(nested)?;
+                    shape.extend(nested_shape);
+                }
+                _ => {}
+            }
         }
 
         Ok(shape)

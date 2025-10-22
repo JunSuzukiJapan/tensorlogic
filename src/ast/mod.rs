@@ -316,7 +316,14 @@ pub enum UnaryOp {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TensorLiteral {
     Scalar(ScalarLiteral),
-    Array(Vec<TensorLiteral>),
+    Array(Vec<ArrayElement>),
+}
+
+/// Array element - can be a literal or expression (supports variables in arrays)
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArrayElement {
+    Literal(TensorLiteral),
+    Expression(TensorExpr),
 }
 
 /// Scalar literal

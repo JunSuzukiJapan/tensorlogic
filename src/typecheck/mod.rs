@@ -468,7 +468,10 @@ impl TypeChecker {
                 }
 
                 // Infer element type from first element
-                let elem_type = self.infer_literal_type(&elements[0])?;
+                let elem_type = match &elements[0] {
+                    ArrayElement::Literal(lit) => self.infer_literal_type(lit)?,
+                    ArrayElement::Expression(expr) => self.infer_expr_type(expr)?,
+                };
 
                 // Construct array type with one more dimension
                 let mut dimensions = vec![Dimension::Fixed(elements.len())];

@@ -670,24 +670,24 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_tensor_element(pair: pest::iterators::Pair<Rule>) -> Result<TensorLiteral, ParseError> {
+    fn parse_tensor_element(pair: pest::iterators::Pair<Rule>) -> Result<ArrayElement, ParseError> {
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("tensor element content".to_string())
         })?;
 
         match inner.as_rule() {
-            Rule::tensor_literal => Self::parse_tensor_literal(inner),
+            Rule::tensor_literal => {
+                let lit = Self::parse_tensor_literal(inner)?;
+                Ok(ArrayElement::Literal(lit))
+            }
             Rule::tensor_expr => {
-                // tensor_expr in array context - for now, only handle simple numbers
-                // Full support would require evaluating expressions during parsing
-                // which is not appropriate for the parser layer
-                Err(ParseError::InvalidValue(
-                    "Complex tensor expressions in array literals not yet supported. Use simple numbers.".to_string()
-                ))
+                // Parse tensor_expr (supports variables like seq_len, d_model)
+                let expr = Self::parse_tensor_expr(inner)?;
+                Ok(ArrayElement::Expression(expr))
             }
             Rule::number => {
                 let value = Self::parse_number(inner)?;
-                Ok(TensorLiteral::Scalar(ScalarLiteral::Float(value)))
+                Ok(ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Float(value))))
             }
             _ => Err(ParseError::UnexpectedRule {
                 expected: "tensor literal, number, or tensor expression".to_string(),
