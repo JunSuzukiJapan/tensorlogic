@@ -1959,8 +1959,12 @@ impl Interpreter {
                 let embedding_table = self.eval_expr(&args[0])?.as_tensor()?.clone();
                 let token_ids = match self.eval_expr(&args[1])? {
                     Value::TokenIds(ids) => ids,
+                    Value::Tensor(t) => {
+                        // Convert tensor to Vec<u32>
+                        t.to_vec().iter().map(|&f| f.to_f32() as u32).collect()
+                    }
                     _ => return Err(RuntimeError::TypeError(
-                        "embedding() second argument must be TokenIds".to_string()
+                        "embedding() second argument must be TokenIds or Tensor".to_string()
                     )),
                 };
 

@@ -6,6 +6,76 @@ use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
 
 impl Tensor {
+    /// Token embedding lookup for language models
+    ///
+    /// Performs embedding lookup from a weight matrix given token IDs.
+    /// This is optimized for the common pattern: weight[d_model, vocab_size] + token_ids[batch, seq_len]
+    ///
+    /// # Arguments
+    /// * `token_ids` - Tensor of token indices with shape [batch, seq_len] or [seq_len]
+    ///
+    /// # Returns
+    /// Embedding tensor with shape [batch, seq_len, d_model] or [seq_len, d_model]
+    ///
+    /// # Example
+    /// ```ignore
+    /// let weight = Tensor::from_vec_metal(&device, data, vec![d_model, vocab_size])?;
+    /// let token_ids = Tensor::from_vec_metal(&device, ids, vec![batch, seq_len])?;
+    /// let embeddings = weight.embedding(&token_ids)?;
+    /// // embeddings.shape() == [batch, seq_len, d_model]
+    /// ```
+    pub fn embedding(&self, token_ids: &Tensor) -> TensorResult<Self> {
+        // self is weight with shape [d_model, vocab_size]
+        // token_ids has shape [batch, seq_len] or [seq_len]
+        let weight_dims = self.dims();
+        let token_dims = token_ids.dims();
+
+        if weight_dims.len() != 2 {
+            return Err(TensorError::InvalidOperation(
+                format!("Embedding weight must be 2D, got shape {:?}", weight_dims)
+            ));
+        }
+
+        let d_model = weight_dims[0];
+        let vocab_size = weight_dims[1];
+
+        // Validate token IDs are in range [0, vocab_size)
+        let token_data = token_ids.to_vec();
+        for &token_id in &token_data {
+            let id = token_id.to_f32() as usize;
+            if id >= vocab_size {
+                return Err(TensorError::InvalidOperation(
+                    format!("Token ID {} out of range for vocab size {}", id, vocab_size)
+                ));
+            }
+        }
+
+        // Calculate output shape
+        let mut output_shape = token_dims.to_vec();
+        output_shape.push(d_model);
+
+        // Perform embedding lookup
+        let num_tokens: usize = token_dims.iter().product();
+        let weight_data = self.to_vec();
+        let mut output = Vec::with_capacity(num_tokens * d_model);
+
+        for &token_id in &token_data {
+            let id = token_id.to_f32() as usize;
+
+            // Extract column id from weight matrix (column-major for [d_model, vocab_size])
+            for row in 0..d_model {
+                let idx = row * vocab_size + id;
+                output.push(weight_data[idx]);
+            }
+        }
+
+        // Create output tensor on same device as weight
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, output, output_shape),
+            _ => Tensor::from_vec(output, output_shape),
+        }
+    }
+
     /// Gather values along an axis according to indices
     ///
     /// Gathers values from `self` along dimension `dim` using `indices`.
