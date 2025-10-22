@@ -2911,6 +2911,173 @@ impl Interpreter {
                 Ok(Value::Tensor(output))
             }
 
+            // Masking operations
+            "apply_attention_mask" => {
+                // apply_attention_mask(tensor, mask)
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("apply_attention_mask() expects 2 arguments (tensor, mask), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let mask = self.eval_expr(&args[1])?.as_tensor()?.clone();
+
+                let output = tensor.apply_attention_mask(&mask)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "padding_mask" => {
+                // padding_mask([lengths], max_len)
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("padding_mask() expects 2 arguments (lengths, max_len), got {}", args.len())
+                    ));
+                }
+
+                // Parse lengths array
+                let lengths_value = self.eval_expr(&args[0])?;
+                let lengths: Vec<usize> = match lengths_value {
+                    Value::Tensor(t) => {
+                        t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                    }
+                    _ => return Err(RuntimeError::TypeError(
+                        "padding_mask() lengths must be an array".to_string()
+                    )),
+                };
+
+                let max_len = match self.eval_expr(&args[1])? {
+                    Value::Integer(i) => i as usize,
+                    Value::Float(f) => f as usize,
+                    v => return Err(RuntimeError::TypeError(
+                        format!("padding_mask() max_len must be a number, got {:?}", v)
+                    )),
+                };
+
+                let output = crate::tensor::Tensor::padding_mask(&lengths, max_len)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "combine_masks" => {
+                // combine_masks(mask1, mask2)
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("combine_masks() expects 2 arguments (mask1, mask2), got {}", args.len())
+                    ));
+                }
+
+                let mask1 = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let mask2 = self.eval_expr(&args[1])?.as_tensor()?.clone();
+
+                let output = mask1.combine_masks(&mask2)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            // Broadcast operation
+            "broadcast_to" => {
+                // broadcast_to(tensor, [target_shape])
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("broadcast_to() expects 2 arguments (tensor, target_shape), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let shape_value = self.eval_expr(&args[1])?;
+                let target_shape = match shape_value {
+                    Value::Tensor(t) => {
+                        t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                    }
+                    _ => return Err(RuntimeError::TypeError(
+                        "broadcast_to() target_shape must be an array".to_string()
+                    )),
+                };
+
+                use crate::tensor::TensorShape;
+                let target_tensor_shape = TensorShape::new(target_shape);
+                let output = tensor.broadcast_to(&target_tensor_shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            // Fused operations
+            "fused_add_relu" => {
+                // fused_add_relu(tensor, other)
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("fused_add_relu() expects 2 arguments (tensor, other), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let other = self.eval_expr(&args[1])?.as_tensor()?.clone();
+
+                let output = tensor.fused_add_relu(&other)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "fused_mul_relu" => {
+                // fused_mul_relu(tensor, other)
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("fused_mul_relu() expects 2 arguments (tensor, other), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let other = self.eval_expr(&args[1])?.as_tensor()?.clone();
+
+                let output = tensor.fused_mul_relu(&other)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "fused_affine" => {
+                // fused_affine(tensor, scale, bias)
+                if args.len() != 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("fused_affine() expects 3 arguments (tensor, scale, bias), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let scale = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let bias = self.eval_expr(&args[2])?.as_tensor()?.clone();
+
+                let output = tensor.fused_affine(&scale, &bias)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "fused_gelu_linear" => {
+                // fused_gelu_linear(tensor, weight, bias)
+                if args.len() != 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("fused_gelu_linear() expects 3 arguments (tensor, weight, bias), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let weight = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let bias = self.eval_expr(&args[2])?.as_tensor()?.clone();
+
+                let output = tensor.fused_gelu_linear(&weight, &bias)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
             "env" => {
                 // env("VAR_NAME")
                 if args.len() != 1 {
