@@ -97,6 +97,7 @@ pub enum Value {
     String(String),
     Model(Model),
     Tokenizer(std::sync::Arc<crate::tokenizer::Tokenizer>),
+    TokenIds(Vec<u32>),
     Void,
 }
 
@@ -174,6 +175,7 @@ impl std::fmt::Display for Value {
             Value::String(s) => write!(f, "{}", s),
             Value::Model(m) => write!(f, "Model({:?})", m.metadata.format),
             Value::Tokenizer(_) => write!(f, "Tokenizer"),
+            Value::TokenIds(ids) => write!(f, "TokenIds({:?})", ids),
             Value::Void => write!(f, "()"),
         }
     }
@@ -1881,17 +1883,17 @@ impl Interpreter {
                     true
                 };
 
-                let tensor = tokenizer.encode_tensor(self.env.metal_device(), &text, add_special_tokens)
+                let token_ids = tokenizer.encode(&text, add_special_tokens)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(tensor))
+                Ok(Value::TokenIds(token_ids))
             }
 
             "detokenize" => {
-                // detokenize(tokenizer, tensor, skip_special_tokens=true)
+                // detokenize(tokenizer, token_ids, skip_special_tokens=true)
                 if args.len() < 2 || args.len() > 3 {
                     return Err(RuntimeError::TypeError(
-                        format!("detokenize() expects 2-3 arguments (tokenizer, tensor, optional skip_special_tokens), got {}", args.len())
+                        format!("detokenize() expects 2-3 arguments (tokenizer, token_ids, optional skip_special_tokens), got {}", args.len())
                     ));
                 }
 
@@ -1902,7 +1904,12 @@ impl Interpreter {
                     )),
                 };
 
-                let tensor = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let token_ids = match self.eval_expr(&args[1])? {
+                    Value::TokenIds(ids) => ids,
+                    _ => return Err(RuntimeError::TypeError(
+                        "detokenize() second argument must be TokenIds".to_string()
+                    )),
+                };
 
                 let skip_special_tokens = if args.len() >= 3 {
                     self.eval_expr(&args[2])?.as_bool()?
@@ -1910,7 +1917,7 @@ impl Interpreter {
                     true
                 };
 
-                let text = tokenizer.decode_tensor(&tensor, skip_special_tokens)
+                let text = tokenizer.decode(&token_ids, skip_special_tokens)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::String(text))
@@ -2052,6 +2059,7 @@ impl Interpreter {
                         Value::Tensor(t) => print!("{:?}", t),
                         Value::Model(m) => print!("Model({:?})", m.metadata.format),
                         Value::Tokenizer(t) => print!("{:?}", t),
+                        Value::TokenIds(ids) => print!("{:?}", ids),
                         Value::Void => print!("void"),
                     }
                 }

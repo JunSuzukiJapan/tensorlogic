@@ -4,9 +4,6 @@ use std::path::Path;
 use std::sync::Arc;
 use tokenizers::Tokenizer as HFTokenizer;
 use crate::error::{TensorError, TensorResult};
-use crate::tensor::Tensor;
-use crate::device::MetalDevice;
-use half::f16;
 
 /// Wrapper around HuggingFace tokenizer
 pub struct Tokenizer {
@@ -55,22 +52,6 @@ impl Tokenizer {
         Ok(encoding.get_ids().to_vec())
     }
 
-    /// Encode text and return as tensor
-    pub fn encode_tensor(
-        &self,
-        device: &MetalDevice,
-        text: &str,
-        add_special_tokens: bool,
-    ) -> TensorResult<Tensor> {
-        let ids = self.encode(text, add_special_tokens)?;
-
-        // Convert u32 to f16 for tensor storage
-        let data: Vec<f16> = ids.iter().map(|&id| f16::from_f32(id as f32)).collect();
-        let shape = vec![ids.len()];
-
-        Tensor::from_vec_metal(device, data, shape)
-    }
-
     /// Decode token IDs to text
     pub fn decode(&self, ids: &[u32], skip_special_tokens: bool) -> TensorResult<String> {
         let text = self.inner
@@ -80,16 +61,6 @@ impl Tokenizer {
             ))?;
 
         Ok(text)
-    }
-
-    /// Decode tensor of token IDs to text
-    pub fn decode_tensor(&self, tensor: &Tensor, skip_special_tokens: bool) -> TensorResult<String> {
-        let data = tensor.to_vec();
-
-        // Convert f16 back to u32
-        let ids: Vec<u32> = data.iter().map(|&val| val.to_f32() as u32).collect();
-
-        self.decode(&ids, skip_special_tokens)
     }
 
     /// Get vocabulary size
@@ -142,17 +113,4 @@ mod tests {
         assert_eq!(decoded, text);
     }
 
-    #[test]
-    #[ignore] // Requires network access
-    fn test_encode_decode_tensor() {
-        let device = MetalDevice::new().unwrap();
-        let tokenizer = Tokenizer::from_pretrained("gpt2").unwrap();
-        let text = "Hello, world!";
-
-        let tensor = tokenizer.encode_tensor(&device, text, false).unwrap();
-        assert!(tensor.shape().dims()[0] > 0);
-
-        let decoded = tokenizer.decode_tensor(&tensor, false).unwrap();
-        assert_eq!(decoded, text);
-    }
 }
