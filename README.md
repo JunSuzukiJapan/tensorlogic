@@ -15,7 +15,29 @@ A production-ready f16 tensor library for Apple Silicon with automatic different
 
 TensorLogic is a unified tensor algebra library designed specifically for Apple Silicon (M-series chips), providing seamless integration between Metal GPU and Neural Engine through CoreML. All operations maintain f16 (half-precision) throughout for optimal Neural Engine compatibility and performance.
 
-**📚 [Getting Started Guide](claudedocs/getting_started.md)** | **🤖 [LLM Learning Guide](examples/LLM_GUIDE.md)** | **📖 [Optimizer Tutorial](claudedocs/optimizer_tutorial.md)** | **🔧 [Full Specification](claudedocs/f16_neural_engine_metal_spec.md)**
+**📚 [Getting Started Guide](claudedocs/getting_started.md)** | **🤖 [LLM Learning Guide](examples/LLM_GUIDE.md)** | **📖 [Optimizer Tutorial](claudedocs/optimizer_tutorial.md)** | **📦 [Model Loading](examples/model_loading.tl)** | **⚡ [GGUF Quantization](examples/gguf_quantized_models.tl)** | **🧠 [CoreML & Neural Engine](examples/coreml_neural_engine.tl)** | **🔧 [Full Specification](claudedocs/f16_neural_engine_metal_spec.md)**
+
+## 📖 Documentation
+
+**English**: [Model Loading](docs/en/model_loading.md) | [GGUF Quantization](docs/en/gguf_quantization.md) | [CoreML & Neural Engine](docs/en/coreml_neural_engine.md)
+
+**日本語**: [モデルローディング](docs/ja/model_loading.md) | [GGUF量子化](docs/ja/gguf_quantization.md) | [CoreML & Neural Engine](docs/ja/coreml_neural_engine.md)
+
+**Deutsch**: [Modell-Laden](docs/de/model_loading.md) | [GGUF Quantisierung](docs/de/gguf_quantization.md) | [CoreML & Neural Engine](docs/de/coreml_neural_engine.md)
+
+**Español**: [Carga de Modelos](docs/es/model_loading.md) | [Cuantización GGUF](docs/es/gguf_quantization.md) | [CoreML & Neural Engine](docs/es/coreml_neural_engine.md)
+
+**Français**: [Chargement de Modèles](docs/fr/model_loading.md) | [Quantification GGUF](docs/fr/gguf_quantization.md) | [CoreML & Neural Engine](docs/fr/coreml_neural_engine.md)
+
+**Italiano**: [Caricamento Modelli](docs/it/model_loading.md) | [Quantizzazione GGUF](docs/it/gguf_quantization.md) | [CoreML & Neural Engine](docs/it/coreml_neural_engine.md)
+
+**한국어**: [모델 로딩](docs/ko/model_loading.md) | [GGUF 양자화](docs/ko/gguf_quantization.md) | [CoreML & Neural Engine](docs/ko/coreml_neural_engine.md)
+
+**Português**: [Carregamento de Modelos](docs/pt/model_loading.md) | [Quantização GGUF](docs/pt/gguf_quantization.md) | [CoreML & Neural Engine](docs/pt/coreml_neural_engine.md)
+
+**Русский**: [Загрузка Моделей](docs/ru/model_loading.md) | [Квантование GGUF](docs/ru/gguf_quantization.md) | [CoreML & Neural Engine](docs/ru/coreml_neural_engine.md)
+
+**中文**: [模型加载](docs/zh/model_loading.md) | [GGUF量化](docs/zh/gguf_quantization.md) | [CoreML & Neural Engine](docs/zh/coreml_neural_engine.md)
 
 ## Key Features
 
@@ -38,13 +60,21 @@ TensorLogic is a unified tensor algebra library designed specifically for Apple 
   - Gradient checking with numerical validation
   - Create graph mode for higher-order derivatives
 
-- **Optimizers** (Phase 9.1) 🚀 NEW
+- **Optimizers** (Phase 9.1) 🚀
   - **SGD**: Basic gradient descent, momentum, Nesterov
   - **Adam**: Adaptive learning rates with AMSGrad support
   - **AdamW**: Decoupled weight decay for better regularization
   - Learning rate scheduling
   - State save/load for checkpointing
   - Multi-parameter group support
+
+- **Model Loading & Quantization** (Phase 1-3) 🆕 NEW
+  - **SafeTensors**: PyTorch/HuggingFace compatible (F32, F64, F16, BF16)
+  - **GGUF**: Quantized LLM models (Q4_0, Q8_0, F16, F32)
+  - **Automatic dequantization**: All formats → f16 → Metal GPU
+  - **Memory efficient**: 4-bit models use ~8x less memory
+  - **llama.cpp compatible**: Load Llama, Mistral, Phi models
+  - Examples: [Model Loading](examples/model_loading.tl) | [GGUF Guide](examples/gguf_quantized_models.tl)
 
 - **Device Acceleration** (Phase 2, 4, 7)
   - Metal GPU acceleration for all operations
