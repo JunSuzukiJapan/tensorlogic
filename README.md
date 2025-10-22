@@ -15,7 +15,7 @@ A production-ready f16 tensor library for Apple Silicon with automatic different
 
 TensorLogic is a unified tensor algebra library designed specifically for Apple Silicon (M-series chips), providing seamless integration between Metal GPU and Neural Engine through CoreML. All operations maintain f16 (half-precision) throughout for optimal Neural Engine compatibility and performance.
 
-**📚 [Getting Started Guide](claudedocs/getting_started.md)** | **📖 [Optimizer Tutorial](claudedocs/optimizer_tutorial.md)** | **🔧 [Full Specification](claudedocs/f16_neural_engine_metal_spec.md)**
+**📚 [Getting Started Guide](claudedocs/getting_started.md)** | **🤖 [LLM Learning Guide](examples/LLM_GUIDE.md)** | **📖 [Optimizer Tutorial](claudedocs/optimizer_tutorial.md)** | **🔧 [Full Specification](claudedocs/f16_neural_engine_metal_spec.md)**
 
 ## Key Features
 
@@ -331,6 +331,7 @@ tl run examples/tutorial_01_linear_regression.tl
 - [Tutorial 03: Neural Network Weights](examples/tutorial_03_neural_network.tl) - Weight regularization
 - [Tutorial 04: Logic Programming](examples/tutorial_04_logic_programming.tl) - Neural-symbolic integration
 - [Import Test](examples/import_test/) - External file imports with circular dependency detection
+- [**LLM Learning Guide**](examples/LLM_GUIDE.md) - 🤖 Build language models: embeddings, attention, next-token prediction
 - [Getting Started Guide](claudedocs/getting_started.md) - Comprehensive tutorials
 - [Language Reference](docs/en/language_reference.md) - Complete syntax reference
 
