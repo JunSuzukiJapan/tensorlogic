@@ -633,6 +633,13 @@ impl Interpreter {
                     Ok(())
                 }
             },
+            Statement::FactAssertion { atom } => {
+                // Add fact to logic engine
+                println!("Adding fact: {}", atom.predicate.as_str());
+                self.logic_engine.add_fact(atom.clone());
+                println!("  ✓ Fact added to knowledge base");
+                Ok(())
+            }
             Statement::Query { atom, constraints } => {
                 // Query execution with logic engine
                 println!("Query: {} ({})", atom.predicate.as_str(), atom.terms.len());

@@ -952,6 +952,9 @@ impl TensorLogicParser {
 
                 Ok(Statement::FunctionCall { name, args })
             }
+            Rule::fact_assertion => {
+                Self::parse_fact_assertion(inner)
+            }
             Rule::query => {
                 Self::parse_query(inner)
             }
@@ -969,6 +972,16 @@ impl TensorLogicParser {
                 found: format!("{:?}", inner.as_rule()),
             }),
         }
+    }
+
+    fn parse_fact_assertion(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let atom = Self::parse_atom(inner.next().ok_or_else(|| {
+            ParseError::MissingField("fact assertion atom".to_string())
+        })?)?;
+
+        Ok(Statement::FactAssertion { atom })
     }
 
     fn parse_query(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {

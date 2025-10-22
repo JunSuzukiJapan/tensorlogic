@@ -199,10 +199,11 @@ eq_type = { ":=" | "~" | "=" }
 statement = {
     tensor_decl
     | assignment
+    | fact_assertion
+    | query
     | tensor_equation
     | python_import
     | function_call
-    | query
     | inference_call
     | learning_call
     | control_flow
@@ -210,7 +211,13 @@ statement = {
 
 assignment = { identifier ~ ":=" ~ tensor_expr }
 
-query = { "query" ~ atom ~ ("where" ~ constraint_list)? }
+fact_assertion = { "<-" ~ atom }
+
+query = { "?-" ~ atom ~ ("where" ~ constraint_list)? }
+
+// Note: fact_assertion and query use distinct operators (<- and ?-)
+// that don't conflict with other syntax, so they must be checked
+// before tensor_equation and function_call in the statement rule
 
 constraint_list = { constraint ~ ("," ~ constraint)* }
 
@@ -296,7 +303,7 @@ identifier = @{
 reserved_keyword = {
     "tensor" | "relation" | "rule" | "embedding" | "function" | "main"
     | "learnable" | "frozen" | "entity" | "concept" | "embed"
-    | "einsum" | "query" | "infer" | "learn"
+    | "einsum" | "infer" | "learn"
     | "forward" | "backward" | "gradient" | "symbolic"
     | "if" | "else" | "for" | "while" | "in" | "range"
     | "true" | "false" | "not" | "and" | "or"

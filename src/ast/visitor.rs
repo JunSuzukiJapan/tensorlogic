@@ -259,6 +259,10 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
             }
             Ok(())
         }
+        Statement::FactAssertion { atom } => {
+            visitor.visit_atom(atom)?;
+            Ok(())
+        }
         Statement::Query { atom, constraints } => {
             visitor.visit_atom(atom)?;
             for constraint in constraints {

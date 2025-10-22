@@ -1,10 +1,10 @@
 // Logic Programming Example: Ancestor Relationships
 //
-// This example demonstrates the syntax for logic programming with rules.
-// We define ancestor relationships using Parent relation and Ancestor rules.
-//
-// NOTE: Full logic programming features (fact assertions and queries)
-//       are currently in development. This file shows the intended syntax.
+// This example demonstrates logic programming with:
+// - Relation declarations
+// - Rule definitions (with <- operator)
+// - Fact assertions (with <- operator)
+// - Queries (with ?- operator)
 
 // ============================================================================
 // Relation Declarations
@@ -25,62 +25,46 @@ Ancestor(X, Y) <- Parent(X, Y)
 Ancestor(X, Z) <- Ancestor(X, Y), Parent(Y, Z)
 
 // ============================================================================
-// Main Block (Future Implementation)
+// Main Execution Block
 // ============================================================================
 
 main {
-    // ========================================================================
-    // The following syntax is planned for future implementation:
-    // ========================================================================
+    print("Logic Programming Example: Ancestor Relationships")
+    print("")
 
-    // FACT ASSERTIONS (Not yet implemented)
-    // --------------------------------------
-    // These would add facts to the knowledge base:
-    //
-    // assert Parent(Alice, Bob)     // Alice is Bob's parent
-    // assert Parent(Bob, Charlie)   // Bob is Charlie's parent
-    // assert Parent(Charlie, David) // Charlie is David's parent
+    // ========================================================================
+    // Fact Assertions: Add facts to the knowledge base
+    // ========================================================================
+    print("Adding facts to knowledge base:")
 
-    // QUERIES (Partially implemented - syntax defined)
-    // -------------------------------------------------
+    <- Parent(Alice, Bob)
+    <- Parent(Bob, Charlie)
+    <- Parent(Charlie, David)
+
+    print("")
+
+    // ========================================================================
+    // Queries: Ask questions about the knowledge base
+    // ========================================================================
+    print("Running queries:")
+    print("")
+
     // Query 1: Find all ancestors of Charlie
-    // Expected: {Alice, Bob}
-    // query Ancestor(X, Charlie)
-    //
-    // Query 2: Check if Alice is an ancestor of David
-    // Expected: true (via transitive rule: Alice → Bob → Charlie → David)
-    // query Ancestor(Alice, David)
-    //
-    // Query 3: Find all descendants of Alice
-    // Expected: {Bob, Charlie, David}
-    // query Ancestor(Alice, Y)
+    print("Query 1: Who are the ancestors of Charlie?")
+    ?- Ancestor(X, Charlie)
+    print("")
 
-    // ========================================================================
-    // Current Status
-    // ========================================================================
-    print("Logic Programming Example (Demonstration)")
+    // Query 2: Check if Alice is an ancestor of David
+    print("Query 2: Is Alice an ancestor of David?")
+    ?- Ancestor(Alice, David)
     print("")
-    print("Defined Relations:")
-    print("  - Parent(x, y): x is a parent of y")
+
+    // Query 3: Find all descendants of Alice
+    print("Query 3: Who are the descendants of Alice?")
+    ?- Ancestor(Alice, Y)
     print("")
-    print("Defined Rules:")
-    print("  - Ancestor(X, Y) <- Parent(X, Y)")
-    print("  - Ancestor(X, Z) <- Ancestor(X, Y), Parent(Y, Z)")
-    print("")
-    print("Expected Behavior (when fully implemented):")
-    print("")
-    print("Given facts:")
-    print("  Parent(Alice, Bob)")
-    print("  Parent(Bob, Charlie)")
-    print("  Parent(Charlie, David)")
-    print("")
-    print("Queries would return:")
-    print("  query Ancestor(X, Charlie)")
-    print("    → X = {Alice, Bob}")
-    print("")
-    print("  query Ancestor(Alice, David)")
-    print("    → true")
-    print("")
-    print("  query Ancestor(Alice, Y)")
-    print("    → Y = {Bob, Charlie, David}")
+
+    // Query 4: Check direct parent relationship
+    print("Query 4: Is Bob a parent of Charlie?")
+    ?- Parent(Bob, Charlie)
 }

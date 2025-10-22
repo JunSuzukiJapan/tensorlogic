@@ -416,7 +416,11 @@ pub enum Statement {
         name: Identifier,
         args: Vec<TensorExpr>,
     },
-    /// Query: query pred(x, y) where constraints
+    /// Fact assertion: <- pred(a, b)
+    FactAssertion {
+        atom: Atom,
+    },
+    /// Query: ?- pred(x, y) where constraints
     Query {
         atom: Atom,
         constraints: Vec<Constraint>,
