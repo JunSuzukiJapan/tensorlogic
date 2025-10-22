@@ -538,6 +538,26 @@ impl TypeChecker {
                 // Simplified: return left type
                 Ok(left.clone())
             }
+
+            BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+                // Comparison operators return boolean scalar
+                Ok(TensorTypeInfo::new(
+                    BaseType::Bool,
+                    vec![]
+                ))
+            }
+
+            BinaryOp::And | BinaryOp::Or => {
+                // Logical operators work on booleans
+                if left.base_type != BaseType::Bool || right.base_type != BaseType::Bool {
+                    return Err(TypeError::InvalidOperation {
+                        op: format!("{:?}", op),
+                        left: format!("{:?}", left),
+                        right: format!("{:?}", right),
+                    });
+                }
+                Ok(left.clone())
+            }
         }
     }
 

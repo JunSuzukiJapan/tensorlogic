@@ -25,7 +25,7 @@ pub type ModelResult<T> = Result<T, TensorError>;
 ///
 /// Represents a complete model with all its weights and parameters.
 /// All tensors are stored in TensorLogic's native f16 format.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Model {
     /// Named tensors (e.g., "layers.0.weight", "layers.0.bias")
     pub tensors: HashMap<String, Tensor>,

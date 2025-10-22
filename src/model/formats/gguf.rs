@@ -8,7 +8,7 @@ use crate::error::TensorError;
 use crate::model::{Model, ModelMetadata, ModelFormat, QuantizationType};
 use crate::model::convert::f32_to_f16;
 use gguf_rs_lib::prelude::*;
-use gguf_rs_lib::tensor::quantization::blocks::{Q4_0Block, Q8_0Block};
+use gguf_rs_lib::tensor::quantization::blocks::{Q4_0Block, Q6_KBlock, Q8_0Block};
 use std::collections::HashMap;
 use std::path::Path;
 use std::fs::File;
@@ -92,6 +92,78 @@ impl GGUFLoader {
                 let q_high = ((byte >> 4) & 0x0F) as i8 - 8;
                 let f_high = half::f16::from_f32(q_high as f32) * scale;
                 result.push(f_high);
+            }
+        }
+
+        result.truncate(num_elements);
+        result
+    }
+
+    /// Dequantize Q6_K format to f16
+    /// Q6_K: 256 6-bit values per block with 16 f16 scales
+    fn dequantize_q6_k(data: &[u8], num_elements: usize) -> Vec<half::f16> {
+        const BLOCK_SIZE: usize = 256;
+        const BLOCK_BYTES: usize = std::mem::size_of::<Q6_KBlock>(); // 192 + 16 = 208 bytes
+
+        let num_blocks = (num_elements + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let mut result = Vec::with_capacity(num_elements);
+
+        for block_idx in 0..num_blocks {
+            let block_offset = block_idx * BLOCK_BYTES;
+            if block_offset + BLOCK_BYTES > data.len() {
+                break;
+            }
+
+            // Q6_K structure: data[192 bytes] + scales[16 bytes]
+            // 192 bytes of 6-bit data = 256 values (192 * 8 / 6 = 256)
+            // 16 bytes of scales = 8 f16 scales (2 bytes each)
+
+            let data_offset = block_offset;
+            let scales_offset = block_offset + 192;
+
+            // Read 8 scales (f16 format, 2 bytes each)
+            let mut scales = [half::f16::ZERO; 8];
+            for i in 0..8 {
+                let scale_bytes = [
+                    data[scales_offset + i * 2],
+                    data[scales_offset + i * 2 + 1],
+                ];
+                scales[i] = half::f16::from_le_bytes(scale_bytes);
+            }
+
+            // Decode 6-bit values
+            // 256 values stored in 192 bytes
+            // Each group of 3 bytes contains 4 6-bit values
+            for group_idx in 0..64 {
+                if result.len() >= num_elements {
+                    break;
+                }
+
+                let byte_offset = data_offset + group_idx * 3;
+                let b0 = data[byte_offset] as u32;
+                let b1 = data[byte_offset + 1] as u32;
+                let b2 = data[byte_offset + 2] as u32;
+
+                // Extract 4 6-bit values from 3 bytes
+                // Bit layout: [b2:b1:b0] = [8bits:8bits:8bits] = 24 bits total
+                // v0 = bits 0-5, v1 = bits 6-11, v2 = bits 12-17, v3 = bits 18-23
+                let v0 = (b0 & 0x3F) as i8 - 32; // 6-bit signed: -32 to 31
+                let v1 = (((b0 >> 6) | (b1 << 2)) & 0x3F) as i8 - 32;
+                let v2 = (((b1 >> 4) | (b2 << 4)) & 0x3F) as i8 - 32;
+                let v3 = ((b2 >> 2) & 0x3F) as i8 - 32;
+
+                // Determine which scale to use (32 values per scale)
+                let scale_idx = (group_idx * 4) / 32;
+                let scale = scales[scale_idx];
+
+                // Dequantize
+                result.push(half::f16::from_f32(v0 as f32) * scale);
+                if result.len() >= num_elements { break; }
+                result.push(half::f16::from_f32(v1 as f32) * scale);
+                if result.len() >= num_elements { break; }
+                result.push(half::f16::from_f32(v2 as f32) * scale);
+                if result.len() >= num_elements { break; }
+                result.push(half::f16::from_f32(v3 as f32) * scale);
             }
         }
 
@@ -211,10 +283,30 @@ impl GGUFLoader {
                     let num_elements: usize = shape.iter().product();
                     Self::dequantize_q4_0(bytes, num_elements)
                 }
+                GGUFTensorType::Q6_K => {
+                    quantization_type = QuantizationType::Q6;
+
+                    // Load tensor data
+                    let data = reader.load_tensor_data(&tensor_info.name)
+                        .map_err(|e| TensorError::InvalidOperation(format!("Failed to load tensor data: {}", e)))?
+                        .ok_or_else(|| TensorError::InvalidOperation(format!("Tensor data not found for {}", tensor_info.name)))?;
+
+                    // Get bytes from TensorData enum
+                    let bytes = match data {
+                        gguf_rs_lib::tensor::TensorData::Owned(ref v) => v.as_slice(),
+                        gguf_rs_lib::tensor::TensorData::Borrowed(b) => b,
+                        gguf_rs_lib::tensor::TensorData::Shared(ref arc) => arc.as_slice(),
+                        _ => return Err(TensorError::InvalidOperation("Unexpected tensor data type".to_string())),
+                    };
+
+                    // Dequantize Q6_K to f16
+                    let num_elements: usize = shape.iter().product();
+                    Self::dequantize_q6_k(bytes, num_elements)
+                }
                 _ => {
-                    // Other quantized formats (Q4_1, Q5_0, Q5_1, Q8_1, K-quants, etc.)
+                    // Other quantized formats (Q4_1, Q5_0, Q5_1, Q8_1, other K-quants, etc.)
                     return Err(TensorError::InvalidOperation(
-                        format!("Quantized tensor type {:?} not yet supported. Currently supporting: F32, F16, Q4_0, Q8_0", tensor_info.tensor_type)
+                        format!("Quantized tensor type {:?} not yet supported. Currently supporting: F32, F16, Q4_0, Q6_K, Q8_0", tensor_info.tensor_type)
                     ));
                 }
             };

@@ -552,6 +552,14 @@ impl TensorLogicParser {
             "**" => Ok(BinaryOp::Power),
             "⊗" => Ok(BinaryOp::TensorProd),
             "⊙" => Ok(BinaryOp::Hadamard),
+            "==" => Ok(BinaryOp::Eq),
+            "!=" => Ok(BinaryOp::Ne),
+            "<" => Ok(BinaryOp::Lt),
+            "<=" => Ok(BinaryOp::Le),
+            ">" => Ok(BinaryOp::Gt),
+            ">=" => Ok(BinaryOp::Ge),
+            "&&" => Ok(BinaryOp::And),
+            "||" => Ok(BinaryOp::Or),
             _ => Err(ParseError::InvalidValue(format!("unknown binary operator: {}", pair.as_str()))),
         }
     }
@@ -919,6 +927,19 @@ impl TensorLogicParser {
         })?;
 
         match inner.as_rule() {
+            Rule::let_statement => {
+                let mut inner_pairs = inner.into_inner();
+                let target = Self::parse_identifier(inner_pairs.next().ok_or_else(|| {
+                    ParseError::MissingField("let target".to_string())
+                })?)?;
+                let value = Self::parse_tensor_expr(inner_pairs.next().ok_or_else(|| {
+                    ParseError::MissingField("let value".to_string())
+                })?)?;
+                Ok(Statement::Let { target, value })
+            }
+            Rule::break_statement => {
+                Ok(Statement::Break)
+            }
             Rule::tensor_decl => {
                 Ok(Statement::TensorDecl(Self::parse_tensor_decl(inner)?))
             }
@@ -1171,6 +1192,7 @@ impl TensorLogicParser {
             Rule::if_statement => Self::parse_if_statement(inner),
             Rule::for_statement => Self::parse_for_statement(inner),
             Rule::while_statement => Self::parse_while_statement(inner),
+            Rule::loop_statement => Self::parse_loop_statement(inner),
             _ => Err(ParseError::InvalidValue(format!("Invalid control flow: {}", inner.as_str()))),
         }
     }
@@ -1282,6 +1304,20 @@ impl TensorLogicParser {
         })
     }
 
+    fn parse_loop_statement(pair: pest::iterators::Pair<Rule>) -> Result<ControlFlow, ParseError> {
+        let inner = pair.into_inner();
+
+        // Parse body
+        let mut body = Vec::new();
+        for stmt_pair in inner {
+            if stmt_pair.as_rule() == Rule::statement {
+                body.push(Self::parse_statement(stmt_pair)?);
+            }
+        }
+
+        Ok(ControlFlow::Loop { body })
+    }
+
     fn parse_condition(pair: pest::iterators::Pair<Rule>) -> Result<Condition, ParseError> {
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("condition value".to_string())
@@ -1351,7 +1387,15 @@ impl TensorLogicParser {
         let s = pair.as_str();
         // Remove surrounding quotes
         if s.len() >= 2 && s.starts_with('"') && s.ends_with('"') {
-            Ok(s[1..s.len() - 1].to_string())
+            let content = &s[1..s.len() - 1];
+            // Process escape sequences
+            let processed = content
+                .replace("\\n", "\n")
+                .replace("\\t", "\t")
+                .replace("\\r", "\r")
+                .replace("\\\"", "\"")
+                .replace("\\\\", "\\");
+            Ok(processed)
         } else {
             Err(ParseError::InvalidValue(format!("Invalid string literal: {}", s)))
         }

@@ -244,7 +244,7 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
             }
             Ok(())
         }
-        Statement::Assignment { target, value } => {
+        Statement::Let { target, value } | Statement::Assignment { target, value } => {
             visitor.visit_identifier(target)?;
             visitor.visit_tensor_expr(value)
         }
@@ -321,8 +321,18 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
                 }
                 Ok(())
             }
+            ControlFlow::Loop { body } => {
+                for stmt in body {
+                    visitor.visit_statement(stmt)?;
+                }
+                Ok(())
+            }
         },
         Statement::PythonImport { .. } => {
+            // No sub-expressions to visit
+            Ok(())
+        }
+        Statement::Break => {
             // No sub-expressions to visit
             Ok(())
         }
@@ -416,7 +426,7 @@ pub fn walk_statement_mut<V: VisitorMut>(
     stmt: &mut Statement,
 ) -> Result<(), V::Error> {
     match stmt {
-        Statement::Assignment { value, .. } => visitor.visit_tensor_expr_mut(value),
+        Statement::Let { value, .. } | Statement::Assignment { value, .. } => visitor.visit_tensor_expr_mut(value),
         Statement::Equation(eq) => {
             visitor.visit_tensor_expr_mut(&mut eq.left)?;
             visitor.visit_tensor_expr_mut(&mut eq.right)
@@ -438,7 +448,7 @@ pub fn walk_statement_mut<V: VisitorMut>(
                 }
                 Ok(())
             }
-            ControlFlow::For { body, .. } | ControlFlow::While { body, .. } => {
+            ControlFlow::For { body, .. } | ControlFlow::While { body, .. } | ControlFlow::Loop { body } => {
                 for stmt in body {
                     visitor.visit_statement_mut(stmt)?;
                 }

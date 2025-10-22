@@ -126,7 +126,9 @@ tensor_term = {
 }
 
 binary_op = {
-    "**" | "⊗" | "⊙" | "@" | "*" | "/" | "+" | "-"
+    "||" | "&&"
+    | "==" | "!=" | "<=" | ">=" | "<" | ">"
+    | "**" | "⊗" | "⊙" | "@" | "*" | "/" | "+" | "-"
 }
 
 unary_op = {
@@ -197,7 +199,9 @@ eq_type = { ":=" | "~" | "=" }
 // ============================================================================
 
 statement = {
-    tensor_decl
+    let_statement
+    | break_statement
+    | tensor_decl
     | assignment
     | fact_assertion
     | query
@@ -208,6 +212,10 @@ statement = {
     | learning_call
     | control_flow
 }
+
+break_statement = { "break" }
+
+let_statement = { "let" ~ identifier ~ "=" ~ tensor_expr }
 
 assignment = { identifier ~ ":=" ~ tensor_expr }
 
@@ -251,7 +259,7 @@ scheduler_param = { identifier ~ ("=" | ":") ~ number }
 // Control Flow
 // ============================================================================
 
-control_flow = { if_statement | for_statement | while_statement }
+control_flow = { if_statement | for_statement | while_statement | loop_statement }
 
 if_statement = {
     "if" ~ condition ~ "{" ~ statement* ~ "}"
@@ -269,6 +277,8 @@ iterable = { range_expr | entity_set | tensor_expr }
 range_expr = { "range" ~ "(" ~ integer ~ ")" }
 
 while_statement = { "while" ~ condition ~ "{" ~ statement* ~ "}" }
+
+loop_statement = { "loop" ~ "{" ~ statement* ~ "}" }
 
 // ============================================================================
 // Literals and Identifiers
@@ -305,8 +315,8 @@ reserved_keyword = {
     | "learnable" | "frozen" | "entity" | "concept" | "embed"
     | "einsum" | "infer" | "learn"
     | "forward" | "backward" | "gradient" | "symbolic"
-    | "if" | "else" | "for" | "while" | "in" | "range"
-    | "true" | "false" | "not" | "and" | "or"
+    | "if" | "else" | "for" | "while" | "loop" | "break" | "in" | "range"
+    | "let" | "true" | "false" | "not" | "and" | "or"
     | "shape" | "rank" | "norm" | "transpose" | "inv" | "det"
     | "objective" | "optimizer" | "epochs" | "auto"
     | "random" | "xavier" | "he" | "zeros" | "ones" | "void"

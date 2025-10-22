@@ -33,6 +33,7 @@ use crate::tensor::Tensor;
 use crate::device::{Device, MetalDevice};
 use crate::error::TensorError;
 use crate::logic::LogicEngine;
+use crate::model::Model;
 use half::f16;
 
 /// Epsilon for floating-point comparisons
@@ -79,6 +80,9 @@ pub enum RuntimeError {
 
     #[error("Circular import detected: {0}")]
     CircularImport(String),
+
+    #[error("Break outside of loop")]
+    BreakOutsideLoop,
 }
 
 pub type RuntimeResult<T> = Result<T, RuntimeError>;
@@ -91,6 +95,7 @@ pub enum Value {
     Integer(i64),
     Float(f64),
     String(String),
+    Model(Model),
     Void,
 }
 
@@ -166,6 +171,7 @@ impl std::fmt::Display for Value {
             Value::Integer(i) => write!(f, "{}", i),
             Value::Float(fl) => write!(f, "{}", fl),
             Value::String(s) => write!(f, "{}", s),
+            Value::Model(m) => write!(f, "Model({:?})", m.metadata.format),
             Value::Void => write!(f, "()"),
         }
     }
@@ -188,9 +194,29 @@ impl RuntimeEnvironment {
         }
     }
 
-    /// Set a variable
-    pub fn set_variable(&mut self, name: String, value: Value) {
+    /// Check if a variable exists
+    pub fn has_variable(&self, name: &str) -> bool {
+        self.variables.contains_key(name)
+    }
+
+    /// Declare a new variable (error if already exists)
+    pub fn declare_variable(&mut self, name: String, value: Value) -> RuntimeResult<()> {
+        if self.variables.contains_key(&name) {
+            return Err(RuntimeError::InvalidOperation(
+                format!("Variable '{}' is already defined. Use assignment without 'let' to update existing variables.", name)
+            ));
+        }
         self.variables.insert(name, value);
+        Ok(())
+    }
+
+    /// Set a variable (update existing or error if not defined)
+    pub fn set_variable(&mut self, name: String, value: Value) -> RuntimeResult<()> {
+        if !self.variables.contains_key(&name) {
+            return Err(RuntimeError::UndefinedVariable(name));
+        }
+        self.variables.insert(name, value);
+        Ok(())
     }
 
     /// Get a variable
@@ -524,10 +550,16 @@ impl Interpreter {
                 }
                 Ok(())
             }
+            Statement::Let { target, value } => {
+                let evaluated_value = self.eval_expr(value)?;
+                self.env
+                    .declare_variable(target.as_str().to_string(), evaluated_value)?;
+                Ok(())
+            }
             Statement::Assignment { target, value } => {
                 let evaluated_value = self.eval_expr(value)?;
                 self.env
-                    .set_variable(target.as_str().to_string(), evaluated_value);
+                    .set_variable(target.as_str().to_string(), evaluated_value)?;
                 Ok(())
             }
             Statement::Equation(eq) => {
@@ -619,10 +651,20 @@ impl Interpreter {
                     };
 
                     // Execute body for each item
+                    let mut should_break = false;
                     for item in items {
-                        self.env.set_variable(variable.as_str().to_string(), item);
+                        // For loop variable - directly set without checking
+                        self.env.variables.insert(variable.as_str().to_string(), item);
                         for stmt in body {
-                            self.execute_statement(stmt)?;
+                            if let Err(RuntimeError::BreakOutsideLoop) = self.execute_statement(stmt) {
+                                should_break = true;
+                                break;
+                            } else {
+                                self.execute_statement(stmt)?;
+                            }
+                        }
+                        if should_break {
+                            break;
                         }
                     }
 
@@ -646,11 +688,37 @@ impl Interpreter {
                             break;
                         }
 
+                        let mut should_break = false;
                         for stmt in body {
-                            self.execute_statement(stmt)?;
+                            if let Err(RuntimeError::BreakOutsideLoop) = self.execute_statement(stmt) {
+                                should_break = true;
+                                break;
+                            } else {
+                                self.execute_statement(stmt)?;
+                            }
+                        }
+                        if should_break {
+                            break;
                         }
                     }
 
+                    Ok(())
+                }
+                ControlFlow::Loop { body } => {
+                    loop {
+                        let mut should_break = false;
+                        for stmt in body {
+                            if let Err(RuntimeError::BreakOutsideLoop) = self.execute_statement(stmt) {
+                                should_break = true;
+                                break;
+                            } else {
+                                self.execute_statement(stmt)?;
+                            }
+                        }
+                        if should_break {
+                            break;
+                        }
+                    }
                     Ok(())
                 }
             },
@@ -780,6 +848,9 @@ impl Interpreter {
             Statement::Learning(spec) => {
                 // Learning execution with detailed progress display
                 self.execute_learning(spec)
+            }
+            Statement::Break => {
+                Err(RuntimeError::BreakOutsideLoop)
             }
             Statement::PythonImport { module, alias } => {
                 #[cfg(any(feature = "python", feature = "python-extension"))]
@@ -985,31 +1056,92 @@ impl Interpreter {
                         // Hadamard is element-wise multiplication (same as mul)
                         l.mul(&r)
                     }
+                    BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+                        return Err(RuntimeError::NotImplemented(format!("Comparison {:?} not yet implemented for tensors", op)));
+                    }
+                    BinaryOp::And | BinaryOp::Or => {
+                        return Err(RuntimeError::NotImplemented(format!("Logical {:?} not yet implemented for tensors", op)));
+                    }
                 }
                 .map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::Tensor(result))
             }
             (Value::Float(l), Value::Float(r)) => {
-                let result = match op {
-                    BinaryOp::Add => l + r,
-                    BinaryOp::Sub => l - r,
-                    BinaryOp::Mul => l * r,
+                match op {
+                    BinaryOp::Add => Ok(Value::Float(l + r)),
+                    BinaryOp::Sub => Ok(Value::Float(l - r)),
+                    BinaryOp::Mul => Ok(Value::Float(l * r)),
                     BinaryOp::Div => {
                         if r == 0.0 {
                             return Err(RuntimeError::DivisionByZero);
                         }
-                        l / r
+                        Ok(Value::Float(l / r))
                     }
-                    BinaryOp::Power => l.powf(r),
+                    BinaryOp::Power => Ok(Value::Float(l.powf(r))),
+                    BinaryOp::Eq => Ok(Value::Boolean(l == r)),
+                    BinaryOp::Ne => Ok(Value::Boolean(l != r)),
+                    BinaryOp::Lt => Ok(Value::Boolean(l < r)),
+                    BinaryOp::Le => Ok(Value::Boolean(l <= r)),
+                    BinaryOp::Gt => Ok(Value::Boolean(l > r)),
+                    BinaryOp::Ge => Ok(Value::Boolean(l >= r)),
                     _ => {
                         return Err(RuntimeError::InvalidOperation(format!(
                             "Operation {:?} not supported for floats",
                             op
                         )));
                     }
-                };
-                Ok(Value::Float(result))
+                }
+            }
+            (Value::Boolean(l), Value::Boolean(r)) => {
+                match op {
+                    BinaryOp::And => Ok(Value::Boolean(l && r)),
+                    BinaryOp::Or => Ok(Value::Boolean(l || r)),
+                    BinaryOp::Eq => Ok(Value::Boolean(l == r)),
+                    BinaryOp::Ne => Ok(Value::Boolean(l != r)),
+                    _ => Err(RuntimeError::InvalidOperation(format!(
+                        "Operation {:?} not supported for booleans",
+                        op
+                    ))),
+                }
+            }
+            (Value::String(l), Value::String(r)) => {
+                match op {
+                    BinaryOp::Add => Ok(Value::String(format!("{}{}", l, r))),
+                    BinaryOp::Eq => Ok(Value::Boolean(l == r)),
+                    BinaryOp::Ne => Ok(Value::Boolean(l != r)),
+                    BinaryOp::Lt => Ok(Value::Boolean(l < r)),
+                    BinaryOp::Le => Ok(Value::Boolean(l <= r)),
+                    BinaryOp::Gt => Ok(Value::Boolean(l > r)),
+                    BinaryOp::Ge => Ok(Value::Boolean(l >= r)),
+                    _ => Err(RuntimeError::InvalidOperation(format!(
+                        "Operation {:?} not supported for strings",
+                        op
+                    ))),
+                }
+            }
+            (Value::Integer(l), Value::Integer(r)) => {
+                match op {
+                    BinaryOp::Add => Ok(Value::Integer(l + r)),
+                    BinaryOp::Sub => Ok(Value::Integer(l - r)),
+                    BinaryOp::Mul => Ok(Value::Integer(l * r)),
+                    BinaryOp::Div => {
+                        if r == 0 {
+                            return Err(RuntimeError::DivisionByZero);
+                        }
+                        Ok(Value::Integer(l / r))
+                    }
+                    BinaryOp::Eq => Ok(Value::Boolean(l == r)),
+                    BinaryOp::Ne => Ok(Value::Boolean(l != r)),
+                    BinaryOp::Lt => Ok(Value::Boolean(l < r)),
+                    BinaryOp::Le => Ok(Value::Boolean(l <= r)),
+                    BinaryOp::Gt => Ok(Value::Boolean(l > r)),
+                    BinaryOp::Ge => Ok(Value::Boolean(l >= r)),
+                    _ => Err(RuntimeError::InvalidOperation(format!(
+                        "Operation {:?} not supported for integers",
+                        op
+                    ))),
+                }
             }
             _ => Err(RuntimeError::TypeError(
                 "Binary operation requires compatible types".to_string(),
@@ -1374,6 +1506,171 @@ impl Interpreter {
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::Tensor(result))
+            }
+
+            "load_model" => {
+                // load_model("path/to/model.gguf")
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("load_model() expects 1 argument (path), got {}", args.len())
+                    ));
+                }
+
+                let path_val = self.eval_expr(&args[0])?;
+                let path = match path_val {
+                    Value::String(s) => s,
+                    _ => return Err(RuntimeError::TypeError(
+                        "load_model() argument must be a string (path)".to_string()
+                    )),
+                };
+
+                let model = Model::load(&path)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                println!("Loaded model from: {} (format: {:?})", path, model.metadata.format);
+                Ok(Value::Model(model))
+            }
+
+            "env" => {
+                // env("VAR_NAME")
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("env() expects 1 argument (var_name), got {}", args.len())
+                    ));
+                }
+
+                let var_name_val = self.eval_expr(&args[0])?;
+                let var_name = match var_name_val {
+                    Value::String(s) => s,
+                    _ => return Err(RuntimeError::TypeError(
+                        "env() argument must be a string (variable name)".to_string()
+                    )),
+                };
+
+                let value = std::env::var(&var_name)
+                    .map_err(|_| RuntimeError::InvalidOperation(
+                        format!("Environment variable '{}' not found", var_name)
+                    ))?;
+
+                Ok(Value::String(value))
+            }
+
+            "input" => {
+                // input() or input("prompt")
+                use std::io::{self, Write};
+
+                if args.len() > 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("input() expects 0 or 1 argument (optional prompt), got {}", args.len())
+                    ));
+                }
+
+                // Print prompt if provided
+                if args.len() == 1 {
+                    let prompt_val = self.eval_expr(&args[0])?;
+                    if let Value::String(prompt) = prompt_val {
+                        print!("{}", prompt);
+                        io::stdout().flush().unwrap();
+                    }
+                }
+
+                // Read line from stdin
+                let mut buffer = String::new();
+                io::stdin().read_line(&mut buffer)
+                    .map_err(|e| RuntimeError::IoError(e))?;
+
+                // Remove trailing newline
+                let input = buffer.trim_end().to_string();
+                Ok(Value::String(input))
+            }
+
+            "generate" => {
+                // generate(model, prompt, max_tokens: int = 100, temperature: float = 0.7)
+                if args.len() < 2 || args.len() > 4 {
+                    return Err(RuntimeError::TypeError(
+                        format!("generate() expects 2-4 arguments (model, prompt, optional max_tokens, optional temperature), got {}", args.len())
+                    ));
+                }
+
+                let model_val = self.eval_expr(&args[0])?;
+                let _model = match model_val {
+                    Value::Model(m) => m,
+                    _ => return Err(RuntimeError::TypeError(
+                        "generate() first argument must be a Model".to_string()
+                    )),
+                };
+
+                let prompt_val = self.eval_expr(&args[1])?;
+                let prompt = match prompt_val {
+                    Value::String(s) => s,
+                    _ => return Err(RuntimeError::TypeError(
+                        "generate() second argument must be a string (prompt)".to_string()
+                    )),
+                };
+
+                let _max_tokens = if args.len() >= 3 {
+                    let val = self.eval_expr(&args[2])?;
+                    match val {
+                        Value::Integer(i) => i as i64,
+                        Value::Float(f) => f as i64,
+                        _ => return Err(RuntimeError::TypeError(
+                            "generate() max_tokens must be a number".to_string()
+                        )),
+                    }
+                } else {
+                    100
+                };
+
+                let _temperature = if args.len() >= 4 {
+                    let val = self.eval_expr(&args[3])?;
+                    match val {
+                        Value::Float(f) => f,
+                        Value::Integer(i) => i as f64,
+                        _ => return Err(RuntimeError::TypeError(
+                            "generate() temperature must be a number".to_string()
+                        )),
+                    }
+                } else {
+                    0.7
+                };
+
+                // For now, return a placeholder response
+                // Full transformer inference requires:
+                // 1. Tokenizer integration (e.g., sentencepiece, tiktoken)
+                // 2. Transformer layer implementation (attention, feedforward)
+                // 3. KV cache for efficient generation
+                // 4. Sampling strategies (greedy, top-k, top-p, etc.)
+                let response = format!(
+                    "[Placeholder Response] You said: \"{}\". Full LLM inference not yet implemented. \
+                    Model loaded: {:?}, tensors: {}",
+                    prompt,
+                    _model.metadata.format,
+                    _model.num_tensors()
+                );
+
+                Ok(Value::String(response))
+            }
+
+            "print" => {
+                // print(value1, value2, ..., end: "\n", flush: false)
+                // For now, simple implementation
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        print!(" ");
+                    }
+                    let val = self.eval_expr(arg)?;
+                    match val {
+                        Value::String(s) => print!("{}", s),
+                        Value::Integer(i) => print!("{}", i),
+                        Value::Float(f) => print!("{}", f),
+                        Value::Boolean(b) => print!("{}", b),
+                        Value::Tensor(t) => print!("{:?}", t),
+                        Value::Model(m) => print!("Model({:?})", m.metadata.format),
+                        Value::Void => print!("void"),
+                    }
+                }
+                println!();
+                Ok(Value::Void)
             }
 
             _ => Err(RuntimeError::NotImplemented(
@@ -1749,7 +2046,8 @@ impl Interpreter {
                             for ((name, _), new_tensor) in learnable_params.iter().zip(updated_params.iter()) {
                                 let mut param_with_grad = new_tensor.clone();
                                 param_with_grad.set_requires_grad(true);
-                                self.env.set_variable(name.clone(), Value::Tensor(param_with_grad));
+                                // Learning context - update parameter
+                                self.env.variables.insert(name.clone(), Value::Tensor(param_with_grad));
                             }
 
                             // 5. Rebuild learnable_params vector to point to updated tensors

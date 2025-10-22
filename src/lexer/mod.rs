@@ -94,6 +94,8 @@ pub enum TokenType {
     Tilde,           // ~
     Arrow,           // <-
     RightArrow,      // ->
+    AndAnd,          // &&
+    OrOr,            // ||
     Comma,
     Colon,
     Semicolon,
@@ -345,6 +347,24 @@ impl Lexer {
                     Ok(Token::new(TokenType::Ge, ">=".to_string(), start_line, start_column))
                 } else {
                     Ok(Token::new(TokenType::Gt, ">".to_string(), start_line, start_column))
+                }
+            }
+            '&' => {
+                self.advance();
+                if self.current_char() == '&' {
+                    self.advance();
+                    Ok(Token::new(TokenType::AndAnd, "&&".to_string(), start_line, start_column))
+                } else {
+                    Err(format!("Unexpected character '&' at {}:{} (use && for logical AND)", start_line, start_column))
+                }
+            }
+            '|' => {
+                self.advance();
+                if self.current_char() == '|' {
+                    self.advance();
+                    Ok(Token::new(TokenType::OrOr, "||".to_string(), start_line, start_column))
+                } else {
+                    Err(format!("Unexpected character '|' at {}:{} (use || for logical OR)", start_line, start_column))
                 }
             }
             '≈' => {

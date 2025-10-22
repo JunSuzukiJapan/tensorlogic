@@ -28,6 +28,8 @@ pub enum QuantizationType {
     None,
     /// 4-bit quantization
     Q4,
+    /// 6-bit quantization
+    Q6,
     /// 8-bit quantization
     Q8,
     /// 16-bit float (native TensorLogic format)
@@ -41,6 +43,7 @@ impl std::fmt::Display for QuantizationType {
         match self {
             QuantizationType::None => write!(f, "None"),
             QuantizationType::Q4 => write!(f, "4-bit"),
+            QuantizationType::Q6 => write!(f, "6-bit"),
             QuantizationType::Q8 => write!(f, "8-bit"),
             QuantizationType::F16 => write!(f, "FP16"),
             QuantizationType::F32 => write!(f, "FP32"),

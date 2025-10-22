@@ -290,6 +290,16 @@ pub enum BinaryOp {
     Power,        // **
     TensorProd,   // ⊗
     Hadamard,     // ⊙
+    // Comparison operators
+    Eq,           // ==
+    Ne,           // !=
+    Lt,           // <
+    Le,           // <=
+    Gt,           // >
+    Ge,           // >=
+    // Logical operators
+    And,          // &&
+    Or,           // ||
 }
 
 /// Unary operators
@@ -404,7 +414,12 @@ pub enum EquationType {
 pub enum Statement {
     /// Tensor declaration: tensor name: type = expr?
     TensorDecl(TensorDecl),
-    /// Assignment: x := expr
+    /// Let statement: let x = expr (declare new variable)
+    Let {
+        target: Identifier,
+        value: TensorExpr,
+    },
+    /// Assignment: x := expr (update existing variable)
     Assignment {
         target: Identifier,
         value: TensorExpr,
@@ -434,6 +449,8 @@ pub enum Statement {
     Learning(LearningSpec),
     /// Control flow
     ControlFlow(ControlFlow),
+    /// Break statement
+    Break,
     /// Python import: python import module [as alias]
     PythonImport {
         module: String,
@@ -493,6 +510,9 @@ pub enum ControlFlow {
     },
     While {
         condition: Condition,
+        body: Vec<Statement>,
+    },
+    Loop {
         body: Vec<Statement>,
     },
 }
@@ -693,6 +713,14 @@ impl fmt::Display for BinaryOp {
             BinaryOp::Power => write!(f, "**"),
             BinaryOp::TensorProd => write!(f, "⊗"),
             BinaryOp::Hadamard => write!(f, "⊙"),
+            BinaryOp::Eq => write!(f, "=="),
+            BinaryOp::Ne => write!(f, "!="),
+            BinaryOp::Lt => write!(f, "<"),
+            BinaryOp::Le => write!(f, "<="),
+            BinaryOp::Gt => write!(f, ">"),
+            BinaryOp::Ge => write!(f, ">="),
+            BinaryOp::And => write!(f, "&&"),
+            BinaryOp::Or => write!(f, "||"),
         }
     }
 }
