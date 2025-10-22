@@ -395,25 +395,54 @@ impl Interpreter {
 
     /// Execute a tensor declaration
     fn execute_tensor_decl(&mut self, decl: &TensorDecl) -> RuntimeResult<()> {
-        let tensor = if let Some(init_expr) = &decl.init_expr {
+        let mut tensor = if let Some(init_expr) = &decl.init_expr {
             // Evaluate initialization expression
             let value = self.eval_expr(init_expr)?;
-            value.as_tensor()?.clone()
+            let mut t = value.as_tensor()?.clone();
+
+            // Reshape tensor to match declared shape (if needed)
+            let declared_shape = self.get_declared_shape(&decl.tensor_type)?;
+            if t.shape().dims() != declared_shape.as_slice() {
+                t = t.reshape(declared_shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+            }
+            t
         } else {
             // Create zero-initialized tensor
             self.create_zero_tensor(&decl.tensor_type)?
         };
 
         // Set requires_grad based on learnable status
-        let mut tensor = tensor;
         if decl.tensor_type.learnable == LearnableStatus::Learnable {
             tensor.set_requires_grad(true);
         }
 
+        // Use declare_variable for tensor declarations (they create new variables)
         self.env
-            .set_variable(decl.name.as_str().to_string(), Value::Tensor(tensor));
+            .declare_variable(decl.name.as_str().to_string(), Value::Tensor(tensor))?;
 
         Ok(())
+    }
+
+    /// Extract the shape from a TensorType
+    fn get_declared_shape(&self, tensor_type: &TensorType) -> RuntimeResult<Vec<usize>> {
+        let mut shape = Vec::new();
+        for dim in &tensor_type.dimensions {
+            match dim {
+                Dimension::Fixed(size) => shape.push(*size),
+                Dimension::Variable(_) => {
+                    return Err(RuntimeError::InvalidOperation(
+                        "Cannot use variable dimensions in tensor declarations".to_string(),
+                    ));
+                }
+                Dimension::Dynamic => {
+                    return Err(RuntimeError::InvalidOperation(
+                        "Cannot use dynamic dimensions in tensor declarations".to_string(),
+                    ));
+                }
+            }
+        }
+        Ok(shape)
     }
 
     /// Execute an embedding declaration
@@ -558,16 +587,46 @@ impl Interpreter {
             }
             Statement::Assignment { target, value } => {
                 let evaluated_value = self.eval_expr(value)?;
-                self.env
-                    .set_variable(target.as_str().to_string(), evaluated_value)?;
+
+                // Assignment (:=) auto-declares if variable doesn't exist
+                if self.env.has_variable(target.as_str()) {
+                    self.env.set_variable(target.as_str().to_string(), evaluated_value)?;
+                } else {
+                    self.env.declare_variable(target.as_str().to_string(), evaluated_value)?;
+                }
                 Ok(())
             }
             Statement::Equation(eq) => {
-                // Execute equation (side effects only, no assignment)
-                let _left = self.eval_expr(&eq.left)?;
-                let _right = self.eval_expr(&eq.right)?;
-                // In a full implementation, this would perform unification or constraint solving
-                Ok(())
+                use crate::ast::EquationType;
+
+                match eq.eq_type {
+                    EquationType::Assign => {
+                        // := is assignment with auto-declaration
+                        // Left side must be a simple identifier
+                        if let TensorExpr::Variable(var_name) = &eq.left {
+                            let value = self.eval_expr(&eq.right)?;
+
+                            // Try to set existing variable, if it doesn't exist, declare it
+                            if self.env.has_variable(var_name.as_str()) {
+                                self.env.set_variable(var_name.as_str().to_string(), value)?;
+                            } else {
+                                self.env.declare_variable(var_name.as_str().to_string(), value)?;
+                            }
+                            Ok(())
+                        } else {
+                            Err(RuntimeError::TypeError(
+                                "Left side of := must be a variable name".to_string()
+                            ))
+                        }
+                    }
+                    _ => {
+                        // For other equation types (=, ~), just execute both sides
+                        let _left = self.eval_expr(&eq.left)?;
+                        let _right = self.eval_expr(&eq.right)?;
+                        // In a full implementation, this would perform unification or constraint solving
+                        Ok(())
+                    }
+                }
             }
             Statement::FunctionCall { name, args } => {
                 // Handle function calls as statements (e.g., print)
@@ -1503,6 +1562,104 @@ impl Interpreter {
                 let training = self.eval_expr(&args[2])?.as_bool()?;
 
                 let result = x.dropout(p, training)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(result))
+            }
+
+            "argmax" => {
+                // argmax(tensor, dim: int = -1, keepdim: bool = false)
+                if args.is_empty() || args.len() > 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("argmax() expects 1-3 arguments (tensor, optional dim, optional keepdim), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+
+                let dim = if args.len() >= 2 {
+                    let dim_val = self.eval_expr(&args[1])?;
+                    match dim_val {
+                        Value::Integer(i) => {
+                            if i < 0 {
+                                None  // -1 means global argmax
+                            } else {
+                                Some(i as usize)
+                            }
+                        }
+                        Value::Float(f) => {
+                            // Accept float literals like 0.0 as integers
+                            let i = f as i64;
+                            if i < 0 {
+                                None  // -1 means global argmax
+                            } else {
+                                Some(i as usize)
+                            }
+                        }
+                        _ => return Err(RuntimeError::TypeError(
+                            "argmax() dim must be a number".to_string()
+                        )),
+                    }
+                } else {
+                    None  // Default: global argmax
+                };
+
+                let keepdim = if args.len() >= 3 {
+                    self.eval_expr(&args[2])?.as_bool()?
+                } else {
+                    false
+                };
+
+                let result = tensor.argmax(dim, keepdim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(result))
+            }
+
+            "argmin" => {
+                // argmin(tensor, dim: int = -1, keepdim: bool = false)
+                if args.is_empty() || args.len() > 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("argmin() expects 1-3 arguments (tensor, optional dim, optional keepdim), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+
+                let dim = if args.len() >= 2 {
+                    let dim_val = self.eval_expr(&args[1])?;
+                    match dim_val {
+                        Value::Integer(i) => {
+                            if i < 0 {
+                                None  // -1 means global argmin
+                            } else {
+                                Some(i as usize)
+                            }
+                        }
+                        Value::Float(f) => {
+                            // Accept float literals like 0.0 as integers
+                            let i = f as i64;
+                            if i < 0 {
+                                None  // -1 means global argmin
+                            } else {
+                                Some(i as usize)
+                            }
+                        }
+                        _ => return Err(RuntimeError::TypeError(
+                            "argmin() dim must be a number".to_string()
+                        )),
+                    }
+                } else {
+                    None  // Default: global argmin
+                };
+
+                let keepdim = if args.len() >= 3 {
+                    self.eval_expr(&args[2])?.as_bool()?
+                } else {
+                    false
+                };
+
+                let result = tensor.argmin(dim, keepdim)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::Tensor(result))

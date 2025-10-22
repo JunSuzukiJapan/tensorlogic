@@ -494,6 +494,229 @@ impl Tensor {
         }
         Ok(min_val)
     }
+
+    /// Find the index of the maximum value (argmax)
+    /// Returns a tensor of indices (i64)
+    pub fn argmax(&self, dim: Option<usize>, keepdim: bool) -> TensorResult<Self> {
+        match dim {
+            None => {
+                // Global argmax - return single index
+                let data = self.to_vec();
+                let mut max_idx = 0usize;
+                let mut max_val = data[0];
+
+                for (idx, &val) in data.iter().enumerate().skip(1) {
+                    if val > max_val {
+                        max_val = val;
+                        max_idx = idx;
+                    }
+                }
+
+                // Return as scalar tensor (shape [1] since shape [] has numel=0 bug)
+                // TODO: Fix TensorShape::numel() to return 1 for empty shapes
+                let result_shape = if keepdim {
+                    vec![1; self.shape().rank()]
+                } else {
+                    vec![1]  // Use [1] instead of [] due to numel() bug
+                };
+
+                let indices = vec![half::f16::from_f64(max_idx as f64)];
+                Tensor::from_vec(indices, result_shape)
+            }
+            Some(dim) => {
+                if dim >= self.shape().rank() {
+                    return Err(TensorError::InvalidDimension { dim });
+                }
+
+                // Argmax along specific dimension
+                self.argmax_dim(dim, keepdim)
+            }
+        }
+    }
+
+    fn argmax_dim(&self, dim: usize, keepdim: bool) -> TensorResult<Self> {
+        let input_dims = self.shape().dims();
+        let rank = input_dims.len();
+
+        // Calculate output shape
+        let mut output_dims = Vec::new();
+        for (i, &d) in input_dims.iter().enumerate() {
+            if i == dim {
+                if keepdim {
+                    output_dims.push(1);
+                }
+            } else {
+                output_dims.push(d);
+            }
+        }
+
+        let output_numel: usize = if output_dims.is_empty() {
+            1  // Scalar result when all dims reduced
+        } else {
+            output_dims.iter().product()
+        };
+
+        let dim_size = input_dims[dim];
+
+        // Compute strides
+        let mut strides = vec![1; rank];
+        for i in (0..rank-1).rev() {
+            strides[i] = strides[i + 1] * input_dims[i + 1];
+        }
+
+        let data = self.to_vec();
+        let mut result = vec![half::f16::ZERO; output_numel];
+
+        for out_idx in 0..output_numel {
+            // Convert output index to input coordinates (skipping reduced dim)
+            let mut coords = vec![0; rank];
+            let mut remaining = out_idx;
+            let mut out_dim_idx = 0;
+
+            for i in 0..rank {
+                if i != dim {
+                    let size = input_dims[i];
+                    coords[i] = remaining % size;
+                    remaining /= size;
+                    out_dim_idx += 1;
+                }
+            }
+
+            // Find argmax along the reduction dimension
+            let mut max_idx = 0;
+            let mut max_val = half::f16::NEG_INFINITY;
+
+            for d in 0..dim_size {
+                coords[dim] = d;
+
+                // Calculate linear index
+                let mut linear_idx = 0;
+                for (i, &coord) in coords.iter().enumerate() {
+                    linear_idx += coord * strides[i];
+                }
+
+                let val = data[linear_idx];
+                if val > max_val {
+                    max_val = val;
+                    max_idx = d;
+                }
+            }
+
+            result[out_idx] = half::f16::from_f64(max_idx as f64);
+        }
+
+        Tensor::from_vec(result, output_dims)
+    }
+
+    /// Find the index of the minimum value (argmin)
+    /// Returns a tensor of indices (i64)
+    pub fn argmin(&self, dim: Option<usize>, keepdim: bool) -> TensorResult<Self> {
+        match dim {
+            None => {
+                // Global argmin - return single index
+                let data = self.to_vec();
+                let mut min_idx = 0usize;
+                let mut min_val = data[0];
+
+                for (idx, &val) in data.iter().enumerate().skip(1) {
+                    if val < min_val {
+                        min_val = val;
+                        min_idx = idx;
+                    }
+                }
+
+                // Return as scalar tensor (shape [1] since shape [] has numel=0 bug)
+                // TODO: Fix TensorShape::numel() to return 1 for empty shapes
+                let result_shape = if keepdim {
+                    vec![1; self.shape().rank()]
+                } else {
+                    vec![1]  // Use [1] instead of [] due to numel() bug
+                };
+
+                let indices = vec![half::f16::from_f64(min_idx as f64)];
+                Tensor::from_vec(indices, result_shape)
+            }
+            Some(dim) => {
+                if dim >= self.shape().rank() {
+                    return Err(TensorError::InvalidDimension { dim });
+                }
+
+                // Argmin along specific dimension
+                self.argmin_dim(dim, keepdim)
+            }
+        }
+    }
+
+    fn argmin_dim(&self, dim: usize, keepdim: bool) -> TensorResult<Self> {
+        let input_dims = self.shape().dims();
+        let rank = input_dims.len();
+
+        // Calculate output shape
+        let mut output_dims = Vec::new();
+        for (i, &d) in input_dims.iter().enumerate() {
+            if i == dim {
+                if keepdim {
+                    output_dims.push(1);
+                }
+            } else {
+                output_dims.push(d);
+            }
+        }
+
+        let output_numel: usize = if output_dims.is_empty() {
+            1  // Scalar result when all dims reduced
+        } else {
+            output_dims.iter().product()
+        };
+        let dim_size = input_dims[dim];
+
+        // Compute strides
+        let mut strides = vec![1; rank];
+        for i in (0..rank-1).rev() {
+            strides[i] = strides[i + 1] * input_dims[i + 1];
+        }
+
+        let data = self.to_vec();
+        let mut result = vec![half::f16::ZERO; output_numel];
+
+        for out_idx in 0..output_numel {
+            // Convert output index to input coordinates (skipping reduced dim)
+            let mut coords = vec![0; rank];
+            let mut remaining = out_idx;
+
+            for i in 0..rank {
+                if i != dim {
+                    let size = input_dims[i];
+                    coords[i] = remaining % size;
+                    remaining /= size;
+                }
+            }
+
+            // Find argmin along the reduction dimension
+            let mut min_idx = 0;
+            let mut min_val = half::f16::INFINITY;
+
+            for d in 0..dim_size {
+                coords[dim] = d;
+
+                // Calculate linear index
+                let mut linear_idx = 0;
+                for (i, &coord) in coords.iter().enumerate() {
+                    linear_idx += coord * strides[i];
+                }
+
+                let val = data[linear_idx];
+                if val < min_val {
+                    min_val = val;
+                    min_idx = d;
+                }
+            }
+
+            result[out_idx] = half::f16::from_f64(min_idx as f64);
+        }
+
+        Tensor::from_vec(result, output_dims)
+    }
 }
 
 #[cfg(test)]
