@@ -1923,6 +1923,124 @@ impl Interpreter {
                 Ok(Value::String(text))
             }
 
+            "embedding" => {
+                // embedding(embedding_table, token_ids) -> Tensor
+                // embedding_table: [vocab_size, embedding_dim]
+                // token_ids: TokenIds with shape [seq_len]
+                // output: [seq_len, embedding_dim]
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("embedding() expects 2 arguments (embedding_table, token_ids), got {}", args.len())
+                    ));
+                }
+
+                let embedding_table = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let token_ids = match self.eval_expr(&args[1])? {
+                    Value::TokenIds(ids) => ids,
+                    _ => return Err(RuntimeError::TypeError(
+                        "embedding() second argument must be TokenIds".to_string()
+                    )),
+                };
+
+                // Validate embedding table shape
+                let table_shape = embedding_table.shape();
+                if table_shape.dims().len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("embedding_table must be 2D [vocab_size, embedding_dim], got shape {:?}", table_shape.dims())
+                    ));
+                }
+
+                let vocab_size = table_shape.dims()[0];
+                let embedding_dim = table_shape.dims()[1];
+
+                // Check token IDs are within vocab range
+                for &token_id in &token_ids {
+                    if token_id as usize >= vocab_size {
+                        return Err(RuntimeError::TensorError(
+                            crate::error::TensorError::InvalidOperation(
+                                format!("Token ID {} exceeds vocab size {}", token_id, vocab_size)
+                            )
+                        ));
+                    }
+                }
+
+                // Perform embedding lookup
+                let seq_len = token_ids.len();
+                let table_data = embedding_table.to_vec();
+                let mut output_data = Vec::with_capacity(seq_len * embedding_dim);
+
+                for &token_id in &token_ids {
+                    let start_idx = (token_id as usize) * embedding_dim;
+                    let end_idx = start_idx + embedding_dim;
+                    output_data.extend_from_slice(&table_data[start_idx..end_idx]);
+                }
+
+                // Create output tensor
+                let output = crate::tensor::Tensor::from_vec_metal(
+                    self.env.metal_device(),
+                    output_data,
+                    vec![seq_len, embedding_dim]
+                ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "positional_encoding" => {
+                // positional_encoding(seq_len, d_model) -> Tensor
+                // Generates sinusoidal positional encoding
+                // output: [seq_len, d_model]
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("positional_encoding() expects 2 arguments (seq_len, d_model), got {}", args.len())
+                    ));
+                }
+
+                let seq_len = match self.eval_expr(&args[0])? {
+                    Value::Integer(i) => i as usize,
+                    Value::Float(f) => f as usize,
+                    v => return Err(RuntimeError::TypeError(
+                        format!("positional_encoding() first argument must be a number (seq_len), got {:?}", v)
+                    )),
+                };
+
+                let d_model = match self.eval_expr(&args[1])? {
+                    Value::Integer(i) => i as usize,
+                    Value::Float(f) => f as usize,
+                    v => return Err(RuntimeError::TypeError(
+                        format!("positional_encoding() second argument must be a number (d_model), got {:?}", v)
+                    )),
+                };
+
+                // Generate sinusoidal positional encoding
+                // PE(pos, 2i) = sin(pos / 10000^(2i/d_model))
+                // PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
+                let mut pe_data = Vec::with_capacity(seq_len * d_model);
+
+                for pos in 0..seq_len {
+                    for i in 0..d_model {
+                        let div_term = (i as f32 / d_model as f32) * 10000_f32.ln();
+                        let angle = pos as f32 / div_term.exp();
+
+                        let value = if i % 2 == 0 {
+                            angle.sin()
+                        } else {
+                            angle.cos()
+                        };
+
+                        pe_data.push(half::f16::from_f32(value));
+                    }
+                }
+
+                // Create output tensor
+                let output = crate::tensor::Tensor::from_vec_metal(
+                    self.env.metal_device(),
+                    pe_data,
+                    vec![seq_len, d_model]
+                ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
             "env" => {
                 // env("VAR_NAME")
                 if args.len() != 1 {
