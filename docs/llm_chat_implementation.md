@@ -31,9 +31,26 @@ TensorLogicを使用してローカルLLM（TinyLlama 1.1B）によるチャッ�
    - `tokenize(tokenizer, text)` - テキストのトークン化
    - `detokenize(tokenizer, token_ids)` - トークンIDのデコード
 
-5. **チャットインターフェース**
+5. **サンプリング戦略**
+   - Top-k sampling: `top_k(logits, k)` - 上位k個のトークンに限定
+   - Top-p (nucleus) sampling: `top_p(logits, p)` - 累積確率pまでのトークンに限定
+   - `sample(probs)` - 確率分布からトークンをサンプリング
+   - 例: `examples/text_generation_sampling.tl` - 各手法のデモ
+
+6. **自己回帰生成パイプライン**
+   - `examples/autoregressive_generation.tl` - 完全な生成ループのデモ
+   - トークン単位の生成プロセス（3ステップのデモンストレーション）
+   - Top-k → Top-p → Softmax → Sample の統合パイプライン
+   - 本番環境のハイパーパラメータ例（チャット、コード生成、創作）
+   - KV-Cache、Temperature scaling、特殊トークンの説明
+
+7. **チャットインターフェース**
    - 基本的なチャットデモ: `examples/local_llm_chat.tl`
+   - Chat REPL アーキテクチャ: `examples/chat_repl_demo.tl`
+   - マルチターン会話のシミュレーション
    - ChatMLフォーマット対応
+   - REPLコンポーネント詳細（セッション状態、入力処理、プロンプト構築）
+   - 特殊コマンド: /help, /clear, /exit, /config, /temp, /tokens
    - `generate(model, prompt, max_tokens, temperature)` API（プレースホルダー）
 
 ### 🚧 実装中・未実装の機能
@@ -42,25 +59,27 @@ TensorLogicを使用してローカルLLM（TinyLlama 1.1B）によるチャッ�
    - Embedding層からの入力処理
    - 複数レイヤーの順伝播
    - 最終層からlogitsの生成
+   - GGUFモデルからの重みのロード
 
 2. **KV-Cache**
    - 自己回帰生成の効率化
    - 以前のトークンのKey/Valueテンソルをキャッシュ
+   - メモリ効率的な実装
 
-3. **サンプリング戦略**
-   - Top-k sampling
-   - Top-p (nucleus) sampling
-   - Temperature scaling
-   - Greedy decoding
+3. **Temperature Scaling**
+   - `logits = logits / temperature` の実装
+   - generate()関数への統合
 
 4. **ストリーミング出力**
    - トークン単位のリアルタイム出力
    - ユーザー体験の向上
+   - コールバック/非同期アーキテクチャ
 
-5. **インタラクティブREPL**
-   - 対話型チャットループ
-   - チャット履歴の管理
-   - システムプロンプトの設定
+5. **インタラクティブREPL（完全実装）**
+   - 対話型チャットループの実装
+   - チャット履歴の管理とトランケーション
+   - 特殊コマンドの処理
+   - セッション保存/ロード
 
 ## アーキテクチャ
 
