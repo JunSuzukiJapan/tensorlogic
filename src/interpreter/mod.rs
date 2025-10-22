@@ -2459,6 +2459,97 @@ impl Interpreter {
                 Ok(Value::Tensor(output))
             }
 
+            "sigmoid" => {
+                // sigmoid(tensor) -> Tensor
+                // Sigmoid activation: 1 / (1 + exp(-x))
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("sigmoid() expects 1 argument (tensor), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let output = tensor.sigmoid().map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(output))
+            }
+
+            "sum" => {
+                // sum(tensor, dim, keepdim) -> Tensor or Float
+                // Sum along dimension, or sum all elements
+                if args.is_empty() || args.len() > 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("sum() expects 1-3 arguments (tensor, optional dim, optional keepdim), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+
+                if args.len() == 1 {
+                    // Sum all elements
+                    let result = tensor.sum().map_err(|e| RuntimeError::TensorError(e))?;
+                    Ok(Value::Float(result.to_f32() as f64))
+                } else {
+                    // Sum along dimension
+                    let dim = match self.eval_expr(&args[1])? {
+                        Value::Integer(i) => i as usize,
+                        Value::Float(f) => f as usize,
+                        v => return Err(RuntimeError::TypeError(
+                            format!("sum() dim argument must be a number, got {:?}", v)
+                        )),
+                    };
+
+                    let keepdim = if args.len() >= 3 {
+                        self.eval_expr(&args[2])?.as_bool()?
+                    } else {
+                        false
+                    };
+
+                    let output = tensor.sum_dim(dim, keepdim)
+                        .map_err(|e| RuntimeError::TensorError(e))?;
+
+                    Ok(Value::Tensor(output))
+                }
+            }
+
+            "mean" => {
+                // mean(tensor, dim, keepdim) -> Tensor or Float
+                // Mean along dimension, or mean of all elements
+                if args.is_empty() || args.len() > 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("mean() expects 1-3 arguments (tensor, optional dim, optional keepdim), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+
+                if args.len() == 1 {
+                    // Mean of all elements
+                    let result = tensor.mean().map_err(|e| RuntimeError::TensorError(e))?;
+                    Ok(Value::Float(result.to_f32() as f64))
+                } else {
+                    // Mean along dimension
+                    let dim = match self.eval_expr(&args[1])? {
+                        Value::Integer(i) => i as usize,
+                        Value::Float(f) => f as usize,
+                        v => return Err(RuntimeError::TypeError(
+                            format!("mean() dim argument must be a number, got {:?}", v)
+                        )),
+                    };
+
+                    let keepdim = if args.len() >= 3 {
+                        self.eval_expr(&args[2])?.as_bool()?
+                    } else {
+                        false
+                    };
+
+                    let output = tensor.mean_dim(dim, keepdim)
+                        .map_err(|e| RuntimeError::TensorError(e))?;
+
+                    Ok(Value::Tensor(output))
+                }
+            }
+
             "env" => {
                 // env("VAR_NAME")
                 if args.len() != 1 {
