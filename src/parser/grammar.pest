@@ -245,13 +245,13 @@ let_statement = { "let" ~ identifier ~ "=" ~ tensor_expr }
 
 assignment = { identifier ~ ":=" ~ tensor_expr }
 
-fact_assertion = { "<-" ~ atom }
+fact_assertion = { atom }
 
-query = { "?-" ~ atom ~ ("where" ~ constraint_list)? }
+query = { atom ~ "?" ~ ("where" ~ constraint_list)? }
 
-// Note: fact_assertion and query use distinct operators (<- and ?-)
-// that don't conflict with other syntax, so they must be checked
-// before tensor_equation and function_call in the statement rule
+// Note: query uses ? suffix for distinction
+// fact_assertion is just an atom (semantic analysis determines if it's a fact vs function call)
+// These should be checked before tensor_equation and function_call in the statement rule
 
 constraint_list = { constraint ~ ("," ~ constraint)* }
 
