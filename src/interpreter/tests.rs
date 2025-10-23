@@ -674,7 +674,7 @@ fn test_query_basic() {
 relation Parent(p: entity, c: entity)
 
 main {
-    ?- Parent(alice, bob)
+    Parent(alice, bob)?
 }
 "#;
     let program = TensorLogicParser::parse_program(source).unwrap();
@@ -692,7 +692,7 @@ fn test_inference_forward() {
 relation Ancestor(a: entity, d: entity)
 
 main {
-    infer forward ?- Ancestor(alice, x)
+    infer forward Ancestor(alice, x)?
 }
 "#;
     let program = TensorLogicParser::parse_program(source).unwrap();
@@ -710,7 +710,7 @@ fn test_inference_backward() {
 relation Knows(p: entity, q: entity)
 
 main {
-    infer backward ?- Knows(x, y)
+    infer backward Knows(x, y)?
 }
 "#;
     let program = TensorLogicParser::parse_program(source).unwrap();
@@ -727,7 +727,7 @@ fn test_inference_gradient() {
 relation Similar(a: entity, b: entity)
 
 main {
-    infer gradient ?- Similar(a, b)
+    infer gradient Similar(a, b)?
 }
 "#;
     let program = TensorLogicParser::parse_program(source).unwrap();
@@ -744,7 +744,7 @@ fn test_inference_symbolic() {
 relation Likes(p: entity, q: entity)
 
 main {
-    infer symbolic ?- Likes(john, mary)
+    infer symbolic Likes(john, mary)?
 }
 "#;
     let program = TensorLogicParser::parse_program(source).unwrap();
@@ -764,7 +764,7 @@ fn test_logic_engine_query_with_facts() {
 relation Parent(p: entity, c: entity)
 
 main {
-    ?- Parent(alice, bob)
+    Parent(alice, bob)?
 }
 "#;
     let program = TensorLogicParser::parse_program(source).unwrap();
@@ -802,7 +802,7 @@ fn test_forward_inference_with_logic() {
 relation Parent(p: entity, c: entity)
 
 main {
-    infer forward ?- Parent(alice, x)
+    infer forward Parent(alice, x)?
 }
 "#;
     let program = TensorLogicParser::parse_program(source).unwrap();
@@ -840,7 +840,7 @@ fn test_backward_inference_tensor_to_logic() {
 relation Prediction(e: entity)
 
 main {
-    infer backward ?- Prediction(x)
+    infer backward Prediction(x)?
 }
 "#;
     let program = TensorLogicParser::parse_program(source).unwrap();
@@ -857,7 +857,7 @@ fn test_gradient_inference_with_logic() {
 relation Knows(a: entity, b: entity)
 
 main {
-    infer gradient ?- Knows(alice, x)
+    infer gradient Knows(alice, x)?
 }
 "#;
     let program = TensorLogicParser::parse_program(source).unwrap();
@@ -885,7 +885,7 @@ fn test_logic_query_with_variables() {
 relation Friend(a: entity, b: entity)
 
 main {
-    ?- Friend(alice, X)
+    Friend(alice, X)?
 }
 "#;
     let program = TensorLogicParser::parse_program(source).unwrap();
@@ -921,7 +921,7 @@ fn test_rule_based_inference() {
 relation Parent(p: entity, c: entity)
 
 main {
-    ?- Parent(alice, bob)
+    Parent(alice, bob)?
 }
 "#;
     let program = TensorLogicParser::parse_program(source).unwrap();
