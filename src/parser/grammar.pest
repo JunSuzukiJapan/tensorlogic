@@ -12,6 +12,7 @@ program = { SOI ~ declaration* ~ main_block? ~ EOI }
 
 declaration = {
     import_decl
+    | entity_decl
     | tensor_decl
     | relation_decl
     | rule_decl
@@ -26,6 +27,14 @@ main_block = { "main" ~ "{" ~ statement* ~ "}" }
 // ============================================================================
 
 import_decl = { "import" ~ string_literal }
+
+// ============================================================================
+// Entity Declarations
+// ============================================================================
+
+entity_decl = { "entity" ~ identifier ~ ("=" ~ "{" ~ entity_list ~ "}")? }
+
+entity_list = { identifier ~ ("," ~ identifier)* }
 
 // ============================================================================
 // Tensor Declarations
@@ -234,6 +243,7 @@ statement = {
     | function_call
     | inference_call
     | learning_call
+    | with_block
     | control_flow
 }
 
@@ -284,6 +294,12 @@ scheduler_spec = { identifier ~ "(" ~ scheduler_params? ~ ")" }
 scheduler_params = { scheduler_param ~ ("," ~ scheduler_param)* }
 
 scheduler_param = { identifier ~ ("=" | ":") ~ number }
+
+// ============================================================================
+// With Block
+// ============================================================================
+
+with_block = { "with" ~ identifier ~ "{" ~ statement* ~ "}" }
 
 // ============================================================================
 // Control Flow

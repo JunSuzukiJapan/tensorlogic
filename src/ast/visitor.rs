@@ -94,6 +94,10 @@ pub fn walk_main_block<V: Visitor>(visitor: &mut V, block: &MainBlock) -> Result
 pub fn walk_declaration<V: Visitor>(visitor: &mut V, decl: &Declaration) -> Result<(), V::Error> {
     match decl {
         Declaration::Import(d) => visitor.visit_import_decl(d),
+        Declaration::Entity(_d) => {
+            // Entity declarations don't need visiting for now
+            Ok(())
+        },
         Declaration::Tensor(d) => visitor.visit_tensor_decl(d),
         Declaration::Relation(d) => visitor.visit_relation_decl(d),
         Declaration::Rule(d) => visitor.visit_rule_decl(d),
@@ -281,6 +285,12 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
             visitor.visit_tensor_expr(&spec.objective)?;
             Ok(())
         }
+        Statement::WithBlock { statements, .. } => {
+            for stmt in statements {
+                visitor.visit_statement(stmt)?;
+            }
+            Ok(())
+        }
         Statement::ControlFlow(cf) => match cf {
             ControlFlow::If {
                 condition,
@@ -445,6 +455,12 @@ pub fn walk_statement_mut<V: VisitorMut>(
             visitor.visit_tensor_expr_mut(&mut eq.right)
         }
         Statement::Learning(spec) => visitor.visit_tensor_expr_mut(&mut spec.objective),
+        Statement::WithBlock { statements, .. } => {
+            for stmt in statements {
+                visitor.visit_statement_mut(stmt)?;
+            }
+            Ok(())
+        }
         Statement::ControlFlow(cf) => match cf {
             ControlFlow::If {
                 then_block,

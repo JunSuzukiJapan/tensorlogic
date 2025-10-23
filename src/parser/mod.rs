@@ -107,6 +107,7 @@ impl TensorLogicParser {
 
         match inner.as_rule() {
             Rule::import_decl => Ok(Declaration::Import(Self::parse_import_decl(inner)?)),
+            Rule::entity_decl => Ok(Declaration::Entity(Self::parse_entity_decl(inner)?)),
             Rule::tensor_decl => Ok(Declaration::Tensor(Self::parse_tensor_decl(inner)?)),
             Rule::relation_decl => Ok(Declaration::Relation(Self::parse_relation_decl(inner)?)),
             Rule::rule_decl => Ok(Declaration::Rule(Self::parse_rule_decl(inner)?)),
@@ -129,6 +130,32 @@ impl TensorLogicParser {
         let path = Self::parse_string_literal(path_pair)?;
 
         Ok(ImportDecl { path })
+    }
+
+    fn parse_entity_decl(pair: pest::iterators::Pair<Rule>) -> Result<EntityDecl, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let name = Self::parse_identifier(inner.next().ok_or_else(|| {
+            ParseError::MissingField("entity name".to_string())
+        })?)?;
+
+        // Check if there's an entity_list (explicit enumeration)
+        if let Some(entity_list_pair) = inner.next() {
+            // Explicit: entity Person = {alice, bob, charlie}
+            let entities = Self::parse_entity_list(entity_list_pair)?;
+            Ok(EntityDecl::Explicit { name, entities })
+        } else {
+            // From data: entity Person
+            Ok(EntityDecl::FromData { name })
+        }
+    }
+
+    fn parse_entity_list(pair: pest::iterators::Pair<Rule>) -> Result<Vec<Identifier>, ParseError> {
+        let entities = pair
+            .into_inner()
+            .map(|p| Self::parse_identifier(p))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(entities)
     }
 
     fn parse_tensor_decl(pair: pest::iterators::Pair<Rule>) -> Result<TensorDecl, ParseError> {
@@ -1196,6 +1223,9 @@ impl TensorLogicParser {
             Rule::learning_call => {
                 Self::parse_learning_call(inner)
             }
+            Rule::with_block => {
+                Self::parse_with_block(inner)
+            }
             Rule::control_flow => {
                 Self::parse_control_flow(inner).map(Statement::ControlFlow)
             }
@@ -1427,6 +1457,23 @@ impl TensorLogicParser {
                 Ok((name, value))
             })
             .collect()
+    }
+
+    fn parse_with_block(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let entity_type = Self::parse_identifier(inner.next().ok_or_else(|| {
+            ParseError::MissingField("entity type".to_string())
+        })?)?;
+
+        let statements = inner
+            .map(|p| Self::parse_statement(p))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Statement::WithBlock {
+            entity_type,
+            statements,
+        })
     }
 
     fn parse_control_flow(pair: pest::iterators::Pair<Rule>) -> Result<ControlFlow, ParseError> {

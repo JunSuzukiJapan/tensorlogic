@@ -236,6 +236,11 @@ impl TypeChecker {
                 // Type checking happens when the imported file is parsed
                 Ok(())
             }
+            Declaration::Entity(_) => {
+                // Entity declarations don't need type checking for now
+                // They will be validated at runtime
+                Ok(())
+            }
             Declaration::Tensor(tensor_decl) => self.check_tensor_decl(tensor_decl),
             Declaration::Relation(relation_decl) => self.check_relation_decl(relation_decl),
             Declaration::Rule(rule_decl) => self.check_rule_decl(rule_decl),

@@ -36,6 +36,7 @@ pub struct MainBlock {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Declaration {
     Import(ImportDecl),
+    Entity(EntityDecl),
     Tensor(TensorDecl),
     Relation(RelationDecl),
     Rule(RuleDecl),
@@ -51,6 +52,24 @@ pub enum Declaration {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImportDecl {
     pub path: String,
+}
+
+// ============================================================================
+// Entity Declarations
+// ============================================================================
+
+/// Entity declaration: entity T or entity T = {e1, e2, ...}
+#[derive(Debug, Clone, PartialEq)]
+pub enum EntityDecl {
+    /// Explicit enumeration: entity Person = {alice, bob, charlie}
+    Explicit {
+        name: Identifier,
+        entities: Vec<Identifier>,
+    },
+    /// From data: entity Person
+    FromData {
+        name: Identifier,
+    },
 }
 
 // ============================================================================
@@ -455,6 +474,11 @@ pub enum Statement {
     /// Inference block: infer { method query* }
     InferenceBlock {
         items: Vec<(InferenceMethod, Box<Statement>)>,
+    },
+    /// With block: with EntityType { statements }
+    WithBlock {
+        entity_type: Identifier,
+        statements: Vec<Statement>,
     },
     /// Learning call
     Learning(LearningSpec),

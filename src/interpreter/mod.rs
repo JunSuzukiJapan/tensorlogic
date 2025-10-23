@@ -363,6 +363,11 @@ impl Interpreter {
     fn execute_declaration(&mut self, decl: &Declaration) -> RuntimeResult<()> {
         match decl {
             Declaration::Import(import_decl) => self.execute_import(import_decl),
+            Declaration::Entity(_entity_decl) => {
+                // Entity declarations will be handled during with-block execution
+                // For now, just skip them
+                Ok(())
+            }
             Declaration::Tensor(tensor_decl) => self.execute_tensor_decl(tensor_decl),
             Declaration::Relation(relation_decl) => {
                 // Collect variable names from relation parameters
@@ -1244,6 +1249,18 @@ impl Interpreter {
                         "Python integration not enabled (compile with --features python)".to_string()
                     ))
                 }
+            }
+            Statement::WithBlock { entity_type, statements } => {
+                // Execute with-block for entity collection
+                println!("With block for entity type: {}", entity_type.as_str());
+
+                // Execute all statements in the with block
+                for stmt in statements {
+                    self.execute_statement(stmt)?;
+                }
+
+                println!("  ✓ With block completed");
+                Ok(())
             }
         }
     }
