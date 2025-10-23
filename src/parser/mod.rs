@@ -503,12 +503,17 @@ impl TensorLogicParser {
     }
 
     fn parse_return_type(pair: pest::iterators::Pair<Rule>) -> Result<ReturnType, ParseError> {
+        // Check if return type is directly "void" (no inner nodes)
+        if pair.as_str() == "void" {
+            return Ok(ReturnType::Void);
+        }
+
+        // Otherwise, it should be a tensor_type
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("return type value".to_string())
         })?;
 
         match inner.as_rule() {
-            _ if inner.as_str() == "void" => Ok(ReturnType::Void),
             Rule::tensor_type => Ok(ReturnType::Tensor(Self::parse_tensor_type(inner)?)),
             _ => Err(ParseError::InvalidValue(format!("Invalid return type: {}", inner.as_str()))),
         }
@@ -1136,6 +1141,15 @@ impl TensorLogicParser {
             }
             Rule::break_statement => {
                 Ok(Statement::Break)
+            }
+            Rule::return_statement => {
+                let mut inner_pairs = inner.into_inner();
+                let value = if let Some(expr_pair) = inner_pairs.next() {
+                    Some(Self::parse_tensor_expr(expr_pair)?)
+                } else {
+                    None
+                };
+                Ok(Statement::Return { value })
             }
             Rule::tensor_decl => {
                 Ok(Statement::TensorDecl(Self::parse_tensor_decl(inner)?))

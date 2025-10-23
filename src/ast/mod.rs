@@ -458,6 +458,10 @@ pub enum Statement {
     ControlFlow(ControlFlow),
     /// Break statement
     Break,
+    /// Return statement: return [expr]
+    Return {
+        value: Option<TensorExpr>,
+    },
     /// Python import: python import module [as alias]
     PythonImport {
         module: String,

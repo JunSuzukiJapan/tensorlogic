@@ -336,6 +336,13 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
             // No sub-expressions to visit
             Ok(())
         }
+        Statement::Return { value } => {
+            // Visit return value if present
+            if let Some(expr) = value {
+                visitor.visit_tensor_expr(expr)?;
+            }
+            Ok(())
+        }
     }
 }
 

@@ -51,6 +51,10 @@ gguf-rs-lib = "0.2"
 # トークナイゼーション
 tokenizers = "0.20"
 
+# Candle (for comparison testing)
+candle-core = "0.8"
+candle-transformers = "0.8"
+
 [dev-dependencies]
 criterion = "0.5"
 

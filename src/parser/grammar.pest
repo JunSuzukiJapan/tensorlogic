@@ -155,7 +155,7 @@ binary_op = {
 }
 
 unary_op = {
-    "inv" | "det" | "-" | "!"
+    "inv" | "-" | "!"
 }
 
 einstein_sum = { "einsum" ~ "(" ~ string_literal ~ "," ~ tensor_list ~ ")" }
@@ -224,6 +224,7 @@ eq_type = { ":=" | "~" | "=" }
 statement = {
     let_statement
     | break_statement
+    | return_statement
     | tensor_decl
     | assignment
     | fact_assertion
@@ -237,6 +238,8 @@ statement = {
 }
 
 break_statement = { "break" }
+
+return_statement = { "return" ~ tensor_expr? }
 
 let_statement = { "let" ~ identifier ~ "=" ~ tensor_expr }
 
@@ -329,20 +332,53 @@ escape_sequence = @{ "\\\\" | "\\\"" | "\\n" | "\\t" | "\\r" }
 
 // Identifier: Simple rule since lexer handles keyword distinction
 // The lexer ensures keywords are not parsed as identifiers
+// Identifiers - any word that is not a keyword
+// Must check that the complete word is not a reserved keyword
 identifier = @{
-    (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")*
+    !(
+        (
+            "tensor" | "relation" | "rule" | "fn" | "main"
+            | "learnable" | "frozen" | "entity" | "concept" | "embed"
+            | "einsum" | "infer" | "learn"
+            | "forward" | "backward" | "gradient" | "symbolic"
+            | "if" | "else" | "for" | "while" | "loop" | "break" | "return" | "in" | "range"
+            | "let" | "true" | "false" | "not" | "and" | "or"
+            | "objective" | "optimizer" | "epochs" | "auto"
+            | "void"
+            | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
+            | "python" | "import" | "as"
+        )
+        ~ !(ASCII_ALPHANUMERIC | "_")
+    )
+    ~ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")*
 }
 
+// Helper: Keywords - must be complete words (not followed by alphanumeric or underscore)
+keyword = @{
+    (
+        "tensor" | "relation" | "rule" | "fn" | "main"
+        | "learnable" | "frozen" | "entity" | "concept" | "embed"
+        | "einsum" | "infer" | "learn"
+        | "forward" | "backward" | "gradient" | "symbolic"
+        | "if" | "else" | "for" | "while" | "loop" | "break" | "return" | "in" | "range"
+        | "let" | "true" | "false" | "not" | "and" | "or"
+        | "objective" | "optimizer" | "epochs" | "auto"
+        | "void"
+        | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
+        | "python" | "import" | "as"
+    ) ~ !(ASCII_ALPHANUMERIC | "_")
+}
+
+// Legacy reserved_keyword for backward compatibility (if needed elsewhere)
 reserved_keyword = {
-    "tensor" | "relation" | "rule" | "embedding" | "fn" | "main"
+    "tensor" | "relation" | "rule" | "fn" | "main"
     | "learnable" | "frozen" | "entity" | "concept" | "embed"
     | "einsum" | "infer" | "learn"
     | "forward" | "backward" | "gradient" | "symbolic"
-    | "if" | "else" | "for" | "while" | "loop" | "break" | "in" | "range"
+    | "if" | "else" | "for" | "while" | "loop" | "break" | "return" | "in" | "range"
     | "let" | "true" | "false" | "not" | "and" | "or"
-    | "shape" | "rank" | "norm" | "inv" | "det"
     | "objective" | "optimizer" | "epochs" | "auto"
-    | "random" | "xavier" | "he" | "zeros" | "ones" | "void"
+    | "void"
     | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
     | "python" | "import" | "as"
 }

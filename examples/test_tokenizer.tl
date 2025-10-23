@@ -1,22 +1,50 @@
-// Test for tokenizer operations
-// Note: This test requires network access to download tokenizer from HuggingFace
+// Test tokenizer functionality
 
 main {
-    print("=== TensorLogic Tokenizer Test ===")
-    print("")
-    print("Note: This test requires internet connection to download tokenizer from HuggingFace Hub")
+    print("=== Tokenizer Test ===")
     print("")
 
-    // For now, just test that the function exists
-    // Actual tokenization requires downloading tokenizer files
-    print("Tokenizer functions available:")
-    print("  - load_tokenizer(path)")
-    print("  - tokenize(tokenizer, text, add_special_tokens)")
-    print("  - detokenize(tokenizer, tokens, skip_special_tokens)")
+    // Load tokenizer
+    print("[1/4] Loading tokenizer...")
+    let tokenizer_path = env("HOME") + "/.llm/tokenizers/tinyllama-tokenizer.json"
+    let tokenizer = load_tokenizer(tokenizer_path)
+    print("      ✓ Tokenizer loaded")
     print("")
 
-    print("Note: To use tokenizer, download tokenizer.json from HuggingFace Hub")
-    print("Example: huggingface-cli download gpt2 tokenizer.json")
+    // Test encoding
+    print("[2/4] Testing tokenization...")
+    let text = "Hello, how are you today?"
+    print("      Input text: \"", text, "\"")
+
+    let token_ids = tokenize(tokenizer, text, true)
+    print("      Token IDs:", token_ids)
+    print("")
+
+    // Test decoding
+    print("[3/4] Testing detokenization...")
+    let decoded_text = detokenize(tokenizer, token_ids, true)
+    print("      Decoded text: \"", decoded_text, "\"")
+    print("")
+
+    // Test round-trip
+    print("[4/4] Verifying round-trip...")
+    if text == decoded_text {
+        print("      ✓ Round-trip successful!")
+    } else {
+        print("      ✗ Round-trip failed")
+        print("        Original:", text)
+        print("        Decoded: ", decoded_text)
+    }
+    print("")
+
+    print("=== Additional Tests ===")
+    print("")
+
+    // Test multiple sentences
+    let multi_text = "The quick brown fox jumps over the lazy dog. This is a test."
+    print("Multi-sentence text:", multi_text)
+    let multi_ids = tokenize(tokenizer, multi_text, true)
+    print("Decoded:", detokenize(tokenizer, multi_ids, true))
     print("")
 
     print("✅ All tokenizer tests complete!")
