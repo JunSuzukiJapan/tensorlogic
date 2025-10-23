@@ -1,6 +1,6 @@
 // 最小限の関数テスト
 
-function simple_add(a: float16[?, ?], b: float16[?, ?]) -> float16[?, ?] {
+fn simple_add(a: float16[?, ?], b: float16[?, ?]) -> float16[?, ?] {
     let result = a + b
     result := result
 }

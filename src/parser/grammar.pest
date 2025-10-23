@@ -100,21 +100,44 @@ init_method = { "random" | "xavier" | "he" | "zeros" | "ones" }
 // ============================================================================
 
 function_decl = {
-    "function" ~ identifier ~ "(" ~ param_list? ~ ")"
+    "fn" ~ identifier ~ "(" ~ param_list? ~ ")"
     ~ "->" ~ return_type ~ "{" ~ statement* ~ "}"
 }
 
 return_type = { tensor_type | "void" }
 
 // ============================================================================
-// Tensor Expressions
+// Tensor Expressions with Operator Precedence
 // ============================================================================
 
-tensor_expr = { tensor_term ~ (binary_op ~ tensor_term)* }
+// Top level: logical OR (lowest precedence)
+tensor_expr = { logical_or_expr }
+
+logical_or_expr = { logical_and_expr ~ (or_op ~ logical_and_expr)* }
+or_op = { "||" }
+
+logical_and_expr = { equality_expr ~ (and_op ~ equality_expr)* }
+and_op = { "&&" }
+
+equality_expr = { comparison_expr ~ (equality_op ~ comparison_expr)* }
+equality_op = { "==" | "!=" }
+
+comparison_expr = { additive_expr ~ (comparison_op ~ additive_expr)* }
+comparison_op = { "<=" | ">=" | "<" | ">" }
+
+additive_expr = { multiplicative_expr ~ (additive_op ~ multiplicative_expr)* }
+additive_op = { "+" | "-" }
+
+multiplicative_expr = { power_expr ~ (multiplicative_op ~ power_expr)* }
+multiplicative_op = { "*" | "/" | "@" | "⊙" }
+
+power_expr = { unary_expr ~ (power_op ~ unary_expr)* }
+power_op = { "**" | "⊗" }
+
+unary_expr = { unary_op ~ unary_expr | tensor_term }
 
 tensor_term = {
     "(" ~ tensor_expr ~ ")"
-    | unary_op ~ tensor_term
     | tensor_index
     | embedding_lookup
     | einstein_sum
@@ -155,7 +178,7 @@ tensor_literal = { "[" ~ tensor_elements ~ "]" | scalar_literal }
 
 tensor_elements = { tensor_element ~ ("," ~ tensor_element)* }
 
-tensor_element = { tensor_expr | tensor_literal | number }
+tensor_element = { number | tensor_literal | tensor_expr }
 
 scalar_literal = { complex_number | number | boolean }
 
@@ -311,7 +334,7 @@ identifier = @{
 }
 
 reserved_keyword = {
-    "tensor" | "relation" | "rule" | "embedding" | "function" | "main"
+    "tensor" | "relation" | "rule" | "embedding" | "fn" | "main"
     | "learnable" | "frozen" | "entity" | "concept" | "embed"
     | "einsum" | "infer" | "learn"
     | "forward" | "backward" | "gradient" | "symbolic"

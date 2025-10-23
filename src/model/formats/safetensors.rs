@@ -163,7 +163,7 @@ mod tests {
         // Save and load
         let path = "/tmp/test_model.safetensors";
         SafeTensorsLoader::save(&model, path).unwrap();
-        let loaded = SafeTensorsLoader::load(path).unwrap();
+        let loaded = SafeTensorsLoader::load(path, &device).unwrap();
 
         assert_eq!(loaded.tensors.len(), 1);
         assert!(loaded.tensors.contains_key("test_tensor"));
@@ -201,7 +201,7 @@ mod tests {
         // Save and load
         let path = "/tmp/test_multi_tensor.safetensors";
         SafeTensorsLoader::save(&model, path).unwrap();
-        let loaded = SafeTensorsLoader::load(path).unwrap();
+        let loaded = SafeTensorsLoader::load(path, &device).unwrap();
 
         assert_eq!(loaded.tensors.len(), 3);
         assert!(loaded.tensors.contains_key("weights"));
@@ -243,7 +243,7 @@ mod tests {
         // Save and load
         let path = "/tmp/test_large_tensor.safetensors";
         SafeTensorsLoader::save(&model, path).unwrap();
-        let loaded = SafeTensorsLoader::load(path).unwrap();
+        let loaded = SafeTensorsLoader::load(path, &device).unwrap();
 
         assert_eq!(loaded.tensors.len(), 1);
         assert_eq!(loaded.get_tensor("large_tensor").unwrap().numel(), size);

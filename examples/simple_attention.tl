@@ -4,14 +4,14 @@
 
 // SiLU活性化関数 (SwiGLU用)
 // SiLU(x) = x * sigmoid(x)
-function silu(x: float16[?, ?]) -> float16[?, ?] {
+fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
     let result = x * sig
     result := result
 }
 
 // スケーリングされたドット積Attention (簡易版)
-function simple_attention(
+fn simple_attention(
     Q: float16[?, ?],
     K: float16[?, ?],
     V: float16[?, ?]
@@ -26,7 +26,7 @@ function simple_attention(
 }
 
 // SwiGLU Feed-Forward Network
-function simple_swiglu(
+fn simple_swiglu(
     x: float16[?, ?],
     W_gate: float16[?, ?],
     W_up: float16[?, ?],
@@ -41,7 +41,7 @@ function simple_swiglu(
 }
 
 // シンプルなTransformerレイヤー
-function simple_transformer_layer(
+fn simple_transformer_layer(
     x: float16[?, ?],
     attn_norm_weight: float16[?],
     W_q: float16[?, ?],

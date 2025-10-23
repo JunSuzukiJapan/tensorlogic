@@ -2,14 +2,14 @@
 // Complete inference pipeline with all layers
 
 // SiLU activation
-function silu(x: float16[?, ?]) -> float16[?, ?] {
+fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
     let result = x * sig
     result := result
 }
 
 // SwiGLU FFN
-function swiglu_ffn(
+fn swiglu_ffn(
     x: float16[?, ?],
     W_gate: float16[?, ?],
     W_up: float16[?, ?],
@@ -24,7 +24,7 @@ function swiglu_ffn(
 }
 
 // Grouped Query Attention
-function tinyllama_gqa_attention(
+fn tinyllama_gqa_attention(
     Q: float16[?, ?],
     K: float16[?, ?],
     V: float16[?, ?],
@@ -69,7 +69,7 @@ function tinyllama_gqa_attention(
 }
 
 // Single Transformer Layer
-function transformer_layer(
+fn transformer_layer(
     x: float16[?, ?],
     W_q: float16[?, ?],
     W_k: float16[?, ?],

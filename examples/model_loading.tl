@@ -18,7 +18,7 @@
 // === 実用例：線形レイヤーの推論 ===
 
 // モデルのウェイトとバイアスを使って推論を実行
-function forward(input: float16[N, D_in],
+fn forward(input: float16[N, D_in],
                  weights: float16[D_in, D_out],
                  bias: float16[D_out]) -> float16[N, D_out] {
     // 線形変換: output = input @ weights + bias

@@ -1,19 +1,19 @@
 // TensorLogicでのAttention関数実装（動作確認版）
 
 // 簡単なmatmul関数テスト
-function test_matmul(A: float16[?, ?], B: float16[?, ?]) -> float16[?, ?] {
+fn test_matmul(A: float16[?, ?], B: float16[?, ?]) -> float16[?, ?] {
     let C = matmul(A, B)
     C := C
 }
 
 // スケーリング関数
-function scaled_multiply(x: float16[?, ?], scale: float16) -> float16[?, ?] {
+fn scaled_multiply(x: float16[?, ?], scale: float16) -> float16[?, ?] {
     let result = x * scale
     result := result
 }
 
 // シンプルなAttention（スケーリング済み）
-function simple_attention_core(
+fn simple_attention_core(
     Q: float16[?, ?],
     K: float16[?, ?],
     V: float16[?, ?],
@@ -28,7 +28,7 @@ function simple_attention_core(
 }
 
 // SiLU活性化
-function silu_activation(x: float16[?, ?]) -> float16[?, ?] {
+fn silu_activation(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
     let result = x * sig
     result := result

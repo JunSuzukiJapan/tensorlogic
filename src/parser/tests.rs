@@ -105,7 +105,7 @@ fn test_parse_embedding_decl() {
 #[test]
 fn test_parse_function_decl() {
     let source = r#"
-        function sigmoid(x: float16[?]) -> float16[?] {
+        fn sigmoid(x: float16[?]) -> float16[?] {
             x := x
         }
     "#;
@@ -349,10 +349,10 @@ fn test_parse_chained_expression() {
 
     if let Some(main) = program.main_block {
         if let Statement::Assignment { value, .. } = &main.statements[0] {
-            // Parse as: (a + b) * c due to left-to-right parsing
-            // Note: This is simplified precedence, not full operator precedence
+            // Parse as: a + (b * c) with correct operator precedence
+            // Multiplication has higher precedence than addition
             if let TensorExpr::BinaryOp { op, .. } = value {
-                assert_eq!(*op, BinaryOp::Mul);
+                assert_eq!(*op, BinaryOp::Add);
             } else {
                 panic!("Expected binary operation");
             }
@@ -396,8 +396,9 @@ main {
         assert_eq!(main.statements.len(), 1);
         
         if let Statement::ControlFlow(ControlFlow::If { condition, then_block, else_block }) = &main.statements[0] {
-            // Check condition
-            assert!(matches!(condition, Condition::Constraint(Constraint::Comparison { .. })));
+            // Check condition - x > 0 should be parsed as Tensor expression (comparison operator)
+            // The condition is actually a TensorExpr with BinaryOp
+            assert!(matches!(condition, Condition::Tensor(_)));
             
             // Check then block
             assert_eq!(then_block.len(), 1);
@@ -428,7 +429,8 @@ main {
     
     if let Some(main) = program.main_block {
         if let Statement::ControlFlow(ControlFlow::If { condition, then_block, else_block }) = &main.statements[0] {
-            assert!(matches!(condition, Condition::Constraint(_)));
+            // Condition is TensorExpr (comparison operator)
+            assert!(matches!(condition, Condition::Tensor(_)));
             assert_eq!(then_block.len(), 1);
             
             // Check else block exists
@@ -487,8 +489,8 @@ main {
         assert_eq!(main.statements.len(), 1);
         
         if let Statement::ControlFlow(ControlFlow::While { condition, body }) = &main.statements[0] {
-            // Check condition
-            assert!(matches!(condition, Condition::Constraint(Constraint::Comparison { .. })));
+            // Condition is TensorExpr (comparison operator)
+            assert!(matches!(condition, Condition::Tensor(_)));
             
             // Check body
             assert_eq!(body.len(), 1);

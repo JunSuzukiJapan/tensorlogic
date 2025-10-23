@@ -67,7 +67,7 @@ embedding_table = model.get_tensor("token_embd.weight")
 print("Embedding shape:", embedding_table.shape)  // [vocab_size, hidden_dim]
 
 // 토큰 ID에서 임베딩 벡터 가져오기
-function get_token_embedding(embedding_table: float16[V, D],
+fn get_token_embedding(embedding_table: float16[V, D],
                              token_id: int) -> float16[D] {
     return embedding_table[token_id, :]
 }

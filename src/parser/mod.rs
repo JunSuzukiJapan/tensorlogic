@@ -516,30 +516,217 @@ impl TensorLogicParser {
 
     fn parse_tensor_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
         // Expression parser with operator precedence handling
-        let mut pairs = pair.into_inner();
-
-        // Parse the first term
-        let first_term = pairs.next().ok_or_else(|| {
+        let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("tensor expression content".to_string())
         })?;
-        let mut expr = Self::parse_tensor_term(first_term)?;
+        Self::parse_logical_or_expr(inner)
+    }
 
-        // Parse remaining (binary_op, tensor_term) pairs
+    fn parse_logical_or_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+        let mut pairs = pair.into_inner();
+        let first = pairs.next().ok_or_else(|| {
+            ParseError::MissingField("logical or expression".to_string())
+        })?;
+        let mut expr = Self::parse_logical_and_expr(first)?;
+
         while let Some(op_pair) = pairs.next() {
-            let op = Self::parse_binary_op(op_pair)?;
-            let right_term = pairs.next().ok_or_else(|| {
-                ParseError::MissingField("right operand".to_string())
+            // Skip the or_op rule and get the right operand
+            let right = pairs.next().ok_or_else(|| {
+                ParseError::MissingField("right operand after ||".to_string())
             })?;
-            let right = Self::parse_tensor_term(right_term)?;
-
+            let right_expr = Self::parse_logical_and_expr(right)?;
             expr = TensorExpr::BinaryOp {
-                op,
+                op: BinaryOp::Or,
                 left: Box::new(expr),
-                right: Box::new(right),
+                right: Box::new(right_expr),
             };
         }
 
         Ok(expr)
+    }
+
+    fn parse_logical_and_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+        let mut pairs = pair.into_inner();
+        let first = pairs.next().ok_or_else(|| {
+            ParseError::MissingField("logical and expression".to_string())
+        })?;
+        let mut expr = Self::parse_equality_expr(first)?;
+
+        while let Some(_op_pair) = pairs.next() {
+            let right = pairs.next().ok_or_else(|| {
+                ParseError::MissingField("right operand after &&".to_string())
+            })?;
+            let right_expr = Self::parse_equality_expr(right)?;
+            expr = TensorExpr::BinaryOp {
+                op: BinaryOp::And,
+                left: Box::new(expr),
+                right: Box::new(right_expr),
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_equality_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+        let mut pairs = pair.into_inner();
+        let first = pairs.next().ok_or_else(|| {
+            ParseError::MissingField("equality expression".to_string())
+        })?;
+        let mut expr = Self::parse_comparison_expr(first)?;
+
+        while let Some(op_pair) = pairs.next() {
+            let op = match op_pair.as_str() {
+                "==" => BinaryOp::Eq,
+                "!=" => BinaryOp::Ne,
+                _ => return Err(ParseError::InvalidValue(format!("unknown equality operator: {}", op_pair.as_str()))),
+            };
+            let right = pairs.next().ok_or_else(|| {
+                ParseError::MissingField("right operand".to_string())
+            })?;
+            let right_expr = Self::parse_comparison_expr(right)?;
+            expr = TensorExpr::BinaryOp {
+                op,
+                left: Box::new(expr),
+                right: Box::new(right_expr),
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_comparison_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+        let mut pairs = pair.into_inner();
+        let first = pairs.next().ok_or_else(|| {
+            ParseError::MissingField("comparison expression".to_string())
+        })?;
+        let mut expr = Self::parse_additive_expr(first)?;
+
+        while let Some(op_pair) = pairs.next() {
+            let op = match op_pair.as_str() {
+                "<" => BinaryOp::Lt,
+                "<=" => BinaryOp::Le,
+                ">" => BinaryOp::Gt,
+                ">=" => BinaryOp::Ge,
+                _ => return Err(ParseError::InvalidValue(format!("unknown comparison operator: {}", op_pair.as_str()))),
+            };
+            let right = pairs.next().ok_or_else(|| {
+                ParseError::MissingField("right operand".to_string())
+            })?;
+            let right_expr = Self::parse_additive_expr(right)?;
+            expr = TensorExpr::BinaryOp {
+                op,
+                left: Box::new(expr),
+                right: Box::new(right_expr),
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_additive_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+        let mut pairs = pair.into_inner();
+        let first = pairs.next().ok_or_else(|| {
+            ParseError::MissingField("additive expression".to_string())
+        })?;
+        let mut expr = Self::parse_multiplicative_expr(first)?;
+
+        while let Some(op_pair) = pairs.next() {
+            let op = match op_pair.as_str() {
+                "+" => BinaryOp::Add,
+                "-" => BinaryOp::Sub,
+                _ => return Err(ParseError::InvalidValue(format!("unknown additive operator: {}", op_pair.as_str()))),
+            };
+            let right = pairs.next().ok_or_else(|| {
+                ParseError::MissingField("right operand".to_string())
+            })?;
+            let right_expr = Self::parse_multiplicative_expr(right)?;
+            expr = TensorExpr::BinaryOp {
+                op,
+                left: Box::new(expr),
+                right: Box::new(right_expr),
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_multiplicative_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+        let mut pairs = pair.into_inner();
+        let first = pairs.next().ok_or_else(|| {
+            ParseError::MissingField("multiplicative expression".to_string())
+        })?;
+        let mut expr = Self::parse_power_expr(first)?;
+
+        while let Some(op_pair) = pairs.next() {
+            let op = match op_pair.as_str() {
+                "*" => BinaryOp::Mul,
+                "/" => BinaryOp::Div,
+                "@" => BinaryOp::MatMul,
+                "⊙" => BinaryOp::Hadamard,
+                _ => return Err(ParseError::InvalidValue(format!("unknown multiplicative operator: {}", op_pair.as_str()))),
+            };
+            let right = pairs.next().ok_or_else(|| {
+                ParseError::MissingField("right operand".to_string())
+            })?;
+            let right_expr = Self::parse_power_expr(right)?;
+            expr = TensorExpr::BinaryOp {
+                op,
+                left: Box::new(expr),
+                right: Box::new(right_expr),
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_power_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+        let mut pairs = pair.into_inner();
+        let first = pairs.next().ok_or_else(|| {
+            ParseError::MissingField("power expression".to_string())
+        })?;
+        let mut expr = Self::parse_unary_expr(first)?;
+
+        while let Some(op_pair) = pairs.next() {
+            let op = match op_pair.as_str() {
+                "**" => BinaryOp::Power,
+                "⊗" => BinaryOp::TensorProd,
+                _ => return Err(ParseError::InvalidValue(format!("unknown power operator: {}", op_pair.as_str()))),
+            };
+            let right = pairs.next().ok_or_else(|| {
+                ParseError::MissingField("right operand".to_string())
+            })?;
+            let right_expr = Self::parse_unary_expr(right)?;
+            expr = TensorExpr::BinaryOp {
+                op,
+                left: Box::new(expr),
+                right: Box::new(right_expr),
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_unary_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+        let mut pairs = pair.into_inner();
+        let first = pairs.next().ok_or_else(|| {
+            ParseError::MissingField("unary expression".to_string())
+        })?;
+
+        match first.as_rule() {
+            Rule::unary_op => {
+                let op = Self::parse_unary_op(first)?;
+                let operand = pairs.next().ok_or_else(|| {
+                    ParseError::MissingField("unary operand".to_string())
+                })?;
+                let operand_expr = Self::parse_unary_expr(operand)?;
+                Ok(TensorExpr::UnaryOp {
+                    op,
+                    operand: Box::new(operand_expr),
+                })
+            }
+            Rule::tensor_term => Self::parse_tensor_term(first),
+            _ => Err(ParseError::InvalidValue(format!("unexpected rule in unary expression: {:?}", first.as_rule()))),
+        }
     }
 
     fn parse_binary_op(pair: pest::iterators::Pair<Rule>) -> Result<BinaryOp, ParseError> {
@@ -561,6 +748,16 @@ impl TensorLogicParser {
             "&&" => Ok(BinaryOp::And),
             "||" => Ok(BinaryOp::Or),
             _ => Err(ParseError::InvalidValue(format!("unknown binary operator: {}", pair.as_str()))),
+        }
+    }
+
+    fn parse_unary_op(pair: pest::iterators::Pair<Rule>) -> Result<UnaryOp, ParseError> {
+        match pair.as_str() {
+            "-" => Ok(UnaryOp::Neg),
+            "!" => Ok(UnaryOp::Not),
+            "inv" => Ok(UnaryOp::Inverse),
+            "det" => Ok(UnaryOp::Determinant),
+            _ => Err(ParseError::InvalidValue(format!("unknown unary operator: {}", pair.as_str()))),
         }
     }
 

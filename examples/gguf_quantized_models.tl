@@ -53,7 +53,7 @@
 // print("Embedding shape:", embedding_table.shape)  // [vocab_size, hidden_dim]
 
 // トークンIDから埋め込みベクトルを取得
-function get_token_embedding(embedding_table: float16[V, D],
+fn get_token_embedding(embedding_table: float16[V, D],
                              token_id: int) -> float16[D] {
     // 埋め込みテーブルから該当する行を取得
     return embedding_table[token_id, :]

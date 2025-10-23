@@ -28,7 +28,7 @@ bias = model.get_tensor("layer.0.bias")
 모델 가중치와 바이어스를 사용한 추론 수행:
 
 ```tensorlogic
-function forward(input: float16[N, D_in],
+fn forward(input: float16[N, D_in],
                  weights: float16[D_in, D_out],
                  bias: float16[D_out]) -> float16[N, D_out] {
     // 선형 변환: output = input @ weights + bias

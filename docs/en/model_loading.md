@@ -28,7 +28,7 @@ bias = model.get_tensor("layer.0.bias")
 Perform inference using model weights and biases:
 
 ```tensorlogic
-function forward(input: float16[N, D_in],
+fn forward(input: float16[N, D_in],
                  weights: float16[D_in, D_out],
                  bias: float16[D_out]) -> float16[N, D_out] {
     // Linear transformation: output = input @ weights + bias

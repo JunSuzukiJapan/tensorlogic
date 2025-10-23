@@ -90,7 +90,7 @@ fn test_relation_decl() {
 #[test]
 fn test_function_decl() {
     let source = r#"
-        function sigmoid(x: float16[?]) -> float16[?] {
+        fn sigmoid(x: float16[?]) -> float16[?] {
             y := x
         }
     "#;
@@ -162,9 +162,9 @@ fn test_literal_type_inference_array() {
 
     // [1.0, 2.0, 3.0]
     let array_lit = TensorLiteral::Array(vec![
-        TensorLiteral::Scalar(ScalarLiteral::Float(1.0)),
-        TensorLiteral::Scalar(ScalarLiteral::Float(2.0)),
-        TensorLiteral::Scalar(ScalarLiteral::Float(3.0)),
+        ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Float(1.0))),
+        ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Float(2.0))),
+        ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Float(3.0))),
     ]);
 
     let array_type = checker.infer_literal_type(&array_lit).unwrap();

@@ -5,7 +5,7 @@
 // Q: [seq, num_q_heads * head_dim] = [seq, 2048]
 // K: [seq, num_kv_heads * head_dim] = [seq, 256]
 // V: [seq, num_kv_heads * head_dim] = [seq, 256]
-function grouped_query_attention(
+fn grouped_query_attention(
     Q: float16[?, ?],
     K: float16[?, ?],
     V: float16[?, ?]

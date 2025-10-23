@@ -2,14 +2,14 @@
 // Using transformer_layer function from attention_final.tl
 
 // SiLU activation: x * sigmoid(x)
-function silu(x: float16[?, ?]) -> float16[?, ?] {
+fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
     let result = x * sig
     result := result
 }
 
 // SwiGLU FFN: silu(x @ W_gate) ⊙ (x @ W_up) @ W_down
-function swiglu_ffn(
+fn swiglu_ffn(
     x: float16[?, ?],
     W_gate: float16[?, ?],
     W_up: float16[?, ?],
@@ -24,7 +24,7 @@ function swiglu_ffn(
 }
 
 // Simple Attention (for now, will add GQA support later)
-function simple_attention(
+fn simple_attention(
     Q: float16[?, ?],
     K: float16[?, ?],
     V: float16[?, ?]

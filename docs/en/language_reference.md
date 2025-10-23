@@ -226,7 +226,7 @@ embedding word_embed {
 
 ```tensorlogic
 // Function declaration (future feature)
-function sigmoid(x: float32[?]) -> float32[?] {
+fn sigmoid(x: float32[?]) -> float32[?] {
     // Implementation
 }
 ```

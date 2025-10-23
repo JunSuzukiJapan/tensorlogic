@@ -1,7 +1,7 @@
 // TensorLogicでのAttention関数実装
 
 // シンプルなAttention
-function simple_attention(
+fn simple_attention(
     Q: float16[?, ?],
     K: float16[?, ?],
     V: float16[?, ?]
@@ -16,14 +16,14 @@ function simple_attention(
 }
 
 // SiLU活性化
-function silu(x: float16[?, ?]) -> float16[?, ?] {
+fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
     let result = x * sig
     result := result
 }
 
 // SwiGLU FFN
-function swiglu_ffn(
+fn swiglu_ffn(
     x: float16[?, ?],
     W_gate: float16[?, ?],
     W_up: float16[?, ?],
@@ -38,7 +38,7 @@ function swiglu_ffn(
 }
 
 // シンプルなTransformerレイヤー（1ヘッド）
-function transformer_layer(
+fn transformer_layer(
     x: float16[?, ?],
     attn_norm: float16[?],
     W_q: float16[?, ?],
