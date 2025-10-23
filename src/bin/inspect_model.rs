@@ -7,7 +7,7 @@ fn main() {
 
     if args.len() < 2 {
         eprintln!("Usage: {} <model_path>", args[0]);
-        eprintln!("Example: {} ~/.tensorlogic/models/tinyllama-1.1b-chat-q4_0.gguf", args[0]);
+        eprintln!("Example: {} ~/.llm/models/tinyllama-1.1b-chat-q4_0.gguf", args[0]);
         std::process::exit(1);
     }
 

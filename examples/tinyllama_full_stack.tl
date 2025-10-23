@@ -112,7 +112,7 @@ main {
 
     // Load model
     print("ステップ1: モデル読み込み")
-    let model_path = "/Users/junsuzuki/.tensorlogic/models/tinyllama-1.1b-chat-q4_0.gguf"
+    let model_path = "/Users/junsuzuki/.llm/models/tinyllama-1.1b-chat-q4_0.gguf"
     let model = load_model(model_path)
     print("✓ Model loaded (201 tensors)")
     print("")

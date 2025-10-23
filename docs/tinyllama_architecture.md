@@ -1,7 +1,7 @@
 # TinyLlama 1.1B Model Architecture
 
 **Model**: TinyLlama-1.1B-Chat-v1.0 (Q4_0 quantized)
-**File**: `~/.tensorlogic/models/tinyllama-1.1b-chat-q4_0.gguf`
+**File**: `~/.llm/models/tinyllama-1.1b-chat-q4_0.gguf`
 **Total Parameters**: ~1.1 billion
 **Total Tensors**: 201 tensors
 

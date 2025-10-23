@@ -7,7 +7,7 @@ main {
     print("Home directory:", home)
 
     // Test load_model() function
-    let model_path = home + "/.tensorlogic/models/tinyllama-1.1b-chat-q4_0.gguf"
+    let model_path = home + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf"
     print("Loading model from:", model_path)
 
     let model = load_model(model_path)

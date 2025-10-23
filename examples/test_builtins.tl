@@ -17,7 +17,7 @@ main {
     print("Attempting to load TinyLlama model...")
     // Note: This will only work if you have downloaded the model
     // Run: cargo run --bin download_model -- --model tinyllama
-    // load_model(env("HOME") + "/.tensorlogic/models/tinyllama-1.1b-chat-q4_0.gguf")
+    // load_model(env("HOME") + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf")
     
     print("\n✅ All basic tests completed!")
 }

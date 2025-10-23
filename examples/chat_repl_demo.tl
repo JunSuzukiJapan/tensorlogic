@@ -9,7 +9,7 @@ main {
     print("")
 
     print("Step 1: Load model")
-    let model_path = "/Users/junsuzuki/.tensorlogic/models/tinyllama-1.1b-chat-q4_0.gguf"
+    let model_path = "/Users/junsuzuki/.llm/models/tinyllama-1.1b-chat-q4_0.gguf"
     let model = load_model(model_path)
     print("  ✓ Model loaded: TinyLlama-1.1B-Chat (Q4_0)")
     print("")

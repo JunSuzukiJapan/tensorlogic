@@ -8,7 +8,7 @@ main {
     print("")
     
     let home = env("HOME")
-    let model_path = home + "/.tensorlogic/models/tinyllama-1.1b-chat-q4_0.gguf"
+    let model_path = home + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf"
     
     print("Attempting to load model from:")
     print("  " + model_path)

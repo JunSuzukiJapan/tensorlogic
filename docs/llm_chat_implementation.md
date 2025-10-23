@@ -22,7 +22,7 @@ TensorLogicを使用してローカルLLM（TinyLlama 1.1B）によるチャッ�
 3. **モデル管理**
    - TinyLlama 1.1B Chat (Q4_0) モデルのダウンロード完了 (609MB)
    - GGUFフォーマットのモデルローダー実装済み
-   - モデルパス: `~/.tensorlogic/models/tinyllama-1.1b-chat-q4_0.gguf`
+   - モデルパス: `~/.llm/models/tinyllama-1.1b-chat-q4_0.gguf`
    - テンソル数: 201個
 
 4. **トークナイザー**

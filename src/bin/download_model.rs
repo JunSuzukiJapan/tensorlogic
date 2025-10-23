@@ -40,7 +40,7 @@ const MODELS: &[ModelInfo] = &[
 fn get_models_dir() -> PathBuf {
     let home = env::var("HOME").expect("HOME environment variable not set");
     let mut path = PathBuf::from(home);
-    path.push(".tensorlogic");
+    path.push(".llm");
     path.push("models");
     path
 }
