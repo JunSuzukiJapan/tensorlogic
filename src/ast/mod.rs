@@ -452,6 +452,10 @@ pub enum Statement {
         method: InferenceMethod,
         query: Box<Statement>, // Must be Query
     },
+    /// Inference block: infer { method query* }
+    InferenceBlock {
+        items: Vec<(InferenceMethod, Box<Statement>)>,
+    },
     /// Learning call
     Learning(LearningSpec),
     /// Control flow

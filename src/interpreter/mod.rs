@@ -1182,6 +1182,28 @@ impl Interpreter {
                     }
                 }
             }
+            Statement::InferenceBlock { items } => {
+                // Execute multiple inference operations in sequence
+                println!("\n=== Inference Block Started ===");
+                println!("Total inference operations: {}", items.len());
+                println!();
+
+                for (index, (method, query)) in items.iter().enumerate() {
+                    println!("--- Inference {}/{} ---", index + 1, items.len());
+
+                    // Execute single inference by creating a temporary Inference statement
+                    let inference_stmt = Statement::Inference {
+                        method: *method,
+                        query: query.clone(),
+                    };
+
+                    self.execute_statement(&inference_stmt)?;
+                    println!();
+                }
+
+                println!("=== Inference Block Completed ===\n");
+                Ok(())
+            }
             Statement::Learning(spec) => {
                 // Learning execution with detailed progress display
                 self.execute_learning(spec)

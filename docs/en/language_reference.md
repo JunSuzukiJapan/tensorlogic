@@ -337,12 +337,33 @@ query Parent(X, Y) where X != Y
 
 ### 6.5 Inference Statement
 
+#### Single Inference
+
 ```tensorlogic
-infer forward query Ancestor(alice, X)
-infer backward query HasProperty(X, color)
-infer gradient query Relation(X, Y)
-infer symbolic query Rule(X)
+infer forward Parent(alice, X)?
+infer backward HasProperty(X, color)?
+infer gradient Relation(X, Y)?
+infer symbolic Rule(X)?
 ```
+
+#### Inference Block
+
+Multiple inferences can be grouped together in a block:
+
+```tensorlogic
+infer {
+    forward Parent(alice, X)?
+    backward HasProperty(X, color)?
+    gradient Relation(X, Y)?
+    symbolic Rule(X)?
+}
+```
+
+**Features**:
+- Execute multiple inferences sequentially
+- Consistent syntax style with `learn` blocks
+- Group related inference operations
+- Each inference executes independently
 
 ### 6.6 Learning Statement
 

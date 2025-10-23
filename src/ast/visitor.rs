@@ -271,6 +271,12 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
             Ok(())
         }
         Statement::Inference { query, .. } => visitor.visit_statement(query),
+        Statement::InferenceBlock { items } => {
+            for (_, query) in items {
+                visitor.visit_statement(query)?;
+            }
+            Ok(())
+        }
         Statement::Learning(spec) => {
             visitor.visit_tensor_expr(&spec.objective)?;
             Ok(())

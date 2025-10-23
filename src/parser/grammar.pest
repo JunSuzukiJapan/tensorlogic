@@ -255,7 +255,11 @@ query = { atom ~ "?" ~ ("where" ~ constraint_list)? }
 
 constraint_list = { constraint ~ ("," ~ constraint)* }
 
-inference_call = { "infer" ~ inference_method ~ query }
+inference_call = { "infer" ~ (inference_block | (inference_method ~ query)) }
+
+inference_block = { "{" ~ inference_item* ~ "}" }
+
+inference_item = { inference_method ~ query }
 
 inference_method = { "forward" | "backward" | "gradient" | "symbolic" }
 

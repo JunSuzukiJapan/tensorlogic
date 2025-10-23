@@ -1241,18 +1241,53 @@ impl TensorLogicParser {
     fn parse_inference_call(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
         let mut inner = pair.into_inner();
 
-        let method = Self::parse_inference_method(inner.next().ok_or_else(|| {
-            ParseError::MissingField("inference method".to_string())
-        })?)?;
+        let first = inner.next().ok_or_else(|| {
+            ParseError::MissingField("inference method or block".to_string())
+        })?;
 
-        let query = Self::parse_query(inner.next().ok_or_else(|| {
-            ParseError::MissingField("query in inference call".to_string())
-        })?)?;
+        match first.as_rule() {
+            Rule::inference_block => {
+                // Block syntax: infer { ... }
+                Self::parse_inference_block(first)
+            }
+            Rule::inference_method => {
+                // Single inference: infer method query
+                let method = Self::parse_inference_method(first)?;
+                let query = Self::parse_query(inner.next().ok_or_else(|| {
+                    ParseError::MissingField("query in inference call".to_string())
+                })?)?;
 
-        Ok(Statement::Inference {
-            method,
-            query: Box::new(query),
-        })
+                Ok(Statement::Inference {
+                    method,
+                    query: Box::new(query),
+                })
+            }
+            _ => Err(ParseError::InvalidValue(
+                "Expected inference method or block".to_string()
+            )),
+        }
+    }
+
+    fn parse_inference_block(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+        let mut items = Vec::new();
+
+        for item_pair in pair.into_inner() {
+            if item_pair.as_rule() == Rule::inference_item {
+                let mut item_inner = item_pair.into_inner();
+
+                let method = Self::parse_inference_method(item_inner.next().ok_or_else(|| {
+                    ParseError::MissingField("inference method in block item".to_string())
+                })?)?;
+
+                let query = Self::parse_query(item_inner.next().ok_or_else(|| {
+                    ParseError::MissingField("query in block item".to_string())
+                })?)?;
+
+                items.push((method, Box::new(query)));
+            }
+        }
+
+        Ok(Statement::InferenceBlock { items })
     }
 
     fn parse_inference_method(pair: pest::iterators::Pair<Rule>) -> Result<InferenceMethod, ParseError> {

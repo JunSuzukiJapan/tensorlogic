@@ -328,12 +328,33 @@ query Parent(X, Y) where X != Y
 
 ### 6.5 推論文
 
+#### 単一推論
+
 ```tensorlogic
-infer forward query Ancestor(alice, X)
-infer backward query HasProperty(X, color)
-infer gradient query Relation(X, Y)
-infer symbolic query Rule(X)
+infer forward Parent(alice, X)?
+infer backward HasProperty(X, color)?
+infer gradient Relation(X, Y)?
+infer symbolic Rule(X)?
 ```
+
+#### 推論ブロック
+
+複数の推論を一つのブロックにまとめて記述できます：
+
+```tensorlogic
+infer {
+    forward Parent(alice, X)?
+    backward HasProperty(X, color)?
+    gradient Relation(X, Y)?
+    symbolic Rule(X)?
+}
+```
+
+**特徴**:
+- 複数の推論を順次実行
+- `learn`ブロックと同様の構文スタイル
+- 関連する推論をグループ化
+- 各推論は独立して実行
 
 ### 6.6 学習文
 

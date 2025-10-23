@@ -754,6 +754,65 @@ main {
     assert!(result.is_ok(), "Symbolic inference should succeed: {:?}", result);
 }
 
+#[test]
+fn test_inference_block() {
+    // Test inference block with multiple inference operations
+    let source = r#"
+relation Parent(x: entity, y: entity)
+relation Knows(a: entity, b: entity)
+
+main {
+    infer {
+        forward Parent(alice, X)?
+        backward Parent(X, Y)?
+        gradient Knows(alice, bob)?
+    }
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "Inference block should succeed: {:?}", result);
+}
+
+#[test]
+fn test_inference_block_empty() {
+    // Test empty inference block
+    let source = r#"
+relation Parent(x: entity, y: entity)
+
+main {
+    infer {
+    }
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "Empty inference block should succeed: {:?}", result);
+}
+
+#[test]
+fn test_inference_block_single_item() {
+    // Test inference block with single item
+    let source = r#"
+relation Parent(x: entity, y: entity)
+
+main {
+    infer {
+        forward Parent(alice, X)?
+    }
+}
+"#;
+    let program = TensorLogicParser::parse_program(source).unwrap();
+
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.execute(&program);
+    assert!(result.is_ok(), "Single-item inference block should succeed: {:?}", result);
+}
+
 // ============================================================================
 // Logic Engine Integration Tests
 // ============================================================================
