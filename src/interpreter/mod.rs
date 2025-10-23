@@ -83,6 +83,12 @@ pub enum RuntimeError {
 
     #[error("Break outside of loop")]
     BreakOutsideLoop,
+
+    #[error("Return from function")]
+    ReturnValue(Value),
+
+    #[error("Index {index} out of bounds for length {length}")]
+    IndexError { index: usize, length: usize },
 }
 
 pub type RuntimeResult<T> = Result<T, RuntimeError>;
@@ -94,8 +100,6 @@ struct CallFrame {
     function_name: String,
     /// Local variables in this scope
     local_vars: HashMap<String, Value>,
-    /// Return value (set by last Assignment statement)
-    return_value: Option<Value>,
 }
 
 impl CallFrame {
@@ -103,7 +107,6 @@ impl CallFrame {
         Self {
             function_name,
             local_vars: HashMap::new(),
-            return_value: None,
         }
     }
 }
@@ -613,6 +616,151 @@ impl Interpreter {
         }
     }
 
+    /// Evaluate the last statement and return its value if it's an expression
+    /// This method both executes the statement for side effects AND returns the value
+    fn evaluate_last_statement(&mut self, stmt: &Statement) -> RuntimeResult<Option<Value>> {
+        match stmt {
+            Statement::Assignment { target, value } => {
+                // Assignment (identifier := expr) returns the right-hand side value
+                let evaluated_value = self.eval_expr(value)?;
+
+                // Also execute the statement for side effects (variable assignment)
+                if let Some(frame) = self.call_stack.last_mut() {
+                    frame.local_vars.insert(target.as_str().to_string(), evaluated_value.clone());
+                } else {
+                    if self.env.has_variable(target.as_str()) {
+                        self.env.set_variable(target.as_str().to_string(), evaluated_value.clone())?;
+                    } else {
+                        self.env.declare_variable(target.as_str().to_string(), evaluated_value.clone())?;
+                    }
+                }
+
+                Ok(Some(evaluated_value))
+            }
+            Statement::Equation(eq) => {
+                // For assignment equations (expr := expr), return the right-hand side value
+                if eq.eq_type == EquationType::Assign {
+                    // Evaluate the right-hand side
+                    let value = self.eval_expr(&eq.right)?;
+
+                    // Also execute the statement for side effects (variable assignment)
+                    if let TensorExpr::Variable(var_name) = &eq.left {
+                        if let Some(frame) = self.call_stack.last_mut() {
+                            frame.local_vars.insert(var_name.as_str().to_string(), value.clone());
+                        } else {
+                            if self.env.has_variable(var_name.as_str()) {
+                                self.env.set_variable(var_name.as_str().to_string(), value.clone())?;
+                            } else {
+                                self.env.declare_variable(var_name.as_str().to_string(), value.clone())?;
+                            }
+                        }
+                    }
+
+                    Ok(Some(value))
+                } else {
+                    // For other equation types (=, ~), execute but don't return value
+                    self.execute_statement(stmt)?;
+                    Ok(None)
+                }
+            }
+            Statement::FunctionCall { name, args } => {
+                // Function call result can be implicitly returned
+                let value = self.eval_function_call(name, args)?;
+                Ok(Some(value))
+            }
+            // All other statement types: execute and return None
+            _ => {
+                self.execute_statement(stmt)?;
+                Ok(None)
+            }
+        }
+    }
+
+    /// Check if a value matches the expected return type
+    fn check_return_type_match(&self, value: &Value, expected_type: &ReturnType, func_name: &str) -> RuntimeResult<()> {
+        match expected_type {
+            ReturnType::Void => {
+                // Void functions should return Value::Void
+                match value {
+                    Value::Void => Ok(()),
+                    _ => Err(RuntimeError::TypeError(
+                        format!("Function '{}' declared as 'void' but returned a value", func_name)
+                    ))
+                }
+            }
+            ReturnType::Tensor(tensor_type) => {
+                // Convert TensorType to EntityType and reuse check_type_match
+                let entity_type = EntityType::Tensor(tensor_type.clone());
+                self.check_type_match(value, &entity_type, &format!("return value of '{}'", func_name))
+            }
+        }
+    }
+
+    /// Check if a value matches the expected entity type
+    fn check_type_match(&self, value: &Value, expected_type: &EntityType, param_name: &str) -> RuntimeResult<()> {
+        match expected_type {
+            EntityType::Entity | EntityType::Concept => {
+                // Entity and Concept types accept string values
+                match value {
+                    Value::String(_) => Ok(()),
+                    _ => Err(RuntimeError::TypeError(
+                        format!("Parameter '{}' expects entity/concept (string), got {:?}", param_name, value)
+                    ))
+                }
+            }
+            EntityType::Tensor(tensor_type) => {
+                match value {
+                    Value::Tensor(t) => {
+                        // Note: TensorLogic uses f16 internally for all tensors
+                        // Base type checking is skipped (all tensors are f16)
+                        // Focus on shape validation
+
+                        // Check shape if specified (non-dynamic dimensions)
+                        let expected_dimensions = &tensor_type.dimensions;
+                        if !expected_dimensions.is_empty() {
+                            let actual_shape = t.shape().dims();
+
+                            // Check rank (number of dimensions)
+                            if expected_dimensions.len() != actual_shape.len() {
+                                return Err(RuntimeError::TypeError(
+                                    format!(
+                                        "Parameter '{}' expects rank {} tensor, got rank {}",
+                                        param_name, expected_dimensions.len(), actual_shape.len()
+                                    )
+                                ));
+                            }
+
+                            // Check each dimension (if not dynamic)
+                            for (i, expected_dim) in expected_dimensions.iter().enumerate() {
+                                if let Dimension::Fixed(expected_size) = expected_dim {
+                                    if actual_shape[i] != *expected_size {
+                                        return Err(RuntimeError::TypeError(
+                                            format!(
+                                                "Parameter '{}' dimension {} expects size {}, got {}",
+                                                param_name, i, expected_size, actual_shape[i]
+                                            )
+                                        ));
+                                    }
+                                }
+                                // Dynamic and Variable dimensions accept any size
+                            }
+                        }
+
+                        Ok(())
+                    }
+                    Value::Integer(_) | Value::Float(_) | Value::Boolean(_) => {
+                        // Scalar values might be acceptable for some tensor operations
+                        // For now, accept them (they can be converted to tensors)
+                        Ok(())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        format!("Parameter '{}' expects tensor, got {:?}", param_name, value)
+                    ))
+                }
+            }
+        }
+    }
+
     /// Execute main block
     fn execute_main_block(&mut self, main_block: &MainBlock) -> RuntimeResult<()> {
         for stmt in &main_block.statements {
@@ -656,11 +804,9 @@ impl Interpreter {
             Statement::Assignment { target, value } => {
                 let evaluated_value = self.eval_expr(value)?;
 
-                // If we're inside a function call, set as return value and local variable
+                // Check if we're inside a function call
                 if let Some(frame) = self.call_stack.last_mut() {
-                    // Set as return value (last assignment wins)
-                    frame.return_value = Some(evaluated_value.clone());
-                    // Also set in local scope
+                    // Inside function: set in local scope
                     frame.local_vars.insert(target.as_str().to_string(), evaluated_value);
                 } else {
                     // Global scope: assignment (:=) auto-declares if variable doesn't exist
@@ -684,8 +830,7 @@ impl Interpreter {
 
                             // Check if we're inside a function call
                             if let Some(frame) = self.call_stack.last_mut() {
-                                // Inside function: set as return value and update local variable
-                                frame.return_value = Some(value.clone());
+                                // Inside function: update local variable
                                 frame.local_vars.insert(var_name.as_str().to_string(), value);
                             } else {
                                 // Global scope: try to set existing variable, if it doesn't exist, declare it
@@ -748,11 +893,21 @@ impl Interpreter {
                     // Execute appropriate block
                     if condition_result {
                         for stmt in then_block {
-                            self.execute_statement(stmt)?;
+                            // Propagate return statements upward
+                            let result = self.execute_statement(stmt);
+                            if let Err(RuntimeError::ReturnValue(_)) = result {
+                                return result;
+                            }
+                            result?;
                         }
                     } else if let Some(else_stmts) = else_block {
                         for stmt in else_stmts {
-                            self.execute_statement(stmt)?;
+                            // Propagate return statements upward
+                            let result = self.execute_statement(stmt);
+                            if let Err(RuntimeError::ReturnValue(_)) = result {
+                                return result;
+                            }
+                            result?;
                         }
                     }
                     Ok(())
@@ -798,10 +953,15 @@ impl Interpreter {
                         // For loop variable - directly set without checking
                         self.env.variables.insert(variable.as_str().to_string(), item);
                         for stmt in body {
-                            match self.execute_statement(stmt) {
+                            let result = self.execute_statement(stmt);
+                            match result {
                                 Err(RuntimeError::BreakOutsideLoop) => {
                                     should_break = true;
                                     break;
+                                }
+                                Err(RuntimeError::ReturnValue(_)) => {
+                                    // Propagate return upward
+                                    return result;
                                 }
                                 Err(e) => return Err(e),
                                 Ok(_) => {}
@@ -834,10 +994,15 @@ impl Interpreter {
 
                         let mut should_break = false;
                         for stmt in body {
-                            match self.execute_statement(stmt) {
+                            let result = self.execute_statement(stmt);
+                            match result {
                                 Err(RuntimeError::BreakOutsideLoop) => {
                                     should_break = true;
                                     break;
+                                }
+                                Err(RuntimeError::ReturnValue(_)) => {
+                                    // Propagate return upward
+                                    return result;
                                 }
                                 Err(e) => return Err(e),
                                 Ok(_) => {}
@@ -854,10 +1019,15 @@ impl Interpreter {
                     loop {
                         let mut should_break = false;
                         for stmt in body {
-                            match self.execute_statement(stmt) {
+                            let result = self.execute_statement(stmt);
+                            match result {
                                 Err(RuntimeError::BreakOutsideLoop) => {
                                     should_break = true;
                                     break;
+                                }
+                                Err(RuntimeError::ReturnValue(_)) => {
+                                    // Propagate return upward
+                                    return result;
                                 }
                                 Err(e) => return Err(e),
                                 Ok(_) => {}
@@ -999,6 +1169,15 @@ impl Interpreter {
             }
             Statement::Break => {
                 Err(RuntimeError::BreakOutsideLoop)
+            }
+            Statement::Return { value } => {
+                // Evaluate return value (if any) and signal early return
+                let return_val = if let Some(expr) = value {
+                    self.eval_expr(expr)?
+                } else {
+                    Value::Void
+                };
+                Err(RuntimeError::ReturnValue(return_val))
             }
             Statement::PythonImport { module, alias } => {
                 #[cfg(any(feature = "python", feature = "python-extension"))]
@@ -2556,6 +2735,227 @@ impl Interpreter {
                 Ok(Value::Integer(sampled_idx as i64))
             }
 
+            "temperature_sample" => {
+                // temperature_sample(logits, temperature) -> Integer
+                // Sample from logits with temperature scaling
+                // Higher temperature = more random, lower = more deterministic
+                // temperature: 0.1-2.0 typical range, 1.0 = no scaling
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("temperature_sample() expects 2 arguments (logits, temperature), got {}", args.len())
+                    ));
+                }
+
+                let logits_tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let temperature = match self.eval_expr(&args[1])? {
+                    Value::Float(f) => f as f32,
+                    Value::Integer(i) => i as f32,
+                    _ => return Err(RuntimeError::TypeError(
+                        "temperature_sample() temperature must be a number".to_string()
+                    )),
+                };
+
+                if temperature <= 0.0 {
+                    return Err(RuntimeError::InvalidOperation(
+                        "temperature must be positive".to_string()
+                    ));
+                }
+
+                let shape = logits_tensor.shape();
+                let dims = shape.dims();
+
+                // Support both 1D and 2D tensors
+                // For 2D [seq_len, vocab_size], use the last row (last token's logits)
+                let logits_f32: Vec<f32> = if dims.len() == 1 {
+                    // 1D: [vocab_size]
+                    let logits = logits_tensor.to_vec();
+                    logits.iter().map(|v| v.to_f32()).collect()
+                } else if dims.len() == 2 {
+                    // 2D: [seq_len, vocab_size] - extract last row
+                    let seq_len = dims[0];
+                    let vocab_size = dims[1];
+                    let logits = logits_tensor.to_vec();
+                    let start_idx = (seq_len - 1) * vocab_size;
+                    logits[start_idx..].iter().map(|v| v.to_f32()).collect()
+                } else {
+                    return Err(RuntimeError::TypeError(
+                        format!("temperature_sample() expects 1D or 2D logits, got shape {:?}", dims)
+                    ));
+                };
+
+                // Apply temperature scaling
+                let scaled_logits: Vec<f32> = logits_f32.iter().map(|&x| x / temperature).collect();
+
+                // Compute softmax
+                let max_logit = scaled_logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                let exp_logits: Vec<f32> = scaled_logits.iter().map(|&x| (x - max_logit).exp()).collect();
+                let sum_exp: f32 = exp_logits.iter().sum();
+                let probs: Vec<f32> = exp_logits.iter().map(|&x| x / sum_exp).collect();
+
+                // Sample
+                use rand::Rng;
+                let mut rng = rand::thread_rng();
+                let random_val: f32 = rng.gen();
+
+                let mut cumulative = 0.0;
+                let mut sampled_idx = 0;
+
+                for (idx, &prob) in probs.iter().enumerate() {
+                    cumulative += prob;
+                    if random_val < cumulative {
+                        sampled_idx = idx;
+                        break;
+                    }
+                }
+
+                Ok(Value::Integer(sampled_idx as i64))
+            }
+
+            "print_top_k" => {
+                // print_top_k(tensor, k) -> Prints top k values and indices from last row
+                // For debugging logits
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("print_top_k() expects 2 arguments (tensor, k), got {}", args.len())
+                    ));
+                }
+
+                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let k = match self.eval_expr(&args[1])? {
+                    Value::Integer(i) => i as usize,
+                    _ => return Err(RuntimeError::TypeError(
+                        "print_top_k() k must be an integer".to_string()
+                    )),
+                };
+
+                let dims = tensor.shape().dims();
+                let logits_f32: Vec<f32> = if dims.len() == 1 {
+                    tensor.to_vec().iter().map(|v| v.to_f32()).collect()
+                } else if dims.len() == 2 {
+                    let seq_len = dims[0];
+                    let vocab_size = dims[1];
+                    let logits = tensor.to_vec();
+                    let start_idx = (seq_len - 1) * vocab_size;
+                    logits[start_idx..].iter().map(|v| v.to_f32()).collect()
+                } else {
+                    return Err(RuntimeError::TypeError(
+                        format!("print_top_k() expects 1D or 2D tensor, got shape {:?}", dims)
+                    ));
+                };
+
+                // Get top k indices
+                let mut indexed: Vec<(usize, f32)> = logits_f32.iter()
+                    .copied()
+                    .enumerate()
+                    .collect();
+                indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+                println!("      Top {} logits:", k);
+                for i in 0..k.min(indexed.len()) {
+                    let (idx, val) = indexed[i];
+                    println!("        [{:5}] = {:10.4}", idx, val);
+                }
+
+                Ok(Value::Integer(0))
+            }
+
+            "top_p_sample" => {
+                // top_p_sample(logits, p) -> Integer
+                // Nucleus sampling: sample from smallest set of tokens with cumulative prob >= p
+                // p: 0.0-1.0, typical values 0.9-0.95
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("top_p_sample() expects 2 arguments (logits, p), got {}", args.len())
+                    ));
+                }
+
+                let logits_tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let p = match self.eval_expr(&args[1])? {
+                    Value::Float(f) => f as f32,
+                    Value::Integer(i) => i as f32,
+                    _ => return Err(RuntimeError::TypeError(
+                        "top_p_sample() p must be a number".to_string()
+                    )),
+                };
+
+                if p <= 0.0 || p > 1.0 {
+                    return Err(RuntimeError::InvalidOperation(
+                        "top_p must be in range (0.0, 1.0]".to_string()
+                    ));
+                }
+
+                let shape = logits_tensor.shape();
+                let dims = shape.dims();
+
+                // Support both 1D and 2D tensors
+                // For 2D [seq_len, vocab_size], use the last row (last token's logits)
+                let logits_f32: Vec<f32> = if dims.len() == 1 {
+                    // 1D: [vocab_size]
+                    let logits = logits_tensor.to_vec();
+                    logits.iter().map(|v| v.to_f32()).collect()
+                } else if dims.len() == 2 {
+                    // 2D: [seq_len, vocab_size] - extract last row
+                    let seq_len = dims[0];
+                    let vocab_size = dims[1];
+                    let logits = logits_tensor.to_vec();
+                    let start_idx = (seq_len - 1) * vocab_size;
+                    logits[start_idx..].iter().map(|v| v.to_f32()).collect()
+                } else {
+                    return Err(RuntimeError::TypeError(
+                        format!("top_p_sample() expects 1D or 2D logits, got shape {:?}", dims)
+                    ));
+                };
+
+                // Compute softmax
+                let max_logit = logits_f32.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                let exp_logits: Vec<f32> = logits_f32.iter().map(|&x| (x - max_logit).exp()).collect();
+                let sum_exp: f32 = exp_logits.iter().sum();
+                let probs: Vec<f32> = exp_logits.iter().map(|&x| x / sum_exp).collect();
+
+                // Create (index, probability) pairs and sort by probability descending
+                let mut indexed_probs: Vec<(usize, f32)> = probs.iter().copied().enumerate().collect();
+                indexed_probs.sort_by(|a, b| {
+                    b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+                // Find nucleus: smallest set with cumulative prob >= p
+                let mut cumulative = 0.0;
+                let mut nucleus_size = 0;
+
+                for (_, prob) in &indexed_probs {
+                    cumulative += prob;
+                    nucleus_size += 1;
+                    if cumulative >= p {
+                        break;
+                    }
+                }
+
+                // Renormalize probabilities within nucleus
+                let nucleus = &indexed_probs[..nucleus_size];
+                let nucleus_sum: f32 = nucleus.iter().map(|(_, p)| p).sum();
+                let renormalized: Vec<(usize, f32)> = nucleus.iter()
+                    .map(|(idx, p)| (*idx, p / nucleus_sum))
+                    .collect();
+
+                // Sample from nucleus
+                use rand::Rng;
+                let mut rng = rand::thread_rng();
+                let random_val: f32 = rng.gen();
+
+                let mut cumulative = 0.0;
+                let mut sampled_idx = renormalized[0].0;
+
+                for (idx, prob) in renormalized {
+                    cumulative += prob;
+                    if random_val < cumulative {
+                        sampled_idx = idx;
+                        break;
+                    }
+                }
+
+                Ok(Value::Integer(sampled_idx as i64))
+            }
+
             "relu" => {
                 // relu(tensor) -> Tensor
                 // Apply ReLU activation: max(0, x)
@@ -2686,6 +3086,138 @@ impl Interpreter {
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::Tensor(output))
+            }
+
+            "len" => {
+                // len(value) -> int
+                // Get length of TokenIds, Tensor, or String
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("len() expects 1 argument, got {}", args.len())
+                    ));
+                }
+
+                let value = self.eval_expr(&args[0])?;
+                let length = match value {
+                    Value::TokenIds(ref ids) => ids.len() as i64,
+                    Value::Tensor(ref t) => {
+                        let dims = t.dims();
+                        dims[0] as i64
+                    }
+                    Value::String(ref s) => s.len() as i64,
+                    v => return Err(RuntimeError::TypeError(
+                        format!("len() argument must be TokenIds, Tensor, or String, got {:?}", v)
+                    )),
+                };
+
+                Ok(Value::Integer(length))
+            }
+
+            "get" => {
+                // get(token_ids, index) -> int
+                // Get token ID at specific index
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("get() expects 2 arguments (token_ids, index), got {}", args.len())
+                    ));
+                }
+
+                let token_ids = match self.eval_expr(&args[0])? {
+                    Value::TokenIds(ids) => ids,
+                    v => return Err(RuntimeError::TypeError(
+                        format!("get() first argument must be TokenIds, got {:?}", v)
+                    )),
+                };
+
+                let index = match self.eval_expr(&args[1])? {
+                    Value::Integer(i) => {
+                        // Support negative indexing
+                        if i < 0 {
+                            (token_ids.len() as i64 + i) as usize
+                        } else {
+                            i as usize
+                        }
+                    }
+                    Value::Float(f) => f as usize,
+                    v => return Err(RuntimeError::TypeError(
+                        format!("get() index must be a number, got {:?}", v)
+                    )),
+                };
+
+                if index >= token_ids.len() {
+                    return Err(RuntimeError::IndexError {
+                        index,
+                        length: token_ids.len(),
+                    });
+                }
+
+                Ok(Value::Integer(token_ids[index] as i64))
+            }
+
+            "append" => {
+                // append(token_ids, token_id) -> TokenIds
+                // Append a token ID to the sequence
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("append() expects 2 arguments (token_ids, token_id), got {}", args.len())
+                    ));
+                }
+
+                let mut token_ids = match self.eval_expr(&args[0])? {
+                    Value::TokenIds(ids) => ids,
+                    v => return Err(RuntimeError::TypeError(
+                        format!("append() first argument must be TokenIds, got {:?}", v)
+                    )),
+                };
+
+                let new_token = match self.eval_expr(&args[1])? {
+                    Value::Integer(i) => i as u32,
+                    Value::Float(f) => f as u32,
+                    Value::Tensor(ref t) => {
+                        // Convert scalar tensor to integer
+                        if t.numel() != 1 {
+                            return Err(RuntimeError::TypeError(
+                                format!("append() token_id tensor must be scalar, got shape {:?}", t.dims())
+                            ));
+                        }
+                        t.to_vec()[0].to_f32() as u32
+                    }
+                    v => return Err(RuntimeError::TypeError(
+                        format!("append() token_id must be a number or scalar tensor, got {:?}", v)
+                    )),
+                };
+
+                token_ids.push(new_token);
+                Ok(Value::TokenIds(token_ids))
+            }
+
+            "to_int" => {
+                // to_int(value) -> int
+                // Convert tensor or number to integer
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("to_int() expects 1 argument, got {}", args.len())
+                    ));
+                }
+
+                let value = self.eval_expr(&args[0])?;
+                let int_val = match value {
+                    Value::Integer(i) => i,
+                    Value::Float(f) => f as i64,
+                    Value::Tensor(ref t) => {
+                        if t.numel() != 1 {
+                            return Err(RuntimeError::TypeError(
+                                format!("to_int() tensor must be scalar, got shape {:?}", t.dims())
+                            ));
+                        }
+                        t.to_vec()[0].to_f32() as i64
+                    }
+                    v => return Err(RuntimeError::TypeError(
+                        format!("to_int() argument must be a number or scalar tensor, got {:?}", v)
+                    )),
+                };
+
+                Ok(Value::Integer(int_val))
             }
 
             "sigmoid" => {
@@ -3475,6 +4007,30 @@ impl Interpreter {
                 Ok(Value::String(response))
             }
 
+            "str" => {
+                // str(value) -> String
+                // Convert any value to string representation
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("str() expects 1 argument, got {}", args.len())
+                    ));
+                }
+
+                let val = self.eval_expr(&args[0])?;
+                let result = match val {
+                    Value::String(s) => s,
+                    Value::Integer(i) => i.to_string(),
+                    Value::Float(f) => f.to_string(),
+                    Value::Boolean(b) => b.to_string(),
+                    Value::Void => "void".to_string(),
+                    _ => return Err(RuntimeError::TypeError(
+                        "str() can only convert primitives (int, float, bool, string)".to_string()
+                    )),
+                };
+
+                Ok(Value::String(result))
+            }
+
             "print" => {
                 // print(value1, value2, ..., end: "\n", flush: false)
                 // For now, simple implementation
@@ -3521,28 +4077,65 @@ impl Interpreter {
                     // 2. Create new call frame
                     let mut frame = CallFrame::new(func_name.to_string());
 
-                    // 3. Evaluate arguments and bind to parameters
+                    // 3. Evaluate arguments, check types, and bind to parameters
                     for (param, arg) in func_decl.params.iter().zip(args.iter()) {
                         let arg_value = self.eval_expr(arg)?;
+
+                        // Type check the argument
+                        self.check_type_match(&arg_value, &param.entity_type, param.name.as_str())?;
+
                         frame.local_vars.insert(param.name.as_str().to_string(), arg_value);
                     }
 
                     // 4. Push call frame onto stack
                     self.call_stack.push(frame);
 
-                    // 5. Execute function body
-                    for stmt in &func_decl.body {
-                        self.execute_statement(stmt)?;
+                    // 5. Execute function body and catch explicit returns
+                    let mut explicit_return = None;
+                    let body_len = func_decl.body.len();
+
+                    // Execute all statements except the last one
+                    if body_len > 0 {
+                        for stmt in &func_decl.body[..body_len - 1] {
+                            match self.execute_statement(stmt) {
+                                Err(RuntimeError::ReturnValue(val)) => {
+                                    // Explicit return statement - save value and stop execution
+                                    explicit_return = Some(val);
+                                    break;
+                                }
+                                Err(e) => {
+                                    // Other errors - propagate upward
+                                    self.call_stack.pop();
+                                    return Err(e);
+                                }
+                                Ok(_) => {}
+                            }
+                        }
                     }
 
-                    // 6. Get return value
-                    let return_value = self
-                        .call_stack
-                        .last()
-                        .and_then(|f| f.return_value.clone())
-                        .unwrap_or(Value::Void);
+                    // 6. Get return value (explicit return or implicit return from last expression)
+                    let return_value = if explicit_return.is_some() {
+                        explicit_return.unwrap()
+                    } else if let Some(last_stmt) = func_decl.body.last() {
+                        // Evaluate last statement and get implicit return value
+                        match self.evaluate_last_statement(last_stmt) {
+                            Ok(Some(val)) => val,
+                            Ok(None) => Value::Void,
+                            Err(RuntimeError::ReturnValue(val)) => val,  // Explicit return in last statement
+                            Err(e) => {
+                                self.call_stack.pop();
+                                return Err(e);
+                            }
+                        }
+                    } else {
+                        // Empty function body
+                        Value::Void
+                    };
 
-                    // 7. Pop call frame
+                    // 7. Check return type matches declaration
+                    self.check_return_type_match(&return_value, &func_decl.return_type, func_name)?;
+
+                    // 8. Pop call frame
                     self.call_stack.pop();
 
                     Ok(return_value)

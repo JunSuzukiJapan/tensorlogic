@@ -53,12 +53,23 @@ impl GGUFLoader {
 
     /// Dequantize Q4_0 format to f16
     /// Q4_0: 32 4-bit values per block with 1 f16 scale
+    ///
+    /// Reference: https://github.com/huggingface/candle/blob/main/candle-core/src/quantized/k_quants.rs
+    /// Block structure:
+    ///   - 2 bytes: f16 scale (d)
+    ///   - 16 bytes: 32 packed 4-bit values (qs)
+    ///
+    /// Dequantization:
+    ///   for each byte:
+    ///     lower 4 bits → output[j]
+    ///     upper 4 bits → output[j + 16]
+    ///   value = (nibble - 8) * scale
     fn dequantize_q4_0(data: &[u8], num_elements: usize) -> Vec<half::f16> {
         const BLOCK_SIZE: usize = 32;
         const BLOCK_BYTES: usize = std::mem::size_of::<Q4_0Block>();
 
         let num_blocks = (num_elements + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        let mut result = Vec::with_capacity(num_elements);
+        let mut result = vec![half::f16::ZERO; num_elements];
 
         for block_idx in 0..num_blocks {
             let block_offset = block_idx * BLOCK_BYTES;
@@ -69,44 +80,56 @@ impl GGUFLoader {
             // Read scale (f16)
             let scale_bytes = [data[block_offset], data[block_offset + 1]];
             let scale = half::f16::from_le_bytes(scale_bytes);
+            let scale_f32 = scale.to_f32();
 
             // Read 16 bytes of 4-bit values (32 values total)
+            // Layout: [low0-15, high0-15] not [low0, high0, low1, high1, ...]
             let values_offset = block_offset + 2;
-            for i in 0..16 {
-                if result.len() >= num_elements {
+            let base_idx = block_idx * BLOCK_SIZE;
+
+            for j in 0..16 {
+                if base_idx + j >= num_elements {
                     break;
                 }
 
-                let byte = data[values_offset + i];
+                let byte = data[values_offset + j];
 
-                // Lower 4 bits
-                let q_low = (byte & 0x0F) as i8 - 8;  // 4-bit signed: -8 to 7
-                let f_low = half::f16::from_f32(q_low as f32) * scale;
-                result.push(f_low);
+                // Lower 4 bits → first half of block
+                let x0 = ((byte & 0x0F) as i8 - 8) as f32;
+                result[base_idx + j] = half::f16::from_f32(x0 * scale_f32);
 
-                if result.len() >= num_elements {
-                    break;
+                // Upper 4 bits → second half of block
+                let second_idx = base_idx + j + 16;
+                if second_idx < num_elements {
+                    let x1 = ((byte >> 4) as i8 - 8) as f32;
+                    result[second_idx] = half::f16::from_f32(x1 * scale_f32);
                 }
-
-                // Upper 4 bits
-                let q_high = ((byte >> 4) & 0x0F) as i8 - 8;
-                let f_high = half::f16::from_f32(q_high as f32) * scale;
-                result.push(f_high);
             }
         }
 
-        result.truncate(num_elements);
         result
     }
 
     /// Dequantize Q6_K format to f16
     /// Q6_K: 256 6-bit values per block with 16 f16 scales
+    /// Dequantize Q6_K format to f16
+    /// Q6_K: 256 values per block, 6-bit quantization with scales
+    ///
+    /// Reference: llama.cpp dequantize_row_q6_K
+    /// Block structure (210 bytes total):
+    ///   - ql[128]: lower 4 bits of quantized values
+    ///   - qh[64]: upper 2 bits of quantized values
+    ///   - scales[16]: int8 scales
+    ///   - d: f16 super-block scale
+    ///
+    /// Each 6-bit value = (4 bits from ql) | (2 bits from qh << 4)
+    /// value = d * scale[i] * (q - 32)
     fn dequantize_q6_k(data: &[u8], num_elements: usize) -> Vec<half::f16> {
-        const BLOCK_SIZE: usize = 256;
-        const BLOCK_BYTES: usize = std::mem::size_of::<Q6_KBlock>(); // 192 + 16 = 208 bytes
+        const QK_K: usize = 256;  // Block size
+        const BLOCK_BYTES: usize = 210;  // 128 + 64 + 16 + 2
 
-        let num_blocks = (num_elements + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        let mut result = Vec::with_capacity(num_elements);
+        let num_blocks = (num_elements + QK_K - 1) / QK_K;
+        let mut result = vec![half::f16::ZERO; num_elements];
 
         for block_idx in 0..num_blocks {
             let block_offset = block_idx * BLOCK_BYTES;
@@ -114,60 +137,64 @@ impl GGUFLoader {
                 break;
             }
 
-            // Q6_K structure: data[192 bytes] + scales[16 bytes]
-            // 192 bytes of 6-bit data = 256 values (192 * 8 / 6 = 256)
-            // 16 bytes of scales = 8 f16 scales (2 bytes each)
+            // Read block components
+            let ql = &data[block_offset..block_offset + 128];        // ql[128]
+            let qh = &data[block_offset + 128..block_offset + 192];  // qh[64]
+            let sc = &data[block_offset + 192..block_offset + 208];  // scales[16]
+            let d_bytes = [data[block_offset + 208], data[block_offset + 209]];
+            let d = half::f16::from_le_bytes(d_bytes).to_f32();
 
-            let data_offset = block_offset;
-            let scales_offset = block_offset + 192;
+            // Convert scales from int8 to i8
+            let scales: Vec<i8> = sc.iter().map(|&b| b as i8).collect();
 
-            // Read 8 scales (f16 format, 2 bytes each)
-            let mut scales = [half::f16::ZERO; 8];
-            for i in 0..8 {
-                let scale_bytes = [
-                    data[scales_offset + i * 2],
-                    data[scales_offset + i * 2 + 1],
-                ];
-                scales[i] = half::f16::from_le_bytes(scale_bytes);
-            }
+            let base_idx = block_idx * QK_K;
 
-            // Decode 6-bit values
-            // 256 values stored in 192 bytes
-            // Each group of 3 bytes contains 4 6-bit values
-            for group_idx in 0..64 {
-                if result.len() >= num_elements {
-                    break;
+            // Process 2 groups of 128 values each (total 256)
+            for n in (0..QK_K).step_by(128) {
+                let ql_offset = n / 2;      // ql advances by 64 per group
+                let qh_offset = n / 4;      // qh advances by 32 per group
+                let sc_offset = n / 16;     // sc advances by 8 per group
+
+                // Process 32 values (produces 4 values each iteration)
+                for l in 0..32 {
+                    let out_idx = base_idx + n + l;
+                    if out_idx >= num_elements {
+                        break;
+                    }
+
+                    let is = l / 16;  // Scale index: 0 or 1
+
+                    // Reconstruct 4 6-bit values from ql and qh
+                    // q1: ql[l] lower 4 bits + qh[l] bits 0-1
+                    let q1 = ((ql[ql_offset + l] & 0xF) | ((qh[qh_offset + l] & 0x3) << 4)) as i8 - 32;
+
+                    // q2: ql[l+32] lower 4 bits + qh[l] bits 2-3
+                    let q2 = ((ql[ql_offset + l + 32] & 0xF) | (((qh[qh_offset + l] >> 2) & 0x3) << 4)) as i8 - 32;
+
+                    // q3: ql[l] upper 4 bits + qh[l] bits 4-5
+                    let q3 = ((ql[ql_offset + l] >> 4) | (((qh[qh_offset + l] >> 4) & 0x3) << 4)) as i8 - 32;
+
+                    // q4: ql[l+32] upper 4 bits + qh[l] bits 6-7
+                    let q4 = ((ql[ql_offset + l + 32] >> 4) | ((qh[qh_offset + l] >> 6) << 4)) as i8 - 32;
+
+                    // Write to correct positions with corresponding scales
+                    // Scale indices: is + 0, is + 2, is + 4, is + 6 (within the current sc_offset)
+                    if out_idx + 0 < num_elements {
+                        result[out_idx + 0] = half::f16::from_f32(d * scales[sc_offset + is + 0] as f32 * q1 as f32);
+                    }
+                    if out_idx + 32 < num_elements {
+                        result[out_idx + 32] = half::f16::from_f32(d * scales[sc_offset + is + 2] as f32 * q2 as f32);
+                    }
+                    if out_idx + 64 < num_elements {
+                        result[out_idx + 64] = half::f16::from_f32(d * scales[sc_offset + is + 4] as f32 * q3 as f32);
+                    }
+                    if out_idx + 96 < num_elements {
+                        result[out_idx + 96] = half::f16::from_f32(d * scales[sc_offset + is + 6] as f32 * q4 as f32);
+                    }
                 }
-
-                let byte_offset = data_offset + group_idx * 3;
-                let b0 = data[byte_offset] as u32;
-                let b1 = data[byte_offset + 1] as u32;
-                let b2 = data[byte_offset + 2] as u32;
-
-                // Extract 4 6-bit values from 3 bytes
-                // Bit layout: [b2:b1:b0] = [8bits:8bits:8bits] = 24 bits total
-                // v0 = bits 0-5, v1 = bits 6-11, v2 = bits 12-17, v3 = bits 18-23
-                let v0 = (b0 & 0x3F) as i8 - 32; // 6-bit signed: -32 to 31
-                let v1 = (((b0 >> 6) | (b1 << 2)) & 0x3F) as i8 - 32;
-                let v2 = (((b1 >> 4) | (b2 << 4)) & 0x3F) as i8 - 32;
-                let v3 = ((b2 >> 2) & 0x3F) as i8 - 32;
-
-                // Determine which scale to use (32 values per scale)
-                let scale_idx = (group_idx * 4) / 32;
-                let scale = scales[scale_idx];
-
-                // Dequantize
-                result.push(half::f16::from_f32(v0 as f32) * scale);
-                if result.len() >= num_elements { break; }
-                result.push(half::f16::from_f32(v1 as f32) * scale);
-                if result.len() >= num_elements { break; }
-                result.push(half::f16::from_f32(v2 as f32) * scale);
-                if result.len() >= num_elements { break; }
-                result.push(half::f16::from_f32(v3 as f32) * scale);
             }
         }
 
-        result.truncate(num_elements);
         result
     }
 
