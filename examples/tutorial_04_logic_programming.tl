@@ -16,8 +16,9 @@ relation Friend(x: entity, y: entity) embed float16[32]
 
 main {
     // Future features:
-    // - Define rules: rule Grandparent(X, Z) <- Parent(X, Y), Parent(Y, Z)
-    // - Query relations: query Parent(alice, bob)
+    // - Define rules: Grandparent(X, Z) <- Parent(X, Y), Parent(Y, Z)
+    // - Assert facts: Parent(alice, bob)
+    // - Query relations: Parent(alice, X)?
     // - Learn embeddings during training
 
     // Currently demonstrates relation declaration syntax

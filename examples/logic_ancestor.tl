@@ -2,9 +2,9 @@
 //
 // This example demonstrates logic programming with:
 // - Relation declarations
-// - Rule definitions (with <- operator)
-// - Fact assertions (with <- operator)
-// - Queries (with ?- operator)
+// - Rule definitions (using <- for rules)
+// - Fact assertions (no prefix needed)
+// - Queries (using ? suffix)
 
 // ============================================================================
 // Relation Declarations
@@ -37,9 +37,9 @@ main {
     // ========================================================================
     print("Adding facts to knowledge base:")
 
-    <- Parent(Alice, Bob)
-    <- Parent(Bob, Charlie)
-    <- Parent(Charlie, David)
+    Parent(Alice, Bob)
+    Parent(Bob, Charlie)
+    Parent(Charlie, David)
 
     print("")
 
@@ -51,20 +51,20 @@ main {
 
     // Query 1: Find all ancestors of Charlie
     print("Query 1: Who are the ancestors of Charlie?")
-    ?- Ancestor(X, Charlie)
+    Ancestor(X, Charlie)?
     print("")
 
     // Query 2: Check if Alice is an ancestor of David
     print("Query 2: Is Alice an ancestor of David?")
-    ?- Ancestor(Alice, David)
+    Ancestor(Alice, David)?
     print("")
 
     // Query 3: Find all descendants of Alice
     print("Query 3: Who are the descendants of Alice?")
-    ?- Ancestor(Alice, Y)
+    Ancestor(Alice, Y)?
     print("")
 
     // Query 4: Check direct parent relationship
     print("Query 4: Is Bob a parent of Charlie?")
-    ?- Parent(Bob, Charlie)
+    Parent(Bob, Charlie)?
 }
