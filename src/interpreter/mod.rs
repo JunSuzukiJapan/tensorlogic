@@ -1041,8 +1041,27 @@ impl Interpreter {
                 }
             },
             Statement::FactAssertion { atom } => {
-                // Add fact to logic engine
-                println!("Adding fact: {}", atom.predicate.as_str());
+                // Check if this is actually a built-in function call
+                // (since fact_assertion and function_call are now syntactically identical)
+                let predicate_name = atom.predicate.as_str();
+
+                if predicate_name == "print" {
+                    // Handle as print function
+                    for (i, term) in atom.terms.iter().enumerate() {
+                        if i > 0 {
+                            print!(" ");
+                        }
+                        // Convert term to expression and evaluate
+                        let expr = self.term_to_expr(term);
+                        let val = self.eval_expr(&expr)?;
+                        print!("{}", val);
+                    }
+                    println!();
+                    return Ok(());
+                }
+
+                // Otherwise, treat as a fact assertion
+                println!("Adding fact: {}", predicate_name);
 
                 // Convert atom terms based on relation variable definitions
                 let converted_atom = self.convert_atom_terms(atom);
@@ -4582,6 +4601,30 @@ impl Interpreter {
         }
 
         Ok(())
+    }
+
+    /// Convert a Term to a TensorExpr for evaluation
+    fn term_to_expr(&self, term: &Term) -> TensorExpr {
+        match term {
+            Term::Variable(ident) => {
+                // Variables become variable expressions
+                TensorExpr::Variable(ident.clone())
+            }
+            Term::Constant(constant) => {
+                // Constants become literal expressions
+                let scalar_lit = match constant {
+                    Constant::Integer(i) => ScalarLiteral::Integer(*i),
+                    Constant::Float(f) => ScalarLiteral::Float(*f),
+                    Constant::String(s) => ScalarLiteral::String(s.clone()),
+                    Constant::Boolean(b) => ScalarLiteral::Boolean(*b),
+                };
+                TensorExpr::Literal(TensorLiteral::Scalar(scalar_lit))
+            }
+            Term::Tensor(expr) => {
+                // Already a tensor expression
+                expr.clone()
+            }
+        }
     }
 
     /// Convert an atom's terms based on relation variable definitions
