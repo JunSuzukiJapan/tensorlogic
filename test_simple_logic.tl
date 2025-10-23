@@ -4,14 +4,14 @@ main {
     print("Simple Logic Test")
     print("")
 
-    // Add facts
-    <- Parent(Alice, Bob)
-    <- Parent(Bob, Charlie)
+    // Add facts (no <- prefix)
+    Parent(Alice, Bob)
+    Parent(Bob, Charlie)
 
     print("Facts added")
     print("")
 
-    // Simple query without rules
+    // Simple query (? suffix only)
     print("Query: Parent(Alice, X)?")
-    ?- Parent(Alice, X)
+    Parent(Alice, X)?
 }

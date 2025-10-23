@@ -227,8 +227,8 @@ statement = {
     | return_statement
     | tensor_decl
     | assignment
+    | query              // Try query before fact_assertion (query is more specific with ? suffix)
     | fact_assertion
-    | query
     | tensor_equation
     | python_import
     | function_call
