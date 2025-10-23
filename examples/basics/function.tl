@@ -2,7 +2,7 @@
 
 fn simple_add(a: float16[?, ?], b: float16[?, ?]) -> float16[?, ?] {
     let result = a + b
-    result := result
+    return result
 }
 
 main {

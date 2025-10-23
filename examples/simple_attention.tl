@@ -7,7 +7,7 @@
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
     let result = x * sig
-    result := result
+    return result
 }
 
 // スケーリングされたドット積Attention (簡易版)
@@ -22,7 +22,7 @@ fn simple_attention(
     let scaled_scores = scores * scale
     let attn_weights = softmax(scaled_scores, -1)
     let output = matmul(attn_weights, V)
-    output := output
+    return output
 }
 
 // SwiGLU Feed-Forward Network
@@ -37,7 +37,7 @@ fn simple_swiglu(
     let up = matmul(x, W_up)
     let intermediate = gate_act * up
     let output = matmul(intermediate, W_down)
-    output := output
+    return output
 }
 
 // シンプルなTransformerレイヤー
@@ -63,7 +63,7 @@ fn simple_transformer_layer(
     let x_norm2 = rms_norm(x_after_attn, ffn_norm_weight)
     let ffn_out = simple_swiglu(x_norm2, W_gate, W_up, W_down)
     let final_output = x_after_attn + ffn_out
-    final_output := final_output
+    return final_output
 }
 
 main {

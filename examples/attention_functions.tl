@@ -3,13 +3,13 @@
 // 簡単なmatmul関数テスト
 fn test_matmul(A: float16[?, ?], B: float16[?, ?]) -> float16[?, ?] {
     let C = matmul(A, B)
-    C := C
+    return C
 }
 
 // スケーリング関数
 fn scaled_multiply(x: float16[?, ?], scale: float16) -> float16[?, ?] {
     let result = x * scale
-    result := result
+    return result
 }
 
 // シンプルなAttention（スケーリング済み）
@@ -24,14 +24,14 @@ fn simple_attention_core(
     let scaled_scores = scores * scale
     let attn_weights = softmax(scaled_scores, 1)
     let output = matmul(attn_weights, V)
-    output := output
+    return output
 }
 
 // SiLU活性化
 fn silu_activation(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
     let result = x * sig
-    result := result
+    return result
 }
 
 main {

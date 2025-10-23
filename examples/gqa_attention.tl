@@ -78,7 +78,7 @@ fn grouped_query_attention(
     let output_heads = reshape(output, [seq_len, num_q_heads, head_dim])
     let result = reshape(output_heads, [seq_len, num_q_heads * head_dim])
 
-    result := result
+    return result
 }
 
 main {

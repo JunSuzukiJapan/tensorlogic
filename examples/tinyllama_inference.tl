@@ -5,7 +5,7 @@
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
     let result = x * sig
-    result := result
+    return result
 }
 
 // SwiGLU FFN: silu(x @ W_gate) ⊙ (x @ W_up) @ W_down
@@ -20,7 +20,7 @@ fn swiglu_ffn(
     let up = matmul(x, W_up)
     let intermediate = gate_act * up
     let output = matmul(intermediate, W_down)
-    output := output
+    return output
 }
 
 // Simple Attention (for now, will add GQA support later)
@@ -38,7 +38,7 @@ fn simple_attention(
 
     let attn_weights = softmax(scaled_scores, 1)
     let output = matmul(attn_weights, V)
-    output := output
+    return output
 }
 
 main {
