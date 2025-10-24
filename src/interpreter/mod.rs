@@ -4485,6 +4485,34 @@ impl Interpreter {
                 Ok(Value::Tensor(score))
             }
 
+            "distmult_score" => {
+                // distmult_score(head, relation, tail) -> Tensor
+                // DistMult scoring function: score = sum(h * r * t)
+                if args.len() != 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("distmult_score() expects 3 arguments (head, relation, tail), got {}", args.len())
+                    ));
+                }
+
+                // Evaluate arguments
+                let head = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let tail = self.eval_expr(&args[2])?.as_tensor()?.clone();
+
+                // Compute element-wise product: h * r * t
+                let h_mul_r = head.mul(&relation)?;
+                let product = h_mul_r.mul(&tail)?;
+
+                // Sum all elements
+                let score_f16 = product.sum()?;
+
+                // Create scalar tensor
+                let device = self.env.metal_device();
+                let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
+
+                Ok(Value::Tensor(score_tensor))
+            }
+
             "print" => {
                 // print(value1, value2, ..., end: "\n", flush: false)
                 // For now, simple implementation
