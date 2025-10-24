@@ -54,6 +54,8 @@ tokenizers = "0.20"
 # Candle (for comparison testing)
 candle-core = "0.8"
 candle-transformers = "0.8"
+candle-nn = "0.9.1"
+hf-hub = "0.4.3"
 
 [dev-dependencies]
 criterion = "0.5"

@@ -31,7 +31,8 @@ impl MetalDevice {
             .ok_or_else(|| TensorError::MetalError("No Metal device found".to_string()))?;
 
         let command_queue = device.new_command_queue();
-        let buffer_pool = BufferPool::new(&device);
+        // Increase buffer pool capacity for deep models (22+ layers)
+        let buffer_pool = BufferPool::with_capacity(&device, 100);
 
         Ok(Self {
             device: Arc::new(device),
@@ -44,7 +45,8 @@ impl MetalDevice {
     /// Create Metal device with specific device
     pub fn with_device(device: MTLDevice) -> TensorResult<Self> {
         let command_queue = device.new_command_queue();
-        let buffer_pool = BufferPool::new(&device);
+        // Increase buffer pool capacity for deep models (22+ layers)
+        let buffer_pool = BufferPool::with_capacity(&device, 100);
 
         Ok(Self {
             device: Arc::new(device),

@@ -14,6 +14,7 @@ fn swiglu_ffn(
     W_up: float16[?, ?],
     W_down: float16[?, ?]
 ) -> float16[?, ?] {
+    // FFN weights are already transposed in GGUF, use as-is
     let gate = matmul(x, W_gate)
     let gate_act = silu(gate)
     let up = matmul(x, W_up)
@@ -61,19 +62,18 @@ fn tinyllama_gqa_attention(
     let K_expanded = reshape(K_broadcast, shape_expanded)
     let V_expanded = reshape(V_broadcast, shape_expanded)
 
-    // Attention computation
-    let seq_heads = seq_len_f * 32.0
-    let shape_flat = [seq_heads, 64.0]
-    let Q_flat = reshape(Q_heads, shape_flat)
-    let K_flat = reshape(K_expanded, shape_flat)
-    let V_flat = reshape(V_expanded, shape_flat)
-    let K_T = transpose(K_flat)
-    let scores = matmul(Q_flat, K_T)
+    // Attention computation - per-head attention using einsum
+    // Q_heads: [seq, 32, 64], K_expanded: [seq, 32, 64]
+    // scores: [seq_query, head, seq_key]
+    let scores = einsum("ihd,jhd->ihj", Q_heads, K_expanded)
     let scaled_scores = scores * 0.125  // 1/sqrt(64)
-    let attn_weights = softmax(scaled_scores, 1)
-    let attn_output = matmul(attn_weights, V_flat)
+    let attn_weights = softmax(scaled_scores, 2)  // softmax over seq_key dimension
 
-    // Output projection
+    // attn_weights: [seq_query, head, seq_key], V_expanded: [seq_key, head, 64]
+    // attn_output: [seq_query, head, 64]
+    let attn_output = einsum("ihj,jhd->ihd", attn_weights, V_expanded)
+
+    // Output projection - testing without transpose
     let d_model = 2048.0
     let shape_output = [seq_len_f, d_model]
     let attn_reshaped = reshape(attn_output, shape_output)
@@ -96,7 +96,7 @@ fn transformer_layer(
     // Pre-attention RMSNorm
     let x_norm1 = rms_norm(x, attn_norm)
 
-    // QKV projections
+    // QKV projections - testing without any transposes
     let Q = matmul(x_norm1, W_q)
     let K = matmul(x_norm1, W_k)
     let V = matmul(x_norm1, W_v)
@@ -387,8 +387,9 @@ main {
     // Tokenize input
     print("[3/4] Preparing chat...")
     let user_input = "Hello"
+    let chat_prompt = "<|system|>\nYou are a helpful assistant.\n<|user|>\n" + user_input + "\n<|assistant|>\n"
     print("      User: \"", user_input, "\"")
-    let tokens = tokenize(tokenizer, user_input, true)
+    let tokens = tokenize(tokenizer, chat_prompt, true)
     print("      Tokens:", tokens)
     print("")
 
