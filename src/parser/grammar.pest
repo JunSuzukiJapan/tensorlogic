@@ -152,8 +152,8 @@ unary_expr = { unary_op ~ unary_expr | tensor_term }
 
 tensor_term = {
     "(" ~ tensor_expr ~ ")"
-    | tensor_index
     | embedding_lookup
+    | tensor_index
     | einstein_sum
     | python_call
     | function_call
