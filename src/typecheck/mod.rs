@@ -245,6 +245,11 @@ impl TypeChecker {
             Declaration::Relation(relation_decl) => self.check_relation_decl(relation_decl),
             Declaration::Rule(rule_decl) => self.check_rule_decl(rule_decl),
             Declaration::Embedding(embedding_decl) => self.check_embedding_decl(embedding_decl),
+            Declaration::RelationEmbedding(_) => {
+                // Relation embedding declarations don't need type checking for now
+                // They will be validated at runtime
+                Ok(())
+            }
             Declaration::Function(function_decl) => self.check_function_decl(function_decl),
         }
     }

@@ -8,6 +8,7 @@ pub mod autograd;
 pub mod coreml;
 pub mod device;
 pub mod entity_registry;
+pub mod relation_registry;
 pub mod error;
 pub mod error_reporting;
 pub mod interpreter;

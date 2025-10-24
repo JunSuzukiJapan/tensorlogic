@@ -32,6 +32,7 @@ use crate::ast::*;
 use crate::tensor::{Tensor, TensorShape};
 use crate::device::{Device, MetalDevice};
 use crate::entity_registry::EntityRegistry;
+use crate::relation_registry::RelationRegistry;
 use crate::error::TensorError;
 use crate::logic::LogicEngine;
 use crate::model::Model;
@@ -281,8 +282,12 @@ pub struct Interpreter {
     logic_engine: LogicEngine,
     // Entity registry for managing entity types and instances
     entity_registry: EntityRegistry,
+    // Relation registry for managing relation types
+    relation_registry: RelationRegistry,
     // Embedding storage: (embedding_name, entity_index_map, embedding_matrix)
     embeddings: HashMap<String, (HashMap<String, usize>, Tensor)>,
+    // Relation embedding storage: (embedding_name, relation_index_map, embedding_matrix)
+    relation_embeddings: HashMap<String, (HashMap<String, usize>, Tensor)>,
     // Python execution environment (when python feature is enabled)
     #[cfg(any(feature = "python", feature = "python-extension"))]
     python_env: Option<crate::python::environment::PythonEnvironment>,
@@ -306,7 +311,9 @@ impl Interpreter {
             env: RuntimeEnvironment::new(),
             logic_engine: LogicEngine::new(),
             entity_registry: EntityRegistry::new(),
+            relation_registry: RelationRegistry::new(),
             embeddings: HashMap::new(),
+            relation_embeddings: HashMap::new(),
             #[cfg(any(feature = "python", feature = "python-extension"))]
             python_env: None,
             imported_files: HashSet::new(),
@@ -392,6 +399,9 @@ impl Interpreter {
             }
             Declaration::Tensor(tensor_decl) => self.execute_tensor_decl(tensor_decl),
             Declaration::Relation(relation_decl) => {
+                // Register relation in the registry
+                self.relation_registry.register_from_decl(relation_decl);
+
                 // Collect variable names from relation parameters
                 let predicate_name = relation_decl.name.as_str().to_string();
                 let var_names: HashSet<String> = relation_decl.params.iter()
@@ -432,6 +442,7 @@ impl Interpreter {
                 Ok(())
             }
             Declaration::Embedding(embedding_decl) => self.execute_embedding_decl(embedding_decl),
+            Declaration::RelationEmbedding(rel_embedding_decl) => self.execute_relation_embedding_decl(rel_embedding_decl),
             Declaration::Function(func_decl) => {
                 // Register user-defined function
                 let func_name = func_decl.name.as_str().to_string();
@@ -648,8 +659,89 @@ impl Interpreter {
             (entity_map, embedding_matrix),
         );
 
-        println!("Initialized embedding '{}': {} entities × {} dimensions", 
+        println!("Initialized embedding '{}': {} entities × {} dimensions",
             decl.name.as_str(), num_entities, decl.dimension);
+
+        Ok(())
+    }
+
+    /// Execute a relation embedding declaration
+    fn execute_relation_embedding_decl(&mut self, decl: &RelationEmbeddingDecl) -> RuntimeResult<()> {
+        use crate::ast::{RelationSet, InitMethod};
+
+        // Build relation-to-index mapping
+        let relation_map: HashMap<String, usize> = match &decl.relations {
+            RelationSet::Explicit(relations) => {
+                relations
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, id)| (id.as_str().to_string(), idx))
+                    .collect()
+            }
+            RelationSet::All => {
+                // All relations: get from registry
+                let all_relations = self.relation_registry.all_relation_names();
+                all_relations
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, name)| (name.clone(), idx))
+                    .collect()
+            }
+        };
+
+        let num_relations = relation_map.len().max(1); // At least 1
+        let device = self.env.metal_device();
+
+        // Initialize relation embedding matrix [num_relations, dimension]
+        let embedding_matrix = match decl.init_method {
+            InitMethod::Random => {
+                // Random initialization in range [-0.1, 0.1]
+                let mut data = Vec::with_capacity(num_relations * decl.dimension);
+                use rand::Rng;
+                let mut rng = rand::rng();
+                for _ in 0..(num_relations * decl.dimension) {
+                    let val: f32 = rng.random_range(-0.1..0.1);
+                    data.push(half::f16::from_f32(val));
+                }
+                Tensor::from_vec_metal(device, data, vec![num_relations, decl.dimension])?
+            }
+            InitMethod::Xavier => {
+                // Xavier initialization: uniform(-sqrt(6/(n+m)), sqrt(6/(n+m)))
+                let limit = (6.0 / (num_relations + decl.dimension) as f32).sqrt();
+                let mut data = Vec::with_capacity(num_relations * decl.dimension);
+                use rand::Rng;
+                let mut rng = rand::rng();
+                for _ in 0..(num_relations * decl.dimension) {
+                    let val: f32 = rng.random_range(-limit..limit);
+                    data.push(half::f16::from_f32(val));
+                }
+                Tensor::from_vec_metal(device, data, vec![num_relations, decl.dimension])?
+            }
+            InitMethod::He => {
+                // He initialization: normal(0, sqrt(2/n))
+                let stddev = (2.0 / num_relations as f32).sqrt();
+                let mut data = Vec::with_capacity(num_relations * decl.dimension);
+                use rand_distr::{Normal, Distribution};
+                let mut rng = rand::rng();
+                let normal = Normal::new(0.0, stddev as f64).unwrap();
+                for _ in 0..(num_relations * decl.dimension) {
+                    let val: f32 = normal.sample(&mut rng) as f32;
+                    data.push(half::f16::from_f32(val));
+                }
+                Tensor::from_vec_metal(device, data, vec![num_relations, decl.dimension])?
+            }
+            InitMethod::Zeros => Tensor::zeros(&device, vec![num_relations, decl.dimension])?,
+            InitMethod::Ones => Tensor::ones(&device, vec![num_relations, decl.dimension])?,
+        };
+
+        // Store relation embedding with relation mapping
+        self.relation_embeddings.insert(
+            decl.name.as_str().to_string(),
+            (relation_map, embedding_matrix),
+        );
+
+        println!("Initialized relation embedding '{}': {} relations × {} dimensions",
+            decl.name.as_str(), num_relations, decl.dimension);
 
         Ok(())
     }

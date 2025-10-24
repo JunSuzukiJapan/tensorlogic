@@ -102,6 +102,10 @@ pub fn walk_declaration<V: Visitor>(visitor: &mut V, decl: &Declaration) -> Resu
         Declaration::Relation(d) => visitor.visit_relation_decl(d),
         Declaration::Rule(d) => visitor.visit_rule_decl(d),
         Declaration::Embedding(d) => visitor.visit_embedding_decl(d),
+        Declaration::RelationEmbedding(_d) => {
+            // Relation embedding declarations don't need visiting for now
+            Ok(())
+        },
         Declaration::Function(d) => visitor.visit_function_decl(d),
     }
 }

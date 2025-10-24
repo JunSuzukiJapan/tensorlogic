@@ -41,6 +41,7 @@ pub enum Declaration {
     Relation(RelationDecl),
     Rule(RuleDecl),
     Embedding(EmbeddingDecl),
+    RelationEmbedding(RelationEmbeddingDecl),
     Function(FunctionDecl),
 }
 
@@ -197,11 +198,20 @@ pub enum Term {
 // Embedding Declarations
 // ============================================================================
 
-/// Embedding declaration
+/// Entity embedding declaration
 #[derive(Debug, Clone, PartialEq)]
 pub struct EmbeddingDecl {
     pub name: Identifier,
     pub entities: EntitySet,
+    pub dimension: usize,
+    pub init_method: InitMethod,
+}
+
+/// Relation embedding declaration
+#[derive(Debug, Clone, PartialEq)]
+pub struct RelationEmbeddingDecl {
+    pub name: Identifier,
+    pub relations: RelationSet,
     pub dimension: usize,
     pub init_method: InitMethod,
 }
@@ -213,6 +223,15 @@ pub enum EntitySet {
     Auto,
     /// From a specific entity type
     Type(Identifier),
+}
+
+/// Relation set specification
+#[derive(Debug, Clone, PartialEq)]
+pub enum RelationSet {
+    /// Explicit relation list: {lives_in, owns, friend_of}
+    Explicit(Vec<Identifier>),
+    /// All registered relations
+    All,
 }
 
 /// Initialization method for embeddings

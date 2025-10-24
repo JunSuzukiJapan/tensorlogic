@@ -16,6 +16,7 @@ declaration = {
     | tensor_decl
     | relation_decl
     | rule_decl
+    | relation_embedding_decl
     | embedding_decl
     | function_decl
 }
@@ -103,7 +104,17 @@ embedding_decl = {
     ~ "}"
 }
 
+relation_embedding_decl = {
+    "relation_embedding" ~ identifier ~ "{"
+    ~ "relations" ~ ":" ~ relation_set
+    ~ "dimension" ~ ":" ~ integer
+    ~ ("init" ~ ":" ~ init_method)?
+    ~ "}"
+}
+
 entity_set = { "{" ~ identifier_list ~ "}" | "auto" | identifier }
+
+relation_set = { "{" ~ identifier_list ~ "}" | "all" }
 
 identifier_list = { identifier ~ ("," ~ identifier)* }
 

@@ -112,6 +112,7 @@ impl TensorLogicParser {
             Rule::relation_decl => Ok(Declaration::Relation(Self::parse_relation_decl(inner)?)),
             Rule::rule_decl => Ok(Declaration::Rule(Self::parse_rule_decl(inner)?)),
             Rule::embedding_decl => Ok(Declaration::Embedding(Self::parse_embedding_decl(inner)?)),
+            Rule::relation_embedding_decl => Ok(Declaration::RelationEmbedding(Self::parse_relation_embedding_decl(inner)?)),
             Rule::function_decl => Ok(Declaration::Function(Self::parse_function_decl(inner)?)),
             _ => Err(ParseError::UnexpectedRule {
                 expected: "declaration type".to_string(),
@@ -490,6 +491,68 @@ impl TensorLogicParser {
         }
 
         Err(ParseError::MissingField("entity set content".to_string()))
+    }
+
+    fn parse_relation_embedding_decl(pair: pest::iterators::Pair<Rule>) -> Result<RelationEmbeddingDecl, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let name = Self::parse_identifier(inner.next().ok_or_else(|| {
+            ParseError::MissingField("relation embedding name".to_string())
+        })?)?;
+
+        let mut relations = RelationSet::All;
+        let mut dimension = 0;
+        let mut init_method = InitMethod::Random;
+
+        for field in inner {
+            match field.as_rule() {
+                Rule::relation_set => {
+                    relations = Self::parse_relation_set(field)?;
+                }
+                Rule::integer => {
+                    dimension = field.as_str().parse::<usize>().map_err(|e| {
+                        ParseError::InvalidValue(format!("Invalid dimension: {}", e))
+                    })?;
+                }
+                Rule::init_method => {
+                    init_method = Self::parse_init_method(field)?;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(RelationEmbeddingDecl {
+            name,
+            relations,
+            dimension,
+            init_method,
+        })
+    }
+
+    fn parse_relation_set(pair: pest::iterators::Pair<Rule>) -> Result<RelationSet, ParseError> {
+        // Check if it's "all" directly
+        if pair.as_str() == "all" {
+            return Ok(RelationSet::All);
+        }
+
+        // Try to find identifier_list
+        for inner in pair.into_inner() {
+            match inner.as_rule() {
+                Rule::identifier_list => {
+                    let identifiers = inner
+                        .into_inner()
+                        .map(|id_pair| Self::parse_identifier(id_pair))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    return Ok(RelationSet::Explicit(identifiers));
+                }
+                _ if inner.as_str() == "all" => {
+                    return Ok(RelationSet::All);
+                }
+                _ => {}
+            }
+        }
+
+        Err(ParseError::MissingField("relation set content".to_string()))
     }
 
     fn parse_init_method(pair: pest::iterators::Pair<Rule>) -> Result<InitMethod, ParseError> {
