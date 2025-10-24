@@ -4742,6 +4742,125 @@ impl Interpreter {
                 Ok(Value::Tensor(score_tensor))
             }
 
+            "compute_rank" => {
+                // compute_rank(target_score, candidate_scores_list)
+                // Returns the rank of target_score among all candidates
+                // Lower rank = better (rank 1 = highest score)
+                if args.len() < 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("compute_rank() expects 2 arguments (target_score, num_higher_scores), got {}", args.len())
+                    ));
+                }
+
+                let target_score = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let target_score_f32 = target_score.to_vec()[0].to_f32();
+
+                // For simplicity, second arg is the count of candidates with higher scores
+                let num_higher = match self.eval_expr(&args[1])? {
+                    Value::Integer(i) => i as usize,
+                    Value::Float(f) => f as usize,
+                    _ => return Err(RuntimeError::TypeError(
+                        "compute_rank: num_higher_scores must be a number".to_string()
+                    )),
+                };
+
+                // Rank = number of candidates with higher score + 1
+                let rank = num_higher + 1;
+
+                Ok(Value::Integer(rank as i64))
+            }
+
+            "compute_mrr" => {
+                // compute_mrr(rank) -> mean reciprocal rank
+                // MRR = 1 / rank
+                if args.is_empty() {
+                    return Err(RuntimeError::TypeError(
+                        "compute_mrr() expects 1 argument (rank)".to_string()
+                    ));
+                }
+
+                let rank = match self.eval_expr(&args[0])? {
+                    Value::Integer(i) => i as f32,
+                    Value::Float(f) => f as f32,
+                    _ => return Err(RuntimeError::TypeError(
+                        "compute_mrr: rank must be a number".to_string()
+                    )),
+                };
+
+                if rank <= 0.0 {
+                    return Err(RuntimeError::InvalidOperation(
+                        "compute_mrr: rank must be positive".to_string()
+                    ));
+                }
+
+                let mrr = 1.0 / rank;
+                Ok(Value::Float(mrr as f64))
+            }
+
+            "compute_hits_at_k" => {
+                // compute_hits_at_k(rank, k) -> 1 if rank <= k, else 0
+                // Hits@k metric: whether correct answer is in top-k
+                if args.len() < 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("compute_hits_at_k() expects 2 arguments (rank, k), got {}", args.len())
+                    ));
+                }
+
+                let rank = match self.eval_expr(&args[0])? {
+                    Value::Integer(i) => i,
+                    Value::Float(f) => f as i64,
+                    _ => return Err(RuntimeError::TypeError(
+                        "compute_hits_at_k: rank must be a number".to_string()
+                    )),
+                };
+
+                let k = match self.eval_expr(&args[1])? {
+                    Value::Integer(i) => i,
+                    Value::Float(f) => f as i64,
+                    _ => return Err(RuntimeError::TypeError(
+                        "compute_hits_at_k: k must be a number".to_string()
+                    )),
+                };
+
+                let hits = if rank <= k && rank > 0 { 1 } else { 0 };
+                Ok(Value::Integer(hits))
+            }
+
+            "compute_mean_rank" => {
+                // compute_mean_rank(sum_of_ranks, num_queries)
+                // Mean Rank = sum of ranks / number of queries
+                if args.len() < 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("compute_mean_rank() expects 2 arguments (sum_of_ranks, num_queries), got {}", args.len())
+                    ));
+                }
+
+                let sum_ranks = match self.eval_expr(&args[0])? {
+                    Value::Integer(i) => i as f32,
+                    Value::Float(f) => f as f32,
+                    _ => return Err(RuntimeError::TypeError(
+                        "compute_mean_rank: sum_of_ranks must be a number".to_string()
+                    )),
+                };
+
+                let num_queries = match self.eval_expr(&args[1])? {
+                    Value::Integer(i) => i as f32,
+                    Value::Float(f) => f as f32,
+                    _ => return Err(RuntimeError::TypeError(
+                        "compute_mean_rank: num_queries must be a number".to_string()
+                    )),
+                };
+
+                if num_queries <= 0.0 {
+                    return Err(RuntimeError::InvalidOperation(
+                        "compute_mean_rank: num_queries must be positive".to_string()
+                    ));
+                }
+
+                let mean_rank = sum_ranks / num_queries;
+                Ok(Value::Float(mean_rank as f64))
+            }
+
             "print" => {
                 // print(value1, value2, ..., end: "\n", flush: false)
                 // For now, simple implementation
