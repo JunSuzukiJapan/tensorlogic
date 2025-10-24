@@ -4426,6 +4426,65 @@ impl Interpreter {
                 Ok(Value::Integer(dimension as i64))
             }
 
+            "transe_score" => {
+                // transe_score(head, relation, tail, norm: "L1" or "L2") -> Tensor
+                // TransE scoring function: score = -||h + r - t||
+                if args.len() < 3 || args.len() > 4 {
+                    return Err(RuntimeError::TypeError(
+                        format!("transe_score() expects 3-4 arguments (head, relation, tail, norm?), got {}", args.len())
+                    ));
+                }
+
+                // Evaluate arguments
+                let head = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let tail = self.eval_expr(&args[2])?.as_tensor()?.clone();
+
+                // Parse norm type (default: L2)
+                let norm_type = if args.len() == 4 {
+                    match self.eval_expr(&args[3])? {
+                        Value::String(s) => s,
+                        _ => return Err(RuntimeError::TypeError(
+                            "transe_score() norm argument must be a string (\"L1\" or \"L2\")".to_string()
+                        )),
+                    }
+                } else {
+                    "L2".to_string()
+                };
+
+                // Compute h + r - t
+                let h_plus_r = head.add(&relation)?;
+                let diff = h_plus_r.sub(&tail)?;
+
+                // Compute norm
+                let score = match norm_type.as_str() {
+                    "L1" => {
+                        // L1 norm: sum(|x|)
+                        // TODO: Implement abs() method for Tensor
+                        return Err(RuntimeError::NotImplemented(
+                            "L1 norm not yet implemented (requires Tensor.abs())".to_string()
+                        ));
+                    }
+                    "L2" => {
+                        // L2 norm: sqrt(sum(x^2))
+                        let squared = diff.mul(&diff)?;
+                        let sum_squared_f16 = squared.sum()?;
+                        let sum_squared_f32 = sum_squared_f16.to_f32();
+                        let l2_norm_f32 = sum_squared_f32.sqrt();
+                        let l2_norm_f16 = half::f16::from_f32(-l2_norm_f32);
+
+                        // Create scalar tensor
+                        let device = self.env.metal_device();
+                        Tensor::from_vec_metal(device, vec![l2_norm_f16], vec![1])?
+                    }
+                    _ => return Err(RuntimeError::InvalidOperation(
+                        format!("transe_score() norm must be \"L1\" or \"L2\", got \"{}\"", norm_type)
+                    )),
+                };
+
+                Ok(Value::Tensor(score))
+            }
+
             "print" => {
                 // print(value1, value2, ..., end: "\n", flush: false)
                 // For now, simple implementation
