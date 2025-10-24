@@ -397,13 +397,14 @@ impl Interpreter {
 
                 self.relation_variables.insert(predicate_name.clone(), var_names);
 
-                // Collect entity-typed parameters: param_index -> entity_type_name
-                let mut entity_params = HashMap::new();
-                for (_idx, param) in relation_decl.params.iter().enumerate() {
+                // Collect entity-typed parameters: param_index -> "entity" marker
+                // (generic entity type - specific type will be inferred from context)
+                let mut entity_param_indices = Vec::new();
+                for (idx, param) in relation_decl.params.iter().enumerate() {
                     match &param.entity_type {
                         EntityType::Entity | EntityType::Concept => {
-                            // Generic entity type - we'll handle this later when we have
-                            // explicit entity type declarations
+                            // Generic entity type parameter
+                            entity_param_indices.push(idx);
                         }
                         EntityType::Tensor(_) => {
                             // Tensor-typed parameter, skip
@@ -411,7 +412,12 @@ impl Interpreter {
                     }
                 }
 
-                if !entity_params.is_empty() {
+                // Store indices of entity-typed parameters
+                if !entity_param_indices.is_empty() {
+                    let mut entity_params = HashMap::new();
+                    for idx in entity_param_indices {
+                        entity_params.insert(idx, "entity".to_string());
+                    }
                     self.relation_entity_params.insert(predicate_name, entity_params);
                 }
 
@@ -1105,6 +1111,9 @@ impl Interpreter {
 
                 // Otherwise, treat as a fact assertion
                 println!("Adding fact: {}", predicate_name);
+
+                // Collect entities from fact (for data-driven entity types)
+                self.collect_entities_from_fact(atom)?;
 
                 // Convert atom terms based on relation variable definitions
                 let converted_atom = self.convert_atom_terms(atom);
@@ -4702,6 +4711,62 @@ impl Interpreter {
                 expr.clone()
             }
         }
+    }
+
+    /// Collect entities from a fact assertion (for data-driven entity types)
+    fn collect_entities_from_fact(&mut self, atom: &Atom) -> RuntimeResult<()> {
+        let predicate_name = atom.predicate.as_str();
+
+        // Check if this relation has entity-typed parameters
+        if let Some(entity_params) = self.relation_entity_params.get(predicate_name) {
+            // Get all data-driven entity types
+            let data_driven_types: Vec<String> = self.entity_registry
+                .all_type_names()
+                .iter()
+                .filter_map(|&type_name| {
+                    if let Some(type_info) = self.entity_registry.get_type_info(type_name) {
+                        match &type_info.declaration_type {
+                            crate::entity_registry::EntityDeclType::FromData => {
+                                Some(type_name.to_string())
+                            }
+                            _ => None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            // For each entity-typed parameter
+            for (&param_idx, _entity_type) in entity_params {
+                if let Some(term) = atom.terms.get(param_idx) {
+                    // Extract constant value from term
+                    let entity_name = match term {
+                        Term::Constant(Constant::String(s)) => Some(s.clone()),
+                        Term::Variable(ident) => {
+                            let name = ident.as_str();
+                            // Lowercase identifiers are treated as constants
+                            if name.chars().next().unwrap().is_lowercase() {
+                                Some(name.to_string())
+                            } else {
+                                None // Variable, skip
+                            }
+                        }
+                        _ => None,
+                    };
+
+                    // Add to all data-driven entity types
+                    if let Some(entity_name) = entity_name {
+                        for type_name in &data_driven_types {
+                            self.entity_registry.add_entity(type_name, entity_name.clone())
+                                .map_err(|e| RuntimeError::InvalidOperation(e))?;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Convert an atom's terms based on relation variable definitions
