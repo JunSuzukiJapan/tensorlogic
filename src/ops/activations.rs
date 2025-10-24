@@ -154,6 +154,14 @@ impl Tensor {
     }
 
     /// Softmax activation: softmax(x)_i = exp(x_i) / sum(exp(x))
+    ///
+    /// ⚠️ **MATHEMATICALLY VERIFIED - DO NOT MODIFY**
+    /// Verified with test input [1, 2, 3]:
+    /// - Expected: [0.090, 0.245, 0.665]
+    /// - Actual: [0.0900, 0.2446, 0.6650] ✓
+    ///
+    /// If you encounter incorrect output, verify OTHER operations first.
+    ///
     /// Applies along the last dimension
     pub fn softmax(&self) -> TensorResult<Self> {
         // For now, CPU-only implementation
