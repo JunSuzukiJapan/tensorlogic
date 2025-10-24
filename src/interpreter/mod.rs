@@ -4513,6 +4513,69 @@ impl Interpreter {
                 Ok(Value::Tensor(score_tensor))
             }
 
+            "complex_score" => {
+                // complex_score(h_re, h_im, r_re, r_im, t_re, t_im) -> Tensor
+                // ComplEx scoring function using complex embeddings
+                // Formula: Re(<h, r, conj(t)>) = sum over i of:
+                //   h_re[i] * r_re[i] * t_re[i]
+                // + h_re[i] * r_im[i] * t_im[i]
+                // + h_im[i] * r_re[i] * t_im[i]
+                // - h_im[i] * r_im[i] * t_re[i]
+                if args.len() != 6 {
+                    return Err(RuntimeError::TypeError(
+                        format!("complex_score() expects 6 arguments (h_re, h_im, r_re, r_im, t_re, t_im), got {}", args.len())
+                    ));
+                }
+
+                // Evaluate arguments
+                let h_re = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let h_im = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let r_re = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let r_im = self.eval_expr(&args[3])?.as_tensor()?.clone();
+                let t_re = self.eval_expr(&args[4])?.as_tensor()?.clone();
+                let t_im = self.eval_expr(&args[5])?.as_tensor()?.clone();
+
+                // Compute the four trilinear products
+
+                // Term 1: h_re * r_re * t_re
+                let h_re_r_re = h_re.mul(&r_re)?;
+                let term1_product = h_re_r_re.mul(&t_re)?;
+                let term1 = term1_product.sum()?;
+
+                // Term 2: h_re * r_im * t_im
+                let h_re_r_im = h_re.mul(&r_im)?;
+                let term2_product = h_re_r_im.mul(&t_im)?;
+                let term2 = term2_product.sum()?;
+
+                // Term 3: h_im * r_re * t_im
+                let h_im_r_re = h_im.mul(&r_re)?;
+                let term3_product = h_im_r_re.mul(&t_im)?;
+                let term3 = term3_product.sum()?;
+
+                // Term 4: h_im * r_im * t_re
+                let h_im_r_im = h_im.mul(&r_im)?;
+                let term4_product = h_im_r_im.mul(&t_re)?;
+                let term4 = term4_product.sum()?;
+
+                // Combine: term1 + term2 + term3 - term4
+                let device = self.env.metal_device();
+
+                // Create scalar tensors for each term
+                let term1_tensor = Tensor::from_vec_metal(device, vec![term1], vec![1])?;
+                let term2_tensor = Tensor::from_vec_metal(device, vec![term2], vec![1])?;
+                let term3_tensor = Tensor::from_vec_metal(device, vec![term3], vec![1])?;
+                let term4_tensor = Tensor::from_vec_metal(device, vec![term4], vec![1])?;
+
+                // Add first three terms
+                let sum12 = term1_tensor.add(&term2_tensor)?;
+                let sum123 = sum12.add(&term3_tensor)?;
+
+                // Subtract fourth term
+                let score = sum123.sub(&term4_tensor)?;
+
+                Ok(Value::Tensor(score))
+            }
+
             "margin_ranking_loss" => {
                 // margin_ranking_loss(pos_score, neg_score, margin) -> Tensor
                 // Margin ranking loss: loss = max(0, margin + neg_score - pos_score)
@@ -4733,13 +4796,117 @@ impl Interpreter {
 
                 // DistMult: score = sum(h * r * t)
                 let device = self.env.metal_device();
-                
+
                 let h_mul_r = head_candidate.mul(&relation)?;
                 let product = h_mul_r.mul(&tail)?;
                 let score_f16 = product.sum()?;
 
                 let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
                 Ok(Value::Tensor(score_tensor))
+            }
+
+            "predict_tail_complex" => {
+                // predict_tail_complex(h_re, h_im, r_re, r_im, t_candidate_re, t_candidate_im)
+                // Computes ComplEx scores for tail candidates
+                // Uses ComplEx formula: Re(<h, r, conj(t)>)
+                if args.len() < 6 {
+                    return Err(RuntimeError::TypeError(
+                        format!("predict_tail_complex() expects 6 arguments (h_re, h_im, r_re, r_im, t_candidate_re, t_candidate_im), got {}", args.len())
+                    ));
+                }
+
+                let h_re = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let h_im = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let r_re = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let r_im = self.eval_expr(&args[3])?.as_tensor()?.clone();
+                let t_candidate_re = self.eval_expr(&args[4])?.as_tensor()?.clone();
+                let t_candidate_im = self.eval_expr(&args[5])?.as_tensor()?.clone();
+
+                // Compute ComplEx score using the formula
+                // Term 1: h_re * r_re * t_re
+                let h_re_r_re = h_re.mul(&r_re)?;
+                let term1_product = h_re_r_re.mul(&t_candidate_re)?;
+                let term1 = term1_product.sum()?;
+
+                // Term 2: h_re * r_im * t_im
+                let h_re_r_im = h_re.mul(&r_im)?;
+                let term2_product = h_re_r_im.mul(&t_candidate_im)?;
+                let term2 = term2_product.sum()?;
+
+                // Term 3: h_im * r_re * t_im
+                let h_im_r_re = h_im.mul(&r_re)?;
+                let term3_product = h_im_r_re.mul(&t_candidate_im)?;
+                let term3 = term3_product.sum()?;
+
+                // Term 4: h_im * r_im * t_re
+                let h_im_r_im = h_im.mul(&r_im)?;
+                let term4_product = h_im_r_im.mul(&t_candidate_re)?;
+                let term4 = term4_product.sum()?;
+
+                // Combine: term1 + term2 + term3 - term4
+                let device = self.env.metal_device();
+                let term1_tensor = Tensor::from_vec_metal(device, vec![term1], vec![1])?;
+                let term2_tensor = Tensor::from_vec_metal(device, vec![term2], vec![1])?;
+                let term3_tensor = Tensor::from_vec_metal(device, vec![term3], vec![1])?;
+                let term4_tensor = Tensor::from_vec_metal(device, vec![term4], vec![1])?;
+
+                let sum12 = term1_tensor.add(&term2_tensor)?;
+                let sum123 = sum12.add(&term3_tensor)?;
+                let score = sum123.sub(&term4_tensor)?;
+
+                Ok(Value::Tensor(score))
+            }
+
+            "predict_head_complex" => {
+                // predict_head_complex(h_candidate_re, h_candidate_im, r_re, r_im, t_re, t_im)
+                // Computes ComplEx scores for head candidates
+                // Uses ComplEx formula: Re(<h, r, conj(t)>)
+                if args.len() < 6 {
+                    return Err(RuntimeError::TypeError(
+                        format!("predict_head_complex() expects 6 arguments (h_candidate_re, h_candidate_im, r_re, r_im, t_re, t_im), got {}", args.len())
+                    ));
+                }
+
+                let h_candidate_re = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let h_candidate_im = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let r_re = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let r_im = self.eval_expr(&args[3])?.as_tensor()?.clone();
+                let t_re = self.eval_expr(&args[4])?.as_tensor()?.clone();
+                let t_im = self.eval_expr(&args[5])?.as_tensor()?.clone();
+
+                // Compute ComplEx score using the formula
+                // Term 1: h_re * r_re * t_re
+                let h_re_r_re = h_candidate_re.mul(&r_re)?;
+                let term1_product = h_re_r_re.mul(&t_re)?;
+                let term1 = term1_product.sum()?;
+
+                // Term 2: h_re * r_im * t_im
+                let h_re_r_im = h_candidate_re.mul(&r_im)?;
+                let term2_product = h_re_r_im.mul(&t_im)?;
+                let term2 = term2_product.sum()?;
+
+                // Term 3: h_im * r_re * t_im
+                let h_im_r_re = h_candidate_im.mul(&r_re)?;
+                let term3_product = h_im_r_re.mul(&t_im)?;
+                let term3 = term3_product.sum()?;
+
+                // Term 4: h_im * r_im * t_re
+                let h_im_r_im = h_candidate_im.mul(&r_im)?;
+                let term4_product = h_im_r_im.mul(&t_re)?;
+                let term4 = term4_product.sum()?;
+
+                // Combine: term1 + term2 + term3 - term4
+                let device = self.env.metal_device();
+                let term1_tensor = Tensor::from_vec_metal(device, vec![term1], vec![1])?;
+                let term2_tensor = Tensor::from_vec_metal(device, vec![term2], vec![1])?;
+                let term3_tensor = Tensor::from_vec_metal(device, vec![term3], vec![1])?;
+                let term4_tensor = Tensor::from_vec_metal(device, vec![term4], vec![1])?;
+
+                let sum12 = term1_tensor.add(&term2_tensor)?;
+                let sum123 = sum12.add(&term3_tensor)?;
+                let score = sum123.sub(&term4_tensor)?;
+
+                Ok(Value::Tensor(score))
             }
 
             "compute_rank" => {
