@@ -123,6 +123,8 @@ pub enum Value {
     Model(Model),
     Tokenizer(std::sync::Arc<crate::tokenizer::Tokenizer>),
     TokenIds(Vec<u32>),
+    /// Meta-type: represents an entity type
+    Type(String),
     Void,
 }
 
@@ -201,6 +203,7 @@ impl std::fmt::Display for Value {
             Value::Model(m) => write!(f, "Model({:?})", m.metadata.format),
             Value::Tokenizer(_) => write!(f, "Tokenizer"),
             Value::TokenIds(ids) => write!(f, "TokenIds({:?})", ids),
+            Value::Type(type_name) => write!(f, "Type({})", type_name),
             Value::Void => write!(f, "()"),
         }
     }
@@ -1398,9 +1401,17 @@ impl Interpreter {
         match expr {
             TensorExpr::Variable(id) => {
                 // Use self.get_variable() to check local scope first
-                let value = self.get_variable(id.as_str())
-                    .ok_or_else(|| RuntimeError::UndefinedVariable(id.as_str().to_string()))?;
-                Ok(value)
+                if let Some(value) = self.get_variable(id.as_str()) {
+                    return Ok(value);
+                }
+
+                // Check if it's an entity type (meta-type)
+                if self.entity_registry.get_type_info(id.as_str()).is_some() {
+                    return Ok(Value::Type(id.as_str().to_string()));
+                }
+
+                // Not found as variable or type
+                Err(RuntimeError::UndefinedVariable(id.as_str().to_string()))
             }
 
             TensorExpr::Literal(lit) => self.eval_literal(lit),
@@ -4229,8 +4240,9 @@ impl Interpreter {
                 let type_name_val = self.eval_expr(&args[0])?;
                 let type_name = match type_name_val {
                     Value::String(s) => s,
+                    Value::Type(t) => t,
                     _ => return Err(RuntimeError::TypeError(
-                        "entity_onehot() first argument must be a string (type_name)".to_string()
+                        "entity_onehot() first argument must be a Type or string (type_name)".to_string()
                     )),
                 };
 
@@ -4273,8 +4285,9 @@ impl Interpreter {
                 let type_name_val = self.eval_expr(&args[0])?;
                 let type_name = match type_name_val {
                     Value::String(s) => s,
+                    Value::Type(t) => t,
                     _ => return Err(RuntimeError::TypeError(
-                        "entity_dim() argument must be a string (type_name)".to_string()
+                        "entity_dim() argument must be a Type or string (type_name)".to_string()
                     )),
                 };
 
@@ -4304,6 +4317,7 @@ impl Interpreter {
                         Value::Model(m) => print!("Model({:?})", m.metadata.format),
                         Value::Tokenizer(t) => print!("{:?}", t),
                         Value::TokenIds(ids) => print!("{:?}", ids),
+                        Value::Type(type_name) => print!("Type({})", type_name),
                         Value::Void => print!("void"),
                     }
                 }
