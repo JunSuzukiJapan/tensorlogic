@@ -22,7 +22,16 @@
 //! interpreter.execute(&program)?;
 //! ```
 
+// Sub-modules
 mod formatter;
+mod value;
+mod environment;
+mod builtin_kg;  // Knowledge Graph embedding functions (stub for now)
+mod eval;        // Expression and statement evaluation (work in progress)
+
+// Re-export public types
+pub use value::Value;
+pub use environment::{RuntimeEnvironment, CallFrame};
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -94,187 +103,6 @@ pub enum RuntimeError {
 }
 
 pub type RuntimeResult<T> = Result<T, RuntimeError>;
-
-/// Function call frame for local scope management
-#[derive(Debug, Clone)]
-struct CallFrame {
-    /// Name of the function being executed
-    function_name: String,
-    /// Local variables in this scope
-    local_vars: HashMap<String, Value>,
-}
-
-impl CallFrame {
-    fn new(function_name: String) -> Self {
-        Self {
-            function_name,
-            local_vars: HashMap::new(),
-        }
-    }
-}
-
-/// Runtime value
-#[derive(Debug, Clone)]
-pub enum Value {
-    Tensor(Tensor),
-    Boolean(bool),
-    Integer(i64),
-    Float(f64),
-    String(String),
-    Model(Model),
-    Tokenizer(std::sync::Arc<crate::tokenizer::Tokenizer>),
-    TokenIds(Vec<u32>),
-    /// Meta-type: represents an entity type
-    Type(String),
-    Void,
-}
-
-impl Value {
-    /// Convert to tensor if possible
-    pub fn as_tensor(&self) -> RuntimeResult<&Tensor> {
-        match self {
-            Value::Tensor(t) => Ok(t),
-            _ => Err(RuntimeError::TypeError(format!(
-                "Expected tensor, found {:?}",
-                self
-            ))),
-        }
-    }
-
-    /// Convert to float if possible
-    pub fn as_float(&self) -> RuntimeResult<f64> {
-        match self {
-            Value::Float(f) => Ok(*f),
-            Value::Integer(i) => Ok(*i as f64),
-            _ => Err(RuntimeError::TypeError(format!(
-                "Expected float, found {:?}",
-                self
-            ))),
-        }
-    }
-
-    /// Convert to boolean if possible
-    pub fn as_bool(&self) -> RuntimeResult<bool> {
-        match self {
-            Value::Boolean(b) => Ok(*b),
-            _ => Err(RuntimeError::TypeError(format!(
-                "Expected boolean, found {:?}",
-                self
-            ))),
-        }
-    }
-
-    /// Convert to integer if possible
-    pub fn as_integer(&self) -> RuntimeResult<i64> {
-        match self {
-            Value::Integer(i) => Ok(*i),
-            Value::Float(f) => Ok(*f as i64),
-            _ => Err(RuntimeError::TypeError(format!(
-                "Expected integer, found {:?}",
-                self
-            ))),
-        }
-    }
-}
-
-impl std::fmt::Display for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Value::Tensor(t) => {
-                // Display tensor in a compact format
-                let data = t.to_vec();
-                if data.len() <= DISPLAY_LIMIT {
-                    write!(f, "[")?;
-                    for (i, val) in data.iter().enumerate() {
-                        if i > 0 {
-                            write!(f, ", ")?;
-                        }
-                        write!(f, "{:.4}", val.to_f32())?;
-                    }
-                    write!(f, "]")
-                } else {
-                    write!(f, "[{:.4}, {:.4}, ..., {:.4}] (len={})",
-                        data[0].to_f32(), data[1].to_f32(), data[data.len()-1].to_f32(), data.len())
-                }
-            }
-            Value::Boolean(b) => write!(f, "{}", b),
-            Value::Integer(i) => write!(f, "{}", i),
-            Value::Float(fl) => write!(f, "{}", fl),
-            Value::String(s) => write!(f, "{}", s),
-            Value::Model(m) => write!(f, "Model({:?})", m.metadata.format),
-            Value::Tokenizer(_) => write!(f, "Tokenizer"),
-            Value::TokenIds(ids) => write!(f, "TokenIds({:?})", ids),
-            Value::Type(type_name) => write!(f, "Type({})", type_name),
-            Value::Void => write!(f, "()"),
-        }
-    }
-}
-
-/// Runtime environment
-#[derive(Debug)]
-pub struct RuntimeEnvironment {
-    /// Variable name → value
-    variables: HashMap<String, Value>,
-    /// Current Metal device for tensor operations
-    metal_device: MetalDevice,
-}
-
-impl RuntimeEnvironment {
-    pub fn new() -> Self {
-        Self {
-            variables: HashMap::new(),
-            metal_device: MetalDevice::new().unwrap(),
-        }
-    }
-
-    /// Check if a variable exists
-    pub fn has_variable(&self, name: &str) -> bool {
-        self.variables.contains_key(name)
-    }
-
-    /// Declare a new variable (error if already exists)
-    pub fn declare_variable(&mut self, name: String, value: Value) -> RuntimeResult<()> {
-        if self.variables.contains_key(&name) {
-            return Err(RuntimeError::InvalidOperation(
-                format!("Variable '{}' is already defined. Use assignment without 'let' to update existing variables.", name)
-            ));
-        }
-        self.variables.insert(name, value);
-        Ok(())
-    }
-
-    /// Set a variable (update existing or error if not defined)
-    pub fn set_variable(&mut self, name: String, value: Value) -> RuntimeResult<()> {
-        if !self.variables.contains_key(&name) {
-            return Err(RuntimeError::UndefinedVariable(name));
-        }
-        self.variables.insert(name, value);
-        Ok(())
-    }
-
-    /// Get a variable
-    pub fn get_variable(&self, name: &str) -> RuntimeResult<&Value> {
-        self.variables
-            .get(name)
-            .ok_or_else(|| RuntimeError::UndefinedVariable(name.to_string()))
-    }
-
-    /// List all variable names
-    pub fn list_variables(&self) -> Vec<String> {
-        self.variables.keys().cloned().collect()
-    }
-
-    /// Get current Metal device
-    pub fn metal_device(&self) -> &MetalDevice {
-        &self.metal_device
-    }
-}
-
-impl Default for RuntimeEnvironment {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 /// Interpreter
 pub struct Interpreter {
