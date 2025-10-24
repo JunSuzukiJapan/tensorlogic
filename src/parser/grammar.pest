@@ -64,7 +64,12 @@ param_list = { param ~ ("," ~ param)* }
 
 param = { identifier ~ ":" ~ entity_type }
 
-entity_type = { "entity" | "concept" | tensor_type }
+entity_type = {
+    "entity"      // Generic entity type
+  | "concept"     // Generic concept type
+  | tensor_type   // Tensor type (must be before identifier to match correctly)
+  | identifier    // Named entity type (e.g., Person, City)
+}
 
 embedding_spec = { "embed" ~ tensor_type }
 

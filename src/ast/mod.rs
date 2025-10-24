@@ -142,8 +142,13 @@ pub struct Param {
 /// Entity type for parameters
 #[derive(Debug, Clone, PartialEq)]
 pub enum EntityType {
+    /// Generic entity type (backward compatibility)
     Entity,
+    /// Named entity type (e.g., Person, City)
+    NamedEntity(Identifier),
+    /// Generic concept type
     Concept,
+    /// Tensor type with shape and base type
     Tensor(TensorType),
 }
 

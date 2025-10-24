@@ -397,14 +397,17 @@ impl Interpreter {
 
                 self.relation_variables.insert(predicate_name.clone(), var_names);
 
-                // Collect entity-typed parameters: param_index -> "entity" marker
-                // (generic entity type - specific type will be inferred from context)
-                let mut entity_param_indices = Vec::new();
+                // Collect entity-typed parameters: param_index -> entity_type_name
+                let mut entity_params = HashMap::new();
                 for (idx, param) in relation_decl.params.iter().enumerate() {
                     match &param.entity_type {
                         EntityType::Entity | EntityType::Concept => {
-                            // Generic entity type parameter
-                            entity_param_indices.push(idx);
+                            // Generic entity type - will collect to all data-driven types
+                            entity_params.insert(idx, "entity".to_string());
+                        }
+                        EntityType::NamedEntity(type_name) => {
+                            // Specific entity type - will collect only to this type
+                            entity_params.insert(idx, type_name.as_str().to_string());
                         }
                         EntityType::Tensor(_) => {
                             // Tensor-typed parameter, skip
@@ -412,12 +415,8 @@ impl Interpreter {
                     }
                 }
 
-                // Store indices of entity-typed parameters
-                if !entity_param_indices.is_empty() {
-                    let mut entity_params = HashMap::new();
-                    for idx in entity_param_indices {
-                        entity_params.insert(idx, "entity".to_string());
-                    }
+                // Store entity-typed parameters
+                if !entity_params.is_empty() {
                     self.relation_entity_params.insert(predicate_name, entity_params);
                 }
 
@@ -748,8 +747,8 @@ impl Interpreter {
     /// Check if a value matches the expected entity type
     fn check_type_match(&self, value: &Value, expected_type: &EntityType, param_name: &str) -> RuntimeResult<()> {
         match expected_type {
-            EntityType::Entity | EntityType::Concept => {
-                // Entity and Concept types accept string values
+            EntityType::Entity | EntityType::Concept | EntityType::NamedEntity(_) => {
+                // Entity, Concept, and Named Entity types accept string values
                 match value {
                     Value::String(_) => Ok(()),
                     _ => Err(RuntimeError::TypeError(
@@ -4751,26 +4750,8 @@ impl Interpreter {
 
         // Check if this relation has entity-typed parameters
         if let Some(entity_params) = self.relation_entity_params.get(predicate_name) {
-            // Get all data-driven entity types
-            let data_driven_types: Vec<String> = self.entity_registry
-                .all_type_names()
-                .iter()
-                .filter_map(|&type_name| {
-                    if let Some(type_info) = self.entity_registry.get_type_info(type_name) {
-                        match &type_info.declaration_type {
-                            crate::entity_registry::EntityDeclType::FromData => {
-                                Some(type_name.to_string())
-                            }
-                            _ => None
-                        }
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
             // For each entity-typed parameter
-            for (&param_idx, _entity_type) in entity_params {
+            for (&param_idx, entity_type_name) in entity_params {
                 if let Some(term) = atom.terms.get(param_idx) {
                     // Extract constant value from term
                     let entity_name = match term {
@@ -4787,11 +4768,43 @@ impl Interpreter {
                         _ => None,
                     };
 
-                    // Add to all data-driven entity types
                     if let Some(entity_name) = entity_name {
-                        for type_name in &data_driven_types {
-                            self.entity_registry.add_entity(type_name, entity_name.clone())
-                                .map_err(|e| RuntimeError::InvalidOperation(e))?;
+                        if entity_type_name == "entity" {
+                            // Generic entity type - add to all data-driven types
+                            let data_driven_types: Vec<String> = self.entity_registry
+                                .all_type_names()
+                                .iter()
+                                .filter_map(|&type_name| {
+                                    if let Some(type_info) = self.entity_registry.get_type_info(type_name) {
+                                        match &type_info.declaration_type {
+                                            crate::entity_registry::EntityDeclType::FromData => {
+                                                Some(type_name.to_string())
+                                            }
+                                            _ => None
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+
+                            for type_name in &data_driven_types {
+                                self.entity_registry.add_entity(type_name, entity_name.clone())
+                                    .map_err(|e| RuntimeError::InvalidOperation(e))?;
+                            }
+                        } else {
+                            // Specific entity type - add only to this type if it exists and is data-driven
+                            if let Some(type_info) = self.entity_registry.get_type_info(entity_type_name) {
+                                match &type_info.declaration_type {
+                                    crate::entity_registry::EntityDeclType::FromData => {
+                                        self.entity_registry.add_entity(entity_type_name, entity_name)
+                                            .map_err(|e| RuntimeError::InvalidOperation(e))?;
+                                    }
+                                    _ => {
+                                        // Explicit entity type - no need to collect
+                                    }
+                                }
+                            }
                         }
                     }
                 }

@@ -308,7 +308,7 @@ impl TensorLogicParser {
     }
 
     fn parse_entity_type(pair: pest::iterators::Pair<Rule>) -> Result<EntityType, ParseError> {
-        // Check the string directly first
+        // Check the string directly first for keywords
         match pair.as_str() {
             "entity" => return Ok(EntityType::Entity),
             "concept" => return Ok(EntityType::Concept),
@@ -319,6 +319,10 @@ impl TensorLogicParser {
         if let Some(inner) = pair.into_inner().next() {
             match inner.as_rule() {
                 Rule::tensor_type => Ok(EntityType::Tensor(Self::parse_tensor_type(inner)?)),
+                Rule::identifier => {
+                    // Named entity type (e.g., Person, City)
+                    Ok(EntityType::NamedEntity(Self::parse_identifier(inner)?))
+                }
                 _ => Err(ParseError::InvalidValue(format!("Unknown entity type: {}", inner.as_str()))),
             }
         } else {
