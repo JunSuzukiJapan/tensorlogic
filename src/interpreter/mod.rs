@@ -1299,14 +1299,46 @@ impl Interpreter {
             }
             Statement::WithBlock { entity_type, statements } => {
                 // Execute with-block for entity collection
-                println!("With block for entity type: {}", entity_type.as_str());
+                let type_name = entity_type.as_str();
+                println!("\n=== With block: {} ===", type_name);
+
+                // Get entity count before execution
+                let count_before = self.entity_registry.get_entity_count(type_name);
 
                 // Execute all statements in the with block
                 for stmt in statements {
                     self.execute_statement(stmt)?;
                 }
 
-                println!("  ✓ With block completed");
+                // Get entity count after execution
+                let count_after = self.entity_registry.get_entity_count(type_name);
+
+                // Display statistics
+                if let (Some(before), Some(after)) = (count_before, count_after) {
+                    if after > before {
+                        println!("\n  📊 Entity Statistics:");
+                        println!("     • Initial count: {}", before);
+                        println!("     • Final count: {}", after);
+                        println!("     • New entities: {}", after - before);
+
+                        // Show newly added entities (if reasonable number)
+                        if after - before <= 10 && after > before {
+                            if let Some(type_info) = self.entity_registry.get_type_info(type_name) {
+                                let all_entities = type_info.all_entities();
+                                let new_entities: Vec<&String> = all_entities.iter().skip(before).collect();
+                                if !new_entities.is_empty() {
+                                    println!("     • Added: {:?}", new_entities);
+                                }
+                            }
+                        }
+                    } else {
+                        println!("\n  📊 Total entities in {}: {}", type_name, after);
+                    }
+                } else {
+                    println!("\n  ℹ️  Entity type '{}' not found in registry", type_name);
+                }
+
+                println!("=== With block completed ===\n");
                 Ok(())
             }
         }

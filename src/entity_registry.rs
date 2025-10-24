@@ -213,6 +213,47 @@ impl EntityRegistry {
         // For now, we'll implement this when we integrate with the interpreter
         let _ = (predicate, terms);
     }
+
+    /// Get entity indices for a list of entity names
+    ///
+    /// Returns a vector of indices for the given entity names in the specified type.
+    /// Returns None if any entity is not found.
+    pub fn get_entity_indices(&self, type_name: &str, entity_names: &[String]) -> Option<Vec<usize>> {
+        let type_info = self.entity_types.get(type_name)?;
+        let mut indices = Vec::new();
+
+        for name in entity_names {
+            if let Some(idx) = type_info.get_entity_index(name) {
+                indices.push(idx);
+            } else {
+                return None; // Entity not found
+            }
+        }
+
+        Some(indices)
+    }
+
+    /// Create a one-hot encoding vector for an entity
+    ///
+    /// Returns a vector of 0s with a single 1 at the entity's index position.
+    /// Vector length equals the total number of entities in the type.
+    pub fn entity_to_onehot(&self, type_name: &str, entity_name: &str) -> Option<Vec<f32>> {
+        let type_info = self.entity_types.get(type_name)?;
+        let entity_count = type_info.entity_count();
+        let entity_idx = type_info.get_entity_index(entity_name)?;
+
+        let mut onehot = vec![0.0_f32; entity_count];
+        onehot[entity_idx] = 1.0;
+
+        Some(onehot)
+    }
+
+    /// Get the entity dimension (number of entities in a type)
+    ///
+    /// Useful for creating appropriately-sized tensors for entity operations.
+    pub fn get_entity_dimension(&self, type_name: &str) -> Option<usize> {
+        self.get_entity_count(type_name)
+    }
 }
 
 impl Default for EntityRegistry {
@@ -278,5 +319,57 @@ mod tests {
         // Should return same index for duplicate
         assert_eq!(idx1, idx2);
         assert_eq!(registry.get_entity_count("City"), Some(1));
+    }
+
+    #[test]
+    fn test_entity_indices() {
+        let mut registry = EntityRegistry::new();
+
+        registry.register_explicit(
+            "Person".to_string(),
+            vec!["alice".to_string(), "bob".to_string(), "charlie".to_string()],
+        );
+
+        let names = vec!["alice".to_string(), "charlie".to_string()];
+        let indices = registry.get_entity_indices("Person", &names);
+
+        assert_eq!(indices, Some(vec![0, 2]));
+    }
+
+    #[test]
+    fn test_entity_to_onehot() {
+        let mut registry = EntityRegistry::new();
+
+        registry.register_explicit(
+            "Color".to_string(),
+            vec!["red".to_string(), "green".to_string(), "blue".to_string()],
+        );
+
+        // Test one-hot encoding for "green" (index 1)
+        let onehot = registry.entity_to_onehot("Color", "green");
+        assert_eq!(onehot, Some(vec![0.0, 1.0, 0.0]));
+
+        // Test one-hot encoding for "blue" (index 2)
+        let onehot = registry.entity_to_onehot("Color", "blue");
+        assert_eq!(onehot, Some(vec![0.0, 0.0, 1.0]));
+    }
+
+    #[test]
+    fn test_entity_dimension() {
+        let mut registry = EntityRegistry::new();
+
+        registry.register_explicit(
+            "Animal".to_string(),
+            vec!["cat".to_string(), "dog".to_string()],
+        );
+
+        assert_eq!(registry.get_entity_dimension("Animal"), Some(2));
+
+        // Add more entities to a data-driven type
+        registry.register_from_data("Plant".to_string());
+        registry.add_entity("Plant", "tree".to_string()).unwrap();
+        registry.add_entity("Plant", "flower".to_string()).unwrap();
+
+        assert_eq!(registry.get_entity_dimension("Plant"), Some(2));
     }
 }
