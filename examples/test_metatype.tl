@@ -23,20 +23,20 @@ main {
     print("  entity_onehot(\"Person\", \"alice\") =", vec1)
     print("")
 
-    // New way (type as value):
-    print("New way (type as value):")
+    // New way (type as value + symbol):
+    print("New way (type as value + symbol):")
     let dim2 = entity_dim(Person)
     print("  entity_dim(Person) =", dim2)
-    let vec2 = entity_onehot(Person, "alice")
-    print("  entity_onehot(Person, \"alice\") =", vec2)
+    let vec2 = entity_onehot(Person, alice)
+    print("  entity_onehot(Person, alice) =", vec2)
     print("")
 
     // Test with City type
     print("City type:")
     let city_dim = entity_dim(City)
     print("  entity_dim(City) =", city_dim)
-    let tokyo_vec = entity_onehot(City, "tokyo")
-    print("  entity_onehot(City, \"tokyo\") =", tokyo_vec)
+    let tokyo_vec = entity_onehot(City, tokyo)
+    print("  entity_onehot(City, tokyo) =", tokyo_vec)
     print("")
 
     // Print the type itself

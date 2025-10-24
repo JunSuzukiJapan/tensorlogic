@@ -25,11 +25,11 @@ main {
     lives_in(charlie, kyoto)
 
     with Person {
-        print("Person entities:", entity_dim("Person"))
+        print("Person entities:", entity_dim(Person))
     }
 
     with City {
-        print("City entities:", entity_dim("City"))
+        print("City entities:", entity_dim(City))
     }
 
     print("✅ Entity embedding test completed!")
