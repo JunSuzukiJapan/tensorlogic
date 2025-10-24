@@ -803,64 +803,6 @@ impl Interpreter {
 
         // Legacy builtin functions (to be migrated)
         match name_str {
-            "save" => {
-                // save(tensor, "filename")
-                if args.len() != 2 {
-                    return Err(RuntimeError::TypeError(
-                        format!("save() expects 2 arguments (tensor, filename), got {}", args.len())
-                    ));
-                }
-
-                // Evaluate tensor argument
-                let tensor_val = self.eval_expr(&args[0])?;
-                let tensor = match tensor_val {
-                    Value::Tensor(t) => t,
-                    _ => return Err(RuntimeError::TypeError(
-                        "save() first argument must be a tensor".to_string()
-                    )),
-                };
-
-                // Evaluate filename argument
-                let filename_val = self.eval_expr(&args[1])?;
-                let filename = match filename_val {
-                    Value::String(s) => s,
-                    _ => return Err(RuntimeError::TypeError(
-                        "save() second argument must be a string (filename)".to_string()
-                    )),
-                };
-
-                // Save tensor to file
-                tensor.save(&filename).map_err(|e| RuntimeError::TensorError(e))?;
-
-                println!("Saved tensor to: {}", filename);
-                Ok(Value::Void)
-            }
-
-            "load" => {
-                // load("filename")
-                if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        format!("load() expects 1 argument (filename), got {}", args.len())
-                    ));
-                }
-
-                // Evaluate filename argument
-                let filename_val = self.eval_expr(&args[0])?;
-                let filename = match filename_val {
-                    Value::String(s) => s,
-                    _ => return Err(RuntimeError::TypeError(
-                        "load() argument must be a string (filename)".to_string()
-                    )),
-                };
-
-                // Load tensor from file using existing Metal device
-                let device = Device::Metal(self.env.metal_device().clone());
-                let tensor = Tensor::load(&device, &filename).map_err(|e| RuntimeError::TensorError(e))?;
-
-                println!("Loaded tensor from: {} (shape: {:?})", filename, tensor.dims());
-                Ok(Value::Tensor(tensor))
-            }
-
             "apply_mask" => {
                 // apply_mask(scores, mask)
                 if args.len() != 2 {
