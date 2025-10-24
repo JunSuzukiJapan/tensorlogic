@@ -1332,6 +1332,23 @@ impl Interpreter {
                         }
                     } else {
                         println!("\n  📊 Total entities in {}: {}", type_name, after);
+
+                        // Display entity list if not too many
+                        if after > 0 {
+                            if let Some(type_info) = self.entity_registry.get_type_info(type_name) {
+                                let all_entities = type_info.all_entities();
+
+                                if all_entities.len() <= 10 {
+                                    // Show all entities
+                                    println!("     • Entities: {:?}", all_entities);
+                                } else {
+                                    // Show first 10 + count
+                                    let sample: Vec<&String> = all_entities.iter().take(10).collect();
+                                    println!("     • Entities (first 10): {:?}", sample);
+                                    println!("     • ... and {} more", all_entities.len() - 10);
+                                }
+                            }
+                        }
                     }
                 } else {
                     println!("\n  ℹ️  Entity type '{}' not found in registry", type_name);
