@@ -165,10 +165,9 @@ impl Tensor {
 
         // Create result tensor
         let result_shape = crate::tensor::TensorShape::new(vec![m, n]);
-        Tensor::new(
+        self.new_from_pool(
             BufferHandle::Metal(result_buf),
             result_shape,
-            self.device().clone(),
         )
     }
 

@@ -730,10 +730,9 @@ fn einsum_ihd_jhd_ihj_metal(
 
     // Create output tensor
     let output_shape = TensorShape::new(vec![i as usize, h as usize, j as usize]);
-    Tensor::new(
+    a.new_from_pool(
         BufferHandle::Metal(output_buf),
         output_shape,
-        Device::Metal(device_mut),
     )
 }
 
@@ -823,9 +822,8 @@ fn einsum_ihj_jhd_ihd_metal(
 
     // Create output tensor
     let output_shape = TensorShape::new(vec![i as usize, h as usize, d as usize]);
-    Tensor::new(
+    a.new_from_pool(
         BufferHandle::Metal(output_buf),
         output_shape,
-        Device::Metal(device_mut),
     )
 }

@@ -68,10 +68,9 @@ impl Tensor {
         let mut executor = crate::device::KernelExecutor::new(device);
         executor.execute_unary_op("relu_f16", input_buf, &result_buf)?;
 
-        Tensor::new(
+        self.new_from_pool(
             BufferHandle::Metal(result_buf),
             self.shape().clone(),
-            self.device().clone(),
         )
     }
 
@@ -120,10 +119,9 @@ impl Tensor {
         let mut executor = crate::device::KernelExecutor::new(device);
         executor.execute_unary_op("gelu_f16", input_buf, &result_buf)?;
 
-        Tensor::new(
+        self.new_from_pool(
             BufferHandle::Metal(result_buf),
             self.shape().clone(),
-            self.device().clone(),
         )
     }
 

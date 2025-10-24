@@ -13,8 +13,9 @@ impl Interpreter {
             "reshape" => Some(self.eval_reshape(args)),
             "transpose" => Some(self.eval_transpose(args)),
             "broadcast_to" => Some(self.eval_broadcast_to(args)),
+            "concat" => Some(self.eval_concat(args)),
             "zeros" | "flatten" | "permute" |
-            "concat" | "gather" | "scatter" | "chunk" | "split" |
+            "gather" | "scatter" | "chunk" | "split" |
             "squeeze" | "unsqueeze" => {
                 Some(Err(RuntimeError::NotImplemented(
                     format!("Tensor function '{}' migration in progress", name)
@@ -197,5 +198,69 @@ impl Interpreter {
             .map_err(|e| RuntimeError::TensorError(e))?;
 
         Ok(Value::Tensor(broadcasted))
+    }
+
+    /// concat(tensor1, tensor2, dim) -> tensor
+    /// Concatenates two tensors along the specified dimension
+    ///
+    /// # Arguments
+    /// - tensor1: First tensor
+    /// - tensor2: Second tensor
+    /// - dim: Dimension along which to concatenate (as f16 scalar tensor)
+    ///
+    /// # Example
+    /// ```tensorlogic
+    /// let a = zeros(device, [2, 3])
+    /// let b = zeros(device, [2, 3])
+    /// let c = concat(a, b, 0.0)  // Result: [4, 3]
+    /// ```
+    fn eval_concat(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 3 {
+            return Err(RuntimeError::TypeError(
+                format!("concat() takes exactly 3 arguments (tensor1, tensor2, dim), got {}", args.len())
+            ));
+        }
+
+        // Evaluate first tensor
+        let tensor1_val = self.eval_expr(&args[0])?;
+        let tensor1 = match tensor1_val {
+            Value::Tensor(ref t) => t,
+            _ => return Err(RuntimeError::TypeError(
+                format!("concat() expects first argument to be a tensor, got {:?}", tensor1_val)
+            )),
+        };
+
+        // Evaluate second tensor
+        let tensor2_val = self.eval_expr(&args[1])?;
+        let tensor2 = match tensor2_val {
+            Value::Tensor(ref t) => t,
+            _ => return Err(RuntimeError::TypeError(
+                format!("concat() expects second argument to be a tensor, got {:?}", tensor2_val)
+            )),
+        };
+
+        // Evaluate dim argument - accept both Float and Tensor
+        let dim_val = self.eval_expr(&args[2])?;
+        let dim = match dim_val {
+            Value::Float(f) => f as usize,
+            Value::Tensor(ref t) => {
+                if t.numel() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("concat() expects dim as scalar, got tensor with {} elements", t.numel())
+                    ));
+                }
+                t.to_vec_f32()[0] as usize
+            }
+            _ => return Err(RuntimeError::TypeError(
+                format!("concat() expects dim as scalar (float or tensor), got {:?}", dim_val)
+            )),
+        };
+
+        // Call Tensor::concat with two tensors
+        let tensors = vec![tensor1, tensor2];
+        let result = Tensor::concat(&tensors, dim)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(Value::Tensor(result))
     }
 }

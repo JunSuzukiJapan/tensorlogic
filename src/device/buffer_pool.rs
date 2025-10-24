@@ -6,6 +6,7 @@ use half::f16;
 use metal::{Buffer, Device as MTLDevice, MTLResourceOptions};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// Statistics about buffer pool usage
 #[derive(Debug, Clone, Default)]
@@ -20,25 +21,37 @@ pub struct PoolStats {
     pub reuse_count: usize,
     /// Number of new allocations
     pub allocation_count: usize,
+    /// Number of buffers evicted by LRU
+    pub eviction_count: usize,
 }
 
-/// Buffer pool for efficient Metal buffer reuse
+/// Buffer pool for efficient Metal buffer reuse with LRU eviction
 ///
 /// Reduces memory allocation overhead by maintaining a pool of reusable buffers
-/// organized by size.
+/// organized by size. Tracks last access time for LRU-based eviction.
 pub struct BufferPool {
     /// Metal device for buffer creation
     device: Arc<MTLDevice>,
 
     /// Pool of buffers organized by size (in elements, not bytes)
-    /// HashMap<size, Vec<Arc<Buffer>>>
-    pools: Arc<Mutex<HashMap<usize, Vec<Arc<Buffer>>>>>,
+    /// HashMap<size, Vec<(Arc<Buffer>, Instant)>>
+    /// Each buffer is paired with its last access time
+    pools: Arc<Mutex<HashMap<usize, Vec<(Arc<Buffer>, Instant)>>>>,
 
     /// Maximum number of buffers to keep per size class
     max_buffers_per_size: usize,
 
     /// Statistics
     stats: Arc<Mutex<PoolStats>>,
+}
+
+impl std::fmt::Debug for BufferPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BufferPool")
+            .field("max_buffers_per_size", &self.max_buffers_per_size)
+            .field("stats", &self.stats())
+            .finish()
+    }
 }
 
 impl BufferPool {
@@ -70,10 +83,20 @@ impl BufferPool {
         let mut pools = self.pools.lock().unwrap();
         let mut stats = self.stats.lock().unwrap();
 
-        // Try to reuse an existing buffer
+        // Try to reuse an existing buffer (pop removes the last/most recent one)
         if let Some(buffers) = pools.get_mut(&length) {
-            if let Some(buffer) = buffers.pop() {
+            if let Some((buffer, _last_used)) = buffers.pop() {
                 stats.reuse_count += 1;
+
+                // Periodically check and shrink (every 100 allocations)
+                let should_check = stats.allocation_count % 100 == 0;
+                drop(stats);
+                drop(pools);
+
+                if should_check {
+                    self.check_and_shrink();
+                }
+
                 return Ok(MetalBuffer {
                     buffer,
                     length,
@@ -83,6 +106,10 @@ impl BufferPool {
 
         // Create a new buffer
         stats.allocation_count += 1;
+
+        // Periodically check and shrink (every 100 allocations)
+        let should_check = stats.allocation_count % 100 == 0;
+
         drop(stats); // Release stats lock before allocation
 
         let byte_length = length * std::mem::size_of::<f16>();
@@ -90,6 +117,11 @@ impl BufferPool {
             byte_length as u64,
             MTLResourceOptions::StorageModeShared,
         );
+
+        // Periodically check and shrink after allocation
+        if should_check {
+            self.check_and_shrink();
+        }
 
         Ok(MetalBuffer {
             buffer: Arc::new(buffer),
@@ -110,7 +142,7 @@ impl BufferPool {
         Ok(buffer)
     }
 
-    /// Try to return a buffer to the pool
+    /// Try to return a buffer to the pool with current timestamp
     ///
     /// Returns true if the buffer was added to the pool, false otherwise
     /// (e.g., if the pool is full for this size class)
@@ -121,7 +153,8 @@ impl BufferPool {
 
         // Only add if we haven't reached the limit
         if buffers.len() < self.max_buffers_per_size {
-            buffers.push(buffer.buffer);
+            // Record current time as last access time
+            buffers.push((buffer.buffer, Instant::now()));
             true
         } else {
             false
@@ -159,6 +192,7 @@ impl BufferPool {
             total_memory,
             reuse_count: stats.reuse_count,
             allocation_count: stats.allocation_count,
+            eviction_count: stats.eviction_count,
         }
     }
 
@@ -167,11 +201,38 @@ impl BufferPool {
         &self.device
     }
 
+    /// Evict buffers that haven't been used for longer than `max_age`
+    ///
+    /// This implements LRU (Least Recently Used) eviction policy.
+    /// Returns the number of buffers evicted.
+    pub fn evict_old_buffers(&self, max_age: Duration) -> usize {
+        let mut pools = self.pools.lock().unwrap();
+        let mut stats = self.stats.lock().unwrap();
+        let now = Instant::now();
+        let mut evicted_count = 0;
+
+        // For each size class
+        for (_size, buffers) in pools.iter_mut() {
+            // Keep only buffers that were accessed recently
+            let original_len = buffers.len();
+            buffers.retain(|(_buffer, last_used)| {
+                let age = now.duration_since(*last_used);
+                age <= max_age
+            });
+            evicted_count += original_len - buffers.len();
+        }
+
+        stats.eviction_count += evicted_count;
+        evicted_count
+    }
+
     /// Shrink the pool to fit within memory constraints
     ///
-    /// Removes least recently used buffers until total memory is below the limit
+    /// Removes least recently used buffers until total memory is below the limit.
+    /// Prioritizes removing buffers from larger size classes first.
     pub fn shrink_to_fit(&self, max_memory_bytes: usize) {
         let mut pools = self.pools.lock().unwrap();
+        let mut stats = self.stats.lock().unwrap();
 
         let mut current_memory = 0;
         for (size, buffers) in pools.iter() {
@@ -182,7 +243,8 @@ impl BufferPool {
             return;
         }
 
-        // Remove buffers from largest size classes first
+        // Sort buffers by last access time (oldest first) within each size class
+        // Then remove from largest size classes first
         let mut sizes: Vec<usize> = pools.keys().copied().collect();
         sizes.sort_by(|a, b| b.cmp(a)); // Descending order
 
@@ -192,12 +254,64 @@ impl BufferPool {
             }
 
             if let Some(buffers) = pools.get_mut(&size) {
+                // Sort by last access time (oldest first)
+                buffers.sort_by_key(|(_buf, last_used)| *last_used);
+
                 while !buffers.is_empty() && current_memory > max_memory_bytes {
-                    buffers.pop();
+                    buffers.remove(0); // Remove oldest
                     current_memory -= size * std::mem::size_of::<f16>();
+                    stats.eviction_count += 1;
                 }
             }
         }
+    }
+
+    /// Check memory usage and automatically shrink if needed
+    ///
+    /// Uses environment variable TL_BUFFER_MAX_MB to set memory limit (default: 512 MB)
+    /// Returns true if shrinking was performed
+    pub fn check_and_shrink(&self) -> bool {
+        // Get max memory from environment variable (in MB)
+        let max_mb = std::env::var("TL_BUFFER_MAX_MB")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(512); // Default 512 MB
+
+        let max_bytes = max_mb * 1_048_576; // Convert to bytes
+
+        let current_stats = self.stats();
+        if current_stats.total_memory > max_bytes {
+            if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+                eprintln!("[BufferPool] Memory limit exceeded: {} MB / {} MB, shrinking...",
+                    current_stats.total_memory / 1_048_576,
+                    max_mb);
+            }
+            self.shrink_to_fit(max_bytes);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Print current buffer pool statistics
+    ///
+    /// Useful for monitoring during execution
+    pub fn print_current_stats(&self, label: &str) {
+        let stats = self.stats();
+        eprintln!("\n=== Buffer Pool Stats: {} ===", label);
+        eprintln!("  Pooled buffers: {}", stats.total_pooled);
+        eprintln!("  Size classes: {}", stats.size_classes);
+        eprintln!("  Total memory: {:.2} MB", stats.total_memory as f64 / 1_048_576.0);
+        eprintln!("  Allocations: {}", stats.allocation_count);
+        eprintln!("  Reuses: {}", stats.reuse_count);
+        eprintln!("  Evictions: {}", stats.eviction_count);
+
+        let total_ops = stats.allocation_count + stats.reuse_count;
+        if total_ops > 0 {
+            let reuse_rate = (stats.reuse_count as f64 / total_ops as f64) * 100.0;
+            eprintln!("  Reuse rate: {:.1}%", reuse_rate);
+        }
+        eprintln!("================================\n");
     }
 }
 

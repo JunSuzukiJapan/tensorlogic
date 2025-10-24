@@ -172,10 +172,9 @@ impl Tensor {
         command_buffer.commit();
         command_buffer.wait_until_completed();
 
-        Tensor::new(
+        self.new_from_pool(
             BufferHandle::Metal(result_buf),
             self.shape().clone(),
-            self.device().clone(),
         )
     }
 
@@ -412,10 +411,9 @@ impl Tensor {
         command_buffer.commit();
         command_buffer.wait_until_completed();
 
-        Tensor::new(
+        self.new_from_pool(
             BufferHandle::Metal(result_buf),
             self.shape().clone(),
-            self.device().clone(),
         )
     }
 

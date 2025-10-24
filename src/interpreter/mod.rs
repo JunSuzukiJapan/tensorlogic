@@ -179,6 +179,11 @@ impl Interpreter {
             self.execute_main_block(main_block)?;
         }
 
+        // Print buffer pool statistics if enabled via environment variable
+        if std::env::var("TL_BUFFER_STATS").is_ok() {
+            self.env.metal_device().print_buffer_pool_stats("Program Execution");
+        }
+
         Ok(())
     }
 

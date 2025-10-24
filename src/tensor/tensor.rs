@@ -5,6 +5,7 @@ use crate::device::{Device, MetalBuffer, MetalDevice};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, TensorShape};
 use half::f16;
+use std::sync::Arc;
 
 /// Tensor data structure (f16 only)
 #[derive(Debug, Clone)]
@@ -32,6 +33,10 @@ pub struct Tensor {
 
     /// Version counter for gradient accumulation tracking
     version: u64,
+
+    /// Buffer pool reference for automatic buffer recycling (Metal only)
+    /// Cloning BufferPool is cheap - it just clones Arc pointers to shared data
+    buffer_pool: Option<crate::device::BufferPool>,
 }
 
 impl Tensor {
@@ -58,7 +63,60 @@ impl Tensor {
             requires_grad: false,
             grad_node: None,
             version: 0,
+            buffer_pool: None,
         })
+    }
+
+    /// Create a new tensor with buffer pool support for automatic recycling
+    pub(crate) fn new_with_pool(
+        buffer: BufferHandle,
+        shape: TensorShape,
+        device: Device,
+        buffer_pool: Option<crate::device::BufferPool>,
+    ) -> TensorResult<Self> {
+        let expected_len = shape.numel();
+        let actual_len = buffer.len();
+
+        if expected_len != actual_len {
+            return Err(TensorError::ShapeMismatch {
+                expected: vec![expected_len],
+                actual: vec![actual_len],
+            });
+        }
+
+        let strides = shape.compute_strides();
+
+        Ok(Self {
+            shape,
+            strides,
+            buffer,
+            device,
+            grad: None,
+            requires_grad: false,
+            grad_node: None,
+            version: 0,
+            buffer_pool,
+        })
+    }
+
+    /// Get the buffer pool reference (for creating output tensors)
+    pub(crate) fn buffer_pool(&self) -> Option<&crate::device::BufferPool> {
+        self.buffer_pool.as_ref()
+    }
+
+    /// Create a new tensor from this tensor's buffer pool
+    /// Useful for operations that create output tensors
+    pub(crate) fn new_from_pool(
+        &self,
+        buffer: BufferHandle,
+        shape: TensorShape,
+    ) -> TensorResult<Self> {
+        Self::new_with_pool(
+            buffer,
+            shape,
+            self.device.clone(),
+            self.buffer_pool.clone(),
+        )
     }
 
     /// Create a tensor from f16 vector on CPU
@@ -105,7 +163,12 @@ impl Tensor {
         let metal_buffer = MetalBuffer::zeros_pooled(device.buffer_pool(), shape.numel())?;
         let buffer = BufferHandle::Metal(metal_buffer);
 
-        Self::new(buffer, shape, Device::Metal(device.clone()))
+        Self::new_with_pool(
+            buffer,
+            shape,
+            Device::Metal(device.clone()),
+            Some(device.buffer_pool().clone()),
+        )
     }
 
     /// Create a tensor filled with ones on Metal device
@@ -244,6 +307,7 @@ impl Tensor {
             requires_grad: self.requires_grad,
             grad_node: None,
             version: 0,
+            buffer_pool: self.buffer_pool.clone(),
         })
     }
 
@@ -468,6 +532,39 @@ impl Tensor {
         }
 
         Ok(())
+    }
+}
+
+/// Automatic buffer recycling when tensor is dropped
+impl Drop for Tensor {
+    fn drop(&mut self) {
+        if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+            if let BufferHandle::Metal(metal_buffer) = &self.buffer {
+                let has_pool = self.buffer_pool.is_some();
+                eprintln!("[Drop] Tensor drop: size={}, has_pool={}", metal_buffer.length, has_pool);
+            }
+        }
+
+        // Only recycle Metal buffers that have a buffer pool
+        if let (BufferHandle::Metal(metal_buffer), Some(pool)) =
+            (&self.buffer, &self.buffer_pool)
+        {
+            // Only recycle if this is the last reference to the buffer
+            // Arc::strong_count returns the number of strong references
+            let ref_count = Arc::strong_count(&metal_buffer.buffer);
+
+            if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+                eprintln!("[Drop] ref_count={}", ref_count);
+            }
+
+            if ref_count == 1 {
+                // Clone the buffer for recycling (the clone shares the Arc)
+                let recycled = pool.recycle(metal_buffer.clone());
+                if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+                    eprintln!("[Drop] Buffer recycled: success={}", recycled);
+                }
+            }
+        }
     }
 }
 

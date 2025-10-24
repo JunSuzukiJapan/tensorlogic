@@ -89,10 +89,9 @@ impl Tensor {
         executor.execute_binary_op("add_f16", a_buf, b_buf, &result_buf)?;
 
         // Create result tensor
-        Tensor::new(
+        self.new_from_pool(
             BufferHandle::Metal(result_buf),
             self.shape().clone(),
-            self.device().clone(),
         )
     }
 
@@ -150,10 +149,9 @@ impl Tensor {
         let mut executor = crate::device::KernelExecutor::new(device);
         executor.execute_binary_op("sub_f16", a_buf, b_buf, &result_buf)?;
 
-        Tensor::new(
+        self.new_from_pool(
             BufferHandle::Metal(result_buf),
             self.shape().clone(),
-            self.device().clone(),
         )
     }
 
@@ -209,10 +207,9 @@ impl Tensor {
         let mut executor = crate::device::KernelExecutor::new(device);
         executor.execute_binary_op("mul_f16", a_buf, b_buf, &result_buf)?;
 
-        Tensor::new(
+        self.new_from_pool(
             BufferHandle::Metal(result_buf),
             self.shape().clone(),
-            self.device().clone(),
         )
     }
 
@@ -268,10 +265,9 @@ impl Tensor {
         let mut executor = crate::device::KernelExecutor::new(device);
         executor.execute_binary_op("div_f16", a_buf, b_buf, &result_buf)?;
 
-        Tensor::new(
+        self.new_from_pool(
             BufferHandle::Metal(result_buf),
             self.shape().clone(),
-            self.device().clone(),
         )
     }
 
