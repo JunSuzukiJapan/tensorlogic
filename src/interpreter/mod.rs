@@ -572,6 +572,26 @@ impl Interpreter {
                 // Auto entity set: initially empty, entities added on-demand
                 HashMap::new()
             }
+            EntitySet::Type(type_name) => {
+                // Get entities from entity registry
+                let type_name_str = type_name.as_str();
+                if let Some(type_info) = self.entity_registry.get_type_info(type_name_str) {
+                    let entities = type_info.all_entities();
+                    if entities.is_empty() {
+                        println!("⚠️  Warning: Entity type '{}' has no entities yet. Embedding will be initialized with placeholder.", type_name_str);
+                        println!("   Note: Entities are collected during fact evaluation in main block.");
+                    }
+                    entities
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, name)| (name.clone(), idx))
+                        .collect()
+                } else {
+                    return Err(RuntimeError::InvalidOperation(
+                        format!("Entity type '{}' not found for embedding", type_name_str)
+                    ));
+                }
+            }
         };
 
         let num_entities = entity_map.len().max(1); // At least 1 for auto
@@ -990,6 +1010,19 @@ impl Interpreter {
                                     entities.iter()
                                         .map(|id| Value::String(id.as_str().to_string()))
                                         .collect()
+                                }
+                                EntitySet::Type(type_name) => {
+                                    // Get entities from entity registry
+                                    let type_name_str = type_name.as_str();
+                                    if let Some(type_info) = self.entity_registry.get_type_info(type_name_str) {
+                                        type_info.all_entities().iter()
+                                            .map(|name| Value::String(name.clone()))
+                                            .collect()
+                                    } else {
+                                        return Err(RuntimeError::InvalidOperation(
+                                            format!("Entity type '{}' not found", type_name_str)
+                                        ));
+                                    }
                                 }
                             }
                         }

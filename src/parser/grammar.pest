@@ -103,7 +103,7 @@ embedding_decl = {
     ~ "}"
 }
 
-entity_set = { "{" ~ identifier_list ~ "}" | "auto" }
+entity_set = { "{" ~ identifier_list ~ "}" | "auto" | identifier }
 
 identifier_list = { identifier ~ ("," ~ identifier)* }
 

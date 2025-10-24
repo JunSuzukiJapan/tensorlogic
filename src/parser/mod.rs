@@ -468,7 +468,7 @@ impl TensorLogicParser {
             return Ok(EntitySet::Auto);
         }
 
-        // Try to find identifier_list
+        // Try to find identifier_list or identifier
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::identifier_list => {
@@ -477,6 +477,10 @@ impl TensorLogicParser {
                         .map(|id_pair| Self::parse_identifier(id_pair))
                         .collect::<Result<Vec<_>, _>>()?;
                     return Ok(EntitySet::Explicit(identifiers));
+                }
+                Rule::identifier => {
+                    // Entity type name
+                    return Ok(EntitySet::Type(Self::parse_identifier(inner)?));
                 }
                 _ if inner.as_str() == "auto" => {
                     return Ok(EntitySet::Auto);

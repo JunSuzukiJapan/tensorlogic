@@ -211,6 +211,8 @@ pub struct EmbeddingDecl {
 pub enum EntitySet {
     Explicit(Vec<Identifier>),
     Auto,
+    /// From a specific entity type
+    Type(Identifier),
 }
 
 /// Initialization method for embeddings
