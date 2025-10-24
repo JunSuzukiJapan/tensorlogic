@@ -1833,21 +1833,35 @@ impl Interpreter {
                     ))?
             }
             EntityRef::Variable(var_name) => {
-                // Variable entity: try to resolve from environment
-                let var_value = self.env.get_variable(var_name.as_str())?;
-                match var_value {
-                    Value::String(s) => {
+                // Variable entity: try to resolve from environment, or use as symbol
+                match self.env.get_variable(var_name.as_str()) {
+                    Ok(var_value) => {
+                        // Variable exists - use its value
+                        match var_value {
+                            Value::String(s) => {
+                                entity_map
+                                    .get(s)
+                                    .copied()
+                                    .ok_or_else(|| RuntimeError::InvalidOperation(
+                                        format!("Unknown entity '{}' in embedding '{}'", s, embed_name)
+                                    ))?
+                            }
+                            Value::Integer(idx) => *idx as usize,
+                            _ => return Err(RuntimeError::TypeError(
+                                format!("Expected String or Integer for entity, found {:?}", var_value)
+                            )),
+                        }
+                    }
+                    Err(RuntimeError::UndefinedVariable(_)) => {
+                        // Variable doesn't exist - treat identifier as entity symbol
                         entity_map
-                            .get(s)
+                            .get(var_name.as_str())
                             .copied()
                             .ok_or_else(|| RuntimeError::InvalidOperation(
-                                format!("Unknown entity '{}' in embedding '{}'", s, embed_name)
+                                format!("Unknown entity '{}' in embedding '{}'", var_name.as_str(), embed_name)
                             ))?
                     }
-                    Value::Integer(idx) => *idx as usize,
-                    _ => return Err(RuntimeError::TypeError(
-                        format!("Expected String or Integer for entity, found {:?}", var_value)
-                    )),
+                    Err(e) => return Err(e),
                 }
             }
         };
@@ -4246,12 +4260,32 @@ impl Interpreter {
                     )),
                 };
 
-                let entity_name_val = self.eval_expr(&args[1])?;
-                let entity_name = match entity_name_val {
-                    Value::String(s) => s,
-                    _ => return Err(RuntimeError::TypeError(
-                        "entity_onehot() second argument must be a string (entity_name)".to_string()
-                    )),
+                // Handle entity name: can be a variable (string value), symbol (identifier), or string literal
+                let entity_name = match &args[1] {
+                    TensorExpr::Variable(id) => {
+                        // Try to evaluate as variable first
+                        match self.eval_expr(&args[1]) {
+                            Ok(Value::String(s)) => s,
+                            Err(RuntimeError::UndefinedVariable(_)) => {
+                                // Undefined variable - treat identifier as entity name (symbol)
+                                id.as_str().to_string()
+                            }
+                            Err(e) => return Err(e),
+                            Ok(_) => return Err(RuntimeError::TypeError(
+                                "entity_onehot() second argument must be a string or entity symbol".to_string()
+                            )),
+                        }
+                    }
+                    _ => {
+                        // Evaluate normally (e.g., string literal)
+                        let val = self.eval_expr(&args[1])?;
+                        match val {
+                            Value::String(s) => s,
+                            _ => return Err(RuntimeError::TypeError(
+                                "entity_onehot() second argument must be a string or entity symbol".to_string()
+                            )),
+                        }
+                    }
                 };
 
                 // Get one-hot vector from entity registry
