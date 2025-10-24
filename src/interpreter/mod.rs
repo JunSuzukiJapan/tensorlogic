@@ -4184,6 +4184,76 @@ impl Interpreter {
                 Ok(Value::String(result))
             }
 
+            "entity_onehot" => {
+                // entity_onehot(type_name, entity_name) -> Tensor
+                // Convert an entity to a one-hot tensor
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("entity_onehot() expects 2 arguments (type_name, entity_name), got {}", args.len())
+                    ));
+                }
+
+                let type_name_val = self.eval_expr(&args[0])?;
+                let type_name = match type_name_val {
+                    Value::String(s) => s,
+                    _ => return Err(RuntimeError::TypeError(
+                        "entity_onehot() first argument must be a string (type_name)".to_string()
+                    )),
+                };
+
+                let entity_name_val = self.eval_expr(&args[1])?;
+                let entity_name = match entity_name_val {
+                    Value::String(s) => s,
+                    _ => return Err(RuntimeError::TypeError(
+                        "entity_onehot() second argument must be a string (entity_name)".to_string()
+                    )),
+                };
+
+                // Get one-hot vector from entity registry
+                let onehot_vec = self.entity_registry.entity_to_onehot(&type_name, &entity_name)
+                    .ok_or_else(|| RuntimeError::InvalidOperation(
+                        format!("Entity '{}' not found in type '{}'", entity_name, type_name)
+                    ))?;
+
+                // Convert f32 to f16 for Metal
+                let dim = onehot_vec.len();
+                let f16_vec: Vec<half::f16> = onehot_vec.iter()
+                    .map(|&v| half::f16::from_f32(v))
+                    .collect();
+
+                // Convert to tensor
+                let tensor = Tensor::from_vec_metal(self.env.metal_device(), f16_vec, vec![dim])
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::Tensor(tensor))
+            }
+
+            "entity_dim" => {
+                // entity_dim(type_name) -> Integer
+                // Get the dimension (number of entities) of an entity type
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("entity_dim() expects 1 argument (type_name), got {}", args.len())
+                    ));
+                }
+
+                let type_name_val = self.eval_expr(&args[0])?;
+                let type_name = match type_name_val {
+                    Value::String(s) => s,
+                    _ => return Err(RuntimeError::TypeError(
+                        "entity_dim() argument must be a string (type_name)".to_string()
+                    )),
+                };
+
+                // Get dimension from entity registry
+                let dimension = self.entity_registry.get_entity_dimension(&type_name)
+                    .ok_or_else(|| RuntimeError::InvalidOperation(
+                        format!("Entity type '{}' not found", type_name)
+                    ))?;
+
+                Ok(Value::Integer(dimension as i64))
+            }
+
             "print" => {
                 // print(value1, value2, ..., end: "\n", flush: false)
                 // For now, simple implementation
