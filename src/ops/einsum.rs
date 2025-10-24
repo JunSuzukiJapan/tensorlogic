@@ -8,11 +8,12 @@
 //! - `ij->`: Sum all elements
 //! - `ij,j->i`: Matrix-vector product
 
-use crate::device::Device;
+use crate::device::{Device, MetalDevice, MetalBuffer};
 use crate::error::{TensorError, TensorResult};
-use crate::tensor::{Tensor, TensorShape};
+use crate::tensor::{Tensor, TensorShape, BufferHandle};
 use half::f16;
 use std::collections::{HashMap, HashSet};
+use metal::{MTLResourceOptions, MTLSize};
 
 /// Parse einsum notation and execute the operation
 impl Tensor {
@@ -58,8 +59,20 @@ impl Tensor {
 
         match device {
             Device::CPU => einsum_cpu(equation, &input_specs, &output_spec, operands),
-            Device::Metal(_) | Device::NeuralEngine => {
-                // Fallback to CPU for now
+            Device::Metal(ref metal_device) => {
+                // Try specialized Metal kernels for attention patterns
+                if let Some(result) = try_einsum_metal(equation, &input_specs, &output_spec, operands, metal_device)? {
+                    return Ok(result);
+                }
+
+                // Fallback: Compute on CPU and convert result back to Metal
+                let cpu_ops: Vec<_> = operands.iter().map(|t| t.to_cpu()).collect::<Result<_, _>>()?;
+                let cpu_refs: Vec<_> = cpu_ops.iter().collect();
+                let cpu_result = einsum_cpu(equation, &input_specs, &output_spec, &cpu_refs)?;
+                cpu_result.to_metal(metal_device)
+            }
+            Device::NeuralEngine => {
+                // Fallback to CPU for Neural Engine
                 let cpu_ops: Vec<_> = operands.iter().map(|t| t.to_cpu()).collect::<Result<_, _>>()?;
                 let cpu_refs: Vec<_> = cpu_ops.iter().collect();
                 einsum_cpu(equation, &input_specs, &output_spec, &cpu_refs)
@@ -589,4 +602,210 @@ mod tests {
         let c = Tensor::einsum("bij,bjk->bik", &[&a, &b]).unwrap();
         assert_eq!(c.shape().dims(), &[2, 2, 2]);
     }
+}
+
+/// Try to use Metal GPU kernels for specific einsum patterns
+fn try_einsum_metal(
+    equation: &str,
+    input_specs: &[String],
+    output_spec: &str,
+    operands: &[&Tensor],
+    device: &MetalDevice,
+) -> TensorResult<Option<Tensor>> {
+    // Pattern 1: "ihd,jhd->ihj" - Batched dot product for attention scores
+    if equation == "ihd,jhd->ihj" && input_specs.len() == 2 && operands.len() == 2 {
+        if operands[0].shape().rank() == 3 && operands[1].shape().rank() == 3 {
+            return Ok(Some(einsum_ihd_jhd_ihj_metal(operands[0], operands[1], device)?));
+        }
+    }
+
+    // Pattern 2: "ihj,jhd->ihd" - Weighted sum for attention output
+    if equation == "ihj,jhd->ihd" && input_specs.len() == 2 && operands.len() == 2 {
+        if operands[0].shape().rank() == 3 && operands[1].shape().rank() == 3 {
+            return Ok(Some(einsum_ihj_jhd_ihd_metal(operands[0], operands[1], device)?));
+        }
+    }
+
+    // No specialized kernel available
+    Ok(None)
+}
+
+/// Metal implementation of einsum("ihd,jhd->ihj")
+///
+/// Computes attention scores: C[i,h,j] = sum_d A[i,h,d] * B[j,h,d]
+fn einsum_ihd_jhd_ihj_metal(
+    a: &Tensor,  // [I, H, D]
+    b: &Tensor,  // [J, H, D]
+    device: &MetalDevice,
+) -> TensorResult<Tensor> {
+    let a_buf = a.buffer().as_metal()?;
+    let b_buf = b.buffer().as_metal()?;
+
+    let a_dims = a.shape().dims();
+    let b_dims = b.shape().dims();
+
+    let i = a_dims[0] as u32;
+    let h = a_dims[1] as u32;
+    let d = a_dims[2] as u32;
+    let j = b_dims[0] as u32;
+
+    // Verify dimensions match
+    if b_dims[1] != h as usize || b_dims[2] != d as usize {
+        return Err(TensorError::ShapeMismatch {
+            expected: vec![j as usize, h as usize, d as usize],
+            actual: b_dims.to_vec(),
+        });
+    }
+
+    // Load Metal shader library
+    let mut device_mut = device.clone();
+    if device_mut.library().is_none() {
+        // Load all necessary shaders together
+        let elementwise_source = include_str!("../../shaders/elementwise.metal");
+        let matmul_source = include_str!("../../shaders/matmul_tiled.metal");
+        let einsum_source = include_str!("../../shaders/einsum.metal");
+        let combined_source = format!("{}\n\n{}\n\n{}", elementwise_source, matmul_source, einsum_source);
+        device_mut.load_library(&combined_source)?;
+    }
+
+    let library = device_mut.library().ok_or_else(|| {
+        TensorError::InvalidOperation("Failed to load Metal library".to_string())
+    })?;
+
+    let kernel = library.get_function("einsum_ihd_jhd_ihj_f16", None)
+        .map_err(|e| TensorError::InvalidOperation(format!("Failed to get kernel: {}", e)))?;
+
+    let pipeline = device_mut
+        .metal_device()
+        .new_compute_pipeline_state_with_function(&kernel)
+        .map_err(|e| TensorError::InvalidOperation(format!("Failed to create pipeline: {}", e)))?;
+
+    // Create output buffer [I, H, J]
+    let output_numel = (i * h * j) as usize;
+    let output_buf = MetalBuffer::zeros(device_mut.metal_device(), output_numel)?;
+
+    // Create command buffer
+    let command_queue = device_mut.command_queue();
+    let command_buffer = command_queue.new_command_buffer();
+    let encoder = command_buffer.new_compute_command_encoder();
+
+    encoder.set_compute_pipeline_state(&pipeline);
+    encoder.set_buffer(0, Some(a_buf.metal_buffer()), 0);
+    encoder.set_buffer(1, Some(b_buf.metal_buffer()), 0);
+    encoder.set_buffer(2, Some(output_buf.metal_buffer()), 0);
+    encoder.set_bytes(3, std::mem::size_of::<u32>() as u64, &i as *const u32 as *const _);
+    encoder.set_bytes(4, std::mem::size_of::<u32>() as u64, &h as *const u32 as *const _);
+    encoder.set_bytes(5, std::mem::size_of::<u32>() as u64, &j as *const u32 as *const _);
+    encoder.set_bytes(6, std::mem::size_of::<u32>() as u64, &d as *const u32 as *const _);
+
+    // Dispatch threads: one thread per output element
+    let grid_size = MTLSize::new(i as u64, h as u64, j as u64);
+    let threadgroup_size = MTLSize::new(
+        8.min(i as u64),
+        4.min(h as u64),
+        4.min(j as u64)
+    );
+    encoder.dispatch_threads(grid_size, threadgroup_size);
+
+    encoder.end_encoding();
+    command_buffer.commit();
+    command_buffer.wait_until_completed();
+
+    // Create output tensor
+    let output_shape = TensorShape::new(vec![i as usize, h as usize, j as usize]);
+    Tensor::new(
+        BufferHandle::Metal(output_buf),
+        output_shape,
+        Device::Metal(device_mut),
+    )
+}
+
+/// Metal implementation of einsum("ihj,jhd->ihd")
+///
+/// Computes attention output: C[i,h,d] = sum_j A[i,h,j] * B[j,h,d]
+fn einsum_ihj_jhd_ihd_metal(
+    a: &Tensor,  // [I, H, J]
+    b: &Tensor,  // [J, H, D]
+    device: &MetalDevice,
+) -> TensorResult<Tensor> {
+    let a_buf = a.buffer().as_metal()?;
+    let b_buf = b.buffer().as_metal()?;
+
+    let a_dims = a.shape().dims();
+    let b_dims = b.shape().dims();
+
+    let i = a_dims[0] as u32;
+    let h = a_dims[1] as u32;
+    let j = a_dims[2] as u32;
+    let d = b_dims[2] as u32;
+
+    // Verify dimensions match
+    if b_dims[0] != j as usize || b_dims[1] != h as usize {
+        return Err(TensorError::ShapeMismatch {
+            expected: vec![j as usize, h as usize, d as usize],
+            actual: b_dims.to_vec(),
+        });
+    }
+
+    // Load Metal shader library
+    let mut device_mut = device.clone();
+    if device_mut.library().is_none() {
+        // Load all necessary shaders together
+        let elementwise_source = include_str!("../../shaders/elementwise.metal");
+        let matmul_source = include_str!("../../shaders/matmul_tiled.metal");
+        let einsum_source = include_str!("../../shaders/einsum.metal");
+        let combined_source = format!("{}\n\n{}\n\n{}", elementwise_source, matmul_source, einsum_source);
+        device_mut.load_library(&combined_source)?;
+    }
+
+    let library = device_mut.library().ok_or_else(|| {
+        TensorError::InvalidOperation("Failed to load Metal library".to_string())
+    })?;
+
+    let kernel = library.get_function("einsum_ihj_jhd_ihd_f16", None)
+        .map_err(|e| TensorError::InvalidOperation(format!("Failed to get kernel: {}", e)))?;
+
+    let pipeline = device_mut
+        .metal_device()
+        .new_compute_pipeline_state_with_function(&kernel)
+        .map_err(|e| TensorError::InvalidOperation(format!("Failed to create pipeline: {}", e)))?;
+
+    // Create output buffer [I, H, D]
+    let output_numel = (i * h * d) as usize;
+    let output_buf = MetalBuffer::zeros(device_mut.metal_device(), output_numel)?;
+
+    // Create command buffer
+    let command_queue = device_mut.command_queue();
+    let command_buffer = command_queue.new_command_buffer();
+    let encoder = command_buffer.new_compute_command_encoder();
+
+    encoder.set_compute_pipeline_state(&pipeline);
+    encoder.set_buffer(0, Some(a_buf.metal_buffer()), 0);
+    encoder.set_buffer(1, Some(b_buf.metal_buffer()), 0);
+    encoder.set_buffer(2, Some(output_buf.metal_buffer()), 0);
+    encoder.set_bytes(3, std::mem::size_of::<u32>() as u64, &i as *const u32 as *const _);
+    encoder.set_bytes(4, std::mem::size_of::<u32>() as u64, &h as *const u32 as *const _);
+    encoder.set_bytes(5, std::mem::size_of::<u32>() as u64, &j as *const u32 as *const _);
+    encoder.set_bytes(6, std::mem::size_of::<u32>() as u64, &d as *const u32 as *const _);
+
+    // Dispatch threads: one thread per output element
+    let grid_size = MTLSize::new(i as u64, h as u64, d as u64);
+    let threadgroup_size = MTLSize::new(
+        8.min(i as u64),
+        4.min(h as u64),
+        8.min(d as u64)
+    );
+    encoder.dispatch_threads(grid_size, threadgroup_size);
+
+    encoder.end_encoding();
+    command_buffer.commit();
+    command_buffer.wait_until_completed();
+
+    // Create output tensor
+    let output_shape = TensorShape::new(vec![i as usize, h as usize, d as usize]);
+    Tensor::new(
+        BufferHandle::Metal(output_buf),
+        output_shape,
+        Device::Metal(device_mut),
+    )
 }
