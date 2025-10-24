@@ -4861,6 +4861,155 @@ impl Interpreter {
                 Ok(Value::Float(mean_rank as f64))
             }
 
+            "aggregate_neighbors" => {
+                // aggregate_neighbors(node_features, neighbor_indices, aggregation: "mean"|"sum")
+                // Aggregates features from neighboring nodes
+                // This is a simplified version for demonstration
+                if args.len() < 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("aggregate_neighbors() expects at least 2 arguments (node_features, num_neighbors), got {}", args.len())
+                    ));
+                }
+
+                let node_features = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                
+                let num_neighbors = match self.eval_expr(&args[1])? {
+                    Value::Integer(i) => i as usize,
+                    _ => return Err(RuntimeError::TypeError(
+                        "aggregate_neighbors: num_neighbors must be an integer".to_string()
+                    )),
+                };
+
+                let aggregation = if args.len() > 2 {
+                    match self.eval_expr(&args[2])? {
+                        Value::String(s) => s,
+                        _ => "mean".to_string(),
+                    }
+                } else {
+                    "mean".to_string()
+                };
+
+                // For demonstration: return the node features
+                // In a full implementation, this would aggregate from actual neighbor tensors
+                let device = self.env.metal_device();
+                
+                if aggregation == "mean" && num_neighbors > 0 {
+                    // Divide by number of neighbors for mean aggregation
+                    let scale = 1.0 / (num_neighbors as f32);
+                    let scale_f16 = half::f16::from_f32(scale);
+                    let scale_tensor = Tensor::from_vec_metal(device, vec![scale_f16], vec![1])?;
+                    let aggregated = node_features.mul(&scale_tensor)?;
+                    Ok(Value::Tensor(aggregated))
+                } else {
+                    // Sum aggregation (or no neighbors)
+                    Ok(Value::Tensor(node_features))
+                }
+            }
+
+            "relational_aggregate" => {
+                // relational_aggregate(node_emb, relation_emb, neighbor_emb, relation_weight)
+                // R-GCN style aggregation: considers relation types
+                // Formula: h_i^(l+1) = σ(Σ_r Σ_{j∈N_r(i)} (1/c_{i,r}) W_r h_j^(l))
+                if args.len() < 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("relational_aggregate() expects at least 3 arguments (node_emb, relation_emb, neighbor_emb), got {}", args.len())
+                    ));
+                }
+
+                let node_emb = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let relation_emb = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let neighbor_emb = self.eval_expr(&args[2])?.as_tensor()?.clone();
+
+                let device = self.env.metal_device();
+
+                // Simplified R-GCN: relation-specific transformation
+                // message = relation_emb * neighbor_emb (element-wise)
+                let message = relation_emb.mul(&neighbor_emb)?;
+
+                // Combine with node's own embedding
+                let combined = node_emb.add(&message)?;
+
+                Ok(Value::Tensor(combined))
+            }
+
+            "graph_attention" => {
+                // graph_attention(query, key, value, num_neighbors)
+                // GAT-style attention mechanism for graph
+                // Simplified version: computes attention-weighted aggregation
+                if args.len() < 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("graph_attention() expects at least 3 arguments (query, key, value), got {}", args.len())
+                    ));
+                }
+
+                let query = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let key = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let value = self.eval_expr(&args[2])?.as_tensor()?.clone();
+
+                let device = self.env.metal_device();
+
+                // Compute attention score: dot product of query and key
+                let qk = query.mul(&key)?;
+                let attention_score = qk.sum()?;
+
+                // Apply softmax (simplified: just use sigmoid for single neighbor)
+                let score_f32 = attention_score.to_f32();
+                let sigmoid_val = 1.0 / (1.0 + (-score_f32).exp());
+                
+                // For simplicity, just scale the value by the attention weight
+                // In a full implementation, this would use proper broadcasting
+                let weight_f16 = half::f16::from_f32(sigmoid_val);
+                let weight_tensor = Tensor::from_vec_metal(device, vec![weight_f16], vec![1])?;
+                
+                // Simplified: return weighted value (scalar multiplication)
+                let attended_value = value.mul(&weight_tensor)?;
+
+                Ok(Value::Tensor(attended_value))
+            }
+
+            "normalize_features" => {
+                // normalize_features(features, norm_type: "l2"|"layer")
+                // Normalizes node features
+                if args.is_empty() {
+                    return Err(RuntimeError::TypeError(
+                        "normalize_features() expects at least 1 argument (features)".to_string()
+                    ));
+                }
+
+                let features = self.eval_expr(&args[0])?.as_tensor()?.clone();
+
+                let norm_type = if args.len() > 1 {
+                    match self.eval_expr(&args[1])? {
+                        Value::String(s) => s,
+                        _ => "l2".to_string(),
+                    }
+                } else {
+                    "l2".to_string()
+                };
+
+                let device = self.env.metal_device();
+
+                if norm_type == "l2" {
+                    // L2 normalization: x / ||x||_2
+                    let squared = features.mul(&features)?;
+                    let sum_squared_f16 = squared.sum()?;
+                    let norm_f32 = sum_squared_f16.to_f32().sqrt();
+                    
+                    if norm_f32 > 1e-8 {
+                        let inv_norm_f16 = half::f16::from_f32(1.0 / norm_f32);
+                        let inv_norm_tensor = Tensor::from_vec_metal(device, vec![inv_norm_f16], vec![1])?;
+                        let normalized = features.mul(&inv_norm_tensor)?;
+                        Ok(Value::Tensor(normalized))
+                    } else {
+                        // Avoid division by zero
+                        Ok(Value::Tensor(features))
+                    }
+                } else {
+                    // For other normalization types, just return features for now
+                    Ok(Value::Tensor(features))
+                }
+            }
+
             "print" => {
                 // print(value1, value2, ..., end: "\n", flush: false)
                 // For now, simple implementation
