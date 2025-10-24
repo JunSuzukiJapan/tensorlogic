@@ -26,8 +26,17 @@
 mod formatter;
 mod value;
 mod environment;
-mod builtin_kg;  // Knowledge Graph embedding functions (stub for now)
 mod eval;        // Expression and statement evaluation (work in progress)
+
+// Builtin function modules (organized by category)
+mod builtin_tensor;    // Basic tensor operations
+mod builtin_math;      // Math operations
+mod builtin_nn;        // Neural network operations
+mod builtin_kg;        // Knowledge graph embeddings
+mod builtin_gnn;       // Graph neural networks
+mod builtin_model;     // Model and I/O operations
+mod builtin_sampling;  // Sampling and generation
+mod builtin_util;      // Utility functions
 
 // Re-export public types
 pub use value::Value;
@@ -1905,7 +1914,38 @@ impl Interpreter {
 
     /// Evaluate a function call
     fn eval_function_call(&mut self, name: &Identifier, args: &[TensorExpr]) -> RuntimeResult<Value> {
-        match name.as_str() {
+        let name_str = name.as_str();
+
+        // Try dispatching to category-specific builtin modules
+        // Each returns Option<RuntimeResult<Value>>: Some if handled, None if not in that category
+
+        if let Some(result) = self.eval_tensor_function(name_str, args) {
+            return result;
+        }
+        if let Some(result) = self.eval_math_function(name_str, args) {
+            return result;
+        }
+        if let Some(result) = self.eval_nn_function(name_str, args) {
+            return result;
+        }
+        if let Some(result) = self.eval_kg_function(name_str, args) {
+            return result;
+        }
+        if let Some(result) = self.eval_gnn_function(name_str, args) {
+            return result;
+        }
+        if let Some(result) = self.eval_model_function(name_str, args) {
+            return result;
+        }
+        if let Some(result) = self.eval_sampling_function(name_str, args) {
+            return result;
+        }
+        if let Some(result) = self.eval_util_function(name_str, args) {
+            return result;
+        }
+
+        // Legacy builtin functions (to be migrated)
+        match name_str {
             "save" => {
                 // save(tensor, "filename")
                 if args.len() != 2 {
