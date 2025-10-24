@@ -4600,6 +4600,148 @@ impl Interpreter {
                 Ok(Value::Tensor(loss_tensor))
             }
 
+            "predict_tail_transe" => {
+                // predict_tail_transe(head, relation, tail_candidates, model: "L2")
+                // Computes TransE scores for multiple tail candidates
+                // Returns list of scores (for now, just computes one at a time)
+                if args.len() < 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("predict_tail_transe() expects at least 3 arguments (head, relation, tail_candidate), got {}", args.len())
+                    ));
+                }
+
+                let head = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let tail_candidate = self.eval_expr(&args[2])?.as_tensor()?.clone();
+
+                let model = if args.len() > 3 {
+                    match self.eval_expr(&args[3])? {
+                        Value::String(s) => s,
+                        _ => "L2".to_string(),
+                    }
+                } else {
+                    "L2".to_string()
+                };
+
+                // Compute TransE score for this candidate
+                let device = self.env.metal_device();
+
+                // h + r
+                let h_plus_r = head.add(&relation)?;
+                
+                // h + r - t
+                let diff = h_plus_r.sub(&tail_candidate)?;
+
+                // Compute norm based on model type
+                let score = if model == "L2" {
+                    // L2 norm: -sqrt(sum(x^2))
+                    let squared = diff.mul(&diff)?;
+                    let sum_squared_f16 = squared.sum()?;
+                    let sum_squared_f32 = sum_squared_f16.to_f32();
+                    let l2_norm_f32 = sum_squared_f32.sqrt();
+                    let score_f16 = half::f16::from_f32(-l2_norm_f32);
+                    Tensor::from_vec_metal(device, vec![score_f16], vec![1])?
+                } else {
+                    return Err(RuntimeError::NotImplemented(
+                        format!("predict_tail_transe: model '{}' not yet implemented (only L2 supported)", model)
+                    ));
+                };
+
+                Ok(Value::Tensor(score))
+            }
+
+            "predict_head_transe" => {
+                // predict_head_transe(head_candidate, relation, tail, model: "L2")
+                // Computes TransE scores for head candidates
+                if args.len() < 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("predict_head_transe() expects at least 3 arguments (head_candidate, relation, tail), got {}", args.len())
+                    ));
+                }
+
+                let head_candidate = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let tail = self.eval_expr(&args[2])?.as_tensor()?.clone();
+
+                let model = if args.len() > 3 {
+                    match self.eval_expr(&args[3])? {
+                        Value::String(s) => s,
+                        _ => "L2".to_string(),
+                    }
+                } else {
+                    "L2".to_string()
+                };
+
+                // Compute TransE score: -(||h_candidate + r - t||)
+                let device = self.env.metal_device();
+
+                let h_plus_r = head_candidate.add(&relation)?;
+                let diff = h_plus_r.sub(&tail)?;
+
+                let score = if model == "L2" {
+                    let squared = diff.mul(&diff)?;
+                    let sum_squared_f16 = squared.sum()?;
+                    let sum_squared_f32 = sum_squared_f16.to_f32();
+                    let l2_norm_f32 = sum_squared_f32.sqrt();
+                    let score_f16 = half::f16::from_f32(-l2_norm_f32);
+                    Tensor::from_vec_metal(device, vec![score_f16], vec![1])?
+                } else {
+                    return Err(RuntimeError::NotImplemented(
+                        format!("predict_head_transe: model '{}' not yet implemented", model)
+                    ));
+                };
+
+                Ok(Value::Tensor(score))
+            }
+
+            "predict_tail_distmult" => {
+                // predict_tail_distmult(head, relation, tail_candidate)
+                // Computes DistMult scores for tail candidates
+                if args.len() < 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("predict_tail_distmult() expects 3 arguments (head, relation, tail_candidate), got {}", args.len())
+                    ));
+                }
+
+                let head = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let tail_candidate = self.eval_expr(&args[2])?.as_tensor()?.clone();
+
+                // DistMult: score = sum(h * r * t)
+                let device = self.env.metal_device();
+                
+                let h_mul_r = head.mul(&relation)?;
+                let product = h_mul_r.mul(&tail_candidate)?;
+                let score_f16 = product.sum()?;
+
+                let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
+                Ok(Value::Tensor(score_tensor))
+            }
+
+            "predict_head_distmult" => {
+                // predict_head_distmult(head_candidate, relation, tail)
+                // Computes DistMult scores for head candidates
+                if args.len() < 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("predict_head_distmult() expects 3 arguments (head_candidate, relation, tail), got {}", args.len())
+                    ));
+                }
+
+                let head_candidate = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let tail = self.eval_expr(&args[2])?.as_tensor()?.clone();
+
+                // DistMult: score = sum(h * r * t)
+                let device = self.env.metal_device();
+                
+                let h_mul_r = head_candidate.mul(&relation)?;
+                let product = h_mul_r.mul(&tail)?;
+                let score_f16 = product.sum()?;
+
+                let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
+                Ok(Value::Tensor(score_tensor))
+            }
+
             "print" => {
                 // print(value1, value2, ..., end: "\n", flush: false)
                 // For now, simple implementation
