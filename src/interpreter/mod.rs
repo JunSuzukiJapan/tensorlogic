@@ -31,6 +31,7 @@ use std::fs;
 use crate::ast::*;
 use crate::tensor::{Tensor, TensorShape};
 use crate::device::{Device, MetalDevice};
+use crate::entity_registry::EntityRegistry;
 use crate::error::TensorError;
 use crate::logic::LogicEngine;
 use crate::model::Model;
@@ -275,6 +276,8 @@ impl Default for RuntimeEnvironment {
 pub struct Interpreter {
     env: RuntimeEnvironment,
     logic_engine: LogicEngine,
+    // Entity registry for managing entity types and instances
+    entity_registry: EntityRegistry,
     // Embedding storage: (embedding_name, entity_index_map, embedding_matrix)
     embeddings: HashMap<String, (HashMap<String, usize>, Tensor)>,
     // Python execution environment (when python feature is enabled)
@@ -286,6 +289,8 @@ pub struct Interpreter {
     current_file: Option<PathBuf>,
     // Track defined relation variables: predicate_name -> set of variable names
     relation_variables: HashMap<String, HashSet<String>>,
+    // Track relation entity parameters: predicate_name -> (param_index -> entity_type_name)
+    relation_entity_params: HashMap<String, HashMap<usize, String>>,
     // User-defined functions: function_name -> FunctionDecl
     functions: HashMap<String, FunctionDecl>,
     // Function call stack for local scope management
@@ -297,12 +302,14 @@ impl Interpreter {
         Self {
             env: RuntimeEnvironment::new(),
             logic_engine: LogicEngine::new(),
+            entity_registry: EntityRegistry::new(),
             embeddings: HashMap::new(),
             #[cfg(any(feature = "python", feature = "python-extension"))]
             python_env: None,
             imported_files: HashSet::new(),
             current_file: None,
             relation_variables: HashMap::new(),
+            relation_entity_params: HashMap::new(),
             functions: HashMap::new(),
             call_stack: Vec::new(),
         }
@@ -363,9 +370,21 @@ impl Interpreter {
     fn execute_declaration(&mut self, decl: &Declaration) -> RuntimeResult<()> {
         match decl {
             Declaration::Import(import_decl) => self.execute_import(import_decl),
-            Declaration::Entity(_entity_decl) => {
-                // Entity declarations will be handled during with-block execution
-                // For now, just skip them
+            Declaration::Entity(entity_decl) => {
+                // Register entity type in the registry
+                self.entity_registry.register_from_decl(entity_decl);
+
+                match entity_decl {
+                    EntityDecl::Explicit { name, entities } => {
+                        println!("✓ Entity type '{}' registered with {} entities",
+                            name.as_str(), entities.len());
+                    }
+                    EntityDecl::FromData { name } => {
+                        println!("✓ Entity type '{}' registered (data-driven)",
+                            name.as_str());
+                    }
+                }
+
                 Ok(())
             }
             Declaration::Tensor(tensor_decl) => self.execute_tensor_decl(tensor_decl),
@@ -376,7 +395,26 @@ impl Interpreter {
                     .map(|param| param.name.as_str().to_string())
                     .collect();
 
-                self.relation_variables.insert(predicate_name, var_names);
+                self.relation_variables.insert(predicate_name.clone(), var_names);
+
+                // Collect entity-typed parameters: param_index -> entity_type_name
+                let mut entity_params = HashMap::new();
+                for (_idx, param) in relation_decl.params.iter().enumerate() {
+                    match &param.entity_type {
+                        EntityType::Entity | EntityType::Concept => {
+                            // Generic entity type - we'll handle this later when we have
+                            // explicit entity type declarations
+                        }
+                        EntityType::Tensor(_) => {
+                            // Tensor-typed parameter, skip
+                        }
+                    }
+                }
+
+                if !entity_params.is_empty() {
+                    self.relation_entity_params.insert(predicate_name, entity_params);
+                }
+
                 Ok(())
             }
             Declaration::Rule(rule) => {

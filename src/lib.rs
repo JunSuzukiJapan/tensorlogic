@@ -7,6 +7,7 @@ pub mod ast;
 pub mod autograd;
 pub mod coreml;
 pub mod device;
+pub mod entity_registry;
 pub mod error;
 pub mod error_reporting;
 pub mod interpreter;
