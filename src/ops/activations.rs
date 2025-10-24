@@ -206,7 +206,11 @@ impl Tensor {
             }
         }
 
-        Tensor::from_vec(output, self.shape().dims().to_vec())
+        // Create tensor on the same device as the input
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, output, self.shape().dims().to_vec()),
+            _ => Tensor::from_vec(output, self.shape().dims().to_vec()),
+        }
     }
 
     /// Sigmoid activation: σ(x) = 1 / (1 + exp(-x))

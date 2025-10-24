@@ -49,6 +49,10 @@ base_type = {
     "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
 }
 
+scalar_type = {
+    "int" | "float" | "bool" | "string"
+}
+
 dimension_list = { dimension ~ ("," ~ dimension)* }
 
 dimension = { integer | identifier | "?" }
@@ -68,7 +72,8 @@ param = { identifier ~ ":" ~ entity_type }
 entity_type = {
     "entity"      // Generic entity type
   | "concept"     // Generic concept type
-  | tensor_type   // Tensor type (must be before identifier to match correctly)
+  | tensor_type   // Tensor type (must be before scalar_type and identifier to match correctly)
+  | scalar_type   // Scalar types (int, float, bool, string)
   | identifier    // Named entity type (e.g., Person, City)
 }
 
@@ -129,7 +134,7 @@ function_decl = {
     ~ "->" ~ return_type ~ "{" ~ statement* ~ "}"
 }
 
-return_type = { tensor_type | "void" }
+return_type = { tensor_type | scalar_type | "void" }
 
 // ============================================================================
 // Tensor Expressions with Operator Precedence
@@ -162,15 +167,27 @@ power_op = { "**" | "⊗" }
 unary_expr = { unary_op ~ unary_expr | tensor_term }
 
 tensor_term = {
-    "(" ~ tensor_expr ~ ")"
+    postfix_expr
+    | "(" ~ tensor_expr ~ ")"
     | embedding_lookup
-    | tensor_index
     | einstein_sum
     | python_call
-    | function_call
     | tensor_literal
     | string_literal
+}
+
+// Postfix expressions: function calls and indexing
+postfix_expr = {
+    primary_expr ~ postfix_op*
+}
+
+primary_expr = {
+    function_call
     | identifier
+}
+
+postfix_op = {
+    "[" ~ index_list ~ "]"
 }
 
 binary_op = {
@@ -189,7 +206,8 @@ tensor_list = { tensor_expr ~ ("," ~ tensor_expr)* }
 
 function_call = { identifier ~ "(" ~ tensor_list? ~ ")" }
 
-tensor_index = { identifier ~ "[" ~ index_list ~ "]" }
+// tensor_index is now handled by postfix_expr
+// tensor_index = { identifier ~ "[" ~ index_list ~ "]" }
 
 index_list = { index_expr ~ ("," ~ index_expr)* }
 

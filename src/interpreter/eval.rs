@@ -1060,11 +1060,11 @@ impl Interpreter {
     }
 
     /// Evaluate tensor indexing: tensor[i, j, ...]
-    pub(super) fn eval_tensor_index(&mut self, tensor_id: &Identifier, indices: &[IndexExpr]) -> RuntimeResult<Value> {
+    pub(super) fn eval_tensor_index(&mut self, tensor_expr: &TensorExpr, indices: &[IndexExpr]) -> RuntimeResult<Value> {
         use crate::ast::IndexExpr;
 
-        // Get the tensor
-        let tensor_value = self.env.get_variable(tensor_id.as_str())?;
+        // Evaluate the tensor expression
+        let tensor_value = self.eval_expr(tensor_expr)?;
         let tensor = tensor_value.as_tensor()?;
 
         // Convert indices to usizes

@@ -207,7 +207,7 @@ pub fn walk_tensor_expr<V: Visitor>(visitor: &mut V, expr: &TensorExpr) -> Resul
             Ok(())
         }
         TensorExpr::TensorIndex { tensor, indices } => {
-            visitor.visit_identifier(tensor)?;
+            visitor.visit_tensor_expr(tensor)?;
             for idx_expr in indices {
                 if let crate::ast::IndexExpr::Var(var) = idx_expr {
                     visitor.visit_identifier(var)?;

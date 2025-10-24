@@ -323,6 +323,15 @@ impl TypeChecker {
 
         // Extract return type
         let return_type = match &decl.return_type {
+            ReturnType::Scalar(scalar_type) => {
+                // Treat scalar as 0-dimensional tensor
+                let base_type = match scalar_type {
+                    ScalarType::Int | ScalarType::Bool => BaseType::Int32,
+                    ScalarType::Float => BaseType::Float32,
+                    ScalarType::String => BaseType::Float32, // String treated as generic
+                };
+                Some(TensorTypeInfo::new(base_type, vec![]))
+            }
             ReturnType::Tensor(tensor_type) => {
                 Some(TensorTypeInfo::from_tensor_type(tensor_type))
             }
@@ -433,7 +442,8 @@ impl TypeChecker {
 
             TensorExpr::TensorIndex { tensor, .. } => {
                 // Tensor indexing returns a scalar value
-                let tensor_type = self.env.get_variable(tensor.as_str())?;
+                // Recursively infer the type of the tensor expression
+                let tensor_type = self.infer_expr_type(tensor)?;
                 Ok(TensorTypeInfo::new(
                     tensor_type.base_type,
                     vec![], // Scalar result

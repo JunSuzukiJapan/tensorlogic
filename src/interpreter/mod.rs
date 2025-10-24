@@ -262,6 +262,9 @@ impl Interpreter {
                         EntityType::Tensor(_) => {
                             // Tensor-typed parameter, skip
                         }
+                        EntityType::Scalar(_) => {
+                            // Scalar-typed parameter, skip
+                        }
                     }
                 }
 
@@ -688,6 +691,11 @@ impl Interpreter {
                     ))
                 }
             }
+            ReturnType::Scalar(scalar_type) => {
+                // Convert ScalarType to EntityType and reuse check_type_match
+                let entity_type = EntityType::Scalar(scalar_type.clone());
+                self.check_type_match(value, &entity_type, &format!("return value of '{}'", func_name))
+            }
             ReturnType::Tensor(tensor_type) => {
                 // Convert TensorType to EntityType and reuse check_type_match
                 let entity_type = EntityType::Tensor(tensor_type.clone());
@@ -755,6 +763,32 @@ impl Interpreter {
                     }
                     _ => Err(RuntimeError::TypeError(
                         format!("Parameter '{}' expects tensor, got {:?}", param_name, value)
+                    ))
+                }
+            }
+            EntityType::Scalar(scalar_type) => {
+                use crate::ast::ScalarType;
+                match (scalar_type, value) {
+                    (ScalarType::Int, Value::Integer(_)) => Ok(()),
+                    (ScalarType::Float, Value::Float(_)) => Ok(()),
+                    (ScalarType::Bool, Value::Boolean(_)) => Ok(()),
+                    (ScalarType::String, Value::String(_)) => Ok(()),
+                    (ScalarType::Int, Value::Float(f)) => {
+                        // Accept float if it's a whole number
+                        if f.fract() == 0.0 {
+                            Ok(())
+                        } else {
+                            Err(RuntimeError::TypeError(
+                                format!("Parameter '{}' expects int, got non-integer float {}", param_name, f)
+                            ))
+                        }
+                    }
+                    (ScalarType::Float, Value::Integer(_)) => {
+                        // Accept int for float (will be promoted)
+                        Ok(())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        format!("Parameter '{}' expects {:?}, got {:?}", param_name, scalar_type, value)
                     ))
                 }
             }
@@ -1268,9 +1302,9 @@ impl Interpreter {
 
             "embedding" => {
                 // embedding(embedding_table, token_ids) -> Tensor
-                // embedding_table: [vocab_size, embedding_dim]
-                // token_ids: TokenIds with shape [seq_len]
-                // output: [seq_len, embedding_dim]
+                // embedding_table: [d_model, vocab_size] (GGUF format)
+                // token_ids: TokenIds or Tensor with shape [seq_len] or [batch, seq_len]
+                // output: [seq_len, d_model] or [batch, seq_len, d_model]
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("embedding() expects 2 arguments (embedding_table, token_ids), got {}", args.len())
@@ -1278,56 +1312,29 @@ impl Interpreter {
                 }
 
                 let embedding_table = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let token_ids = match self.eval_expr(&args[1])? {
-                    Value::TokenIds(ids) => ids,
-                    Value::Tensor(t) => {
-                        // Convert tensor to Vec<u32>
-                        t.to_vec().iter().map(|&f| f.to_f32() as u32).collect()
+
+                // Convert token_ids to tensor
+                let token_ids_tensor = match self.eval_expr(&args[1])? {
+                    Value::TokenIds(ids) => {
+                        // Convert Vec<u32> to f16 tensor
+                        let token_data: Vec<half::f16> = ids.iter()
+                            .map(|&id| half::f16::from_f32(id as f32))
+                            .collect();
+                        crate::tensor::Tensor::from_vec_metal(
+                            self.env.metal_device(),
+                            token_data,
+                            vec![ids.len()]
+                        ).map_err(|e| RuntimeError::TensorError(e))?
                     }
+                    Value::Tensor(t) => t,
                     _ => return Err(RuntimeError::TypeError(
                         "embedding() second argument must be TokenIds or Tensor".to_string()
                     )),
                 };
 
-                // Validate embedding table shape
-                let table_shape = embedding_table.shape();
-                if table_shape.dims().len() != 2 {
-                    return Err(RuntimeError::TypeError(
-                        format!("embedding_table must be 2D [vocab_size, embedding_dim], got shape {:?}", table_shape.dims())
-                    ));
-                }
-
-                let vocab_size = table_shape.dims()[0];
-                let embedding_dim = table_shape.dims()[1];
-
-                // Check token IDs are within vocab range
-                for &token_id in &token_ids {
-                    if token_id as usize >= vocab_size {
-                        return Err(RuntimeError::TensorError(
-                            crate::error::TensorError::InvalidOperation(
-                                format!("Token ID {} exceeds vocab size {}", token_id, vocab_size)
-                            )
-                        ));
-                    }
-                }
-
-                // Perform embedding lookup
-                let seq_len = token_ids.len();
-                let table_data = embedding_table.to_vec();
-                let mut output_data = Vec::with_capacity(seq_len * embedding_dim);
-
-                for &token_id in &token_ids {
-                    let start_idx = (token_id as usize) * embedding_dim;
-                    let end_idx = start_idx + embedding_dim;
-                    output_data.extend_from_slice(&table_data[start_idx..end_idx]);
-                }
-
-                // Create output tensor
-                let output = crate::tensor::Tensor::from_vec_metal(
-                    self.env.metal_device(),
-                    output_data,
-                    vec![seq_len, embedding_dim]
-                ).map_err(|e| RuntimeError::TensorError(e))?;
+                // Use the Tensor.embedding() method which handles [d_model, vocab_size] correctly
+                let output = embedding_table.embedding(&token_ids_tensor)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::Tensor(output))
             }

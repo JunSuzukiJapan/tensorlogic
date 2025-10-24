@@ -140,6 +140,15 @@ pub struct Param {
     pub entity_type: EntityType,
 }
 
+/// Scalar types for function parameters
+#[derive(Debug, Clone, PartialEq)]
+pub enum ScalarType {
+    Int,
+    Float,
+    Bool,
+    String,
+}
+
 /// Entity type for parameters
 #[derive(Debug, Clone, PartialEq)]
 pub enum EntityType {
@@ -149,6 +158,8 @@ pub enum EntityType {
     NamedEntity(Identifier),
     /// Generic concept type
     Concept,
+    /// Scalar type (int, float, bool, string)
+    Scalar(ScalarType),
     /// Tensor type with shape and base type
     Tensor(TensorType),
 }
@@ -260,6 +271,7 @@ pub struct FunctionDecl {
 /// Return type
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReturnType {
+    Scalar(ScalarType),
     Tensor(TensorType),
     Void,
 }
@@ -296,9 +308,9 @@ pub enum TensorExpr {
         name: Identifier,
         args: Vec<TensorExpr>,
     },
-    /// Tensor indexing: tensor[i, j, ...]
+    /// Tensor indexing: tensor[i, j, ...] or expression[i]
     TensorIndex {
-        tensor: Identifier,
+        tensor: Box<TensorExpr>,
         indices: Vec<IndexExpr>,
     },
     /// Embedding lookup: embed[entity]

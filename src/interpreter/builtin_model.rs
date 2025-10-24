@@ -8,9 +8,13 @@ impl Interpreter {
         match name {
             "save" => Some(self.eval_save(args)),
             "load" => Some(self.eval_load(args)),
-            "load_model" | "load_tokenizer" | "get_tensor" |
-            "tokenize" | "detokenize" | "generate" |
-            "print" | "print_top_k" => {
+            "load_model" => Some(self.eval_load_model(args)),
+            "get_tensor" => Some(self.eval_get_tensor(args)),
+            "print" => Some(self.eval_print(args)),
+            "load_tokenizer" => Some(self.eval_load_tokenizer(args)),
+            "tokenize" => Some(self.eval_tokenize(args)),
+            "detokenize" => Some(self.eval_detokenize(args)),
+            "generate" | "print_top_k" => {
                 Some(Err(RuntimeError::NotImplemented(
                     format!("Model/IO function '{}' migration in progress", name)
                 )))
@@ -77,5 +81,217 @@ impl Interpreter {
 
         println!("Loaded tensor from: {} (shape: {:?})", filename, tensor.dims());
         Ok(Value::Tensor(tensor))
+    }
+
+    /// load_model("path/to/model.gguf")
+    /// Load a GGUF model file
+    fn eval_load_model(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::model::Model;
+
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("load_model() expects 1 argument (path), got {}", args.len())
+            ));
+        }
+
+        // Evaluate path argument
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "load_model() argument must be a string (path)".to_string()
+            )),
+        };
+
+        // Load model using Metal device
+        let device = self.env.metal_device();
+        let model = Model::load(&path, device)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        println!("Loaded model from: {}", path);
+        Ok(Value::Model(model))
+    }
+
+    /// get_tensor(model, "tensor_name")
+    /// Extract a tensor from a model by name
+    fn eval_get_tensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("get_tensor() expects 2 arguments (model, tensor_name), got {}", args.len())
+            ));
+        }
+
+        // Evaluate model argument
+        let model_val = self.eval_expr(&args[0])?;
+        let model = match model_val {
+            Value::Model(m) => m,
+            _ => return Err(RuntimeError::TypeError(
+                "get_tensor() first argument must be a Model".to_string()
+            )),
+        };
+
+        // Evaluate tensor name argument
+        let name_val = self.eval_expr(&args[1])?;
+        let tensor_name = match name_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "get_tensor() second argument must be a string (tensor name)".to_string()
+            )),
+        };
+
+        // Get tensor from model
+        let tensor = model.get_tensor(&tensor_name)
+            .ok_or_else(|| RuntimeError::InvalidOperation(
+                format!("Tensor '{}' not found in model", tensor_name)
+            ))?;
+
+        Ok(Value::Tensor(tensor.clone()))
+    }
+
+    /// print(args...)
+    /// Print values to stdout
+    fn eval_print(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        let mut output = String::new();
+
+        for (i, arg) in args.iter().enumerate() {
+            if i > 0 {
+                output.push(' ');
+            }
+
+            let val = self.eval_expr(arg)?;
+            match val {
+                Value::String(s) => output.push_str(&s),
+                Value::Integer(n) => output.push_str(&n.to_string()),
+                Value::Float(f) => output.push_str(&f.to_string()),
+                Value::Boolean(b) => output.push_str(&b.to_string()),
+                Value::Tensor(ref t) => {
+                    output.push_str(&format!("Tensor(shape={:?})", t.dims()));
+                }
+                Value::Model(_) => output.push_str("Model(...)"),
+                Value::Tokenizer(_) => output.push_str("Tokenizer(...)"),
+                Value::TokenIds(ref ids) => {
+                    output.push_str(&format!("TokenIds(len={})", ids.len()));
+                }
+                Value::Type(ref ty) => output.push_str(&format!("Type({})", ty)),
+                Value::Void => output.push_str("void"),
+            }
+        }
+
+        println!("{}", output);
+        Ok(Value::Void)
+    }
+
+    /// load_tokenizer("path/to/tokenizer.json")
+    /// Load a HuggingFace tokenizer
+    fn eval_load_tokenizer(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::tokenizer::Tokenizer;
+
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("load_tokenizer() expects 1 argument (path), got {}", args.len())
+            ));
+        }
+
+        // Evaluate path argument
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "load_tokenizer() argument must be a string (path)".to_string()
+            )),
+        };
+
+        // Load tokenizer
+        let tokenizer = Tokenizer::from_file(&path)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        println!("Loaded tokenizer from: {}", path);
+        Ok(Value::Tokenizer(std::sync::Arc::new(tokenizer)))
+    }
+
+    /// tokenize(tokenizer, "text", add_special_tokens)
+    /// Convert text to token IDs
+    fn eval_tokenize(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 3 {
+            return Err(RuntimeError::TypeError(
+                format!("tokenize() expects 3 arguments (tokenizer, text, add_special_tokens), got {}", args.len())
+            ));
+        }
+
+        // Get tokenizer
+        let tokenizer_val = self.eval_expr(&args[0])?;
+        let tokenizer = match tokenizer_val {
+            Value::Tokenizer(t) => t,
+            _ => return Err(RuntimeError::TypeError(
+                "tokenize() first argument must be a Tokenizer".to_string()
+            )),
+        };
+
+        // Get text
+        let text_val = self.eval_expr(&args[1])?;
+        let text = match text_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "tokenize() second argument must be a string (text)".to_string()
+            )),
+        };
+
+        // Get add_special_tokens flag
+        let special_val = self.eval_expr(&args[2])?;
+        let add_special = match special_val {
+            Value::Boolean(b) => b,
+            _ => return Err(RuntimeError::TypeError(
+                "tokenize() third argument must be a boolean".to_string()
+            )),
+        };
+
+        // Tokenize
+        let token_ids = tokenizer.encode(&text, add_special)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(Value::TokenIds(token_ids))
+    }
+
+    /// detokenize(tokenizer, token_ids, skip_special_tokens)
+    /// Convert token IDs to text
+    fn eval_detokenize(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 3 {
+            return Err(RuntimeError::TypeError(
+                format!("detokenize() expects 3 arguments (tokenizer, token_ids, skip_special_tokens), got {}", args.len())
+            ));
+        }
+
+        // Get tokenizer
+        let tokenizer_val = self.eval_expr(&args[0])?;
+        let tokenizer = match tokenizer_val {
+            Value::Tokenizer(t) => t,
+            _ => return Err(RuntimeError::TypeError(
+                "detokenize() first argument must be a Tokenizer".to_string()
+            )),
+        };
+
+        // Get token IDs
+        let ids_val = self.eval_expr(&args[1])?;
+        let token_ids = match ids_val {
+            Value::TokenIds(ids) => ids,
+            _ => return Err(RuntimeError::TypeError(
+                "detokenize() second argument must be TokenIds".to_string()
+            )),
+        };
+
+        // Get skip_special_tokens flag
+        let skip_val = self.eval_expr(&args[2])?;
+        let skip_special = match skip_val {
+            Value::Boolean(b) => b,
+            _ => return Err(RuntimeError::TypeError(
+                "detokenize() third argument must be a boolean".to_string()
+            )),
+        };
+
+        // Detokenize
+        let text = tokenizer.decode(&token_ids, skip_special)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(Value::String(text))
     }
 }

@@ -319,6 +319,7 @@ impl TensorLogicParser {
         // Try to get inner rule
         if let Some(inner) = pair.into_inner().next() {
             match inner.as_rule() {
+                Rule::scalar_type => Ok(EntityType::Scalar(Self::parse_scalar_type(inner)?)),
                 Rule::tensor_type => Ok(EntityType::Tensor(Self::parse_tensor_type(inner)?)),
                 Rule::identifier => {
                     // Named entity type (e.g., Person, City)
@@ -328,6 +329,16 @@ impl TensorLogicParser {
             }
         } else {
             Err(ParseError::MissingField("entity type value".to_string()))
+        }
+    }
+
+    fn parse_scalar_type(pair: pest::iterators::Pair<Rule>) -> Result<ScalarType, ParseError> {
+        match pair.as_str() {
+            "int" => Ok(ScalarType::Int),
+            "float" => Ok(ScalarType::Float),
+            "bool" => Ok(ScalarType::Bool),
+            "string" => Ok(ScalarType::String),
+            _ => Err(ParseError::InvalidValue(format!("Unknown scalar type: {}", pair.as_str()))),
         }
     }
 
@@ -606,12 +617,13 @@ impl TensorLogicParser {
             return Ok(ReturnType::Void);
         }
 
-        // Otherwise, it should be a tensor_type
+        // Otherwise, it should be a scalar_type or tensor_type
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("return type value".to_string())
         })?;
 
         match inner.as_rule() {
+            Rule::scalar_type => Ok(ReturnType::Scalar(Self::parse_scalar_type(inner)?)),
             Rule::tensor_type => Ok(ReturnType::Tensor(Self::parse_tensor_type(inner)?)),
             _ => Err(ParseError::InvalidValue(format!("Invalid return type: {}", inner.as_str()))),
         }
@@ -888,33 +900,59 @@ impl TensorLogicParser {
 
                 Ok(TensorExpr::EinSum { spec, tensors })
             }
-            Rule::function_call => {
+            Rule::function_call => Self::parse_function_call(inner),
+            Rule::postfix_expr => {
                 let mut inner_pairs = inner.into_inner();
-                let name = Self::parse_identifier(inner_pairs.next().ok_or_else(|| {
-                    ParseError::MissingField("function name".to_string())
-                })?)?;
 
-                let args = if let Some(tensor_list) = inner_pairs.next() {
-                    Self::parse_tensor_list(tensor_list)?
-                } else {
-                    Vec::new()
-                };
-
-                Ok(TensorExpr::FunctionCall { name, args })
-            }
-            Rule::tensor_index => {
-                let mut inner_pairs = inner.into_inner();
-                let tensor = Self::parse_identifier(inner_pairs.next().ok_or_else(|| {
-                    ParseError::MissingField("tensor name".to_string())
-                })?)?;
-
-                let index_list = inner_pairs.next().ok_or_else(|| {
-                    ParseError::MissingField("index list".to_string())
+                // Parse primary expression (function_call or identifier)
+                let primary = inner_pairs.next().ok_or_else(|| {
+                    ParseError::MissingField("primary expression".to_string())
                 })?;
 
-                let indices = Self::parse_index_list(index_list)?;
+                let mut expr = match primary.as_rule() {
+                    Rule::primary_expr => {
+                        // primary_expr contains function_call or identifier
+                        let inner_primary = primary.into_inner().next().ok_or_else(|| {
+                            ParseError::MissingField("primary_expr content".to_string())
+                        })?;
+                        match inner_primary.as_rule() {
+                            Rule::function_call => Self::parse_function_call(inner_primary)?,
+                            Rule::identifier => TensorExpr::Variable(Self::parse_identifier(inner_primary)?),
+                            _ => return Err(ParseError::UnexpectedRule {
+                                expected: "function_call or identifier".to_string(),
+                                found: format!("{:?}", inner_primary.as_rule()),
+                            }),
+                        }
+                    }
+                    Rule::function_call => Self::parse_function_call(primary)?,
+                    Rule::identifier => TensorExpr::Variable(Self::parse_identifier(primary)?),
+                    _ => return Err(ParseError::UnexpectedRule {
+                        expected: "primary_expr, function_call, or identifier".to_string(),
+                        found: format!("{:?}", primary.as_rule()),
+                    }),
+                };
 
-                Ok(TensorExpr::TensorIndex { tensor, indices })
+                // Apply postfix operations (indexing)
+                for postfix_op in inner_pairs {
+                    match postfix_op.as_rule() {
+                        Rule::postfix_op => {
+                            let index_list = postfix_op.into_inner().next().ok_or_else(|| {
+                                ParseError::MissingField("index list".to_string())
+                            })?;
+                            let indices = Self::parse_index_list(index_list)?;
+                            expr = TensorExpr::TensorIndex {
+                                tensor: Box::new(expr),
+                                indices,
+                            };
+                        }
+                        _ => return Err(ParseError::UnexpectedRule {
+                            expected: "postfix_op".to_string(),
+                            found: format!("{:?}", postfix_op.as_rule()),
+                        }),
+                    }
+                }
+
+                Ok(expr)
             }
             Rule::embedding_lookup => {
                 let mut inner_pairs = inner.into_inner();
@@ -941,6 +979,21 @@ impl TensorLogicParser {
                 found: format!("{:?}", inner.as_rule()),
             }),
         }
+    }
+
+    fn parse_function_call(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+        let mut inner_pairs = pair.into_inner();
+        let name = Self::parse_identifier(inner_pairs.next().ok_or_else(|| {
+            ParseError::MissingField("function name".to_string())
+        })?)?;
+
+        let args = if let Some(tensor_list) = inner_pairs.next() {
+            Self::parse_tensor_list(tensor_list)?
+        } else {
+            Vec::new()
+        };
+
+        Ok(TensorExpr::FunctionCall { name, args })
     }
 
     fn parse_tensor_list(pair: pest::iterators::Pair<Rule>) -> Result<Vec<TensorExpr>, ParseError> {
