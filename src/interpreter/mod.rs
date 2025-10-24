@@ -4513,6 +4513,93 @@ impl Interpreter {
                 Ok(Value::Tensor(score_tensor))
             }
 
+            "margin_ranking_loss" => {
+                // margin_ranking_loss(pos_score, neg_score, margin) -> Tensor
+                // Margin ranking loss: loss = max(0, margin + neg_score - pos_score)
+                // Used in TransE training
+                if args.len() != 3 {
+                    return Err(RuntimeError::TypeError(
+                        format!("margin_ranking_loss() expects 3 arguments (pos_score, neg_score, margin), got {}", args.len())
+                    ));
+                }
+
+                // Evaluate arguments
+                let pos_score = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let neg_score = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let margin_val = self.eval_expr(&args[2])?;
+
+                // Parse margin
+                let margin = match margin_val {
+                    Value::Float(f) => f as f32,
+                    Value::Integer(i) => i as f32,
+                    _ => return Err(RuntimeError::TypeError(
+                        "margin_ranking_loss() margin must be a number".to_string()
+                    )),
+                };
+
+                // Compute: margin + neg_score - pos_score
+                let neg_minus_pos = neg_score.sub(&pos_score)?;
+
+                // Add margin
+                let margin_f16 = half::f16::from_f32(margin);
+                let device = self.env.metal_device();
+                let margin_tensor = Tensor::from_vec_metal(device, vec![margin_f16], vec![1])?;
+                let diff_plus_margin = neg_minus_pos.add(&margin_tensor)?;
+
+                // Apply max(0, x) = ReLU
+                let loss = diff_plus_margin.relu()?;
+
+                Ok(Value::Tensor(loss))
+            }
+
+            "binary_cross_entropy" => {
+                // binary_cross_entropy(score, target) -> Tensor
+                // BCE loss: -target * log(sigmoid(score)) - (1-target) * log(1-sigmoid(score))
+                // Used for binary classification of triples
+                if args.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("binary_cross_entropy() expects 2 arguments (score, target), got {}", args.len())
+                    ));
+                }
+
+                // Evaluate arguments
+                let score = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let target_val = self.eval_expr(&args[1])?;
+
+                // Parse target (0 or 1)
+                let target_f32 = match target_val {
+                    Value::Float(f) => f as f32,
+                    Value::Integer(i) => i as f32,
+                    _ => return Err(RuntimeError::TypeError(
+                        "binary_cross_entropy() target must be a number (0 or 1)".to_string()
+                    )),
+                };
+
+                // Apply sigmoid to score
+                let prob = score.sigmoid()?;
+
+                // Compute BCE: -target * log(prob) - (1-target) * log(1-prob)
+                // For numerical stability, use: target * log_sigmoid(score) + (1-target) * log_sigmoid(-score)
+                let device = self.env.metal_device();
+
+                // Get prob value as f32
+                let prob_data = prob.to_vec();
+                let prob_f32 = prob_data[0].to_f32();
+
+                // Compute log(prob) and log(1-prob) with numerical stability
+                let log_prob = if prob_f32 > 0.0 { prob_f32.ln() } else { -100.0 }; // Clamp to avoid -inf
+                let log_one_minus_prob = if prob_f32 < 1.0 { (1.0 - prob_f32).ln() } else { -100.0 };
+
+                // BCE = -target * log(prob) - (1-target) * log(1-prob)
+                let bce_f32 = -target_f32 * log_prob - (1.0 - target_f32) * log_one_minus_prob;
+                let bce_f16 = half::f16::from_f32(bce_f32);
+
+                // Create scalar tensor
+                let loss_tensor = Tensor::from_vec_metal(device, vec![bce_f16], vec![1])?;
+
+                Ok(Value::Tensor(loss_tensor))
+            }
+
             "print" => {
                 // print(value1, value2, ..., end: "\n", flush: false)
                 // For now, simple implementation
