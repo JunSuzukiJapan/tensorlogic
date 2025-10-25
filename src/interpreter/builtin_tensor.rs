@@ -14,6 +14,7 @@ impl Interpreter {
             "transpose" => Some(self.eval_transpose(args)),
             "broadcast_to" => Some(self.eval_broadcast_to(args)),
             "concat" => Some(self.eval_concat(args)),
+            "rope" => Some(self.eval_rope(args)),
             "zeros" | "flatten" | "permute" |
             "gather" | "scatter" | "chunk" | "split" |
             "squeeze" | "unsqueeze" => {
@@ -259,6 +260,41 @@ impl Interpreter {
         // Call Tensor::concat with two tensors
         let tensors = vec![tensor1, tensor2];
         let result = Tensor::concat(&tensors, dim)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(Value::Tensor(result))
+    }
+
+    /// rope(tensor) -> tensor
+    /// Apply Rotary Position Embedding (RoPE) to the tensor
+    ///
+    /// RoPE is used in LLaMA and other modern LLMs for position encoding.
+    /// Input tensor should be of shape [..., seq_len, n_heads, head_dim]
+    ///
+    /// # Arguments
+    /// * `tensor` - Input tensor (typically Q or K after reshaping to multi-head format)
+    ///
+    /// # Returns
+    /// Tensor with RoPE applied, same shape as input
+    ///
+    /// # Example
+    /// ```ignore
+    /// let Q_heads = reshape(Q, [seq_len, 32.0, 64.0])
+    /// let Q_rope = rope(Q_heads)  // Apply rotary position embedding
+    /// ```
+    fn eval_rope(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("rope() expects 1 argument (tensor), got {}", args.len())
+            ));
+        }
+
+        // Evaluate tensor argument
+        let tensor_val = self.eval_expr(&args[0])?;
+        let tensor = tensor_val.as_tensor()?;
+
+        // Apply RoPE
+        let result = tensor.rope()
             .map_err(|e| RuntimeError::TensorError(e))?;
 
         Ok(Value::Tensor(result))

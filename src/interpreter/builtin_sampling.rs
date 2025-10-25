@@ -106,6 +106,29 @@ impl Interpreter {
             }
         }
 
+        // Debug: Print logits statistics
+        if std::env::var("TL_DEBUG_SAMPLING").is_ok() {
+            eprintln!("\n=== Temperature Sample Debug ===");
+            eprintln!("  Logits shape: {:?}", dims);
+            eprintln!("  Vocab size: {}", vocab_size);
+            eprintln!("  Sampled token: {}", max_idx);
+            eprintln!("  Max logit value: {}", max_val);
+
+            // Find top 5 tokens
+            let mut top_tokens: Vec<(usize, f16)> = Vec::new();
+            for idx in 0..vocab_size {
+                let val = logits_data[start_idx + idx];
+                top_tokens.push((idx, val));
+            }
+            top_tokens.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            eprintln!("  Top 5 tokens:");
+            for (i, (token_id, logit_val)) in top_tokens.iter().take(5).enumerate() {
+                eprintln!("    {}: token={}, logit={}", i+1, token_id, logit_val);
+            }
+            eprintln!("================================\n");
+        }
+
         // Return token ID as integer
         Ok(Value::Integer(max_idx as i64))
     }

@@ -77,6 +77,11 @@ impl RuntimeEnvironment {
         self.variables.keys().cloned().collect()
     }
 
+    /// Clear all variables except the ones specified (for memory cleanup)
+    pub fn clear_except(&mut self, keep: &[String]) {
+        self.variables.retain(|k, _| keep.contains(k));
+    }
+
     /// Get current Metal device
     pub fn metal_device(&self) -> &MetalDevice {
         &self.metal_device

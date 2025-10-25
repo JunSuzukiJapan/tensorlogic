@@ -1,4 +1,4 @@
-// Debug: Check first transformer layer output
+// Test with BOS token only (simplest case)
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
@@ -24,11 +24,6 @@ fn tinyllama_gqa_attention(
     V: float16[?, ?],
     W_o: float16[?, ?]
 ) -> float16[?, ?] {
-    let num_q_heads = 32
-    let num_kv_heads = 4
-    let head_dim = 64
-    let group_size = 8
-
     let Q_shape_tensor = shape(Q)
     let seq_len_f = Q_shape_tensor[0]
 
@@ -40,7 +35,6 @@ fn tinyllama_gqa_attention(
     let K_heads = reshape(K, shape_K_heads)
     let V_heads = reshape(V, shape_V_heads)
 
-    // GQA: Expand K, V from 4 to 32 heads
     let shape_with_group = [seq_len_f, 4.0, 1.0, 64.0]
     let K_with_group = reshape(K_heads, shape_with_group)
     let V_with_group = reshape(V_heads, shape_with_group)
@@ -53,11 +47,9 @@ fn tinyllama_gqa_attention(
     let K_expanded = reshape(K_broadcast, shape_expanded)
     let V_expanded = reshape(V_broadcast, shape_expanded)
 
-    // Attention computation
     let scores = einsum("ihd,jhd->ihj", Q_heads, K_expanded)
     let scaled_scores = scores * 0.125
     let attn_weights = softmax(scaled_scores, 2)
-
     let attn_output = einsum("ihj,jhd->ihd", attn_weights, V_expanded)
 
     let d_model = 2048.0
@@ -90,17 +82,14 @@ fn transformer_layer(
 }
 
 main {
-    print("=== Debug: First Layer Output ===")
+    print("=== Debug: BOS Token Only ===")
     print("")
 
     let home = env("HOME")
     let model_path = home + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf"
     let model = load_model(model_path)
-    let tokenizer_path = home + "/.llm/tokenizers/tinyllama-tokenizer.json"
-    let tokenizer = load_tokenizer(tokenizer_path)
 
-    // Load first layer only
-    print("[1/2] Loading layer 0...")
+    print("[1/2] Loading first 2 layers...")
     let W_q_0 = get_tensor(model, "blk.0.attn_q.weight")
     let W_k_0 = get_tensor(model, "blk.0.attn_k.weight")
     let W_v_0 = get_tensor(model, "blk.0.attn_v.weight")
@@ -110,35 +99,43 @@ main {
     let W_up_0 = get_tensor(model, "blk.0.ffn_up.weight")
     let W_down_0 = get_tensor(model, "blk.0.ffn_down.weight")
     let ffn_norm_0 = get_tensor(model, "blk.0.ffn_norm.weight")
+
+    let W_q_1 = get_tensor(model, "blk.1.attn_q.weight")
+    let W_k_1 = get_tensor(model, "blk.1.attn_k.weight")
+    let W_v_1 = get_tensor(model, "blk.1.attn_v.weight")
+    let W_o_1 = get_tensor(model, "blk.1.attn_output.weight")
+    let attn_norm_1 = get_tensor(model, "blk.1.attn_norm.weight")
+    let W_gate_1 = get_tensor(model, "blk.1.ffn_gate.weight")
+    let W_up_1 = get_tensor(model, "blk.1.ffn_up.weight")
+    let W_down_1 = get_tensor(model, "blk.1.ffn_down.weight")
+    let ffn_norm_1 = get_tensor(model, "blk.1.ffn_norm.weight")
+
     let embed_table = get_tensor(model, "token_embd.weight")
     let output_norm = get_tensor(model, "output_norm.weight")
     let output_weight = get_tensor(model, "output.weight")
     print("   ✓ Loaded")
     print("")
 
-    // Tokenize
-    print("[2/2] Testing with 'Hi'...")
-    let tokens = tokenize(tokenizer, "Hi", true)
-    print("   Tokens:", tokens)
-    print("")
+    print("[2/2] Testing with BOS token only...")
+    let tokens = [1.0]  // BOS token
+    print("   Input tokens:", tokens)
 
-    // Get embeddings
     let e = embedding(embed_table, tokens)
     print("   Embedding shape:", shape(e))
 
-    // Pass through layer 0
     let h0 = transformer_layer(e, W_q_0, W_k_0, W_v_0, W_o_0, attn_norm_0, W_gate_0, W_up_0, W_down_0, ffn_norm_0)
-    print("   Layer 0 output shape:", shape(h0))
+    print("   Layer 0 shape:", shape(h0))
 
-    // Get logits
-    let final_norm = rms_norm(h0, output_norm)
+    let h1 = transformer_layer(h0, W_q_1, W_k_1, W_v_1, W_o_1, attn_norm_1, W_gate_1, W_up_1, W_down_1, ffn_norm_1)
+    print("   Layer 1 shape:", shape(h1))
+
+    let final_norm = rms_norm(h1, output_norm)
     let logits = matmul(final_norm, output_weight)
     print("   Logits shape:", shape(logits))
 
-    // Sample
     let token = temperature_sample(logits, 0.0)
     print("   Sampled token:", token)
     print("")
 
-    print("✅ First layer test complete!")
+    print("✅ BOS-only test complete!")
 }

@@ -41,30 +41,18 @@ pub struct Tensor {
 
 impl Tensor {
     /// Create a new tensor from buffer and shape
+    ///
+    /// Automatically extracts buffer_pool from Metal device for efficient memory management.
+    /// For Metal tensors, this enables automatic buffer recycling when the tensor is dropped.
     pub fn new(buffer: BufferHandle, shape: TensorShape, device: Device) -> TensorResult<Self> {
-        let expected_len = shape.numel();
-        let actual_len = buffer.len();
+        // Automatically get buffer_pool from Metal device
+        let buffer_pool = match &device {
+            Device::Metal(metal_device) => Some(metal_device.buffer_pool().clone()),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        };
 
-        if expected_len != actual_len {
-            return Err(TensorError::ShapeMismatch {
-                expected: vec![expected_len],
-                actual: vec![actual_len],
-            });
-        }
-
-        let strides = shape.compute_strides();
-
-        Ok(Self {
-            shape,
-            strides,
-            buffer,
-            device,
-            grad: None,
-            requires_grad: false,
-            grad_node: None,
-            version: 0,
-            buffer_pool: None,
-        })
+        Self::new_with_pool(buffer, shape, device, buffer_pool)
     }
 
     /// Create a new tensor with buffer pool support for automatic recycling

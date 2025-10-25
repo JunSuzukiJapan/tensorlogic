@@ -141,7 +141,7 @@ main {
 
     let final_norm_t1 = rms_norm(h1_t1, output_norm)
     let logits_t1 = matmul(final_norm_t1, output_weight)
-    let token_1 = temperature_sample(logits_t1, 0.8)
+    let token_1 = temperature_sample(logits_t1, 0.0)
 
     print("      Generated token 1: ", token_1)
     print("")
@@ -221,7 +221,7 @@ main {
 
     let final_norm_t2 = rms_norm(h1_t2, output_norm)
     let logits_t2 = matmul(final_norm_t2, output_weight)
-    let token_2 = temperature_sample(logits_t2, 0.8)
+    let token_2 = temperature_sample(logits_t2, 0.0)
 
     print("      Generated token 2: ", token_2)
     print("")

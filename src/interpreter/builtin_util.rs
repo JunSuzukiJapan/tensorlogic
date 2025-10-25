@@ -14,6 +14,7 @@ impl Interpreter {
             "str" => Some(self.eval_str(args)),
             "input" => Some(self.eval_input(args)),
             "env" => Some(self.eval_env(args)),
+            "cleanup" => Some(self.eval_cleanup(args)),
             _ => None,
         }
     }
@@ -227,5 +228,28 @@ impl Interpreter {
             ))?;
 
         Ok(Value::String(value))
+    }
+
+    /// cleanup(var1, var2, ...) -> void
+    /// Clear all variables except the ones specified
+    /// This allows GPU buffers to be recycled when tensors are dropped
+    /// Usage: cleanup("K_cache_0", "V_cache_0", "K_cache_1", ...)
+    fn eval_cleanup(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        // Parse all arguments as variable names to keep
+        let mut keep_vars = Vec::new();
+        for arg in args {
+            let val = self.eval_expr(arg)?;
+            match val {
+                Value::String(s) => keep_vars.push(s),
+                _ => return Err(RuntimeError::TypeError(
+                    "cleanup() arguments must be strings (variable names)".to_string()
+                )),
+            }
+        }
+
+        // Clear all variables except the ones in keep_vars
+        self.env.clear_except(&keep_vars);
+
+        Ok(Value::Void)
     }
 }

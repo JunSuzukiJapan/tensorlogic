@@ -192,11 +192,13 @@ impl Tensor {
             let offset = batch * last_dim;
 
             // Find max for numerical stability
+            // Handle NaN values and empty slices safely
             let max_val = input[offset..offset + last_dim]
                 .iter()
                 .copied()
-                .max_by(|a, b| a.partial_cmp(b).unwrap())
-                .unwrap();
+                .filter(|x| !x.is_nan())  // Filter out NaN values
+                .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .unwrap_or(f16::ZERO);  // Default to 0 if empty or all NaN
 
             // Compute exp and sum
             let mut sum = f16::ZERO;

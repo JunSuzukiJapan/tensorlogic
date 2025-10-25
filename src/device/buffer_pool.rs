@@ -54,6 +54,35 @@ impl std::fmt::Debug for BufferPool {
     }
 }
 
+/// Get the size class for a given length (in f16 elements)
+///
+/// Uses power-of-2 size classes with a minimum of 1024 elements to reduce fragmentation
+/// and improve buffer reuse rates.
+fn get_size_class(length: usize) -> usize {
+    const SIZE_CLASSES: &[usize] = &[
+        1024,      // 2 KB
+        2048,      // 4 KB
+        4096,      // 8 KB
+        8192,      // 16 KB
+        16384,     // 32 KB
+        32768,     // 64 KB
+        65536,     // 128 KB
+        131072,    // 256 KB
+        262144,    // 512 KB
+        524288,    // 1 MB
+        1048576,   // 2 MB
+        2097152,   // 4 MB
+        4194304,   // 8 MB
+        8388608,   // 16 MB
+    ];
+
+    SIZE_CLASSES
+        .iter()
+        .find(|&&size| size >= length)
+        .copied()
+        .unwrap_or(length) // For very large buffers, use exact size
+}
+
 impl BufferPool {
     /// Create a new buffer pool
     pub fn new(device: &MTLDevice) -> Self {
@@ -78,13 +107,23 @@ impl BufferPool {
     /// Allocate a MetalBuffer from the pool or create a new one
     ///
     /// # Arguments
-    /// * `length` - Number of f16 elements
+    /// * `length` - Number of f16 elements (requested size)
+    ///
+    /// Uses size-class pooling to improve buffer reuse rates.
+    /// The actual allocated buffer may be larger than requested.
     pub fn allocate(&self, length: usize) -> TensorResult<MetalBuffer> {
+        let size_class = get_size_class(length);
+
         let mut pools = self.pools.lock().unwrap();
         let mut stats = self.stats.lock().unwrap();
 
-        // Try to reuse an existing buffer (pop removes the last/most recent one)
-        if let Some(buffers) = pools.get_mut(&length) {
+        // Debug logging
+        if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+            eprintln!("[BufferPool::allocate] requested={}, size_class={}", length, size_class);
+        }
+
+        // Try to reuse an existing buffer from the size class
+        if let Some(buffers) = pools.get_mut(&size_class) {
             if let Some((buffer, _last_used)) = buffers.pop() {
                 stats.reuse_count += 1;
 
@@ -97,14 +136,18 @@ impl BufferPool {
                     self.check_and_shrink();
                 }
 
+                if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+                    eprintln!("[BufferPool::allocate] ✓ reused buffer from pool, size_class={}", size_class);
+                }
+
                 return Ok(MetalBuffer {
                     buffer,
-                    length,
+                    length,  // Store requested length, not size_class
                 });
             }
         }
 
-        // Create a new buffer
+        // Create a new buffer with size_class capacity
         stats.allocation_count += 1;
 
         // Periodically check and shrink (every 100 allocations)
@@ -112,11 +155,17 @@ impl BufferPool {
 
         drop(stats); // Release stats lock before allocation
 
-        let byte_length = length * std::mem::size_of::<f16>();
+        // Allocate buffer with size_class capacity (not exact requested length)
+        let byte_length = size_class * std::mem::size_of::<f16>();
         let buffer = self.device.new_buffer(
             byte_length as u64,
             MTLResourceOptions::StorageModeShared,
         );
+
+        if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+            eprintln!("[BufferPool::allocate] ✗ new allocation, size_class={}, bytes={}",
+                     size_class, byte_length);
+        }
 
         // Periodically check and shrink after allocation
         if should_check {
@@ -125,7 +174,7 @@ impl BufferPool {
 
         Ok(MetalBuffer {
             buffer: Arc::new(buffer),
-            length,
+            length,  // Store requested length, not size_class
         })
     }
 
@@ -146,17 +195,39 @@ impl BufferPool {
     ///
     /// Returns true if the buffer was added to the pool, false otherwise
     /// (e.g., if the pool is full for this size class)
+    ///
+    /// Uses size-class pooling - the buffer is stored in its size class,
+    /// not by its exact length, to improve reuse rates.
     pub fn recycle(&self, buffer: MetalBuffer) -> bool {
+        // Get the actual buffer capacity (not the requested length)
+        let actual_capacity = (buffer.buffer.length() as usize) / std::mem::size_of::<f16>();
+        let size_class = get_size_class(actual_capacity);
+
         let mut pools = self.pools.lock().unwrap();
 
-        let buffers = pools.entry(buffer.length).or_insert_with(Vec::new);
+        if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+            eprintln!("[BufferPool::recycle] buffer.length={}, actual_capacity={}, size_class={}",
+                     buffer.length, actual_capacity, size_class);
+        }
+
+        let buffers = pools.entry(size_class).or_insert_with(Vec::new);
 
         // Only add if we haven't reached the limit
         if buffers.len() < self.max_buffers_per_size {
             // Record current time as last access time
             buffers.push((buffer.buffer, Instant::now()));
+
+            if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+                eprintln!("[BufferPool::recycle] ✓ added to pool, size_class={}, pool_size={}",
+                         size_class, buffers.len());
+            }
+
             true
         } else {
+            if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+                eprintln!("[BufferPool::recycle] ✗ pool full, size_class={}, limit={}",
+                         size_class, self.max_buffers_per_size);
+            }
             false
         }
     }

@@ -16,6 +16,7 @@ pub mod indexing;
 pub mod masking;
 pub mod batch_norm;
 pub mod dropout;
+pub mod rope;
 
 // Re-export commonly used types
 pub use fused::Activation;
