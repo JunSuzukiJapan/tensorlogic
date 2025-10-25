@@ -140,6 +140,18 @@ impl BufferPool {
                     eprintln!("[BufferPool::allocate] ✓ reused buffer from pool, size_class={}", size_class);
                 }
 
+                // CRITICAL FIX: Zero out the buffer to prevent stale data corruption
+                // This fixes non-deterministic behavior where old computation results
+                // would leak into new tensors
+                unsafe {
+                    let ptr = buffer.contents() as *mut f16;
+                    std::ptr::write_bytes(ptr, 0, length);
+                }
+
+                if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+                    eprintln!("[BufferPool::allocate] ✓ zeroed reused buffer, length={}", length);
+                }
+
                 return Ok(MetalBuffer {
                     buffer,
                     length,  // Store requested length, not size_class
