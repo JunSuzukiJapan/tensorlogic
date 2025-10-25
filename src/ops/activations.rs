@@ -240,7 +240,7 @@ impl Tensor {
 
         // Create tensor on the same device as the input
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal_pooled(dev, output, self.shape().dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, output, self.shape().dims().to_vec()),
             _ => Tensor::from_vec(output, self.shape().dims().to_vec()),
         }
     }
