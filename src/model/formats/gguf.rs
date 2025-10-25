@@ -220,11 +220,21 @@ impl GGUFLoader {
             let name = tensor_info.name.clone();
             let mut shape: Vec<usize> = tensor_info.shape.dimensions.iter().map(|&d| d as usize).collect();
 
-            // GGUF stores dimensions in reversed order
-            // Reference: https://github.com/ggml-org/llama.cpp/issues/6040
-            // Candle reverses ALL tensor dimensions unconditionally
-            // This matches the behavior of other GGUF loaders
-            shape.reverse();
+            // GGUF dimensions handling
+            // gguf-rs returns dimensions as-is from file (which are in reverse order per GGUF spec)
+            // We need to reverse to get PyTorch-style dimensions:
+            // - All 2D+ tensors: REVERSE (weight matrices stored as transposed in GGUF)
+            // - 1D tensors: NO reverse (normalization weights, stored correctly)
+            //
+            // Examples:
+            // - token_embd.weight: [2048, 32000] → [32000, 2048] for embedding()
+            // - attn_k.weight: [2048, 256] → [256, 2048] for linear() which transposes internally
+            // - attn_norm.weight: [2048] → [2048] (1D, no change)
+
+            let needs_reverse = shape.len() > 1;  // Reverse all multi-dimensional tensors
+            if needs_reverse {
+                shape.reverse();
+            }
 
             // Load and dequantize based on tensor type
             let f16_data = match tensor_info.tensor_type {
