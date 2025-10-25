@@ -7,8 +7,9 @@ impl Interpreter {
     pub(super) fn eval_math_function(&mut self, name: &str, args: &[TensorExpr]) -> Option<RuntimeResult<Value>> {
         match name {
             "matmul" => Some(self.eval_matmul(args)),
+            "linear" => Some(self.eval_linear(args)),
             "sigmoid" => Some(self.eval_sigmoid(args)),
-            "sum" | "mean" | "max" | "min" | "pow" |
+            "mean" | "max" | "min" | "pow" |
             "relu" | "gelu" | "tanh" | "exp" | "log" | "sqrt" |
             "sin" | "cos" | "tan" => {
                 Some(Err(RuntimeError::NotImplemented(
@@ -38,6 +39,48 @@ impl Interpreter {
         // Perform matrix multiplication
         let result = a.matmul(&b)
             .map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(Value::Tensor(result))
+    }
+
+    /// linear(x, weight, bias) -> tensor
+    /// Linear transformation: y = x @ weight.T + bias
+    /// Automatically transposes weight matrix like PyTorch/Candle
+    ///
+    /// Args:
+    ///   x: input tensor [batch, in_features] or [in_features]
+    ///   weight: weight matrix [out_features, in_features] (GGUF format after reverse)
+    ///   bias: optional bias vector [out_features]
+    fn eval_linear(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() < 2 || args.len() > 3 {
+            return Err(RuntimeError::TypeError(
+                format!("linear() expects 2-3 arguments (x, weight, [bias]), got {}", args.len())
+            ));
+        }
+
+        // Evaluate input tensor
+        let x_val = self.eval_expr(&args[0])?;
+        let x = x_val.as_tensor()?;
+
+        // Evaluate weight tensor
+        let weight_val = self.eval_expr(&args[1])?;
+        let weight = weight_val.as_tensor()?;
+
+        // Transpose weight: [out_features, in_features] -> [in_features, out_features]
+        let weight_t = weight.transpose()
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        // Compute x @ weight.T
+        let mut result = x.matmul(&weight_t)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        // Add bias if provided
+        if args.len() == 3 {
+            let bias_val = self.eval_expr(&args[2])?;
+            let bias = bias_val.as_tensor()?;
+            result = result.add(&bias)
+                .map_err(|e| RuntimeError::TensorError(e))?;
+        }
 
         Ok(Value::Tensor(result))
     }

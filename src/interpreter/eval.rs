@@ -646,6 +646,76 @@ impl Interpreter {
                     ))
                 }
             }
+
+            TensorExpr::PropertyAccess { object, property } => {
+                // Evaluate the object expression
+                let obj_value = self.eval_expr(object)?;
+
+                // Access the property based on object type
+                match obj_value {
+                    Value::Model(ref model) => {
+                        // Access model tensors by name
+                        // Common property names: tok_embeddings, output, norm, etc.
+                        let tensor_name = property.as_str();
+
+                        if let Some(tensor) = model.get_tensor(tensor_name) {
+                            Ok(Value::Tensor(tensor.clone()))
+                        } else {
+                            Err(RuntimeError::InvalidOperation(
+                                format!("Model does not have tensor '{}'", tensor_name)
+                            ))
+                        }
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        format!("Cannot access property '{}' on {:?}", property.as_str(), obj_value)
+                    ))
+                }
+            }
+
+            TensorExpr::MethodCall { object, method, args } => {
+                // Evaluate the object expression
+                let obj_value = self.eval_expr(object)?;
+
+                // Call method based on object type
+                match method.as_str() {
+                    "shape" => {
+                        // Call shape() method - returns Tensor
+                        match obj_value {
+                            Value::Tensor(ref t) => {
+                                // Create shape tensor from dimensions
+                                use half::f16;
+                                let shape_data: Vec<f16> = t.shape().dims().iter()
+                                    .map(|&d| f16::from_f32(d as f32))
+                                    .collect();
+                                let device = t.device().clone();
+                                let shape_tensor = match &device {
+                                    crate::device::Device::Metal(metal_device) => {
+                                        crate::tensor::Tensor::from_vec_metal(metal_device, shape_data, vec![t.shape().dims().len()])
+                                    }
+                                    crate::device::Device::CPU => {
+                                        crate::tensor::Tensor::from_vec(shape_data, vec![t.shape().dims().len()])
+                                    }
+                                    crate::device::Device::NeuralEngine => {
+                                        crate::tensor::Tensor::from_vec(shape_data, vec![t.shape().dims().len()])
+                                    }
+                                }.map_err(|e| RuntimeError::TensorError(e))?;
+                                Ok(Value::Tensor(shape_tensor))
+                            }
+                            _ => Err(RuntimeError::TypeError(
+                                format!("Cannot call shape() on {:?}", obj_value)
+                            ))
+                        }
+                    }
+                    _ => {
+                        // For other methods, try calling as a regular function with object as first argument
+                        // Build argument list by prepending the object to the method arguments
+                        let mut final_args = vec![(**object).clone()];
+                        final_args.extend_from_slice(args);
+
+                        self.eval_function_call(&Identifier::new(method.as_str()), &final_args)
+                    }
+                }
+            }
         }
     }
 
@@ -670,8 +740,12 @@ impl Interpreter {
 
     /// Evaluate an array literal to a tensor
     pub(super) fn eval_array_literal(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Value> {
+        // Support empty arrays - return empty Tensor
         if elements.is_empty() {
-            return Err(RuntimeError::InvalidOperation("Empty array not allowed".to_string()));
+            use half::f16;
+            let tensor = Tensor::from_vec_metal(self.env.metal_device(), vec![], vec![0])
+                .map_err(|e| RuntimeError::TensorError(e))?;
+            return Ok(Value::Tensor(tensor));
         }
 
         // Recursively collect all scalar values
@@ -680,13 +754,11 @@ impl Interpreter {
         // Determine shape
         let shape = self.infer_shape(elements)?;
 
-        // Convert f32 to f16
+        // Always create Tensor for array literals (not TokenIdArray)
+        // Convert f32 to f16 for all values
         let f16_values: Vec<f16> = values.into_iter().map(f16::from_f32).collect();
-
-        // Create tensor from values
         let tensor = Tensor::from_vec_metal(self.env.metal_device(), f16_values, shape)
             .map_err(|e| RuntimeError::TensorError(e))?;
-
         Ok(Value::Tensor(tensor))
     }
 

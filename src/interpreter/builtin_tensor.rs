@@ -15,6 +15,7 @@ impl Interpreter {
             "broadcast_to" => Some(self.eval_broadcast_to(args)),
             "concat" => Some(self.eval_concat(args)),
             "rope" => Some(self.eval_rope(args)),
+            "slice" => Some(self.eval_slice(args)),
             "zeros" | "flatten" | "permute" |
             "gather" | "scatter" | "chunk" | "split" |
             "squeeze" | "unsqueeze" => {
@@ -35,9 +36,9 @@ impl Interpreter {
             ));
         }
 
-        // Evaluate tensor argument
-        let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?;
+        // Evaluate argument and get tensor
+        let val = self.eval_expr(&args[0])?;
+        let tensor = val.as_tensor()?;
 
         // Get dimensions
         let dims = tensor.dims();
@@ -122,7 +123,7 @@ impl Interpreter {
                 data.iter().map(|&v| v as usize).collect::<Vec<_>>()
             }
             _ => return Err(RuntimeError::TypeError(
-                format!("reshape() expects new_shape as array, got {:?}", shape_val)
+                format!("reshape() expects new_shape as tensor, got {:?}", shape_val)
             )),
         };
 
@@ -187,7 +188,7 @@ impl Interpreter {
                 data.iter().map(|&v| v as usize).collect::<Vec<_>>()
             }
             _ => return Err(RuntimeError::TypeError(
-                format!("broadcast_to() expects target_shape as array, got {:?}", shape_val)
+                format!("broadcast_to() expects target_shape as tensor, got {:?}", shape_val)
             )),
         };
 
@@ -222,21 +223,29 @@ impl Interpreter {
             ));
         }
 
-        // Evaluate first tensor
-        let tensor1_val = self.eval_expr(&args[0])?;
-        let tensor1 = match tensor1_val {
+        // Evaluate first argument
+        let val1 = self.eval_expr(&args[0])?;
+        let val2 = self.eval_expr(&args[1])?;
+
+        // Handle TokenIdArray concatenation (for token sequences)
+        if let (Value::TokenIdArray(arr1), Value::TokenIdArray(arr2)) = (&val1, &val2) {
+            let result = arr1.concat(arr2)
+                .map_err(|e| RuntimeError::TypeError(format!("TokenIdArray concat failed: {}", e)))?;
+            return Ok(Value::TokenIdArray(result));
+        }
+
+        // Handle Tensor concatenation
+        let tensor1 = match val1 {
             Value::Tensor(ref t) => t,
             _ => return Err(RuntimeError::TypeError(
-                format!("concat() expects first argument to be a tensor, got {:?}", tensor1_val)
+                format!("concat() expects first argument to be a tensor or token array, got {:?}", val1)
             )),
         };
 
-        // Evaluate second tensor
-        let tensor2_val = self.eval_expr(&args[1])?;
-        let tensor2 = match tensor2_val {
+        let tensor2 = match val2 {
             Value::Tensor(ref t) => t,
             _ => return Err(RuntimeError::TypeError(
-                format!("concat() expects second argument to be a tensor, got {:?}", tensor2_val)
+                format!("concat() expects second argument to be a tensor or token array, got {:?}", val2)
             )),
         };
 
@@ -280,12 +289,13 @@ impl Interpreter {
     /// # Example
     /// ```ignore
     /// let Q_heads = reshape(Q, [seq_len, 32.0, 64.0])
-    /// let Q_rope = rope(Q_heads)  // Apply rotary position embedding
+    /// let Q_rope = rope(Q_heads)  // Apply rotary position embedding with position_offset=0
+    /// let Q_rope = rope(Q_heads, 29)  // Apply RoPE starting at position 29 (for KV cache)
     /// ```
     fn eval_rope(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
-        if args.len() != 1 {
+        if args.len() < 1 || args.len() > 2 {
             return Err(RuntimeError::TypeError(
-                format!("rope() expects 1 argument (tensor), got {}", args.len())
+                format!("rope() expects 1 or 2 arguments (tensor, [position_offset]), got {}", args.len())
             ));
         }
 
@@ -293,10 +303,240 @@ impl Interpreter {
         let tensor_val = self.eval_expr(&args[0])?;
         let tensor = tensor_val.as_tensor()?;
 
-        // Apply RoPE
-        let result = tensor.rope()
+        // Get position offset (default 0 for backward compatibility)
+        let position_offset = if args.len() == 2 {
+            let offset_val = self.eval_expr(&args[1])?;
+            match offset_val {
+                Value::Float(f) => f as usize,
+                Value::Integer(i) => i as usize,
+                Value::Tensor(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+                Value::TokenIdArray(ref arr) if arr.len() == 1 => arr.get(0).unwrap() as usize,
+                _ => return Err(RuntimeError::TypeError(
+                    "rope() position_offset must be a scalar integer".to_string()
+                )),
+            }
+        } else {
+            0  // Default to 0 if not provided
+        };
+
+        // Apply RoPE with position offset
+        let result = tensor.rope(position_offset)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
         Ok(Value::Tensor(result))
+    }
+
+    /// slice(tensor, row, col_start, col_end) -> tensor
+    /// Extract a slice from a 2D tensor (specific row, column range)
+    ///
+    /// # Arguments
+    /// * `tensor` - Input 2D tensor
+    /// * `row` - Row index to extract
+    /// * `col_start` - Starting column index (inclusive)
+    /// * `col_end` - Ending column index (exclusive)
+    ///
+    /// # Returns
+    /// 1D tensor containing the specified slice
+    ///
+    /// # Example
+    /// ```ignore
+    /// let data = [[1, 2, 3, 4], [5, 6, 7, 8]]
+    /// let row0_cols = slice(data, 0, 0, 3)  // [1, 2, 3]
+    /// let row1_cols = slice(data, 1, 1, 4)  // [6, 7, 8]
+    /// ```
+    fn eval_slice(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        // Support both 3-arg (1D slice) and 4-arg (2D slice) variants
+        if args.len() == 3 {
+            // 1D slice: slice(array, start, end)
+            return self.eval_slice_1d(args);
+        } else if args.len() != 4 {
+            return Err(RuntimeError::TypeError(
+                format!("slice() expects 3 arguments (array, start, end) for 1D or 4 arguments (tensor, row, col_start, col_end) for 2D, got {}", args.len())
+            ));
+        }
+
+        // Evaluate tensor argument
+        let tensor_val = self.eval_expr(&args[0])?;
+        let tensor = tensor_val.as_tensor()?;
+
+        // Check tensor is 2D
+        let dims = tensor.dims();
+        if dims.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("slice() expects 2D tensor, got {}D tensor", dims.len())
+            ));
+        }
+
+        let rows = dims[0];
+        let cols = dims[1];
+
+        // Evaluate row argument
+        let row_val = self.eval_expr(&args[1])?;
+        let row = match row_val {
+            Value::Float(f) => f as usize,
+            Value::Tensor(ref t) => {
+                if t.numel() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("slice() expects row as scalar, got tensor with {} elements", t.numel())
+                    ));
+                }
+                t.to_vec_f32()[0] as usize
+            }
+            _ => return Err(RuntimeError::TypeError(
+                format!("slice() expects row as scalar, got {:?}", row_val)
+            )),
+        };
+
+        // Evaluate col_start argument
+        let col_start_val = self.eval_expr(&args[2])?;
+        let col_start = match col_start_val {
+            Value::Float(f) => f as usize,
+            Value::Tensor(ref t) => {
+                if t.numel() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("slice() expects col_start as scalar, got tensor with {} elements", t.numel())
+                    ));
+                }
+                t.to_vec_f32()[0] as usize
+            }
+            _ => return Err(RuntimeError::TypeError(
+                format!("slice() expects col_start as scalar, got {:?}", col_start_val)
+            )),
+        };
+
+        // Evaluate col_end argument
+        let col_end_val = self.eval_expr(&args[3])?;
+        let col_end = match col_end_val {
+            Value::Float(f) => f as usize,
+            Value::Tensor(ref t) => {
+                if t.numel() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("slice() expects col_end as scalar, got tensor with {} elements", t.numel())
+                    ));
+                }
+                t.to_vec_f32()[0] as usize
+            }
+            _ => return Err(RuntimeError::TypeError(
+                format!("slice() expects col_end as scalar, got {:?}", col_end_val)
+            )),
+        };
+
+        // Validate indices
+        if row >= rows {
+            return Err(RuntimeError::TypeError(
+                format!("slice() row index {} out of bounds (tensor has {} rows)", row, rows)
+            ));
+        }
+        if col_start >= cols || col_end > cols {
+            return Err(RuntimeError::TypeError(
+                format!("slice() column range [{}, {}) out of bounds (tensor has {} columns)", col_start, col_end, cols)
+            ));
+        }
+        if col_start >= col_end {
+            return Err(RuntimeError::TypeError(
+                format!("slice() invalid range: col_start ({}) must be < col_end ({})", col_start, col_end)
+            ));
+        }
+
+        // Get tensor data
+        let data = tensor.to_vec();
+
+        // Extract the slice
+        let offset = row * cols + col_start;
+        let length = col_end - col_start;
+        let slice_data: Vec<f16> = data[offset..offset + length].to_vec();
+
+        // Create 1D tensor with the slice
+        let device = tensor.device().clone();
+        let result_tensor = match &device {
+            crate::device::Device::Metal(metal_device) => {
+                Tensor::from_vec_metal(metal_device, slice_data, vec![length])
+            }
+            crate::device::Device::CPU => {
+                Tensor::from_vec(slice_data, vec![length])
+            }
+            crate::device::Device::NeuralEngine => {
+                // Fallback to CPU for NeuralEngine
+                Tensor::from_vec(slice_data, vec![length])
+            }
+        }.map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(Value::Tensor(result_tensor))
+    }
+
+    /// 1D slice: slice(array, start, end)
+    fn eval_slice_1d(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        // Evaluate array argument
+        let array_val = self.eval_expr(&args[0])?;
+
+        // Get start index
+        let start_val = self.eval_expr(&args[1])?;
+        let start = match start_val {
+            Value::Float(f) => f as usize,
+            Value::Integer(i) => i as usize,
+            Value::Tensor(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TokenIdArray(ref arr) if arr.len() == 1 => arr.get(0).unwrap() as usize,
+            _ => return Err(RuntimeError::TypeError(
+                format!("slice() start index must be scalar, got {:?}", start_val)
+            )),
+        };
+
+        // Get end index
+        let end_val = self.eval_expr(&args[2])?;
+        let end = match end_val {
+            Value::Float(f) => f as usize,
+            Value::Integer(i) => i as usize,
+            Value::Tensor(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TokenIdArray(ref arr) if arr.len() == 1 => arr.get(0).unwrap() as usize,
+            _ => return Err(RuntimeError::TypeError(
+                format!("slice() end index must be scalar, got {:?}", end_val)
+            )),
+        };
+
+        // Handle TokenIdArray
+        if let Value::TokenIdArray(arr) = &array_val {
+            let sliced = arr.slice(start, end)
+                .map_err(|e| RuntimeError::TypeError(format!("TokenIdArray slice failed: {}", e)))?;
+            return Ok(Value::TokenIdArray(sliced));
+        }
+
+        // Handle Tensor (1D)
+        let tensor = array_val.as_tensor()?;
+        let dims = tensor.dims();
+
+        if dims.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("1D slice() expects 1D tensor or TokenIdArray, got {}D tensor", dims.len())
+            ));
+        }
+
+        let len = dims[0];
+
+        // Validate indices
+        if start >= len || end > len || start >= end {
+            return Err(RuntimeError::TypeError(
+                format!("slice() indices out of bounds: start={}, end={}, length={}", start, end, len)
+            ));
+        }
+
+        // Extract slice from tensor
+        let data = tensor.to_vec();
+        let slice_data: Vec<_> = data[start..end].to_vec();
+        let length = end - start;
+
+        // Create result tensor on same device
+        let result_tensor = match tensor.device() {
+            crate::device::Device::Metal(metal_device) => {
+                Tensor::from_vec_metal(metal_device, slice_data, vec![length])
+            }
+            crate::device::Device::CPU => {
+                Tensor::from_vec(slice_data, vec![length])
+            }
+            crate::device::Device::NeuralEngine => {
+                Tensor::from_vec(slice_data, vec![length])
+            }
+        }.map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(Value::Tensor(result_tensor))
     }
 }
