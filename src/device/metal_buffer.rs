@@ -67,6 +67,13 @@ impl MetalBuffer {
         pool.allocate_zeros(length)
     }
 
+    /// Create a new Metal buffer from f16 slice using pool
+    pub fn from_vec_pooled(pool: &BufferPool, data: &[f16]) -> TensorResult<Self> {
+        let mut buffer = pool.allocate(data.len())?;
+        buffer.write_from_slice(data)?;
+        Ok(buffer)
+    }
+
     /// Get the buffer length (number of f16 elements)
     pub fn len(&self) -> usize {
         self.length

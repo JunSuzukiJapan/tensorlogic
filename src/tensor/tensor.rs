@@ -144,6 +144,32 @@ impl Tensor {
         Self::new(buffer, shape, Device::Metal(device.clone()))
     }
 
+    /// Create a tensor from f16 vector on Metal device using buffer pool
+    pub fn from_vec_metal_pooled(
+        device: &MetalDevice,
+        data: Vec<f16>,
+        shape: Vec<usize>,
+    ) -> TensorResult<Self> {
+        let shape = TensorShape::new(shape);
+
+        if data.len() != shape.numel() {
+            return Err(TensorError::ShapeMismatch {
+                expected: vec![shape.numel()],
+                actual: vec![data.len()],
+            });
+        }
+
+        let metal_buffer = MetalBuffer::from_vec_pooled(device.buffer_pool(), &data)?;
+        let buffer = BufferHandle::Metal(metal_buffer);
+
+        Self::new_with_pool(
+            buffer,
+            shape,
+            Device::Metal(device.clone()),
+            Some(device.buffer_pool().clone()),
+        )
+    }
+
     /// Create a tensor filled with zeros on Metal device
     pub fn zeros(device: &MetalDevice, shape: Vec<usize>) -> TensorResult<Self> {
         let shape = TensorShape::new(shape);

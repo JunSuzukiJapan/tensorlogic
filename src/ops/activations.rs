@@ -177,6 +177,16 @@ impl Tensor {
         let input = self.to_vec();
         let dims = self.shape().dims();
 
+        // Debug: Check for NaN in input
+        if std::env::var("TL_DEBUG_SOFTMAX").is_ok() {
+            let nan_count = input.iter().filter(|x| x.is_nan()).count();
+            let inf_count = input.iter().filter(|x| x.is_infinite()).count();
+            if nan_count > 0 || inf_count > 0 {
+                eprintln!("⚠️  Softmax input contains NaN={} Inf={}", nan_count, inf_count);
+                eprintln!("   Input first 10: {:?}", &input[..input.len().min(10)]);
+            }
+        }
+
         if dims.is_empty() {
             return Err(TensorError::InvalidOperation(
                 "softmax requires non-empty tensor".to_string(),
@@ -192,31 +202,45 @@ impl Tensor {
             let offset = batch * last_dim;
 
             // Find max for numerical stability
-            // Handle NaN values and empty slices safely
+            // Handle NaN and Inf values and empty slices safely
             let max_val = input[offset..offset + last_dim]
                 .iter()
                 .copied()
-                .filter(|x| !x.is_nan())  // Filter out NaN values
+                .filter(|x| x.is_finite())  // Filter out NaN and Inf values
                 .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .unwrap_or(f16::ZERO);  // Default to 0 if empty or all NaN
+                .unwrap_or(f16::ZERO);  // Default to 0 if empty or all NaN/Inf
 
             // Compute exp and sum
+            // Replace Inf/NaN with 0 to prevent propagation
             let mut sum = f16::ZERO;
             for i in 0..last_dim {
-                let exp_val = f16::from_f32((input[offset + i] - max_val).to_f32().exp());
+                let val = input[offset + i];
+                let exp_val = if val.is_finite() {
+                    f16::from_f32((val - max_val).to_f32().exp())
+                } else {
+                    f16::ZERO  // Replace Inf/NaN with 0
+                };
                 output[offset + i] = exp_val;
                 sum += exp_val;
             }
 
             // Normalize
-            for i in 0..last_dim {
-                output[offset + i] /= sum;
+            // If sum is 0 or invalid, output uniform distribution
+            if sum.is_finite() && sum > f16::ZERO {
+                for i in 0..last_dim {
+                    output[offset + i] /= sum;
+                }
+            } else {
+                let uniform = f16::from_f32(1.0 / last_dim as f32);
+                for i in 0..last_dim {
+                    output[offset + i] = uniform;
+                }
             }
         }
 
         // Create tensor on the same device as the input
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, output, self.shape().dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal_pooled(dev, output, self.shape().dims().to_vec()),
             _ => Tensor::from_vec(output, self.shape().dims().to_vec()),
         }
     }
