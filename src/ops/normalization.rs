@@ -197,6 +197,7 @@ impl Tensor {
             let slice = &input[offset..offset + normalized_size];
 
             // Compute RMS: sqrt(mean(x^2) + eps)
+            // Use f32 for accumulation to avoid precision loss
             let sq_sum: f32 = slice.iter().map(|&x| {
                 let val = x.to_f32();
                 val * val
@@ -214,7 +215,7 @@ impl Tensor {
         }
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, output, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal_pooled(dev, output, self.dims().to_vec()),
             _ => Tensor::from_vec(output, self.dims().to_vec()),
         }
     }
@@ -469,7 +470,7 @@ impl Tensor {
         }
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, output, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal_pooled(dev, output, self.dims().to_vec()),
             _ => Tensor::from_vec(output, self.dims().to_vec()),
         }
     }
