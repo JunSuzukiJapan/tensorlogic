@@ -162,9 +162,11 @@ impl Tensor {
     ///
     /// Applies along the last dimension
     pub fn softmax(&self) -> TensorResult<Self> {
-        // For now, CPU-only implementation
-        // GPU version requires reduction operations
-        let mut result = self.softmax_cpu()?;
+        let mut result = if self.buffer().is_metal() {
+            self.softmax_metal()?
+        } else {
+            self.softmax_cpu()?
+        };
 
         let grad_fn = Box::new(SoftmaxBackward::new(result.clone()));
         record_unary_op(Operation::Softmax, grad_fn, self, &mut result);
@@ -172,20 +174,98 @@ impl Tensor {
         Ok(result)
     }
 
+    /// Metal GPU implementation of softmax
+    fn softmax_metal(&self) -> TensorResult<Self> {
+        use crate::device::{Device, MetalBuffer};
+
+        let dims = self.shape().dims();
+        if dims.is_empty() {
+            return Err(TensorError::InvalidOperation(
+                "softmax requires non-empty tensor".to_string(),
+            ));
+        }
+
+        let last_dim = dims[dims.len() - 1];
+        let batch_size = self.numel() / last_dim;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        // Load shader if not already loaded
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/softmax.metal");
+            device.load_library(shader_source)?;
+        }
+
+        // Choose kernel based on last_dim size
+        let kernel_name = if last_dim <= 256 {
+            "softmax_simple_f16"
+        } else {
+            "softmax_f16"
+        };
+
+        let input_buf = self.buffer().as_metal()?;
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+
+        // Create buffer for last_dim parameter (as u32, matching Metal shader)
+        let last_dim_u32 = last_dim as u32;
+        let last_dim_buf = device.metal_device().new_buffer_with_data(
+            &last_dim_u32 as *const u32 as *const std::ffi::c_void,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        // Get pipeline
+        let library_ref = device.library();
+        let library = library_ref.as_ref().ok_or_else(|| {
+            TensorError::MetalError("Library not loaded".to_string())
+        })?;
+        let pipeline = library
+            .get_function(kernel_name, None)
+            .map_err(|e| {
+                TensorError::MetalError(format!("Failed to get kernel {}: {:?}", kernel_name, e))
+            })?;
+
+        let pipeline_state = device
+            .metal_device()
+            .new_compute_pipeline_state_with_function(&pipeline)
+            .map_err(|e| {
+                TensorError::MetalError(format!("Failed to create pipeline: {:?}", e))
+            })?;
+
+        // Execute kernel
+        let command_queue = device.command_queue();
+        let command_buffer = command_queue.new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline_state);
+        encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
+        encoder.set_buffer(1, Some(result_buf.metal_buffer()), 0);
+        encoder.set_buffer(2, Some(&last_dim_buf), 0);
+
+        // For now, always use simple kernel (dispatch_threads)
+        // TODO: Implement threadgroup dispatch when needed for large dimensions
+        use metal::MTLSize;
+        let grid_size = MTLSize::new(batch_size as u64, 1, 1);
+        let threadgroup_size = MTLSize::new(1, 1, 1);
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        self.new_from_pool(
+            crate::tensor::BufferHandle::Metal(result_buf),
+            self.shape().clone(),
+        )
+    }
+
     /// CPU implementation of softmax
     fn softmax_cpu(&self) -> TensorResult<Self> {
         let input = self.to_vec();
         let dims = self.shape().dims();
-
-        // Debug: Check for NaN in input
-        if std::env::var("TL_DEBUG_SOFTMAX").is_ok() {
-            let nan_count = input.iter().filter(|x| x.is_nan()).count();
-            let inf_count = input.iter().filter(|x| x.is_infinite()).count();
-            if nan_count > 0 || inf_count > 0 {
-                eprintln!("⚠️  Softmax input contains NaN={} Inf={}", nan_count, inf_count);
-                eprintln!("   Input first 10: {:?}", &input[..input.len().min(10)]);
-            }
-        }
 
         if dims.is_empty() {
             return Err(TensorError::InvalidOperation(
