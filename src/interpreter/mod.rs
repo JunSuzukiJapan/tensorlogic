@@ -1308,7 +1308,7 @@ impl Interpreter {
             "embedding" => {
                 // embedding(embedding_table, token_ids) -> Tensor
                 // embedding_table: [d_model, vocab_size] (GGUF format)
-                // token_ids: TokenIds or Tensor with shape [seq_len] or [batch, seq_len]
+                // token_ids: TokenIds, TokenIdArray, or Tensor with shape [seq_len] or [batch, seq_len]
                 // output: [seq_len, d_model] or [batch, seq_len, d_model]
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
@@ -1318,28 +1318,35 @@ impl Interpreter {
 
                 let embedding_table = self.eval_expr(&args[0])?.as_tensor()?.clone();
 
-                // Convert token_ids to tensor
-                let token_ids_tensor = match self.eval_expr(&args[1])? {
+                // Handle different token_ids types
+                let output = match self.eval_expr(&args[1])? {
+                    Value::TokenIdArray(ref arr) => {
+                        // Use embedding_from_token_ids() to avoid f16 precision loss
+                        embedding_table.embedding_from_token_ids(arr)
+                            .map_err(|e| RuntimeError::TensorError(e))?
+                    }
                     Value::TokenIds(ids) => {
-                        // Convert Vec<u32> to f16 tensor
+                        // Convert Vec<u32> to f16 tensor (legacy support)
                         let token_data: Vec<half::f16> = ids.iter()
                             .map(|&id| half::f16::from_f32(id as f32))
                             .collect();
-                        crate::tensor::Tensor::from_vec_metal(
+                        let token_ids_tensor = crate::tensor::Tensor::from_vec_metal(
                             self.env.metal_device(),
                             token_data,
                             vec![ids.len()]
-                        ).map_err(|e| RuntimeError::TensorError(e))?
+                        ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                        embedding_table.embedding(&token_ids_tensor)
+                            .map_err(|e| RuntimeError::TensorError(e))?
                     }
-                    Value::Tensor(t) => t,
+                    Value::Tensor(t) => {
+                        embedding_table.embedding(&t)
+                            .map_err(|e| RuntimeError::TensorError(e))?
+                    }
                     _ => return Err(RuntimeError::TypeError(
-                        "embedding() second argument must be TokenIds or Tensor".to_string()
+                        "embedding() second argument must be TokenIdArray, TokenIds, or Tensor".to_string()
                     )),
                 };
-
-                // Use the Tensor.embedding() method which handles [d_model, vocab_size] correctly
-                let output = embedding_table.embedding(&token_ids_tensor)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::Tensor(output))
             }
@@ -3664,6 +3671,7 @@ impl Interpreter {
                         Value::Model(m) => print!("Model({:?})", m.metadata.format),
                         Value::Tokenizer(t) => print!("{:?}", t),
                         Value::TokenIds(ids) => print!("{:?}", ids),
+                        Value::TokenIdArray(ref arr) => print!("[{}]", arr.data().iter().map(|&id| format!("{:.4}", id as f64)).collect::<Vec<_>>().join(", ")),
                         Value::Type(type_name) => print!("Type({})", type_name),
                         Value::Void => print!("void"),
                     }

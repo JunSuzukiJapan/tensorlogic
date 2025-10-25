@@ -466,6 +466,37 @@ impl TypeChecker {
                     vec![Dimension::Dynamic],
                 ))
             }
+
+            TensorExpr::PropertyAccess { object, property: _ } => {
+                // For now, infer property access returns a tensor
+                // TODO: More precise type inference based on property name
+                let _obj_type = self.infer_expr_type(object)?;
+                Ok(TensorTypeInfo::new(
+                    BaseType::Float32,
+                    vec![Dimension::Dynamic],
+                ))
+            }
+
+            TensorExpr::MethodCall { object, method, args: _ } => {
+                // For now, infer method call return type based on method name
+                let _obj_type = self.infer_expr_type(object)?;
+                match method.as_str() {
+                    "shape" => {
+                        // shape() returns an integer array
+                        Ok(TensorTypeInfo::new(
+                            BaseType::Int32,
+                            vec![Dimension::Dynamic],
+                        ))
+                    }
+                    _ => {
+                        // Default: assume returns a tensor
+                        Ok(TensorTypeInfo::new(
+                            BaseType::Float32,
+                            vec![Dimension::Dynamic],
+                        ))
+                    }
+                }
+            }
         }
     }
 

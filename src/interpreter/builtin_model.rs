@@ -172,6 +172,9 @@ impl Interpreter {
                 Value::TokenIds(ref ids) => {
                     output.push_str(&format!("TokenIds(len={})", ids.len()));
                 }
+                Value::TokenIdArray(ref arr) => {
+                    output.push_str(&format!("{}", arr.data().iter().map(|&id| id.to_string()).collect::<Vec<_>>().join(", ")));
+                }
                 Value::Type(ref ty) => output.push_str(&format!("Type({})", ty)),
                 Value::Void => output.push_str("void"),
             }

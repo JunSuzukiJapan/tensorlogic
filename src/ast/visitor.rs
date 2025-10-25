@@ -228,6 +228,18 @@ pub fn walk_tensor_expr<V: Visitor>(visitor: &mut V, expr: &TensorExpr) -> Resul
             }
             Ok(())
         }
+        TensorExpr::PropertyAccess { object, property } => {
+            visitor.visit_tensor_expr(object)?;
+            visitor.visit_identifier(property)
+        }
+        TensorExpr::MethodCall { object, method, args } => {
+            visitor.visit_tensor_expr(object)?;
+            visitor.visit_identifier(method)?;
+            for arg in args {
+                visitor.visit_tensor_expr(arg)?;
+            }
+            Ok(())
+        }
     }
 }
 

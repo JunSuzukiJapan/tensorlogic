@@ -187,6 +187,20 @@ primary_expr = {
 }
 
 postfix_op = {
+    method_call
+    | property_access
+    | index_access
+}
+
+method_call = {
+    "." ~ identifier ~ "(" ~ tensor_list? ~ ")"
+}
+
+property_access = {
+    "." ~ identifier
+}
+
+index_access = {
     "[" ~ index_list ~ "]"
 }
 
@@ -217,7 +231,7 @@ embedding_lookup = { identifier ~ "[" ~ entity_ref ~ "]" }
 
 entity_ref = { identifier | string_literal }
 
-tensor_literal = { "[" ~ tensor_elements ~ "]" | scalar_literal }
+tensor_literal = { "[" ~ tensor_elements? ~ "]" | scalar_literal }
 
 tensor_elements = { tensor_element ~ ("," ~ tensor_element)* }
 

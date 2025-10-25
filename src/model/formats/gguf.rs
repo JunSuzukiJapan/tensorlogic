@@ -218,7 +218,13 @@ impl GGUFLoader {
         // Iterate through tensor info
         for tensor_info in &tensor_infos {
             let name = tensor_info.name.clone();
-            let shape: Vec<usize> = tensor_info.shape.dimensions.iter().map(|&d| d as usize).collect();
+            let mut shape: Vec<usize> = tensor_info.shape.dimensions.iter().map(|&d| d as usize).collect();
+
+            // GGUF stores dimensions in reversed order
+            // Reference: https://github.com/ggml-org/llama.cpp/issues/6040
+            // Candle reverses ALL tensor dimensions unconditionally
+            // This matches the behavior of other GGUF loaders
+            shape.reverse();
 
             // Load and dequantize based on tensor type
             let f16_data = match tensor_info.tensor_type {

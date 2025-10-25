@@ -2,22 +2,14 @@
 
 use crate::device::{Device, MetalBuffer};
 use crate::error::{TensorError, TensorResult};
-use crate::tensor::{BufferHandle, Tensor};
+use crate::tensor::{BufferHandle, Tensor, TokenIdArray};
 use half::f16;
 
 impl Tensor {
     /// Token embedding lookup for language models
     ///
-    /// ⚠️ **MATHEMATICALLY VERIFIED - DO NOT MODIFY**
-    /// Verified with real TinyLlama model:
-    /// - Input: 29 tokens
-    /// - Weight: [2048, 32000] (d_model=2048, vocab_size=32000)
-    /// - Output: [29, 2048] ✓
-    ///
-    /// If you encounter incorrect output, verify OTHER operations first.
-    ///
     /// Performs embedding lookup from a weight matrix given token IDs.
-    /// This is optimized for the common pattern: weight[d_model, vocab_size] + token_ids[batch, seq_len]
+    /// After GGUF dimension reversal, expects PyTorch format: weight[vocab_size, d_model]
     ///
     /// # Arguments
     /// * `token_ids` - Tensor of token indices with shape [batch, seq_len] or [seq_len]
@@ -27,13 +19,13 @@ impl Tensor {
     ///
     /// # Example
     /// ```ignore
-    /// let weight = Tensor::from_vec_metal(&device, data, vec![d_model, vocab_size])?;
+    /// let weight = Tensor::from_vec_metal(&device, data, vec![vocab_size, d_model])?;
     /// let token_ids = Tensor::from_vec_metal(&device, ids, vec![batch, seq_len])?;
     /// let embeddings = weight.embedding(&token_ids)?;
     /// // embeddings.shape() == [batch, seq_len, d_model]
     /// ```
     pub fn embedding(&self, token_ids: &Tensor) -> TensorResult<Self> {
-        // self is weight with shape [d_model, vocab_size]
+        // self is weight with shape [vocab_size, d_model] (PyTorch format after GGUF reverse)
         // token_ids has shape [batch, seq_len] or [seq_len]
         let weight_dims = self.dims();
         let token_dims = token_ids.dims();
@@ -44,8 +36,8 @@ impl Tensor {
             ));
         }
 
-        let d_model = weight_dims[0];
-        let vocab_size = weight_dims[1];
+        let vocab_size = weight_dims[0];
+        let d_model = weight_dims[1];
 
         // Validate token IDs are in range [0, vocab_size)
         let token_data = token_ids.to_vec();
@@ -70,9 +62,85 @@ impl Tensor {
         for &token_id in &token_data {
             let id = token_id.to_f32() as usize;
 
-            // Extract column id from weight matrix (column-major for [d_model, vocab_size])
-            for row in 0..d_model {
-                let idx = row * vocab_size + id;
+            // Extract row `id` from weight matrix [vocab_size, d_model]
+            // Row-major layout: row `id` contains d_model consecutive elements
+            for col in 0..d_model {
+                let idx = id * d_model + col;
+                output.push(weight_data[idx]);
+            }
+        }
+
+        // Create output tensor on same device as weight
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, output, output_shape),
+            _ => Tensor::from_vec(output, output_shape),
+        }
+    }
+
+    /// Token embedding lookup for language models (from TokenIdArray)
+    ///
+    /// Performs embedding lookup from a weight matrix given token IDs without f16 precision loss.
+    /// After GGUF dimension reversal, expects PyTorch format: weight[vocab_size, d_model]
+    ///
+    /// # Arguments
+    /// * `token_ids` - TokenIdArray of token indices with shape [batch, seq_len] or [seq_len]
+    ///
+    /// # Returns
+    /// Embedding tensor with shape [batch, seq_len, d_model] or [seq_len, d_model]
+    ///
+    /// # Example
+    /// ```ignore
+    /// let weight = Tensor::from_vec_metal(&device, data, vec![vocab_size, d_model])?;
+    /// let token_ids = TokenIdArray::new(vec![1, 20358, 20359]);
+    /// let embeddings = weight.embedding_from_token_ids(&token_ids)?;
+    /// // embeddings.shape() == [3, d_model]
+    /// ```
+    pub fn embedding_from_token_ids(&self, token_ids: &TokenIdArray) -> TensorResult<Self> {
+        use crate::tensor::TensorLike;
+
+        // self is weight with shape [vocab_size, d_model] (PyTorch format after GGUF reverse)
+        // token_ids has shape [batch, seq_len] or [seq_len]
+        let weight_dims = self.dims();
+        let token_dims = token_ids.shape();
+
+        if weight_dims.len() != 2 {
+            return Err(TensorError::InvalidOperation(
+                format!("Embedding weight must be 2D, got shape {:?}", weight_dims)
+            ));
+        }
+
+        let vocab_size = weight_dims[0];
+        let d_model = weight_dims[1];
+
+        // Get token IDs directly as i64 (no precision loss)
+        let token_data = token_ids.data();
+
+        // Validate token IDs are in range [0, vocab_size)
+        for &token_id in token_data {
+            let id = token_id as usize;
+            if id >= vocab_size {
+                return Err(TensorError::InvalidOperation(
+                    format!("Token ID {} out of range for vocab size {}", id, vocab_size)
+                ));
+            }
+        }
+
+        // Calculate output shape
+        let mut output_shape = token_dims.clone();
+        output_shape.push(d_model);
+
+        // Perform embedding lookup
+        let num_tokens: usize = token_dims.iter().product();
+        let weight_data = self.to_vec();
+        let mut output = Vec::with_capacity(num_tokens * d_model);
+
+        for &token_id in token_data {
+            let id = token_id as usize;
+
+            // Extract row `id` from weight matrix [vocab_size, d_model]
+            // Row-major layout: row `id` contains d_model consecutive elements
+            for col in 0..d_model {
+                let idx = id * d_model + col;
                 output.push(weight_data[idx]);
             }
         }

@@ -932,18 +932,64 @@ impl TensorLogicParser {
                     }),
                 };
 
-                // Apply postfix operations (indexing)
+                // Apply postfix operations (indexing, property access, method calls)
                 for postfix_op in inner_pairs {
                     match postfix_op.as_rule() {
                         Rule::postfix_op => {
-                            let index_list = postfix_op.into_inner().next().ok_or_else(|| {
-                                ParseError::MissingField("index list".to_string())
+                            // postfix_op contains method_call, property_access, or index_access
+                            let inner_op = postfix_op.into_inner().next().ok_or_else(|| {
+                                ParseError::MissingField("postfix operation content".to_string())
                             })?;
-                            let indices = Self::parse_index_list(index_list)?;
-                            expr = TensorExpr::TensorIndex {
-                                tensor: Box::new(expr),
-                                indices,
-                            };
+
+                            match inner_op.as_rule() {
+                                Rule::method_call => {
+                                    // Parse: .identifier(args)
+                                    let mut method_inner = inner_op.into_inner();
+                                    let method_name = Self::parse_identifier(method_inner.next().ok_or_else(|| {
+                                        ParseError::MissingField("method name".to_string())
+                                    })?)?;
+
+                                    // Parse optional argument list
+                                    let args = if let Some(arg_list) = method_inner.next() {
+                                        Self::parse_tensor_list(arg_list)?
+                                    } else {
+                                        vec![]
+                                    };
+
+                                    expr = TensorExpr::MethodCall {
+                                        object: Box::new(expr),
+                                        method: method_name,
+                                        args,
+                                    };
+                                }
+                                Rule::property_access => {
+                                    // Parse: .identifier
+                                    let mut prop_inner = inner_op.into_inner();
+                                    let property_name = Self::parse_identifier(prop_inner.next().ok_or_else(|| {
+                                        ParseError::MissingField("property name".to_string())
+                                    })?)?;
+
+                                    expr = TensorExpr::PropertyAccess {
+                                        object: Box::new(expr),
+                                        property: property_name,
+                                    };
+                                }
+                                Rule::index_access => {
+                                    // Parse: [indices]
+                                    let index_list = inner_op.into_inner().next().ok_or_else(|| {
+                                        ParseError::MissingField("index list".to_string())
+                                    })?;
+                                    let indices = Self::parse_index_list(index_list)?;
+                                    expr = TensorExpr::TensorIndex {
+                                        tensor: Box::new(expr),
+                                        indices,
+                                    };
+                                }
+                                _ => return Err(ParseError::UnexpectedRule {
+                                    expected: "method_call, property_access, or index_access".to_string(),
+                                    found: format!("{:?}", inner_op.as_rule()),
+                                }),
+                            }
                         }
                         _ => return Err(ParseError::UnexpectedRule {
                             expected: "postfix_op".to_string(),
@@ -1003,9 +1049,15 @@ impl TensorLogicParser {
     }
 
     fn parse_tensor_literal(pair: pest::iterators::Pair<Rule>) -> Result<TensorLiteral, ParseError> {
-        let inner = pair.into_inner().next().ok_or_else(|| {
-            ParseError::MissingField("tensor literal content".to_string())
-        })?;
+        // Handle empty arrays: [] has no inner elements
+        let mut inner_iter = pair.into_inner();
+        let inner = match inner_iter.next() {
+            Some(inner) => inner,
+            None => {
+                // Empty array - return empty Array
+                return Ok(TensorLiteral::Array(vec![]));
+            }
+        };
 
         match inner.as_rule() {
             Rule::scalar_literal => Ok(TensorLiteral::Scalar(Self::parse_scalar_literal(inner)?)),

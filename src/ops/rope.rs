@@ -10,8 +10,9 @@ use metal::MTLSize;
 impl Tensor {
     /// Apply Rotary Position Embedding (RoPE) to the tensor
     /// Input: [..., seq_len, n_heads, head_dim]
+    /// position_offset: Starting position index for the sequence (for KV cache)
     /// Returns: Same shape with RoPE applied
-    pub fn rope(&self) -> TensorResult<Self> {
+    pub fn rope(&self, position_offset: usize) -> TensorResult<Self> {
         let dims = self.dims();
         if dims.len() < 3 {
             return Err(TensorError::InvalidOperation(
@@ -29,11 +30,11 @@ impl Tensor {
             ));
         }
 
-        self.rope_metal(seq_len, n_heads, head_dim)
+        self.rope_metal(seq_len, n_heads, head_dim, position_offset)
     }
 
     /// Metal GPU implementation of RoPE
-    fn rope_metal(&self, seq_len: usize, n_heads: usize, head_dim: usize) -> TensorResult<Self> {
+    fn rope_metal(&self, seq_len: usize, n_heads: usize, head_dim: usize, position_offset: usize) -> TensorResult<Self> {
         let input_buf = self.buffer().as_metal()?;
 
         let mut device = match self.device() {
@@ -54,13 +55,13 @@ impl Tensor {
         // Create output buffer
         let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
-        // Create params buffer: [seq_len, n_heads, head_dim, rope_base]
+        // Create params buffer: [seq_len, n_heads, head_dim, rope_base, position_offset]
         const ROPE_BASE: u32 = 10000;
-        let params: [u32; 4] = [seq_len as u32, n_heads as u32, head_dim as u32, ROPE_BASE];
+        let params: [u32; 5] = [seq_len as u32, n_heads as u32, head_dim as u32, ROPE_BASE, position_offset as u32];
         let params_bytes = unsafe {
             std::slice::from_raw_parts(
                 params.as_ptr() as *const u8,
-                std::mem::size_of::<[u32; 4]>()
+                std::mem::size_of::<[u32; 5]>()
             )
         };
 

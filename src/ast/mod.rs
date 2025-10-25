@@ -323,6 +323,17 @@ pub enum TensorExpr {
         function: String,
         args: Vec<TensorExpr>,
     },
+    /// Property access: object.property
+    PropertyAccess {
+        object: Box<TensorExpr>,
+        property: Identifier,
+    },
+    /// Method call: object.method(args)
+    MethodCall {
+        object: Box<TensorExpr>,
+        method: Identifier,
+        args: Vec<TensorExpr>,
+    },
 }
 
 /// Index expression for tensor indexing

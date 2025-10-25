@@ -13,13 +13,14 @@ using namespace metal;
 kernel void rope_f16(
     device const half *input [[buffer(0)]],
     device half *output [[buffer(1)]],
-    constant uint4 &params [[buffer(2)]],  // [seq_len, n_heads, head_dim, rope_base]
+    constant uint *params [[buffer(2)]],  // [seq_len, n_heads, head_dim, rope_base, position_offset]
     uint tid [[thread_position_in_grid]]
 ) {
-    const uint seq_len = params.x;
-    const uint n_heads = params.y;
-    const uint head_dim = params.z;
-    const float rope_base = float(params.w);
+    const uint seq_len = params[0];
+    const uint n_heads = params[1];
+    const uint head_dim = params[2];
+    const float rope_base = float(params[3]);
+    const uint position_offset = params[4];
 
     const uint total_per_seq = n_heads * head_dim;
     const uint total_elements = seq_len * total_per_seq;
@@ -28,28 +29,28 @@ kernel void rope_f16(
         return;
     }
 
-    // Decode position: which sequence position, head, and dimension
-    const uint pos = tid / total_per_seq;
+    // Calculate linear index components
+    const uint relative_pos = tid / total_per_seq;
+    const uint pos = relative_pos + position_offset;  // Add position offset for KV cache
     const uint remainder = tid % total_per_seq;
     const uint head = remainder / head_dim;
     const uint dim = remainder % head_dim;
 
-    // RoPE only operates on dimension pairs (even indices)
-    // If odd dimension, copy from corresponding even dimension's rotation
-    if (dim % 2 == 1) {
-        // This will be computed by the even thread, just copy for now
-        // (We'll compute both in the even thread)
-        return;
-    }
+    // RoPE operates on dimension pairs (2i, 2i+1)
+    // Each thread handles one element, but we calculate based on pairs
+    const uint dim_pair_idx = dim / 2;  // Which pair (0, 1, 2, ...)
+    const bool is_even = (dim % 2 == 0);
 
-    // We're at an even dimension (dim = 2i)
-    const uint dim_pair = dim / 2;
-    const uint idx0 = tid;              // Index for dimension 2i
-    const uint idx1 = tid + 1;          // Index for dimension 2i+1
+    // Calculate the base index for this dimension pair in the actual tensor
+    // Structure: [seq_len, n_heads, head_dim]
+    const uint pos_head_base = relative_pos * total_per_seq + head * head_dim;
+    const uint dim_pair_start = (dim / 2) * 2;  // Round dim down to even (0,1→0, 2,3→2)
+    const uint idx0 = pos_head_base + dim_pair_start;
+    const uint idx1 = pos_head_base + dim_pair_start + 1;
 
     // Calculate frequency for this dimension pair
-    // freq = 1.0 / (rope_base^(2i/head_dim))
-    const float exponent = float(dim) / float(head_dim);  // 2i/head_dim
+    // freq = 1.0 / (rope_base^(2*dim_pair_idx/head_dim))
+    const float exponent = float(2 * dim_pair_idx) / float(head_dim);
     const float freq = 1.0 / pow(rope_base, exponent);
 
     // Calculate angle
@@ -65,7 +66,10 @@ kernel void rope_f16(
     const float rotated_x0 = x0 * cos_theta - x1 * sin_theta;
     const float rotated_x1 = x0 * sin_theta + x1 * cos_theta;
 
-    // Write output
-    output[idx0] = half(rotated_x0);
-    output[idx1] = half(rotated_x1);
+    // Each thread writes its own output
+    if (is_even) {
+        output[tid] = half(rotated_x0);
+    } else {
+        output[tid] = half(rotated_x1);
+    }
 }
