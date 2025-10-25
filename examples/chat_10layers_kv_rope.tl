@@ -11,9 +11,9 @@ fn swiglu_ffn(
     W_up: float16[?, ?],
     W_down: float16[?, ?]
 ) -> float16[?, ?] {
-    let gate = matmul(x, W_gate)
-    let up = matmul(x, W_up)
-    result := matmul(silu(gate) * up, W_down)
+    let gate = linear(x, W_gate)
+    let up = linear(x, W_up)
+    result := linear(silu(gate) * up, W_down)
 }
 
 fn attention_with_cache(
@@ -47,7 +47,7 @@ fn attention_with_cache(
     let out = einsum("ihj,jhd->ihd", attn, V_expanded)
 
     let reshaped = reshape(out, [seq_len_f, 2048.0])
-    result := matmul(reshaped, W_o)
+    result := linear(reshaped, W_o)
 }
 
 main {
@@ -130,9 +130,9 @@ main {
 
     // Layer 0
     let x_norm_0 = rms_norm(e1, attn_norm_0)
-    let Q_0 = matmul(x_norm_0, W_q_0)
-    let K_0 = matmul(x_norm_0, W_k_0)
-    let V_0 = matmul(x_norm_0, W_v_0)
+    let Q_0 = linear(x_norm_0, W_q_0)
+    let K_0 = linear(x_norm_0, W_k_0)
+    let V_0 = linear(x_norm_0, W_v_0)
     let K_0_heads = reshape(K_0, [shape(K_0)[0], 4.0, 64.0])
     let K_0_rope = rope(K_0_heads)
     let K_cache_0 = reshape(K_0_rope, [shape(K_0)[0], 256.0])
@@ -143,9 +143,9 @@ main {
 
     // Layer 1
     let x_norm_1 = rms_norm(h0, attn_norm_1)
-    let Q_1 = matmul(x_norm_1, W_q_1)
-    let K_1 = matmul(x_norm_1, W_k_1)
-    let V_1 = matmul(x_norm_1, W_v_1)
+    let Q_1 = linear(x_norm_1, W_q_1)
+    let K_1 = linear(x_norm_1, W_k_1)
+    let V_1 = linear(x_norm_1, W_v_1)
     let K_1_heads = reshape(K_1, [shape(K_1)[0], 4.0, 64.0])
     let K_1_rope = rope(K_1_heads)
     let K_cache_1 = reshape(K_1_rope, [shape(K_1)[0], 256.0])
@@ -156,9 +156,9 @@ main {
 
     // Layer 2
     let x_norm_2 = rms_norm(h1, attn_norm_2)
-    let Q_2 = matmul(x_norm_2, W_q_2)
-    let K_2 = matmul(x_norm_2, W_k_2)
-    let V_2 = matmul(x_norm_2, W_v_2)
+    let Q_2 = linear(x_norm_2, W_q_2)
+    let K_2 = linear(x_norm_2, W_k_2)
+    let V_2 = linear(x_norm_2, W_v_2)
     let K_2_heads = reshape(K_2, [shape(K_2)[0], 4.0, 64.0])
     let K_2_rope = rope(K_2_heads)
     let K_cache_2 = reshape(K_2_rope, [shape(K_2)[0], 256.0])
@@ -169,9 +169,9 @@ main {
 
     // Layer 3
     let x_norm_3 = rms_norm(h2, attn_norm_3)
-    let Q_3 = matmul(x_norm_3, W_q_3)
-    let K_3 = matmul(x_norm_3, W_k_3)
-    let V_3 = matmul(x_norm_3, W_v_3)
+    let Q_3 = linear(x_norm_3, W_q_3)
+    let K_3 = linear(x_norm_3, W_k_3)
+    let V_3 = linear(x_norm_3, W_v_3)
     let K_3_heads = reshape(K_3, [shape(K_3)[0], 4.0, 64.0])
     let K_3_rope = rope(K_3_heads)
     let K_cache_3 = reshape(K_3_rope, [shape(K_3)[0], 256.0])
@@ -182,9 +182,9 @@ main {
 
     // Layer 4
     let x_norm_4 = rms_norm(h3, attn_norm_4)
-    let Q_4 = matmul(x_norm_4, W_q_4)
-    let K_4 = matmul(x_norm_4, W_k_4)
-    let V_4 = matmul(x_norm_4, W_v_4)
+    let Q_4 = linear(x_norm_4, W_q_4)
+    let K_4 = linear(x_norm_4, W_k_4)
+    let V_4 = linear(x_norm_4, W_v_4)
     let K_4_heads = reshape(K_4, [shape(K_4)[0], 4.0, 64.0])
     let K_4_rope = rope(K_4_heads)
     let K_cache_4 = reshape(K_4_rope, [shape(K_4)[0], 256.0])
@@ -194,7 +194,7 @@ main {
     let h4 = h4_res + swiglu_ffn(rms_norm(h4_res, ffn_norm_4), W_gate_4, W_up_4, W_down_4)
 
     let norm1 = rms_norm(h4, output_norm)
-    let logits1 = matmul(norm1, output_weight)
+    let logits1 = linear(norm1, output_weight)
     let t1 = temperature_sample(logits1, 0.8)
     print("    Token 1:", t1)
 
@@ -238,9 +238,9 @@ main {
     print("    Layer 0 - RMS norm...")
     let x_norm_0_t2 = rms_norm(e2, attn_norm_0)
     print("    Layer 0 - QKV matmul...")
-    let Q_0_t2 = matmul(x_norm_0_t2, W_q_0)
-    let K_0_t2 = matmul(x_norm_0_t2, W_k_0)
-    let V_0_t2 = matmul(x_norm_0_t2, W_v_0)
+    let Q_0_t2 = linear(x_norm_0_t2, W_q_0)
+    let K_0_t2 = linear(x_norm_0_t2, W_k_0)
+    let V_0_t2 = linear(x_norm_0_t2, W_v_0)
     let K_0_t2_heads = reshape(K_0_t2, [shape(K_0_t2)[0], 4.0, 64.0])
     let K_0_t2_rope = rope(K_0_t2_heads)
     let K_0_t2_flat = reshape(K_0_t2_rope, [shape(K_0_t2)[0], 256.0])
@@ -253,9 +253,9 @@ main {
 
     // Layer 1
     let x_norm_1_t2 = rms_norm(h0_t2, attn_norm_1)
-    let Q_1_t2 = matmul(x_norm_1_t2, W_q_1)
-    let K_1_t2 = matmul(x_norm_1_t2, W_k_1)
-    let V_1_t2 = matmul(x_norm_1_t2, W_v_1)
+    let Q_1_t2 = linear(x_norm_1_t2, W_q_1)
+    let K_1_t2 = linear(x_norm_1_t2, W_k_1)
+    let V_1_t2 = linear(x_norm_1_t2, W_v_1)
     let K_1_t2_heads = reshape(K_1_t2, [shape(K_1_t2)[0], 4.0, 64.0])
     let K_1_t2_rope = rope(K_1_t2_heads)
     let K_1_t2_flat = reshape(K_1_t2_rope, [shape(K_1_t2)[0], 256.0])
@@ -268,9 +268,9 @@ main {
 
     // Layer 2
     let x_norm_2_t2 = rms_norm(h1_t2, attn_norm_2)
-    let Q_2_t2 = matmul(x_norm_2_t2, W_q_2)
-    let K_2_t2 = matmul(x_norm_2_t2, W_k_2)
-    let V_2_t2 = matmul(x_norm_2_t2, W_v_2)
+    let Q_2_t2 = linear(x_norm_2_t2, W_q_2)
+    let K_2_t2 = linear(x_norm_2_t2, W_k_2)
+    let V_2_t2 = linear(x_norm_2_t2, W_v_2)
     let K_2_t2_heads = reshape(K_2_t2, [shape(K_2_t2)[0], 4.0, 64.0])
     let K_2_t2_rope = rope(K_2_t2_heads)
     let K_2_t2_flat = reshape(K_2_t2_rope, [shape(K_2_t2)[0], 256.0])
@@ -283,9 +283,9 @@ main {
 
     // Layer 3
     let x_norm_3_t2 = rms_norm(h2_t2, attn_norm_3)
-    let Q_3_t2 = matmul(x_norm_3_t2, W_q_3)
-    let K_3_t2 = matmul(x_norm_3_t2, W_k_3)
-    let V_3_t2 = matmul(x_norm_3_t2, W_v_3)
+    let Q_3_t2 = linear(x_norm_3_t2, W_q_3)
+    let K_3_t2 = linear(x_norm_3_t2, W_k_3)
+    let V_3_t2 = linear(x_norm_3_t2, W_v_3)
     let K_3_t2_heads = reshape(K_3_t2, [shape(K_3_t2)[0], 4.0, 64.0])
     let K_3_t2_rope = rope(K_3_t2_heads)
     let K_3_t2_flat = reshape(K_3_t2_rope, [shape(K_3_t2)[0], 256.0])
@@ -298,9 +298,9 @@ main {
 
     // Layer 4
     let x_norm_4_t2 = rms_norm(h3_t2, attn_norm_4)
-    let Q_4_t2 = matmul(x_norm_4_t2, W_q_4)
-    let K_4_t2 = matmul(x_norm_4_t2, W_k_4)
-    let V_4_t2 = matmul(x_norm_4_t2, W_v_4)
+    let Q_4_t2 = linear(x_norm_4_t2, W_q_4)
+    let K_4_t2 = linear(x_norm_4_t2, W_k_4)
+    let V_4_t2 = linear(x_norm_4_t2, W_v_4)
     let K_4_t2_heads = reshape(K_4_t2, [shape(K_4_t2)[0], 4.0, 64.0])
     let K_4_t2_rope = rope(K_4_t2_heads)
     let K_4_t2_flat = reshape(K_4_t2_rope, [shape(K_4_t2)[0], 256.0])
@@ -312,7 +312,7 @@ main {
     let h4_t2 = h4_t2_res + swiglu_ffn(rms_norm(h4_t2_res, ffn_norm_4), W_gate_4, W_up_4, W_down_4)
 
     let norm2 = rms_norm(h4_t2, output_norm)
-    let logits2 = matmul(norm2, output_weight)
+    let logits2 = linear(norm2, output_weight)
     let t2 = temperature_sample(logits2, 0.8)
     print("    Token 2:", t2)
 
