@@ -48,13 +48,13 @@ fn tinyllama_gqa_attention(
     let K_heads = reshape(K, shape_K_heads)
     let V_heads = reshape(V, shape_V_heads)
 
-    // Apply RoPE to Q and K (NOT V) - Critical for position encoding
-    let Q_rope = rope(Q_heads)
-    let K_rope = rope(K_heads)
+    // RoPE DISABLED FOR TESTING
+    // let Q_rope = rope(Q_heads)
+    // let K_rope = rope(K_heads)
 
     // GQA: Expand K, V from 4 to 32 heads
     let shape_with_group = [seq_len_f, 4.0, 1.0, 64.0]
-    let K_with_group = reshape(K_rope, shape_with_group)
+    let K_with_group = reshape(K_heads, shape_with_group)
     let V_with_group = reshape(V_heads, shape_with_group)
 
     let shape_broadcast = [seq_len_f, 4.0, 8.0, 64.0]
@@ -66,9 +66,9 @@ fn tinyllama_gqa_attention(
     let V_expanded = reshape(V_broadcast, shape_expanded)
 
     // Attention computation - per-head attention using einsum
-    // Q_rope: [seq, 32, 64], K_expanded: [seq, 32, 64]
+    // Q_heads: [seq, 32, 64], K_expanded: [seq, 32, 64]
     // scores: [seq_query, head, seq_key]
-    let scores = einsum("ihd,jhd->ihj", Q_rope, K_expanded)
+    let scores = einsum("ihd,jhd->ihj", Q_heads, K_expanded)
     let scaled_scores = scores * 0.125  // 1/sqrt(64)
     let attn_weights = softmax(scaled_scores, 2)  // softmax over seq_key dimension
 
