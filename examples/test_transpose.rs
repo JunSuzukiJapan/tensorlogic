@@ -1,0 +1,60 @@
+/// Test transpose operation with known values
+///
+/// Verify that transpose() works correctly for both CPU and Metal
+
+use tensorlogic::device::MetalDevice;
+use tensorlogic::tensor::Tensor;
+
+fn main() {
+    println!("=== Transpose Operation Test ===\n");
+
+    let device = MetalDevice::new().expect("Failed to create Metal device");
+
+    // Test data: 2x3 matrix
+    // [[1, 2, 3],
+    //  [4, 5, 6]]
+    let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+    let data_f16: Vec<half::f16> = data.iter().map(|&x| half::f16::from_f32(x)).collect();
+
+    println!("Original matrix [2, 3]:");
+    println!("  [[1, 2, 3],");
+    println!("   [4, 5, 6]]");
+
+    // Create tensor
+    let tensor = Tensor::from_vec_metal(&device, data_f16, vec![2, 3])
+        .expect("Failed to create tensor");
+
+    // Transpose
+    let transposed = tensor.transpose()
+        .expect("Failed to transpose");
+
+    let result = transposed.to_vec();
+    let shape = transposed.dims();
+
+    println!("\nTransposed matrix [{}, {}]:", shape[0], shape[1]);
+    println!("  [[{}, {}],", result[0].to_f32(), result[1].to_f32());
+    println!("   [{}, {}],", result[2].to_f32(), result[3].to_f32());
+    println!("   [{}, {}]]", result[4].to_f32(), result[5].to_f32());
+
+    println!("\nExpected:");
+    println!("  [[1, 4],");
+    println!("   [2, 5],");
+    println!("   [3, 6]]");
+
+    // Verify
+    let expected = vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0];
+    let mut all_match = true;
+
+    for (i, (&exp, got)) in expected.iter().zip(result.iter().map(|x| x.to_f32())).enumerate() {
+        if (exp - got).abs() > 0.001 {
+            println!("\n  ❌ Mismatch at index {}: expected {}, got {}", i, exp, got);
+            all_match = false;
+        }
+    }
+
+    if all_match {
+        println!("\n  ✅ Transpose works correctly!");
+    } else {
+        println!("\n  ❌ Transpose has errors!");
+    }
+}

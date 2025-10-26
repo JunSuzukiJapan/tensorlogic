@@ -1,0 +1,158 @@
+//! Compare Metal GPU vs CPU Einsum Implementation
+//! 
+//! Tests the two critical einsum patterns used in attention:
+//! 1. "ihd,jhd->ihj" - Compute attention scores (Q @ K.T per head)
+//! 2. "ihj,jhd->ihd" - Apply attention to values (attn_weights @ V per head)
+
+use tensorlogic::tensor::Tensor;
+use tensorlogic::device::{Device, MetalDevice};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("=== Einsum Metal GPU vs CPU Comparison ===\n");
+
+    // Create devices
+    let metal_device = Device::Metal(MetalDevice::new()?);
+    let cpu_device = Device::Cpu;
+
+    // Test 1: Attention Scores - "ihd,jhd->ihj"
+    println!("Test 1: Attention Scores einsum(\"ihd,jhd->ihj\", Q, K)");
+    println!("  Q shape: [seq=2, heads=4, dim=8]");
+    println!("  K shape: [seq=2, heads=4, dim=8]");
+    println!("  Expected output: [seq_q=2, heads=4, seq_k=2]\n");
+
+    // Create test data - small values for f16 precision
+    let seq_len = 2;
+    let n_heads = 4;
+    let head_dim = 8;
+    
+    let q_data: Vec<f32> = (0..(seq_len * n_heads * head_dim))
+        .map(|i| (i as f32 * 0.01) % 1.0)
+        .collect();
+    let k_data: Vec<f32> = (0..(seq_len * n_heads * head_dim))
+        .map(|i| ((i as f32 * 0.02) % 1.0) + 0.1)
+        .collect();
+
+    let q_data_f16: Vec<half::f16> = q_data.iter().map(|&x| half::f16::from_f32(x)).collect();
+    let k_data_f16: Vec<half::f16> = k_data.iter().map(|&x| half::f16::from_f32(x)).collect();
+
+    // Metal
+    let q_metal = Tensor::from_vec_metal(&metal_device, q_data_f16.clone(), vec![seq_len, n_heads, head_dim])?;
+    let k_metal = Tensor::from_vec_metal(&metal_device, k_data_f16.clone(), vec![seq_len, n_heads, head_dim])?;
+
+    let scores_metal = Tensor::einsum("ihd,jhd->ihj", &[&q_metal, &k_metal])?;
+    let scores_metal_vec = scores_metal.to_vec();
+
+    // CPU
+    let q_cpu = Tensor::from_vec(q_data_f16.clone(), vec![seq_len, n_heads, head_dim])?;
+    let k_cpu = Tensor::from_vec(k_data_f16.clone(), vec![seq_len, n_heads, head_dim])?;
+
+    let scores_cpu = Tensor::einsum("ihd,jhd->ihj", &[&q_cpu, &k_cpu])?;
+    let scores_cpu_vec = scores_cpu.to_vec();
+
+    // Compare
+    println!("  Metal output shape: {:?}", scores_metal.shape());
+    println!("  CPU output shape: {:?}", scores_cpu.shape());
+    
+    let mut max_diff = 0.0f32;
+    let mut total_diff = 0.0f32;
+    let mut num_elements = 0;
+
+    for i in 0..scores_metal_vec.len().min(scores_cpu_vec.len()) {
+        let metal_val = scores_metal_vec[i].to_f32();
+        let cpu_val = scores_cpu_vec[i].to_f32();
+        let diff = (metal_val - cpu_val).abs();
+        
+        if diff > max_diff {
+            max_diff = diff;
+        }
+        total_diff += diff;
+        num_elements += 1;
+
+        if i < 10 {
+            println!("    [{:2}] Metal: {:.6}, CPU: {:.6}, diff: {:.6}", 
+                i, metal_val, cpu_val, diff);
+        }
+    }
+
+    let avg_diff = total_diff / num_elements as f32;
+    println!("\n  Statistics:");
+    println!("    Max difference: {:.6}", max_diff);
+    println!("    Avg difference: {:.6}", avg_diff);
+    
+    let threshold = 0.001; // f16 precision threshold
+    if max_diff < threshold {
+        println!("    ✅ PASS: Differences within f16 precision\n");
+    } else {
+        println!("    ❌ FAIL: Differences exceed threshold {:.6}\n", threshold);
+    }
+
+    // Test 2: Attention Output - "ihj,jhd->ihd"
+    println!("Test 2: Attention Output einsum(\"ihj,jhd->ihd\", attn_weights, V)");
+    println!("  attn_weights shape: [seq_q=2, heads=4, seq_k=2]");
+    println!("  V shape: [seq=2, heads=4, dim=8]");
+    println!("  Expected output: [seq=2, heads=4, dim=8]\n");
+
+    let attn_weights_data: Vec<f32> = (0..(seq_len * n_heads * seq_len))
+        .map(|i| (i as f32 * 0.05) % 1.0)
+        .collect();
+    let v_data: Vec<f32> = (0..(seq_len * n_heads * head_dim))
+        .map(|i| ((i as f32 * 0.03) % 1.0) + 0.05)
+        .collect();
+
+    let attn_weights_f16: Vec<half::f16> = attn_weights_data.iter().map(|&x| half::f16::from_f32(x)).collect();
+    let v_data_f16: Vec<half::f16> = v_data.iter().map(|&x| half::f16::from_f32(x)).collect();
+
+    // Metal
+    let attn_metal = Tensor::from_vec_metal(&metal_device, attn_weights_f16.clone(), vec![seq_len, n_heads, seq_len])?;
+    let v_metal = Tensor::from_vec_metal(&metal_device, v_data_f16.clone(), vec![seq_len, n_heads, head_dim])?;
+
+    let output_metal = Tensor::einsum("ihj,jhd->ihd", &[&attn_metal, &v_metal])?;
+    let output_metal_vec = output_metal.to_vec();
+
+    // CPU
+    let attn_cpu = Tensor::from_vec(attn_weights_f16.clone(), vec![seq_len, n_heads, seq_len])?;
+    let v_cpu = Tensor::from_vec(v_data_f16.clone(), vec![seq_len, n_heads, head_dim])?;
+
+    let output_cpu = Tensor::einsum("ihj,jhd->ihd", &[&attn_cpu, &v_cpu])?;
+    let output_cpu_vec = output_cpu.to_vec();
+
+    // Compare
+    println!("  Metal output shape: {:?}", output_metal.shape());
+    println!("  CPU output shape: {:?}", output_cpu.shape());
+    
+    max_diff = 0.0f32;
+    total_diff = 0.0f32;
+    num_elements = 0;
+
+    for i in 0..output_metal_vec.len().min(output_cpu_vec.len()) {
+        let metal_val = output_metal_vec[i].to_f32();
+        let cpu_val = output_cpu_vec[i].to_f32();
+        let diff = (metal_val - cpu_val).abs();
+        
+        if diff > max_diff {
+            max_diff = diff;
+        }
+        total_diff += diff;
+        num_elements += 1;
+
+        if i < 10 {
+            println!("    [{:2}] Metal: {:.6}, CPU: {:.6}, diff: {:.6}", 
+                i, metal_val, cpu_val, diff);
+        }
+    }
+
+    let avg_diff = total_diff / num_elements as f32;
+    println!("\n  Statistics:");
+    println!("    Max difference: {:.6}", max_diff);
+    println!("    Avg difference: {:.6}", avg_diff);
+    
+    if max_diff < threshold {
+        println!("    ✅ PASS: Differences within f16 precision\n");
+    } else {
+        println!("    ❌ FAIL: Differences exceed threshold {:.6}\n", threshold);
+    }
+
+    println!("=== Comparison Complete ===");
+    
+    Ok(())
+}

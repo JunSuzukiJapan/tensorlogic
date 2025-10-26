@@ -148,11 +148,13 @@ kernel void matmul_f16(
 
     if (row >= M || col >= N) return;
 
-    half sum = 0.0h;
+    // Use float (f32) for accumulation to prevent precision loss
+    float sum = 0.0f;
     for (uint k = 0; k < K; k++) {
-        sum += a[row * K + k] * b[k * N + col];
+        sum += float(a[row * K + k]) * float(b[k * N + col]);
     }
-    c[row * N + col] = sum;
+    // Convert back to f16 for storage
+    c[row * N + col] = half(sum);
 }
 
 /// ReLU activation: f(x) = max(0, x)

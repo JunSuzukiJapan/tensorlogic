@@ -1,78 +1,85 @@
+//! Test f16 precision impact on basic operations
+//!
+//! Usage: cargo run --release --example test_f16_precision
+
 use half::f16;
 
 fn main() {
-    println!("=== f16 Accumulation Test ===\n");
+    println!("=== f16 Precision Impact Test ===\n");
 
-    // Test 1: TinyLlama normalized_size = 2048
-    let normalized_size = 2048;
-    println!("Test 1: Accumulating 2048 values");
+    // Test 1: Basic arithmetic
+    println!("[Test 1] Basic Arithmetic");
+    let a_f32 = 1.0f32 / 3.0f32;
+    let a_f16 = f16::from_f32(1.0) / f16::from_f32(3.0);
+    println!("  1.0 / 3.0:");
+    println!("    f32: {:.10}", a_f32);
+    println!("    f16: {:.10}", a_f16.to_f32());
+    println!("    Error: {:.10}", (a_f32 - a_f16.to_f32()).abs());
+    println!();
 
-    // Simulate typical RMSNorm input (normalized values around -1 to 1)
-    let values: Vec<f16> = (0..normalized_size)
-        .map(|i| f16::from_f32((i as f32 / normalized_size as f32) * 2.0 - 1.0))
-        .collect();
+    // Test 2: Softmax-like operations
+    println!("[Test 2] Exp and Division (Softmax components)");
+    let values_f32 = vec![1.0f32, 2.0, 3.0, 4.0, 5.0];
+    let values_f16: Vec<f16> = values_f32.iter().map(|&v| f16::from_f32(v)).collect();
 
-    // Method 1: f16 accumulation
-    let mut sq_sum_f16 = f16::ZERO;
-    for &x in &values {
-        sq_sum_f16 += x * x;
-    }
-    let mean_sq_f16 = sq_sum_f16 / f16::from_f32(normalized_size as f32);
+    let exp_f32: Vec<f32> = values_f32.iter().map(|&v| v.exp()).collect();
+    let exp_f16: Vec<f16> = values_f16.iter().map(|&v| {
+        let f32_val = v.to_f32();
+        f16::from_f32(f32_val.exp())
+    }).collect();
 
-    // Method 2: f32 accumulation
-    let sq_sum_f32: f32 = values.iter().map(|&x| {
-        let v = x.to_f32();
-        v * v
-    }).sum();
-    let mean_sq_f32 = sq_sum_f32 / normalized_size as f32;
+    let sum_f32: f32 = exp_f32.iter().sum();
+    let sum_f16 = exp_f16.iter()
+        .fold(f16::ZERO, |acc, &v| acc + v)
+        .to_f32();
 
-    println!("  f16 accumulation: sq_sum={} mean_sq={}",
-             sq_sum_f16, mean_sq_f16);
-    println!("  f32 accumulation: sq_sum={} mean_sq={}",
-             sq_sum_f32, mean_sq_f32);
-    println!("  Difference: {:.6}", (mean_sq_f16.to_f32() - mean_sq_f32).abs());
-    println!("  Relative error: {:.2}%\n",
-             ((mean_sq_f16.to_f32() - mean_sq_f32) / mean_sq_f32 * 100.0).abs());
+    println!("  Exp([1,2,3,4,5]) sum:");
+    println!("    f32: {:.6}", sum_f32);
+    println!("    f16: {:.6}", sum_f16);
+    println!("    Error: {:.6}", (sum_f32 - sum_f16).abs());
+    println!();
 
-    // Test 2: Overflow check
-    println!("Test 2: Overflow check with larger values");
-    let large_values: Vec<f16> = vec![f16::from_f32(10.0); 2048];
+    // Test 3: Accumulation (1000 additions)
+    println!("[Test 3] Accumulation (sum of 1000 ones)");
+    let sum_f32: f32 = (0..1000).map(|_| 1.0f32).sum();
+    let sum_f16 = (0..1000)
+        .map(|_| f16::ONE)
+        .fold(f16::ZERO, |acc, v| acc + v)
+        .to_f32();
 
-    let mut sq_sum_large_f16 = f16::ZERO;
-    for &x in &large_values {
-        let sq = x * x;
-        if sq.is_infinite() {
-            println!("  OVERFLOW: x={} → x²={}", x, sq);
-            break;
+    println!("  f32 sum: {:.6}", sum_f32);
+    println!("  f16 sum: {:.6}", sum_f16);
+    println!("  Error:   {:.6}", (sum_f32 - sum_f16).abs());
+    println!();
+
+    // Test 4: Deep computation simulation (22 layers)
+    println!("[Test 4] Deep Computation (22 layers simulation)");
+    let mut acc_f32 = 1.0f32;
+    let mut acc_f16 = f16::ONE;
+
+    for layer in 0..22 {
+        // Simulate: x = x * 1.1 + 0.1 (simple layer operation)
+        acc_f32 = acc_f32 * 1.1 + 0.1;
+        acc_f16 = acc_f16 * f16::from_f32(1.1) + f16::from_f32(0.1);
+
+        if layer == 0 || layer == 10 || layer == 21 {
+            println!("  Layer {}: f32={:.6}, f16={:.6}, diff={:.6}",
+                     layer, acc_f32, acc_f16.to_f32(),
+                     (acc_f32 - acc_f16.to_f32()).abs());
         }
-        sq_sum_large_f16 += sq;
-        if sq_sum_large_f16.is_infinite() {
-            println!("  OVERFLOW: Accumulated sum became Inf after {} additions", large_values.len());
-            break;
-        }
     }
+    println!();
 
-    let sq_sum_large_f32: f32 = large_values.iter().map(|&x| {
-        let v = x.to_f32();
-        v * v
-    }).sum();
-
-    println!("  f16 result: {} (is_infinite={})", sq_sum_large_f16, sq_sum_large_f16.is_infinite());
-    println!("  f32 result: {}", sq_sum_large_f32);
-
-    // Test 3: Precision loss demonstration
-    println!("\nTest 3: Precision loss in f16");
-    let base = f16::from_f32(2000.0);
-    let small = f16::from_f32(0.5);
-    let result = base + small;
-    println!("  2000.0 + 0.5 = {} (expected 2000.5)", result);
-    println!("  Lost {} due to precision limit", (2000.5 - result.to_f32()).abs());
-
-    // Test 4: What's the maximum value we can accumulate?
-    println!("\nTest 4: f16 accumulation limit");
-    println!("  f16::MAX = {}", f16::MAX);
-    println!("  For normalized_size=2048:");
-    println!("  Max safe value per element: sqrt(f16::MAX / 2048) = {}",
-             (f16::MAX.to_f32() / 2048.0).sqrt());
-    println!("  If x_i > 5.68, sq_sum will overflow!");
+    // Summary
+    println!("=== Summary ===");
+    println!("f16 precision characteristics:");
+    println!("  - Significant digits: ~3-4 decimal places");
+    println!("  - Small errors in simple operations: <0.0001");
+    println!("  - Accumulation errors increase with depth");
+    println!("  - 22-layer model accumulates errors: ~{:.6}",
+             (acc_f32 - acc_f16.to_f32()).abs());
+    println!();
+    println!("💡 Conclusion:");
+    println!("  f16 errors are SMALL but CUMULATIVE in deep models.");
+    println!("  This could partially explain differences vs llama.cpp.");
 }

@@ -57,7 +57,8 @@ kernel void matmul_tiled_f16(
     uint col = threadgroup_position_in_grid.x * TILE_SIZE + tx;
 
     // Accumulator for this thread's output element
-    half sum = 0.0h;
+    // Use float (f32) for accumulation to prevent precision loss in large matrices
+    float sum = 0.0f;
 
     // Number of tiles along K dimension
     uint num_tiles = (K + TILE_SIZE - 1) / TILE_SIZE;
@@ -91,8 +92,9 @@ kernel void matmul_tiled_f16(
 
         // Compute partial dot product using shared memory
         // This is the hot loop - all memory accesses are to fast threadgroup memory
+        // Convert to f32 for accumulation to prevent precision loss
         for (uint k = 0; k < TILE_SIZE; k++) {
-            sum += A_tile[ty][k] * B_tile[k][tx];
+            sum += float(A_tile[ty][k]) * float(B_tile[k][tx]);
         }
 
         // Synchronize before loading next tile
@@ -100,8 +102,9 @@ kernel void matmul_tiled_f16(
     }
 
     // Write final result to global memory
+    // Convert accumulated f32 result back to f16 for storage
     if (row < M && col < N) {
-        C[row * N + col] = sum;
+        C[row * N + col] = half(sum);
     }
 }
 
@@ -132,7 +135,8 @@ kernel void matmul_tiled_32x32_f16(
     uint row = threadgroup_position_in_grid.y * TILE_SIZE + ty;
     uint col = threadgroup_position_in_grid.x * TILE_SIZE + tx;
 
-    half sum = 0.0h;
+    // Use float (f32) for accumulation to prevent precision loss
+    float sum = 0.0f;
 
     uint num_tiles = (K + TILE_SIZE - 1) / TILE_SIZE;
 
@@ -157,15 +161,17 @@ kernel void matmul_tiled_32x32_f16(
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
+        // Convert to f32 for accumulation
         for (uint k = 0; k < TILE_SIZE; k++) {
-            sum += A_tile[ty][k] * B_tile[k][tx];
+            sum += float(A_tile[ty][k]) * float(B_tile[k][tx]);
         }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
+    // Convert back to f16 for storage
     if (row < M && col < N) {
-        C[row * N + col] = sum;
+        C[row * N + col] = half(sum);
     }
 }
 
@@ -197,7 +203,8 @@ kernel void matmul_tiled_bias_f16(
     uint row = threadgroup_position_in_grid.y * TILE_SIZE + ty;
     uint col = threadgroup_position_in_grid.x * TILE_SIZE + tx;
 
-    half sum = 0.0h;
+    // Use float (f32) for accumulation to prevent precision loss
+    float sum = 0.0f;
 
     uint num_tiles = (K + TILE_SIZE - 1) / TILE_SIZE;
 
@@ -222,16 +229,17 @@ kernel void matmul_tiled_bias_f16(
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
+        // Convert to f32 for accumulation
         for (uint k = 0; k < TILE_SIZE; k++) {
-            sum += A_tile[ty][k] * B_tile[k][tx];
+            sum += float(A_tile[ty][k]) * float(B_tile[k][tx]);
         }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    // Add bias
+    // Add bias and convert to f16
     if (row < M && col < N) {
-        C[row * N + col] = sum + bias[col];
+        C[row * N + col] = half(sum + float(bias[col]));
     }
 }
 

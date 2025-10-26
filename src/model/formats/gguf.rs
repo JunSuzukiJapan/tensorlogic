@@ -128,6 +128,16 @@ impl GGUFLoader {
         const QK_K: usize = 256;  // Block size
         const BLOCK_BYTES: usize = 210;  // 128 + 64 + 16 + 2
 
+        // Debug output
+        if std::env::var("TL_DEBUG_Q6K").is_ok() {
+            eprintln!("\n=== Q6_K Dequantization Debug ===");
+            eprintln!("  Elements: {}", num_elements);
+            eprintln!("  Data bytes: {}", data.len());
+            eprintln!("  Expected blocks: {}", (num_elements + QK_K - 1) / QK_K);
+            eprintln!("  Expected bytes: {}", ((num_elements + QK_K - 1) / QK_K) * BLOCK_BYTES);
+            eprintln!("==================================\n");
+        }
+
         let num_blocks = (num_elements + QK_K - 1) / QK_K;
         let mut result = vec![half::f16::ZERO; num_elements];
 
@@ -150,49 +160,92 @@ impl GGUFLoader {
             let base_idx = block_idx * QK_K;
 
             // Process 2 groups of 128 values each (total 256)
-            for n in (0..QK_K).step_by(128) {
-                let ql_offset = n / 2;      // ql advances by 64 per group
-                let qh_offset = n / 4;      // qh advances by 32 per group
-                let sc_offset = n / 16;     // sc advances by 8 per group
+            // Each group processes 32 iterations, writing 4 values each = 128 values
+            let mut ql_offset = 0;
+            let mut qh_offset = 0;
+            let mut sc_offset = 0;
 
-                // Process 32 values (produces 4 values each iteration)
+            for n in (0..QK_K).step_by(128) {
+                // Process 32 iterations, each producing 4 values (total 128)
                 for l in 0..32 {
-                    let out_idx = base_idx + n + l;
-                    if out_idx >= num_elements {
+                    let out_base = base_idx + n + l;
+                    if out_base >= num_elements {
                         break;
                     }
 
-                    let is = l / 16;  // Scale index: 0 or 1
+                    let is = l / 16;  // Scale index within current group: 0 or 1
 
                     // Reconstruct 4 6-bit values from ql and qh
-                    // q1: ql[l] lower 4 bits + qh[l] bits 0-1
-                    let q1 = ((ql[ql_offset + l] & 0xF) | ((qh[qh_offset + l] & 0x3) << 4)) as i8 - 32;
+                    // Following llama.cpp dequantize_row_q6_K exactly
+
+                    // q1: ql[l+0] lower 4 bits + qh[l] bits 0-1
+                    let q1 = ((ql[ql_offset + l] & 0xF) | (((qh[qh_offset + l] >> 0) & 0x3) << 4)) as i8 - 32;
 
                     // q2: ql[l+32] lower 4 bits + qh[l] bits 2-3
                     let q2 = ((ql[ql_offset + l + 32] & 0xF) | (((qh[qh_offset + l] >> 2) & 0x3) << 4)) as i8 - 32;
 
-                    // q3: ql[l] upper 4 bits + qh[l] bits 4-5
+                    // q3: ql[l+0] upper 4 bits + qh[l] bits 4-5
                     let q3 = ((ql[ql_offset + l] >> 4) | (((qh[qh_offset + l] >> 4) & 0x3) << 4)) as i8 - 32;
 
                     // q4: ql[l+32] upper 4 bits + qh[l] bits 6-7
-                    let q4 = ((ql[ql_offset + l + 32] >> 4) | ((qh[qh_offset + l] >> 6) << 4)) as i8 - 32;
+                    let q4 = ((ql[ql_offset + l + 32] >> 4) | (((qh[qh_offset + l] >> 6) & 0x3) << 4)) as i8 - 32;
 
-                    // Write to correct positions with corresponding scales
-                    // Scale indices: is + 0, is + 2, is + 4, is + 6 (within the current sc_offset)
-                    if out_idx + 0 < num_elements {
-                        result[out_idx + 0] = half::f16::from_f32(d * scales[sc_offset + is + 0] as f32 * q1 as f32);
+                    // Write 4 values with corresponding scales
+                    // y[l + 0] = d * sc[is + 0] * q1
+                    if out_base + 0 < num_elements {
+                        result[out_base + 0] = half::f16::from_f32(d * scales[sc_offset + is + 0] as f32 * q1 as f32);
                     }
-                    if out_idx + 32 < num_elements {
-                        result[out_idx + 32] = half::f16::from_f32(d * scales[sc_offset + is + 2] as f32 * q2 as f32);
+                    // y[l + 32] = d * sc[is + 2] * q2
+                    if out_base + 32 < num_elements {
+                        result[out_base + 32] = half::f16::from_f32(d * scales[sc_offset + is + 2] as f32 * q2 as f32);
                     }
-                    if out_idx + 64 < num_elements {
-                        result[out_idx + 64] = half::f16::from_f32(d * scales[sc_offset + is + 4] as f32 * q3 as f32);
+                    // y[l + 64] = d * sc[is + 4] * q3
+                    if out_base + 64 < num_elements {
+                        result[out_base + 64] = half::f16::from_f32(d * scales[sc_offset + is + 4] as f32 * q3 as f32);
                     }
-                    if out_idx + 96 < num_elements {
-                        result[out_idx + 96] = half::f16::from_f32(d * scales[sc_offset + is + 6] as f32 * q4 as f32);
+                    // y[l + 96] = d * sc[is + 6] * q4
+                    if out_base + 96 < num_elements {
+                        result[out_base + 96] = half::f16::from_f32(d * scales[sc_offset + is + 6] as f32 * q4 as f32);
                     }
                 }
+
+                // Advance pointers for next 128-element group (llama.cpp: y+=128, ql+=64, qh+=32, sc+=8)
+                ql_offset += 64;
+                qh_offset += 32;
+                sc_offset += 8;
             }
+        }
+
+        // Debug: Check output values
+        if std::env::var("TL_DEBUG_Q6K").is_ok() {
+            eprintln!("\n=== Q6_K Dequantization Output ===");
+            eprintln!("  First 10 values:");
+            for i in 0..10.min(result.len()) {
+                eprintln!("    [{}]: {}", i, result[i].to_f32());
+            }
+            eprintln!("  Last 10 values:");
+            let start = result.len().saturating_sub(10);
+            for i in start..result.len() {
+                eprintln!("    [{}]: {}", i, result[i].to_f32());
+            }
+
+            // Check for abnormal values
+            let mut min_val = f32::INFINITY;
+            let mut max_val = f32::NEG_INFINITY;
+            let mut sum = 0.0f32;
+            for &val in &result[..1000.min(result.len())] {
+                let f = val.to_f32();
+                if f.is_finite() {
+                    min_val = min_val.min(f);
+                    max_val = max_val.max(f);
+                    sum += f;
+                }
+            }
+            eprintln!("  Stats (first 1000):");
+            eprintln!("    Min: {}", min_val);
+            eprintln!("    Max: {}", max_val);
+            eprintln!("    Avg: {}", sum / 1000.0);
+            eprintln!("===================================\n");
         }
 
         result
@@ -253,6 +306,21 @@ impl GGUFLoader {
                         gguf_rs_lib::tensor::TensorData::Shared(ref arc) => arc.as_slice(),
                         _ => return Err(TensorError::InvalidOperation("Unexpected tensor data type".to_string())),
                     };
+
+                    // Debug: Check data size for critical tensors
+                    if tensor_info.name == "output.weight" || std::env::var("TL_DEBUG_GGUF").is_ok() {
+                        let num_elements: usize = shape.iter().product();
+                        let expected_bytes = num_elements * 4; // F32 = 4 bytes
+                        eprintln!("\n=== GGUF F32 Tensor Debug ===");
+                        eprintln!("  Tensor: {}", tensor_info.name);
+                        eprintln!("  Shape: {:?} ({} elements)", shape, num_elements);
+                        eprintln!("  Expected bytes: {}", expected_bytes);
+                        eprintln!("  Actual bytes: {}", bytes.len());
+                        if bytes.len() != expected_bytes {
+                            eprintln!("  ❌ SIZE MISMATCH!");
+                        }
+                        eprintln!("=============================\n");
+                    }
 
                     // Convert f32 bytes to f32 values
                     let f32_data: Vec<f32> = bytes
@@ -327,6 +395,14 @@ impl GGUFLoader {
                 }
                 GGUFTensorType::Q6_K => {
                     quantization_type = QuantizationType::Q6;
+
+                    // Debug: Q6_K loading
+                    if tensor_info.name == "output.weight" || std::env::var("TL_DEBUG_Q6K").is_ok() {
+                        eprintln!("\n=== Loading Q6_K Tensor ===");
+                        eprintln!("  Name: {}", tensor_info.name);
+                        eprintln!("  Shape: {:?}", shape);
+                        eprintln!("===========================\n");
+                    }
 
                     // Load tensor data
                     let data = reader.load_tensor_data(&tensor_info.name)
