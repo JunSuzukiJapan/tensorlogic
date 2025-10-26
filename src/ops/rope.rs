@@ -1,6 +1,7 @@
 //! Rotary Position Embedding (RoPE) with Metal GPU acceleration
 
 use crate::device::Device;
+use crate::tensor::FloatType;
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::Tensor;
 use crate::device::MetalBuffer;

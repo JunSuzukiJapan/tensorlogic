@@ -9,6 +9,7 @@
 //! - GELU + Linear
 
 use crate::device::{Device, MetalBuffer};
+use crate::tensor::FloatType;
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 

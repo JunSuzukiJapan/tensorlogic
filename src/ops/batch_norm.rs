@@ -1,6 +1,7 @@
 //! Batch Normalization operations
 
 use crate::tensor::Tensor;
+use crate::tensor::FloatType;
 use crate::TensorResult;
 use crate::error::TensorError;
 use half::f16;

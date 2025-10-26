@@ -1,6 +1,7 @@
 //! Tensor manipulation operations (concat, transpose, permute, split)
 
 use crate::device::{Device, MetalBuffer};
+use crate::tensor::FloatType;
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;

@@ -9,6 +9,7 @@
 //! - `ij,j->i`: Matrix-vector product
 
 use crate::device::{Device, MetalDevice, MetalBuffer};
+use crate::tensor::FloatType;
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{Tensor, TensorShape, BufferHandle};
 use half::f16;

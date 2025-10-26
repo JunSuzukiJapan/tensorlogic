@@ -1,6 +1,7 @@
 //! Broadcasting operations for tensors
 
 use crate::device::{Device, MetalBuffer};
+use crate::tensor::FloatType;
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor, TensorShape};
 use half::f16;

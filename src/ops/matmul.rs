@@ -1,6 +1,7 @@
 //! Matrix multiplication operations with Metal GPU acceleration
 
 use crate::autograd::gradients::MatMulBackward;
+use crate::tensor::FloatType;
 use crate::autograd::{AutogradContext, Operation};
 use crate::device::{Device, MetalBuffer};
 use crate::error::{TensorError, TensorResult};

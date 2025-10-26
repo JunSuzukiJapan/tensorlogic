@@ -1,3 +1,4 @@
+use crate::tensor::FloatType;
 //! Gradient operation for second-order derivatives
 use std::marker::PhantomData;
 use super::prelude::*;

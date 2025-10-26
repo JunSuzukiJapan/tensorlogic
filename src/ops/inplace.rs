@@ -4,6 +4,7 @@
 //! which is crucial for memory-constrained environments and large models.
 
 use crate::device::Device;
+use crate::tensor::FloatType;
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::Tensor;
 use half::f16;

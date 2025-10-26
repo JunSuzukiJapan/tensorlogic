@@ -1,6 +1,7 @@
 //! Activation functions with Metal GPU acceleration
 
 use crate::autograd::gradients::{GELUBackward, ReLUBackward, SoftmaxBackward};
+use crate::tensor::FloatType;
 use crate::autograd::{AutogradContext, GradientFunction, Operation};
 use crate::device::{Device, MetalBuffer};
 use crate::error::{TensorError, TensorResult};

@@ -1,6 +1,7 @@
 //! Dropout operations
 
 use crate::tensor::Tensor;
+use crate::tensor::FloatType;
 use crate::TensorResult;
 use half::f16;
 use rand::Rng;

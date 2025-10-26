@@ -4,6 +4,7 @@
 //! reducing memory access overhead and kernel launch overhead.
 
 use crate::device::{Device, MetalBuffer, NeuralEngineOps};
+use crate::tensor::FloatType;
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;

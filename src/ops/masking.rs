@@ -1,6 +1,7 @@
 //! Masking operations for attention mechanisms
 
 use crate::tensor::Tensor;
+use crate::tensor::FloatType;
 use crate::TensorResult;
 use crate::error::TensorError;
 use half::f16;

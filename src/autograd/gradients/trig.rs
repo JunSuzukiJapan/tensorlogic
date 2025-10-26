@@ -1,3 +1,4 @@
+use crate::tensor::FloatType;
 use crate::autograd::GradientFunction;
 use std::marker::PhantomData;
 use super::prelude::*;
