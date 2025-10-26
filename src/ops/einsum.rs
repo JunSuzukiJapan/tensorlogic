@@ -10,6 +10,7 @@
 
 use crate::device::{Device, MetalDevice, MetalBuffer};
 use crate::tensor::FloatType;
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{Tensor, TensorShape, BufferHandle};
 use half::f16;

@@ -5,6 +5,7 @@
 
 use crate::device::Device;
 use crate::tensor::FloatType;
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::Tensor;
 use half::f16;

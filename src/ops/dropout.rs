@@ -2,6 +2,7 @@
 
 use crate::tensor::Tensor;
 use crate::tensor::FloatType;
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
 use crate::TensorResult;
 use half::f16;
 use rand::Rng;
