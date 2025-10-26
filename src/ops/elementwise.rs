@@ -41,9 +41,9 @@ fn record_binary_op(
     result.set_requires_grad(true);
 }
 
-impl<T: FloatType> Tensor<T> {
+impl Tensor<half::f16> {
     /// Element-wise addition
-    pub fn add(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    pub fn add(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
         // Check shape compatibility
         if !self.shape().is_same(other.shape()) {
             return Err(TensorError::ShapeMismatch {
@@ -67,7 +67,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     /// Metal GPU implementation of addition
-    fn add_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    fn add_metal(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -98,7 +98,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     /// CPU fallback for addition
-    fn add_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    fn add_cpu(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
         let a = self.to_vec();
         let b = other.to_vec();
 
@@ -112,7 +112,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     /// Element-wise subtraction
-    pub fn sub(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    pub fn sub(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
         if !self.shape().is_same(other.shape()) {
             return Err(TensorError::ShapeMismatch {
                 expected: self.dims().to_vec(),
@@ -132,7 +132,7 @@ impl<T: FloatType> Tensor<T> {
         Ok(result)
     }
 
-    fn sub_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    fn sub_metal(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -157,7 +157,7 @@ impl<T: FloatType> Tensor<T> {
         )
     }
 
-    fn sub_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    fn sub_cpu(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
         let a = self.to_vec();
         let b = other.to_vec();
 
@@ -170,7 +170,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     /// Element-wise multiplication
-    pub fn mul(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    pub fn mul(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
         if !self.shape().is_same(other.shape()) {
             return Err(TensorError::ShapeMismatch {
                 expected: self.dims().to_vec(),
@@ -190,7 +190,7 @@ impl<T: FloatType> Tensor<T> {
         Ok(result)
     }
 
-    fn mul_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    fn mul_metal(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -215,7 +215,7 @@ impl<T: FloatType> Tensor<T> {
         )
     }
 
-    fn mul_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    fn mul_cpu(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
         let a = self.to_vec();
         let b = other.to_vec();
 
@@ -228,7 +228,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     /// Element-wise division
-    pub fn div(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    pub fn div(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
         if !self.shape().is_same(other.shape()) {
             return Err(TensorError::ShapeMismatch {
                 expected: self.dims().to_vec(),
@@ -248,7 +248,7 @@ impl<T: FloatType> Tensor<T> {
         Ok(result)
     }
 
-    fn div_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    fn div_metal(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -273,7 +273,7 @@ impl<T: FloatType> Tensor<T> {
         )
     }
 
-    fn div_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    fn div_cpu(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
         let a = self.to_vec();
         let b = other.to_vec();
 

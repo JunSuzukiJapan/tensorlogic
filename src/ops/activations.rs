@@ -32,7 +32,7 @@ fn record_unary_op(
     result.set_requires_grad(true);
 }
 
-impl<T: FloatType> Tensor<T> {
+impl Tensor<half::f16> {
     /// ReLU activation: f(x) = max(0, x)
     pub fn relu(&self) -> TensorResult<Self> {
         let mut result = match self.device() {

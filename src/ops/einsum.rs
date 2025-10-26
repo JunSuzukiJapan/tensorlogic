@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 use metal::{MTLResourceOptions, MTLSize};
 
 /// Parse einsum notation and execute the operation
-impl<T: FloatType> Tensor<T> {
+impl Tensor<half::f16> {
     /// Einstein summation over tensors
     ///
     /// # Arguments
@@ -344,7 +344,7 @@ fn coords_to_index(coords: &[usize], dims: &[usize]) -> usize {
 }
 
 /// Transpose a 2D tensor
-fn transpose_2d(tensor: &Tensor<T>) -> TensorResult<Tensor> {
+fn transpose_2d(tensor: &Tensor<half::f16>) -> TensorResult<Tensor> {
     let dims = tensor.shape().dims();
     if dims.len() != 2 {
         return Err(TensorError::InvalidOperation(
@@ -366,7 +366,7 @@ fn transpose_2d(tensor: &Tensor<T>) -> TensorResult<Tensor> {
 }
 
 /// Compute trace of a 2D tensor
-fn trace(tensor: &Tensor<T>) -> TensorResult<Tensor> {
+fn trace(tensor: &Tensor<half::f16>) -> TensorResult<Tensor> {
     let dims = tensor.shape().dims();
     if dims.len() != 2 || dims[0] != dims[1] {
         return Err(TensorError::InvalidOperation(
@@ -386,7 +386,7 @@ fn trace(tensor: &Tensor<T>) -> TensorResult<Tensor> {
 }
 
 /// Batch matrix multiplication
-fn batch_matmul(a: &Tensor, b: &Tensor<T>) -> TensorResult<Tensor> {
+fn batch_matmul(a: &Tensor, b: &Tensor<half::f16>) -> TensorResult<Tensor> {
     let a_dims = a.shape().dims();
     let b_dims = b.shape().dims();
 

@@ -10,12 +10,12 @@ use crate::error::{TensorError, TensorResult};
 use crate::tensor::Tensor;
 use half::f16;
 
-impl<T: FloatType> Tensor<T> {
+impl Tensor<half::f16> {
     /// In-place addition: self += other
     ///
     /// Modifies self in-place to avoid allocating new memory.
     /// Both tensors must have the same shape.
-    pub fn add_(&mut self, other: &Tensor<T>) -> TensorResult<()> {
+    pub fn add_(&mut self, other: &Tensor<half::f16>) -> TensorResult<()> {
         // Shape check
         if self.shape().dims() != other.shape().dims() {
             return Err(TensorError::ShapeMismatch {
@@ -31,7 +31,7 @@ impl<T: FloatType> Tensor<T> {
         }
     }
 
-    fn add_cpu_inplace(&mut self, other: &Tensor<T>) -> TensorResult<()> {
+    fn add_cpu_inplace(&mut self, other: &Tensor<half::f16>) -> TensorResult<()> {
         use crate::tensor::BufferHandle;
 
         let self_data = self.buffer().to_cpu_vec();
@@ -53,7 +53,7 @@ impl<T: FloatType> Tensor<T> {
         Ok(())
     }
 
-    fn add_metal_inplace(&mut self, other: &Tensor<T>) -> TensorResult<()> {
+    fn add_metal_inplace(&mut self, other: &Tensor<half::f16>) -> TensorResult<()> {
         // For Metal, we need to execute the kernel and update the buffer
         // This requires mutable access to the Metal buffer
         let result = self.add(other)?;
@@ -62,7 +62,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     /// In-place multiplication: self *= other
-    pub fn mul_(&mut self, other: &Tensor<T>) -> TensorResult<()> {
+    pub fn mul_(&mut self, other: &Tensor<half::f16>) -> TensorResult<()> {
         if self.shape().dims() != other.shape().dims() {
             return Err(TensorError::ShapeMismatch {
                 expected: self.shape().dims().to_vec(),
@@ -77,7 +77,7 @@ impl<T: FloatType> Tensor<T> {
         }
     }
 
-    fn mul_cpu_inplace(&mut self, other: &Tensor<T>) -> TensorResult<()> {
+    fn mul_cpu_inplace(&mut self, other: &Tensor<half::f16>) -> TensorResult<()> {
         use crate::tensor::BufferHandle;
 
         let self_data = self.buffer().to_cpu_vec();
@@ -98,14 +98,14 @@ impl<T: FloatType> Tensor<T> {
         Ok(())
     }
 
-    fn mul_metal_inplace(&mut self, other: &Tensor<T>) -> TensorResult<()> {
+    fn mul_metal_inplace(&mut self, other: &Tensor<half::f16>) -> TensorResult<()> {
         let result = self.mul(other)?;
         *self = result;
         Ok(())
     }
 
     /// In-place subtraction: self -= other
-    pub fn sub_(&mut self, other: &Tensor<T>) -> TensorResult<()> {
+    pub fn sub_(&mut self, other: &Tensor<half::f16>) -> TensorResult<()> {
         if self.shape().dims() != other.shape().dims() {
             return Err(TensorError::ShapeMismatch {
                 expected: self.shape().dims().to_vec(),
@@ -120,7 +120,7 @@ impl<T: FloatType> Tensor<T> {
         }
     }
 
-    fn sub_cpu_inplace(&mut self, other: &Tensor<T>) -> TensorResult<()> {
+    fn sub_cpu_inplace(&mut self, other: &Tensor<half::f16>) -> TensorResult<()> {
         use crate::tensor::BufferHandle;
 
         let self_data = self.buffer().to_cpu_vec();
@@ -141,7 +141,7 @@ impl<T: FloatType> Tensor<T> {
         Ok(())
     }
 
-    fn sub_metal_inplace(&mut self, other: &Tensor<T>) -> TensorResult<()> {
+    fn sub_metal_inplace(&mut self, other: &Tensor<half::f16>) -> TensorResult<()> {
         let result = self.sub(other)?;
         *self = result;
         Ok(())

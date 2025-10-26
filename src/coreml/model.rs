@@ -1,6 +1,7 @@
 //! CoreML Model wrapper for Neural Engine inference
 
 use super::{CoreMLError, CoreMLResult};
+use crate::tensor::TensorAccessors;
 use crate::tensor::Tensor;
 use std::path::Path;
 

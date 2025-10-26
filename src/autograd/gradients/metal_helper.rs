@@ -2,6 +2,7 @@
 
 use crate::device::{Device, MetalBuffer};
 use crate::error::{TensorError, TensorResult};
+use crate::tensor::TensorAccessors;
 use crate::tensor::Tensor;
 
 /// シンプルな要素ごとのMetal勾配カーネルを実行

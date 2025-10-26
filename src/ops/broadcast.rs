@@ -7,7 +7,7 @@ use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor, TensorShape};
 use half::f16;
 
-impl<T: FloatType> Tensor<T> {
+impl Tensor<half::f16> {
     /// Broadcast this tensor to a target shape
     pub fn broadcast_to(&self, target_shape: &TensorShape) -> TensorResult<Self> {
         // Check if broadcasting is needed
