@@ -45,7 +45,7 @@ impl GradientFunction for DivBackward {
         // 符号を反転
         let grad_b_data = grad_b_positive.to_vec();
         let neg_grad_b_data: Vec<half::f16> = grad_b_data.iter().map(|&x| -x).collect();
-        let grad_b = Tensor<half::f16>::from_vec(neg_grad_b_data, grad_b_positive.dims().to_vec())?;
+        let grad_b = <Tensor<half::f16>>::from_vec(neg_grad_b_data, grad_b_positive.dims().to_vec())?;
 
         // ブロードキャストされている場合は次元を縮約
         let grad_a = reduce_grad_for_broadcast(&grad_a, &self.a_shape)?;
@@ -71,21 +71,21 @@ mod tests {
 
         // a = [4.0, 6.0], b = [2.0, 3.0]
         // c = a / b = [2.0, 2.0]
-        let a = Tensor<half::f16>::from_vec_metal(
+        let a = <Tensor<half::f16>>::from_vec_metal(
             &device,
             vec![half::f16::from_f32(4.0), half::f16::from_f32(6.0)],
             vec![2],
         )
         .unwrap();
 
-        let b = Tensor<half::f16>::from_vec_metal(
+        let b = <Tensor<half::f16>>::from_vec_metal(
             &device,
             vec![half::f16::from_f32(2.0), half::f16::from_f32(3.0)],
             vec![2],
         )
         .unwrap();
 
-        let grad_output = Tensor<half::f16>::from_vec_metal(
+        let grad_output = <Tensor<half::f16>>::from_vec_metal(
             &device,
             vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)],
             vec![2],

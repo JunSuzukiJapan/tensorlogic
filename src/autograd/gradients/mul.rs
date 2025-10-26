@@ -61,7 +61,7 @@ mod tests {
     fn test_mul_backward_same_shape() {
         let device = get_test_device();
 
-        let a = Tensor<half::f16>::from_vec_metal(
+        let a = <Tensor<half::f16>>::from_vec_metal(
             &device,
             vec![
                 half::f16::from_f32(2.0),
@@ -73,7 +73,7 @@ mod tests {
         )
         .unwrap();
 
-        let b = Tensor<half::f16>::from_vec_metal(
+        let b = <Tensor<half::f16>>::from_vec_metal(
             &device,
             vec![
                 half::f16::from_f32(6.0),
@@ -85,7 +85,7 @@ mod tests {
         )
         .unwrap();
 
-        let grad_output = Tensor<half::f16>::from_vec_metal(
+        let grad_output = <Tensor<half::f16>>::from_vec_metal(
             &device,
             vec![
                 half::f16::from_f32(1.0),

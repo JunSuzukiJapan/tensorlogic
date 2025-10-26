@@ -42,7 +42,7 @@ impl GradientFunction for SoftmaxBackward {
             .map(|(&g_i, &y_i)| g_i * y_i - y_i * sum_grad_y)
             .collect();
 
-        let grad_input = Tensor<half::f16>::from_vec(grad_input_data, grad_output.dims().to_vec())?;
+        let grad_input = <Tensor<half::f16>>::from_vec(grad_input_data, grad_output.dims().to_vec())?;
         Ok(vec![grad_input])
     }
 }
@@ -63,7 +63,7 @@ mod tests {
 
         // Softmax output (already computed): [0.1, 0.2, 0.7]
         // (これは入力 [1.0, 2.0, 3.0] のsoftmax出力の近似値)
-        let output = Tensor<half::f16>::from_vec_metal(
+        let output = <Tensor<half::f16>>::from_vec_metal(
             &device,
             vec![
                 half::f16::from_f32(0.09003057),
@@ -75,7 +75,7 @@ mod tests {
         .unwrap();
 
         // grad_output = [1.0, 0.0, 0.0] (one-hot gradient)
-        let grad_output = Tensor<half::f16>::from_vec_metal(
+        let grad_output = <Tensor<half::f16>>::from_vec_metal(
             &device,
             vec![
                 half::f16::from_f32(1.0),

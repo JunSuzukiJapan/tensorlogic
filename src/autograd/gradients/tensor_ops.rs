@@ -64,9 +64,9 @@ impl GradientFunction for ConcatBackward {
 
             let grad_tensor = match grad_output.device() {
                 Device::Metal(dev) => {
-                    Tensor<half::f16>::from_vec_metal(dev, grad_input_data, input_shape.clone())?
+                    <Tensor<half::f16>>::from_vec_metal(dev, grad_input_data, input_shape.clone())?
                 }
-                _ => Tensor<half::f16>::from_vec(grad_input_data, input_shape.clone())?,
+                _ => <Tensor<half::f16>>::from_vec(grad_input_data, input_shape.clone())?,
             };
             gradients.push(grad_tensor);
 

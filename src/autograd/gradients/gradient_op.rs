@@ -45,7 +45,7 @@ impl GradientBackward {
     fn zeros_like(&self, tensor: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
         let numel = tensor.numel();
         let zeros = vec![half::f16::ZERO; numel];
-        Tensor<half::f16>::from_vec(zeros, tensor.dims().to_vec())
+        <Tensor<half::f16>>::from_vec(zeros, tensor.dims().to_vec())
     }
 
     /// Compute Hessian for the original operation
@@ -171,9 +171,9 @@ mod tests {
 
     #[test]
     fn test_gradient_backward_add() {
-        let x = Tensor<half::f16>::from_vec(vec![half::f16::from_f32(2.0)], vec![1]).unwrap();
-        let y = Tensor<half::f16>::from_vec(vec![half::f16::from_f32(3.0)], vec![1]).unwrap();
-        let grad_out = Tensor<half::f16>::from_vec(vec![half::f16::from_f32(1.0)], vec![1]).unwrap();
+        let x = <Tensor<half::f16>>::from_vec(vec![half::f16::from_f32(2.0)], vec![1]).unwrap();
+        let y = <Tensor<half::f16>>::from_vec(vec![half::f16::from_f32(3.0)], vec![1]).unwrap();
+        let grad_out = <Tensor<half::f16>>::from_vec(vec![half::f16::from_f32(1.0)], vec![1]).unwrap();
 
         let grad_fn = GradientBackward::new(
             Operation::Add,
@@ -182,7 +182,7 @@ mod tests {
             grad_out.clone(),
         );
 
-        let grad_grad_out = Tensor<half::f16>::from_vec(vec![half::f16::from_f32(1.0)], vec![1]).unwrap();
+        let grad_grad_out = <Tensor<half::f16>>::from_vec(vec![half::f16::from_f32(1.0)], vec![1]).unwrap();
         let result = grad_fn.backward(&grad_grad_out, &[&x, &y]).unwrap();
 
         // Second derivative of addition is zero
@@ -193,9 +193,9 @@ mod tests {
 
     #[test]
     fn test_gradient_backward_mul() {
-        let x = Tensor<half::f16>::from_vec(vec![half::f16::from_f32(2.0)], vec![1]).unwrap();
-        let y = Tensor<half::f16>::from_vec(vec![half::f16::from_f32(3.0)], vec![1]).unwrap();
-        let grad_out = Tensor<half::f16>::from_vec(vec![half::f16::from_f32(1.0)], vec![1]).unwrap();
+        let x = <Tensor<half::f16>>::from_vec(vec![half::f16::from_f32(2.0)], vec![1]).unwrap();
+        let y = <Tensor<half::f16>>::from_vec(vec![half::f16::from_f32(3.0)], vec![1]).unwrap();
+        let grad_out = <Tensor<half::f16>>::from_vec(vec![half::f16::from_f32(1.0)], vec![1]).unwrap();
 
         let grad_fn = GradientBackward::new(
             Operation::Mul,
@@ -204,7 +204,7 @@ mod tests {
             grad_out.clone(),
         );
 
-        let grad_grad_out = Tensor<half::f16>::from_vec(vec![half::f16::from_f32(1.0)], vec![1]).unwrap();
+        let grad_grad_out = <Tensor<half::f16>>::from_vec(vec![half::f16::from_f32(1.0)], vec![1]).unwrap();
         let result = grad_fn.backward(&grad_grad_out, &[&x, &y]).unwrap();
 
         // d/dx (df/dx) = d/dx (y) = 0

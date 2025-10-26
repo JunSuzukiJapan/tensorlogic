@@ -31,7 +31,7 @@ impl GradientFunction for SubBackward {
         // ∂L/∂b = -grad_output
         let grad_output_data = grad_output.to_vec();
         let neg_grad_data: Vec<half::f16> = grad_output_data.iter().map(|&x| -x).collect();
-        let grad_b = Tensor<half::f16>::from_vec(neg_grad_data, grad_output.dims().to_vec())?;
+        let grad_b = <Tensor<half::f16>>::from_vec(neg_grad_data, grad_output.dims().to_vec())?;
 
         // ブロードキャストされている場合は次元を縮約
         let grad_a = reduce_grad_for_broadcast(&grad_a, &self.a_shape)?;
@@ -54,7 +54,7 @@ mod tests {
     #[test]
     fn test_sub_backward_same_shape() {
         let device = get_test_device();
-        let grad_output = Tensor<half::f16>::from_vec_metal(
+        let grad_output = <Tensor<half::f16>>::from_vec_metal(
             &device,
             vec![
                 half::f16::from_f32(1.0),

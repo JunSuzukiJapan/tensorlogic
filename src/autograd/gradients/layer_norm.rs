@@ -121,9 +121,9 @@ impl LayerNormBackward {
         // Input gradient
         let grad_input_tensor = match self.input.device() {
             Device::Metal(dev) => {
-                Tensor<half::f16>::from_vec_metal(dev, grad_input, self.input.dims().to_vec())?
+                <Tensor<half::f16>>::from_vec_metal(dev, grad_input, self.input.dims().to_vec())?
             }
-            _ => Tensor<half::f16>::from_vec(grad_input, self.input.dims().to_vec())?,
+            _ => <Tensor<half::f16>>::from_vec(grad_input, self.input.dims().to_vec())?,
         };
         gradients.push(grad_input_tensor);
 
@@ -131,9 +131,9 @@ impl LayerNormBackward {
         if let Some(gw) = grad_weight {
             let grad_weight_tensor = match self.input.device() {
                 Device::Metal(dev) => {
-                    Tensor<half::f16>::from_vec_metal(dev, gw, self.normalized_shape.clone())?
+                    <Tensor<half::f16>>::from_vec_metal(dev, gw, self.normalized_shape.clone())?
                 }
-                _ => Tensor<half::f16>::from_vec(gw, self.normalized_shape.clone())?,
+                _ => <Tensor<half::f16>>::from_vec(gw, self.normalized_shape.clone())?,
             };
             gradients.push(grad_weight_tensor);
         }
@@ -142,9 +142,9 @@ impl LayerNormBackward {
         if let Some(gb) = grad_bias {
             let grad_bias_tensor = match self.input.device() {
                 Device::Metal(dev) => {
-                    Tensor<half::f16>::from_vec_metal(dev, gb, self.normalized_shape.clone())?
+                    <Tensor<half::f16>>::from_vec_metal(dev, gb, self.normalized_shape.clone())?
                 }
-                _ => Tensor<half::f16>::from_vec(gb, self.normalized_shape.clone())?,
+                _ => <Tensor<half::f16>>::from_vec(gb, self.normalized_shape.clone())?,
             };
             gradients.push(grad_bias_tensor);
         }

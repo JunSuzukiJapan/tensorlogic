@@ -49,7 +49,7 @@ mod tests {
     #[test]
     fn test_add_backward_same_shape() {
         let device = get_test_device();
-        let grad_output = Tensor<half::f16>::from_vec_metal(
+        let grad_output = <Tensor<half::f16>>::from_vec_metal(
             &device,
             vec![
                 half::f16::from_f32(1.0),
@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn test_add_backward_broadcast_scalar() {
         let device = get_test_device();
-        let grad_output = Tensor<half::f16>::from_vec_metal(
+        let grad_output = <Tensor<half::f16>>::from_vec_metal(
             &device,
             vec![
                 half::f16::from_f32(1.0),

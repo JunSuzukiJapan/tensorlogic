@@ -31,11 +31,11 @@ impl GradientFunction for MatMulBackward {
         let b_cpu = self.b.to_cpu()?;
 
         // B^T を計算
-        let b_t = Tensor<half::f16>::einsum("ij->ji", &[&b_cpu])?;
+        let b_t = <Tensor<half::f16>>::einsum("ij->ji", &[&b_cpu])?;
         let grad_a_cpu = grad_output_cpu.matmul(&b_t)?;
 
         // A^T を計算
-        let a_t = Tensor<half::f16>::einsum("ij->ji", &[&a_cpu])?;
+        let a_t = <Tensor<half::f16>>::einsum("ij->ji", &[&a_cpu])?;
         let grad_b_cpu = a_t.matmul(&grad_output_cpu)?;
 
         // 元のデバイスがMetalの場合は戻す（ここでは簡略化のためCPUのまま）
@@ -58,7 +58,7 @@ mod tests {
         let device = get_test_device();
 
         // A = [[1, 2], [3, 4]] (2x2)
-        let a = Tensor<half::f16>::from_vec_metal(
+        let a = <Tensor<half::f16>>::from_vec_metal(
             &device,
             vec![
                 half::f16::from_f32(1.0),
@@ -71,7 +71,7 @@ mod tests {
         .unwrap();
 
         // B = [[5, 6], [7, 8]] (2x2)
-        let b = Tensor<half::f16>::from_vec_metal(
+        let b = <Tensor<half::f16>>::from_vec_metal(
             &device,
             vec![
                 half::f16::from_f32(5.0),
@@ -85,7 +85,7 @@ mod tests {
 
         // C = A @ B = [[19, 22], [43, 50]]
         // grad_output = [[1, 1], [1, 1]]
-        let grad_output = Tensor<half::f16>::from_vec_metal(
+        let grad_output = <Tensor<half::f16>>::from_vec_metal(
             &device,
             vec![
                 half::f16::from_f32(1.0),

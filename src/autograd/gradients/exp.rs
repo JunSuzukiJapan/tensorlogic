@@ -49,9 +49,9 @@ impl ExpBackward {
 
         match grad_output.device() {
             Device::Metal(dev) => {
-                Tensor<half::f16>::from_vec_metal(dev, grad_input, grad_output.dims().to_vec())
+                <Tensor<half::f16>>::from_vec_metal(dev, grad_input, grad_output.dims().to_vec())
             }
-            _ => Tensor<half::f16>::from_vec(grad_input, grad_output.dims().to_vec()),
+            _ => <Tensor<half::f16>>::from_vec(grad_input, grad_output.dims().to_vec()),
         }
     }
 }

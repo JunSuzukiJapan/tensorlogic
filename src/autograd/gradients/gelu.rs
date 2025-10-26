@@ -75,7 +75,7 @@ impl GELUBackward {
         command_buffer.commit();
         command_buffer.wait_until_completed();
 
-        Tensor<half::f16>::new(
+        <Tensor<half::f16>>::new(
             BufferHandle::Metal(result_buf),
             grad_output.shape().clone(),
             grad_output.device().clone(),
@@ -109,7 +109,7 @@ impl GELUBackward {
             })
             .collect();
 
-        Tensor<half::f16>::from_vec(grad_input_data, grad_output.dims().to_vec())
+        <Tensor<half::f16>>::from_vec(grad_input_data, grad_output.dims().to_vec())
     }
 }
 
@@ -128,7 +128,7 @@ mod tests {
         let device = get_test_device();
 
         // input = [0.0, 1.0]
-        let input = Tensor<half::f16>::from_vec_metal(
+        let input = <Tensor<half::f16>>::from_vec_metal(
             &device,
             vec![half::f16::from_f32(0.0), half::f16::from_f32(1.0)],
             vec![2],
@@ -136,7 +136,7 @@ mod tests {
         .unwrap();
 
         // grad_output = [1.0, 1.0]
-        let grad_output = Tensor<half::f16>::from_vec_metal(
+        let grad_output = <Tensor<half::f16>>::from_vec_metal(
             &device,
             vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)],
             vec![2],

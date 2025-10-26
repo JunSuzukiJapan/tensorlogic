@@ -23,6 +23,7 @@
 //! let output = model.predict(input_tensor)?;
 //! ```
 
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
 use crate::error::TensorError;
 
 pub mod model;
