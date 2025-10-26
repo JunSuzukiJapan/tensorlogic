@@ -46,7 +46,7 @@ tensor_decl = { "tensor" ~ identifier ~ ":" ~ tensor_type ~ ("=" ~ tensor_expr)?
 tensor_type = { base_type ~ "[" ~ dimension_list ~ "]" ~ learnable? }
 
 base_type = {
-    "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
+    "float32" | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
 }
 
 scalar_type = {
@@ -413,7 +413,7 @@ identifier = @{
             | "let" | "true" | "false" | "not" | "and" | "or"
             | "objective" | "optimizer" | "epochs" | "auto"
             | "void"
-            | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
+            | "float32" | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
             | "python" | "import" | "as"
         )
         ~ !(ASCII_ALPHANUMERIC | "_")
@@ -432,7 +432,7 @@ keyword = @{
         | "let" | "true" | "false" | "not" | "and" | "or"
         | "objective" | "optimizer" | "epochs" | "auto"
         | "void"
-        | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
+        | "float32" | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
         | "python" | "import" | "as"
     ) ~ !(ASCII_ALPHANUMERIC | "_")
 }
@@ -447,7 +447,7 @@ reserved_keyword = {
     | "let" | "true" | "false" | "not" | "and" | "or"
     | "objective" | "optimizer" | "epochs" | "auto"
     | "void"
-    | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
+    | "float32" | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
     | "python" | "import" | "as"
 }
 

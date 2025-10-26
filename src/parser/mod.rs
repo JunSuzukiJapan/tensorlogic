@@ -210,6 +210,7 @@ impl TensorLogicParser {
 
     fn parse_base_type(pair: pest::iterators::Pair<Rule>) -> Result<BaseType, ParseError> {
         match pair.as_str() {
+            "float32" => Ok(BaseType::Float64), // Float64 enum represents float32 (32-bit float)
             "float16" => Ok(BaseType::Float32), // Float32 enum represents float16 (16-bit float)
             "int16" => Ok(BaseType::Int16),
             "int32" => Ok(BaseType::Int32),
