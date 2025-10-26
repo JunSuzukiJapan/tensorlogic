@@ -1,19 +1,19 @@
-# TensorLogic
+# TL Programming Language
 
-A production-ready f16 tensor library for Apple Silicon with automatic differentiation and optimizers, featuring Metal GPU and Neural Engine acceleration.
+A tensor computation and logic reasoning language for Apple Silicon, inspired by Pedro Domingos' ["Tensor Logic: The Language of AI"](https://arxiv.org/abs/2510.12269).
 
 > **⚠️ Experimental Project Notice**
 >
 > This is an **experimental research project** with the following constraints:
 > - **Apple Silicon Only**: Requires macOS with M-series chips (M1/M2/M3/M4)
-> - **f16 (half-precision) Only**: All floating-point operations use 16-bit floats exclusively
+> - **f16/f32 Support**: Supports both 16-bit and 32-bit floating-point operations
 > - **Metal Framework Required**: GPU acceleration relies on Apple's Metal framework
 >
 > Not intended for production use on non-Apple hardware or general-purpose computing.
 
 ## Overview
 
-TensorLogic is a unified tensor algebra library designed specifically for Apple Silicon (M-series chips), providing seamless integration between Metal GPU and Neural Engine through CoreML. All operations maintain f16 (half-precision) throughout for optimal Neural Engine compatibility and performance.
+TL is a programming language designed for tensor computation and logic reasoning on Apple Silicon (M-series chips), providing seamless integration between Metal GPU and Neural Engine through CoreML. The language aims to unify tensor algebra and logical reasoning, inspired by the fundamental equivalence between logical rules and Einstein summation as described in Pedro Domingos' research paper.
 
 **📚 [Getting Started Guide](claudedocs/getting_started.md)** | **🤖 [LLM Learning Guide](examples/LLM_GUIDE.md)** | **📖 [Optimizer Tutorial](claudedocs/optimizer_tutorial.md)** | **💬 [Local LLM Chat](examples/local_llm_chat.tl)** | **📦 [Model Loading](examples/model_loading.tl)** | **⚡ [GGUF Quantization](examples/gguf_quantized_models.tl)** | **🧠 [CoreML & Neural Engine](examples/coreml_neural_engine.tl)** | **🔧 [Full Specification](claudedocs/f16_neural_engine_metal_spec.md)**
 
@@ -121,7 +121,7 @@ See the [**Getting Started Guide**](claudedocs/getting_started.md) for comprehen
 
 **Option 1: CLI Binary**
 
-Install the TensorLogic interpreter as a binary:
+Install the TL interpreter as a binary:
 
 ```bash
 cargo install --git https://github.com/JunSuzukiJapan/tensorlogic.git
@@ -140,7 +140,7 @@ cargo build --release
 
 **Option 2: Python Module** 🐍 NEW
 
-Install TensorLogic as a Python package:
+Install TL as a Python package:
 
 ```bash
 # Install maturin
@@ -162,7 +162,7 @@ import numpy as np
 # Create interpreter
 interp = tl.Interpreter()
 
-# Execute TensorLogic code
+# Execute TL code
 interp.execute("""
     main {
         python import numpy as np
@@ -179,11 +179,11 @@ interp.execute("""
 
 ### Basic Usage
 
-TensorLogic is an interpreted language for tensor operations and neural network training.
+TL is an interpreted language for tensor operations and neural network training.
 
 #### 1. Tensor Declaration
 
-Declare tensors with the `float16` type (TensorLogic uses 16-bit floating point for GPU efficiency):
+Declare tensors with the `float16` type (TL uses 16-bit floating point for GPU efficiency):
 
 ```tensorlogic
 // Scalar tensor
@@ -228,7 +228,7 @@ main {
 
 #### 3. Importing External Files
 
-Import declarations from other TensorLogic files:
+Import declarations from other TL files:
 
 ```tensorlogic
 // Import tensor and function definitions from another file
@@ -381,7 +381,7 @@ tl run examples/tutorial_01_linear_regression.tl
 
 ## Python Integration 🐍
 
-TensorLogic can seamlessly integrate with Python libraries like NumPy, PyTorch, and SciKit-Learn.
+TL can seamlessly integrate with Python libraries like NumPy, PyTorch, and SciKit-Learn.
 
 ### Importing Python Modules
 
@@ -417,10 +417,10 @@ main {
 
 ### Tensor ↔ NumPy Conversion
 
-TensorLogic automatically converts between f16 tensors and NumPy arrays:
+TL automatically converts between f16 tensors and NumPy arrays:
 
-- **TensorLogic → NumPy**: f16 → f32 (small precision loss)
-- **NumPy → TensorLogic**: f32/f64 → f16
+- **TL → NumPy**: f16 → f32 (small precision loss)
+- **NumPy → TL**: f32/f64 → f16
 - GPU tensors are automatically moved to CPU for conversion
 
 ### Using from Python
@@ -432,7 +432,7 @@ import numpy as np
 # Create interpreter
 interp = tl.Interpreter()
 
-# Execute TensorLogic with Python integration
+# Execute TL with Python integration
 code = """
 main {
     python import numpy as np
@@ -451,12 +451,12 @@ See [examples/python_integration_test.tl](examples/python_integration_test.tl) f
 
 ## Jupyter Notebook Support 📊
 
-TensorLogic includes a Jupyter kernel for interactive development in Jupyter notebooks.
+TL includes a Jupyter kernel for interactive development in Jupyter notebooks.
 
 ### Installation
 
 ```bash
-# Install the TensorLogic Jupyter kernel
+# Install the TL Jupyter kernel
 jupyter kernelspec install --user jupyter/tensorlogic
 
 # Verify installation
@@ -472,9 +472,9 @@ jupyter notebook
 jupyter lab
 ```
 
-2. **Create a new notebook** and select "TensorLogic" as the kernel
+2. **Create a new notebook** and select "TL" as the kernel
 
-3. **Write TensorLogic code** in cells:
+3. **Write TL code** in cells:
 
 ```tensorlogic
 // Cell 1: Declare tensors
@@ -502,7 +502,7 @@ print("Trained W:", W)  // Should be ~3.0
 
 ### Features
 
-- **Interactive execution**: Run TensorLogic code cell-by-cell
+- **Interactive execution**: Run TL code cell-by-cell
 - **Variable persistence**: Variables persist across cells within a session
 - **Real-time output**: See training progress and results immediately
 - **Mixed workflows**: Combine with Python cells for data preprocessing/visualization
