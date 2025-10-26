@@ -15,10 +15,16 @@ use half::f16;
 ///
 /// # Returns
 /// New tensor with the operation applied
-pub(crate) fn execute_unary_metal_op(
-    tensor: &Tensor,
+pub(crate) fn execute_unary_metal_op<T: FloatType>(
+    tensor: &Tensor<T>,
     kernel_name: &str,
-) -> TensorResult<Tensor> {
+) -> TensorResult<Tensor<T>> {
+    // Currently only f16 is supported for Metal operations
+    if !T::is_f16() {
+        return Err(TensorError::InvalidOperation(
+            "Metal operations currently only support f16".to_string()
+        ));
+    }
     let input_buf = tensor.buffer().as_metal()?;
     let mut device = match tensor.device() {
         Device::Metal(dev) => dev.clone(),
@@ -39,8 +45,9 @@ pub(crate) fn execute_unary_metal_op(
     let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), tensor.numel())?;
 
     // Execute kernel
+    let input_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(input_buf) };
     let mut executor = KernelExecutor::new(device);
-    executor.execute_unary_op(kernel_name, input_buf, &result_buf)?;
+    executor.execute_unary_op(kernel_name, input_buf_f16, &result_buf)?;
 
     // Return new tensor
     Tensor::new(
@@ -58,16 +65,26 @@ pub(crate) fn execute_unary_metal_op(
 ///
 /// # Returns
 /// New tensor with the operation applied
-pub(crate) fn execute_unary_cpu_op<F>(tensor: &Tensor, op: F) -> TensorResult<Tensor>
+pub(crate) fn execute_unary_cpu_op<T: FloatType, F>(tensor: &Tensor<T>, op: F) -> TensorResult<Tensor<T>>
 where
     F: Fn(f32) -> f32,
 {
+    // Currently only f16 is supported
+    if !T::is_f16() {
+        return Err(TensorError::InvalidOperation(
+            "CPU operations currently only support f16".to_string()
+        ));
+    }
+
     let input = tensor.to_vec();
-    let result: Vec<f16> = input.iter().map(|&x| f16::from_f32(op(x.to_f32()))).collect();
+    // Safety: We checked T::is_f16() above
+    let input_f16: Vec<f16> = unsafe { std::mem::transmute(input) };
+    let result: Vec<f16> = input_f16.iter().map(|&x| f16::from_f32(op(x.to_f32()))).collect();
+    let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
     match tensor.device() {
-        Device::Metal(dev) => Tensor::from_vec_metal(dev, result, tensor.dims().to_vec()),
-        _ => Tensor::from_vec(result, tensor.dims().to_vec()),
+        Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, tensor.dims().to_vec()),
+        _ => Tensor::from_vec(result_t, tensor.dims().to_vec()),
     }
 }
 
@@ -80,11 +97,17 @@ where
 ///
 /// # Returns
 /// New tensor with the operation applied
-pub(crate) fn execute_binary_metal_op(
-    tensor: &Tensor,
-    scalar: &Tensor,
+pub(crate) fn execute_binary_metal_op<T: FloatType>(
+    tensor: &Tensor<T>,
+    scalar: &Tensor<T>,
     kernel_name: &str,
-) -> TensorResult<Tensor> {
+) -> TensorResult<Tensor<T>> {
+    // Currently only f16 is supported for Metal operations
+    if !T::is_f16() {
+        return Err(TensorError::InvalidOperation(
+            "Metal operations currently only support f16".to_string()
+        ));
+    }
     let input_buf = tensor.buffer().as_metal()?;
     let scalar_buf = scalar.buffer().as_metal()?;
     let mut device = match tensor.device() {
@@ -106,6 +129,9 @@ pub(crate) fn execute_binary_metal_op(
     let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), tensor.numel())?;
 
     // Execute kernel (note: binary ops use a different executor pattern)
+    let input_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(input_buf) };
+    let scalar_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(scalar_buf) };
+
     let library_ref = device.library();
     let library = library_ref
         .as_ref()
@@ -123,8 +149,8 @@ pub(crate) fn execute_binary_metal_op(
     let encoder = command_buffer.new_compute_command_encoder();
 
     encoder.set_compute_pipeline_state(&pipeline_state);
-    encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
-    encoder.set_buffer(1, Some(scalar_buf.metal_buffer()), 0);
+    encoder.set_buffer(0, Some(input_buf_f16.metal_buffer()), 0);
+    encoder.set_buffer(1, Some(scalar_buf_f16.metal_buffer()), 0);
     encoder.set_buffer(2, Some(result_buf.metal_buffer()), 0);
 
     let grid_size = metal::MTLSize::new(tensor.numel() as u64, 1, 1);
@@ -152,18 +178,18 @@ pub(crate) fn execute_binary_metal_op(
 ///
 /// # Returns
 /// New tensor with the operation applied
-pub(crate) fn execute_binary_cpu_op<F>(
-    tensor: &Tensor,
+pub(crate) fn execute_binary_cpu_op<T: FloatType, F>(
+    tensor: &Tensor<T>,
     scalar_value: f32,
     op: F,
-) -> TensorResult<Tensor>
+) -> TensorResult<Tensor<T>>
 where
     F: Fn(f32, f32) -> f32,
 {
     let input = tensor.to_vec();
-    let result: Vec<f16> = input
+    let result: Vec<T> = input
         .iter()
-        .map(|&x| f16::from_f32(op(x.to_f32(), scalar_value)))
+        .map(|&x| T::from_f32(op(x.to_f32(), scalar_value)))
         .collect();
 
     match tensor.device() {

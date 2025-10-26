@@ -877,7 +877,7 @@ impl Interpreter {
                     )),
                 };
 
-                let mask = Tensor::causal_mask(seq_len)
+                let mask = Tensor::<half::f16>::causal_mask(seq_len)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::Tensor(mask))
@@ -2623,7 +2623,7 @@ impl Interpreter {
                     )),
                 };
 
-                let output = crate::tensor::Tensor::padding_mask(&lengths, max_len)
+                let output = crate::tensor::Tensor::<half::f16>::padding_mask(&lengths, max_len)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::Tensor(output))

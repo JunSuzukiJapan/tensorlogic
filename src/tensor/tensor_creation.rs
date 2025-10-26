@@ -4,6 +4,7 @@ use crate::device::{BufferPool, Device, MetalBuffer, MetalDevice};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, FloatType, Tensor, TensorShape};
 use crate::tensor::TensorAccessors;
+use half::f16;
 use std::marker::PhantomData;
 
 /// Trait for creating tensors
@@ -163,8 +164,9 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
             });
         }
 
-        let metal_buffer = MetalBuffer::from_vec_pooled(device.buffer_pool(), &data)?;
-        let buffer = BufferHandle::Metal(metal_buffer);
+        let data_f16: Vec<f16> = unsafe { std::mem::transmute(data) };
+        let metal_buffer = MetalBuffer::from_vec_pooled(device.buffer_pool(), &data_f16)?;
+        let buffer = BufferHandle::Metal(unsafe { std::mem::transmute(metal_buffer) });
 
         Self::new_with_pool(
             buffer,
@@ -178,7 +180,7 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
         let shape = TensorShape::new(shape);
         // Use buffer pool for allocation
         let metal_buffer = MetalBuffer::zeros_pooled(device.buffer_pool(), shape.numel())?;
-        let buffer = BufferHandle::Metal(metal_buffer);
+        let buffer = BufferHandle::Metal(unsafe { std::mem::transmute(metal_buffer) });
 
         Self::new_with_pool(
             buffer,

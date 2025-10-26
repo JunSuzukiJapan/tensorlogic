@@ -205,7 +205,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         for (tensor_node_id, gradient) in gradients {
-            if let Some(mut tensor) = AutogradContext::get_tensor_generic::<half::f16>(tensor_node_id) {
+            if let Some(mut tensor) = AutogradContext::get_tensor_generic::<T>(tensor_node_id) {
                 // Accumulate gradient if it already exists
                 if let Some(existing_grad) = tensor.grad() {
                     let accumulated_grad = if create_graph {
@@ -226,7 +226,7 @@ impl<T: FloatType> Tensor<T> {
                 }
 
                 // Re-register the updated tensor
-                AutogradContext::register_tensor_generic::<half::f16>(tensor_node_id, tensor);
+                AutogradContext::register_tensor_generic::<T>(tensor_node_id, tensor);
             }
         }
 

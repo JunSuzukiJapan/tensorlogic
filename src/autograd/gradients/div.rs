@@ -1,8 +1,9 @@
 use crate::tensor::FloatType;
+use crate::tensor::TensorAutograd;
 use crate::autograd::gradients::reduce_grad_for_broadcast;
 use std::marker::PhantomData;
 use super::prelude::*;
-use crate::autograd::GradientFunction;
+use crate::autograd::GradientFunctionGeneric;
 use crate::error::TensorResult;
 use crate::tensor::{Tensor, TensorShape};
 use half::f16;
@@ -12,15 +13,16 @@ use half::f16;
 /// c = a / b の場合:
 /// ∂L/∂a = ∂L/∂c * ∂c/∂a = grad_output * (1/b) = grad_output / b
 /// ∂L/∂b = ∂L/∂c * ∂c/∂b = grad_output * (-a/b²) = -grad_output * a / b²
-pub struct DivBackward {
-    a: Tensor<half::f16>,
-    b: Tensor<half::f16>,
+pub struct DivBackward<T: FloatType> {
+    a: Tensor<T>,
+    b: Tensor<T>,
     a_shape: TensorShape,
     b_shape: TensorShape,
+    _phantom: PhantomData<T>,
 }
 
-impl DivBackward {
-    pub fn new(a: Tensor, b: Tensor<half::f16>) -> Self {
+impl<T: FloatType> DivBackward<T> {
+    pub fn new(a: Tensor<T>, b: Tensor<T>) -> Self {
         let a_shape = a.shape().clone();
         let b_shape = b.shape().clone();
         Self {
@@ -28,12 +30,16 @@ impl DivBackward {
             b,
             a_shape,
             b_shape,
+            _phantom: PhantomData,
         }
     }
 }
 
-impl GradientFunction for DivBackward {
-    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
+impl<T: FloatType> GradientFunctionGeneric<T> for DivBackward<T>
+where
+    Tensor<T>: TensorAutograd<T>,
+{
+    fn backward(&self, grad_output: &Tensor<T>, _inputs: &[&Tensor<T>]) -> TensorResult<Vec<Tensor<T>>> {
         // ∂L/∂a = grad_output / b
         let grad_a = grad_output.div(&self.b)?;
 
@@ -42,10 +48,10 @@ impl GradientFunction for DivBackward {
         let b_squared = self.b.mul(&self.b)?;
         let grad_b_positive = grad_output_mul_a.div(&b_squared)?;
 
-        // 符号を反転
+        // 符号を反転 - ジェネリックで処理
         let grad_b_data = grad_b_positive.to_vec();
-        let neg_grad_b_data: Vec<half::f16> = grad_b_data.iter().map(|&x| -x).collect();
-        let grad_b = <Tensor<half::f16>>::from_vec(neg_grad_b_data, grad_b_positive.dims().to_vec())?;
+        let neg_grad_b_data: Vec<T> = grad_b_data.iter().map(|&x| T::zero() - x).collect();
+        let grad_b = Tensor::<T>::from_vec(neg_grad_b_data, grad_b_positive.dims().to_vec())?;
 
         // ブロードキャストされている場合は次元を縮約
         let grad_a = reduce_grad_for_broadcast(&grad_a, &self.a_shape)?;

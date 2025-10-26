@@ -1,6 +1,6 @@
 use crate::error::TensorResult;
 use super::prelude::*;
-use crate::tensor::{Tensor, TensorShape};
+use crate::tensor::{FloatType, Tensor, TensorShape};
 use half::f16;
 
 /// ブロードキャストされた勾配を元の形状に縮約
@@ -11,7 +11,7 @@ use half::f16;
 ///
 /// # Returns
 /// 元の形状に縮約された勾配
-pub fn reduce_grad_for_broadcast(grad: &Tensor<half::f16>, original_shape: &TensorShape) -> TensorResult<Tensor<half::f16>> {
+pub fn reduce_grad_for_broadcast<T: FloatType>(grad: &Tensor<T>, original_shape: &TensorShape) -> TensorResult<Tensor<T>> {
     if grad.shape() == original_shape {
         return Ok(grad.clone());
     }

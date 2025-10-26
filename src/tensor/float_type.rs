@@ -5,9 +5,16 @@
 
 use half::f16;
 use std::fmt::Debug;
+use std::ops::{Add, Sub, Mul, Div, Neg, AddAssign, SubAssign, MulAssign, DivAssign};
+use std::cmp::PartialOrd;
 
 /// Trait for floating-point types supported in tensor operations
-pub trait FloatType: Copy + Clone + Debug + Send + Sync + 'static {
+pub trait FloatType:
+    Copy + Clone + Debug + Send + Sync + 'static +
+    Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + Div<Output = Self> + Neg<Output = Self> +
+    AddAssign + SubAssign + MulAssign + DivAssign +
+    PartialOrd + PartialEq
+{
     /// The zero value for this type
     fn zero() -> Self;
 
@@ -47,6 +54,21 @@ pub trait FloatType: Copy + Clone + Debug + Send + Sync + 'static {
     fn is_f32() -> bool {
         Self::size_in_bytes() == 4
     }
+
+    /// Check if the value is finite
+    fn is_finite(self) -> bool;
+
+    /// Return the maximum of self and other
+    fn max(self, other: Self) -> Self;
+
+    /// Return the minimum of self and other
+    fn min(self, other: Self) -> Self;
+
+    /// Return the absolute value
+    fn abs(self) -> Self;
+
+    /// Return the square root
+    fn sqrt(self) -> Self;
 }
 
 /// Implementation for f16 (half precision)
@@ -75,6 +97,31 @@ impl FloatType for f16 {
     fn metal_type_name() -> &'static str {
         "half"
     }
+
+    #[inline]
+    fn is_finite(self) -> bool {
+        self.to_f32().is_finite()
+    }
+
+    #[inline]
+    fn max(self, other: Self) -> Self {
+        if self.to_f32() > other.to_f32() { self } else { other }
+    }
+
+    #[inline]
+    fn min(self, other: Self) -> Self {
+        if self.to_f32() < other.to_f32() { self } else { other }
+    }
+
+    #[inline]
+    fn abs(self) -> Self {
+        f16::from_f32(self.to_f32().abs())
+    }
+
+    #[inline]
+    fn sqrt(self) -> Self {
+        f16::from_f32(self.to_f32().sqrt())
+    }
 }
 
 /// Implementation for f32 (single precision)
@@ -102,6 +149,31 @@ impl FloatType for f32 {
     #[inline]
     fn metal_type_name() -> &'static str {
         "float"
+    }
+
+    #[inline]
+    fn is_finite(self) -> bool {
+        self.is_finite()
+    }
+
+    #[inline]
+    fn max(self, other: Self) -> Self {
+        self.max(other)
+    }
+
+    #[inline]
+    fn min(self, other: Self) -> Self {
+        self.min(other)
+    }
+
+    #[inline]
+    fn abs(self) -> Self {
+        self.abs()
+    }
+
+    #[inline]
+    fn sqrt(self) -> Self {
+        self.sqrt()
     }
 }
 

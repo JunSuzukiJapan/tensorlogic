@@ -1,5 +1,5 @@
 use crate::tensor::FloatType;
-use crate::autograd::GradientFunction;
+use crate::autograd::GradientFunctionGeneric;
 use std::marker::PhantomData;
 use super::prelude::*;
 use crate::error::TensorResult;
@@ -13,36 +13,40 @@ use half::f16;
 /// ∂y_i/∂x_j = y_i * (δ_ij - y_j)
 /// ∂L/∂x_i = Σ_j (∂L/∂y_j * ∂y_j/∂x_i)
 ///         = grad_output_i * y_i - y_i * Σ_j (grad_output_j * y_j)
-pub struct SoftmaxBackward {
-    output: Tensor<half::f16>,
+pub struct SoftmaxBackward<T: FloatType> {
+    output: Tensor<T>,
+    _phantom: PhantomData<T>,
 }
 
-impl SoftmaxBackward {
-    pub fn new(output: Tensor<half::f16>) -> Self {
-        Self { output }
+impl<T: FloatType> SoftmaxBackward<T> {
+    pub fn new(output: Tensor<T>) -> Self {
+        Self {
+            output,
+            _phantom: PhantomData,
+        }
     }
 }
 
-impl GradientFunction for SoftmaxBackward {
-    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
+impl<T: FloatType> GradientFunctionGeneric<T> for SoftmaxBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>, _inputs: &[&Tensor<T>]) -> TensorResult<Vec<Tensor<T>>> {
         let grad_output_data = grad_output.to_vec();
         let output_data = self.output.to_vec();
 
         // Σ_j (grad_output_j * y_j)
-        let sum_grad_y: half::f16 = grad_output_data
+        let sum_grad_y: T = grad_output_data
             .iter()
             .zip(output_data.iter())
             .map(|(&g, &y)| g * y)
-            .fold(half::f16::ZERO, |acc, x| acc + x);
+            .fold(T::zero(), |acc, x| acc + x);
 
         // grad_input_i = grad_output_i * y_i - y_i * sum_grad_y
-        let grad_input_data: Vec<half::f16> = grad_output_data
+        let grad_input_data: Vec<T> = grad_output_data
             .iter()
             .zip(output_data.iter())
             .map(|(&g_i, &y_i)| g_i * y_i - y_i * sum_grad_y)
             .collect();
 
-        let grad_input = <Tensor<half::f16>>::from_vec(grad_input_data, grad_output.dims().to_vec())?;
+        let grad_input = Tensor::<T>::from_vec(grad_input_data, grad_output.dims().to_vec())?;
         Ok(vec![grad_input])
     }
 }

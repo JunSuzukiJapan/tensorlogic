@@ -310,8 +310,10 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let self_data = self.to_vec();
-        let indices_data = indices.to_vec();
+        let self_data_t = self.to_vec();
+        let self_data: Vec<f16> = unsafe { std::mem::transmute(self_data_t) };
+        let indices_data_t = indices.to_vec();
+        let indices_data: Vec<f16> = unsafe { std::mem::transmute(indices_data_t) };
         let self_dims = self.dims();
         let indices_dims = indices.dims();
 
@@ -388,7 +390,8 @@ impl<T: FloatType> Tensor<T> {
             output[out_idx] = self_data[self_idx];
         }
 
-        Tensor::from_vec(output, indices_dims.to_vec())
+        let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
+        Tensor::from_vec(output_t, indices_dims.to_vec())
     }
 
     /// Scatter values along an axis according to indices

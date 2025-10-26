@@ -43,7 +43,7 @@ impl<T: FloatType> Tensor<T> {
         let input_dims = self.shape().dims();
 
         let target_numel = target_shape.numel();
-        let mut output = vec![f16::ZERO; target_numel];
+        let mut output = vec![T::zero(); target_numel];
 
         // Compute strides for input and output
         let input_strides = self.shape().compute_strides();
@@ -100,13 +100,16 @@ impl<T: FloatType> Tensor<T> {
             )),
         };
 
+        let result_vec = cpu_result.to_vec();
+        let result_f16: Vec<f16> = unsafe { std::mem::transmute(result_vec) };
         let metal_buf = MetalBuffer::from_f16_slice(
             device.metal_device(),
-            &cpu_result.to_vec(),
+            &result_f16,
         )?;
 
+        let metal_buf_t: MetalBuffer<T> = unsafe { std::mem::transmute(metal_buf) };
         Tensor::new(
-            BufferHandle::Metal(metal_buf),
+            BufferHandle::Metal(metal_buf_t),
             target_shape.clone(),
             Device::Metal(device),
         )

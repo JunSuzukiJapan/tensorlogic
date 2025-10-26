@@ -1,13 +1,14 @@
 //! Runtime value types for TensorLogic interpreter
 
-use crate::tensor::{Tensor, TokenIdArray};
+use crate::tensor::{Tensor, TokenIdArray, TensorIO};
 use crate::model::Model;
+use half::f16;
 use super::{RuntimeError, RuntimeResult, DISPLAY_LIMIT};
 
 /// Runtime value
 #[derive(Debug, Clone)]
 pub enum Value {
-    Tensor(Tensor),
+    Tensor(Tensor<f16>),
     Boolean(bool),
     Integer(i64),
     Float(f64),
@@ -24,7 +25,7 @@ pub enum Value {
 
 impl Value {
     /// Convert to tensor if possible
-    pub fn as_tensor(&self) -> RuntimeResult<&Tensor> {
+    pub fn as_tensor(&self) -> RuntimeResult<&Tensor<f16>> {
         match self {
             Value::Tensor(t) => Ok(t),
             _ => Err(RuntimeError::TypeError(format!(

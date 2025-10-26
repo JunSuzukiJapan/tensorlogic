@@ -18,7 +18,10 @@ impl<T: FloatType> Tensor<T> {
     ///
     /// # Returns
     /// - result: shape [M, N]
-    pub fn matmul(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    pub fn matmul(&self, other: &Tensor<T>) -> TensorResult<Self>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         // Validate shapes for matrix multiplication
         if self.shape().rank() != 2 || other.shape().rank() != 2 {
             return Err(TensorError::InvalidOperation(
@@ -63,7 +66,7 @@ impl<T: FloatType> Tensor<T> {
 
             let grad_fn = Box::new(MatMulBackward::new(self.clone(), other.clone()));
 
-            let result_node_id = AutogradContext::add_node(
+            let result_node_id = AutogradContext::add_node_generic(
                 Operation::MatMul,
                 vec![self_node_id, other_node_id],
                 Some(grad_fn),
@@ -83,7 +86,7 @@ impl<T: FloatType> Tensor<T> {
     ///
     /// Uses threadgroup memory tiling for improved performance (1.5-2x speedup).
     /// Automatically selects optimal tile size based on matrix dimensions.
-    fn matmul_metal(&self, other: &Tensor, m: usize, k: usize, n: usize) -> TensorResult<Self> {
+    fn matmul_metal(&self, other: &Tensor<T>, m: usize, k: usize, n: usize) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
         if !T::is_f16() {
             return Err(TensorError::InvalidOperation(
@@ -181,7 +184,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     /// CPU fallback for matmul
-    fn matmul_cpu(&self, other: &Tensor, m: usize, k: usize, n: usize) -> TensorResult<Self> {
+    fn matmul_cpu(&self, other: &Tensor<T>, m: usize, k: usize, n: usize) -> TensorResult<Self> {
         // Currently only f16 is supported
         if !T::is_f16() {
             return Err(TensorError::InvalidOperation(
@@ -191,6 +194,8 @@ impl<T: FloatType> Tensor<T> {
 
         let a = self.to_vec();
         let b = other.to_vec();
+        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
+        let b_f16: Vec<f16> = unsafe { std::mem::transmute(b) };
 
         let mut c = vec![f16::ZERO; m * n];
 
@@ -198,13 +203,14 @@ impl<T: FloatType> Tensor<T> {
             for j in 0..n {
                 let mut sum = f16::ZERO;
                 for p in 0..k {
-                    sum += a[i * k + p] * b[p * n + j];
+                    sum += a_f16[i * k + p] * b_f16[p * n + j];
                 }
                 c[i * n + j] = sum;
             }
         }
 
-        Tensor::from_vec(c, vec![m, n])
+        let c_t: Vec<T> = unsafe { std::mem::transmute(c) };
+        Tensor::from_vec(c_t, vec![m, n])
     }
 }
 

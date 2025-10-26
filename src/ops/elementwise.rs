@@ -3,7 +3,7 @@
 use crate::autograd::gradients::{AddBackward, DivBackward, MulBackward, SubBackward};
 use crate::tensor::FloatType;
 use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform, TensorAutograd};
-use crate::autograd::{AutogradContext, GradientFunction, Operation};
+use crate::autograd::{AutogradContext, GradientFunction, GradientFunctionGeneric, Operation};
 use crate::device::{Device, MetalBuffer};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
@@ -12,11 +12,13 @@ use half::f16;
 /// Helper function to record a binary operation in the computation graph
 fn record_binary_op<T: FloatType>(
     op: Operation,
-    grad_fn: Box<dyn GradientFunction>,
+    grad_fn: Box<dyn GradientFunctionGeneric<T>>,
     self_tensor: &Tensor<T>,
     other_tensor: &Tensor<T>,
     result: &mut Tensor<T>,
-) {
+) where
+    Tensor<T>: TensorAutograd<T>,
+{
     if !(self_tensor.requires_grad() || other_tensor.requires_grad()) || !AutogradContext::is_enabled() {
         return;
     }
@@ -26,7 +28,7 @@ fn record_binary_op<T: FloatType>(
     let other_node_id = other_tensor.grad_node().unwrap_or_else(|| AutogradContext::allocate_id());
 
     // Add node to computation graph (this allocates the result node ID internally)
-    let result_node_id = AutogradContext::add_node(
+    let result_node_id = AutogradContext::add_node_generic(
         op,
         vec![self_node_id, other_node_id],
         Some(grad_fn),
@@ -43,7 +45,10 @@ fn record_binary_op<T: FloatType>(
 
 impl<T: FloatType> Tensor<T> {
     /// Element-wise addition
-    pub fn add(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    pub fn add(&self, other: &Tensor<T>) -> TensorResult<Self>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         // Check shape compatibility
         if !self.shape().is_same(other.shape()) {
             return Err(TensorError::ShapeMismatch {
@@ -123,17 +128,24 @@ impl<T: FloatType> Tensor<T> {
         let a = self.to_vec();
         let b = other.to_vec();
 
-        let result: Vec<f16> = a.iter().zip(b.iter()).map(|(&x, &y)| x + y).collect();
+        // Safety: We checked T::is_f16() above
+        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
+        let b_f16: Vec<f16> = unsafe { std::mem::transmute(b) };
+        let result: Vec<f16> = a_f16.iter().zip(b_f16.iter()).map(|(&x, &y)| x + y).collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
         // Keep result on same device as self
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
 
     /// Element-wise subtraction
-    pub fn sub(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    pub fn sub(&self, other: &Tensor<T>) -> TensorResult<Self>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         if !self.shape().is_same(other.shape()) {
             return Err(TensorError::ShapeMismatch {
                 expected: self.dims().to_vec(),
@@ -198,16 +210,23 @@ impl<T: FloatType> Tensor<T> {
         let a = self.to_vec();
         let b = other.to_vec();
 
-        let result: Vec<f16> = a.iter().zip(b.iter()).map(|(&x, &y)| x - y).collect();
+        // Safety: We checked T::is_f16() above
+        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
+        let b_f16: Vec<f16> = unsafe { std::mem::transmute(b) };
+        let result: Vec<f16> = a_f16.iter().zip(b_f16.iter()).map(|(&x, &y)| x - y).collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
 
     /// Element-wise multiplication
-    pub fn mul(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    pub fn mul(&self, other: &Tensor<T>) -> TensorResult<Self>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         if !self.shape().is_same(other.shape()) {
             return Err(TensorError::ShapeMismatch {
                 expected: self.dims().to_vec(),
@@ -272,16 +291,23 @@ impl<T: FloatType> Tensor<T> {
         let a = self.to_vec();
         let b = other.to_vec();
 
-        let result: Vec<f16> = a.iter().zip(b.iter()).map(|(&x, &y)| x * y).collect();
+        // Safety: We checked T::is_f16() above
+        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
+        let b_f16: Vec<f16> = unsafe { std::mem::transmute(b) };
+        let result: Vec<f16> = a_f16.iter().zip(b_f16.iter()).map(|(&x, &y)| x * y).collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
 
     /// Element-wise division
-    pub fn div(&self, other: &Tensor<T>) -> TensorResult<Self> {
+    pub fn div(&self, other: &Tensor<T>) -> TensorResult<Self>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         if !self.shape().is_same(other.shape()) {
             return Err(TensorError::ShapeMismatch {
                 expected: self.dims().to_vec(),
@@ -346,11 +372,15 @@ impl<T: FloatType> Tensor<T> {
         let a = self.to_vec();
         let b = other.to_vec();
 
-        let result: Vec<f16> = a.iter().zip(b.iter()).map(|(&x, &y)| x / y).collect();
+        // Safety: We checked T::is_f16() above
+        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
+        let b_f16: Vec<f16> = unsafe { std::mem::transmute(b) };
+        let result: Vec<f16> = a_f16.iter().zip(b_f16.iter()).map(|(&x, &y)| x / y).collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
 
@@ -468,7 +498,7 @@ impl<T: FloatType> Tensor<T> {
             Device::Metal(dev) => dev,
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
-        let exp_tensor = Tensor::from_vec_metal(device, vec![f16::from_f32(exponent)], vec![1])?;
+        let exp_tensor = Tensor::<T>::from_vec_metal(device, vec![T::from_f32(exponent)], vec![1])?;
         super::helpers::execute_binary_metal_op(self, &exp_tensor, "pow_f16")
     }
 
@@ -594,10 +624,14 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let a = self.to_vec();
-        let result: Vec<f16> = a.iter().map(|&x| x + scalar).collect();
+        // Safety: We checked T::is_f16() above
+        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
+        let result: Vec<f16> = a_f16.iter().map(|&x| x + scalar).collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
 
@@ -610,10 +644,14 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let a = self.to_vec();
-        let result: Vec<f16> = a.iter().map(|&x| x + scalar).collect();
+        // Safety: We checked T::is_f16() above
+        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
+        let result: Vec<f16> = a_f16.iter().map(|&x| x + scalar).collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
 
@@ -635,10 +673,14 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let a = self.to_vec();
-        let result: Vec<f16> = a.iter().map(|&x| x - scalar).collect();
+        // Safety: We checked T::is_f16() above
+        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
+        let result: Vec<f16> = a_f16.iter().map(|&x| x - scalar).collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
 
@@ -651,10 +693,14 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let a = self.to_vec();
-        let result: Vec<f16> = a.iter().map(|&x| x - scalar).collect();
+        // Safety: We checked T::is_f16() above
+        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
+        let result: Vec<f16> = a_f16.iter().map(|&x| x - scalar).collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
 
@@ -676,10 +722,14 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let a = self.to_vec();
-        let result: Vec<f16> = a.iter().map(|&x| x * scalar).collect();
+        // Safety: We checked T::is_f16() above
+        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
+        let result: Vec<f16> = a_f16.iter().map(|&x| x * scalar).collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
 
@@ -692,10 +742,14 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let a = self.to_vec();
-        let result: Vec<f16> = a.iter().map(|&x| x * scalar).collect();
+        // Safety: We checked T::is_f16() above
+        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
+        let result: Vec<f16> = a_f16.iter().map(|&x| x * scalar).collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
 
@@ -717,10 +771,14 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let a = self.to_vec();
-        let result: Vec<f16> = a.iter().map(|&x| x / scalar).collect();
+        // Safety: We checked T::is_f16() above
+        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
+        let result: Vec<f16> = a_f16.iter().map(|&x| x / scalar).collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
 
@@ -733,10 +791,14 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let a = self.to_vec();
-        let result: Vec<f16> = a.iter().map(|&x| x / scalar).collect();
+        // Safety: We checked T::is_f16() above
+        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
+        let result: Vec<f16> = a_f16.iter().map(|&x| x / scalar).collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
 }

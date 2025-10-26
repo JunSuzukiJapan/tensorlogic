@@ -67,7 +67,7 @@ impl<T: FloatType> Drop for Tensor<T> {
             {
                 // Only recycle if this is the last reference to the buffer
                 // Arc::strong_count returns the number of strong references
-                let ref_count = Arc::strong_count(&metal_buffer.metal_buffer());
+                let ref_count = Arc::strong_count(&metal_buffer.buffer);
 
                 if std::env::var("TL_BUFFER_DEBUG").is_ok() {
                     eprintln!("[Drop] ref_count={}", ref_count);

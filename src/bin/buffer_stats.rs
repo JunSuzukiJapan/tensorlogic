@@ -2,9 +2,10 @@
 /// Shows memory usage and buffer reuse statistics
 
 use std::env;
+use half::f16;
 use tensorlogic::device::MetalDevice;
 use tensorlogic::error::TensorResult;
-use tensorlogic::tensor::Tensor;
+use tensorlogic::tensor::{Tensor, TensorCreation, TensorAccessors};
 
 fn main() -> TensorResult<()> {
     let args: Vec<String> = env::args().collect();
@@ -40,13 +41,13 @@ fn test_simple(device: &MetalDevice) -> TensorResult<()> {
 
     // Allocate some tensors
     {
-        let _t1 = Tensor::zeros(device, vec![100, 100])?;
+        let _t1 = Tensor::<f16>::zeros(device, vec![100, 100])?;
         print_stats(device, "After t1 allocation");
 
-        let _t2 = Tensor::zeros(device, vec![100, 100])?;
+        let _t2 = Tensor::<f16>::zeros(device, vec![100, 100])?;
         print_stats(device, "After t2 allocation");
 
-        let _t3 = Tensor::zeros(device, vec![200, 200])?;
+        let _t3 = Tensor::<f16>::zeros(device, vec![200, 200])?;
         print_stats(device, "After t3 allocation");
     }
 
@@ -65,16 +66,16 @@ fn test_layers(device: &MetalDevice) -> TensorResult<()> {
     for i in 0..5 {
         {
             // Allocate tensors for this layer
-            let _input = Tensor::zeros(device, vec![29, 2048])?;
-            let _q = Tensor::zeros(device, vec![29, 2048])?;
-            let _k = Tensor::zeros(device, vec![29, 256])?;
-            let _v = Tensor::zeros(device, vec![29, 256])?;
-            let _attn_scores = Tensor::zeros(device, vec![29, 32, 29])?;
-            let _attn_weights = Tensor::zeros(device, vec![29, 32, 29])?;
-            let _attn_output = Tensor::zeros(device, vec![29, 32, 64])?;
-            let _ffn_gate = Tensor::zeros(device, vec![29, 5632])?;
-            let _ffn_up = Tensor::zeros(device, vec![29, 5632])?;
-            let _output = Tensor::zeros(device, vec![29, 2048])?;
+            let _input = Tensor::<f16>::zeros(device, vec![29, 2048])?;
+            let _q = Tensor::<f16>::zeros(device, vec![29, 2048])?;
+            let _k = Tensor::<f16>::zeros(device, vec![29, 256])?;
+            let _v = Tensor::<f16>::zeros(device, vec![29, 256])?;
+            let _attn_scores = Tensor::<f16>::zeros(device, vec![29, 32, 29])?;
+            let _attn_weights = Tensor::<f16>::zeros(device, vec![29, 32, 29])?;
+            let _attn_output = Tensor::<f16>::zeros(device, vec![29, 32, 64])?;
+            let _ffn_gate = Tensor::<f16>::zeros(device, vec![29, 5632])?;
+            let _ffn_up = Tensor::<f16>::zeros(device, vec![29, 5632])?;
+            let _output = Tensor::<f16>::zeros(device, vec![29, 2048])?;
 
             print_stats(device, &format!("Layer {} - inside scope", i));
         }

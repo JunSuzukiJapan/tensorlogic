@@ -13,7 +13,7 @@ use std::sync::Arc;
 pub struct MetalBuffer<T: FloatType> {
     pub(crate) buffer: Arc<Buffer>,
     pub(crate) length: usize, // number of T elements
-    _phantom: PhantomData<T>,
+    pub(crate) _phantom: PhantomData<T>,
 }
 
 impl<T: FloatType> MetalBuffer<T> {

@@ -5,7 +5,7 @@
 
 use crate::device::{Device, MetalBuffer, NeuralEngineOps};
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform, TensorAutograd};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
@@ -102,17 +102,20 @@ impl<T: FloatType> Tensor<T> {
 
         let a_data = self.buffer().to_cpu_vec();
         let b_data = other.buffer().to_cpu_vec();
+        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a_data) };
+        let b_f16: Vec<f16> = unsafe { std::mem::transmute(b_data) };
 
-        let result: Vec<f16> = a_data
+        let result: Vec<f16> = a_f16
             .iter()
-            .zip(b_data.iter())
+            .zip(b_f16.iter())
             .map(|(&a, &b)| {
                 let sum = a + b;
                 if sum > f16::ZERO { sum } else { f16::ZERO }
             })
             .collect();
 
-        Tensor::from_vec(result, self.dims().to_vec())
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+        Tensor::from_vec(result_t, self.dims().to_vec())
     }
 
     /// Fused multiply + relu: relu(self * other)
@@ -192,24 +195,30 @@ impl<T: FloatType> Tensor<T> {
 
         let a_data = self.buffer().to_cpu_vec();
         let b_data = other.buffer().to_cpu_vec();
+        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a_data) };
+        let b_f16: Vec<f16> = unsafe { std::mem::transmute(b_data) };
 
-        let result: Vec<f16> = a_data
+        let result: Vec<f16> = a_f16
             .iter()
-            .zip(b_data.iter())
+            .zip(b_f16.iter())
             .map(|(&a, &b)| {
                 let product = a * b;
                 if product > f16::ZERO { product } else { f16::ZERO }
             })
             .collect();
 
-        Tensor::from_vec(result, self.dims().to_vec())
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+        Tensor::from_vec(result_t, self.dims().to_vec())
     }
 
     /// Fused matmul + activation
     ///
     /// Computes result = activation(self @ other)
     /// More efficient than separate matmul() and activation() calls
-    pub fn matmul_with_activation(&self, other: &Tensor, activation: Activation) -> TensorResult<Self> {
+    pub fn matmul_with_activation(&self, other: &Tensor<T>, activation: Activation) -> TensorResult<Self>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         // Shape validation
         if self.rank() != 2 || other.rank() != 2 {
             return Err(TensorError::InvalidDimension {
@@ -252,7 +261,10 @@ impl<T: FloatType> Tensor<T> {
         }
     }
 
-    fn matmul_with_activation_metal(&self, other: &Tensor, activation: Activation) -> TensorResult<Self> {
+    fn matmul_with_activation_metal(&self, other: &Tensor<T>, activation: Activation) -> TensorResult<Self>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         // Currently only f16 is supported for Metal operations
         if !T::is_f16() {
             return Err(TensorError::InvalidOperation(
@@ -420,14 +432,20 @@ impl<T: FloatType> Tensor<T> {
         let scale_data = scale.buffer().to_cpu_vec();
         let bias_data = bias.buffer().to_cpu_vec();
 
-        let result: Vec<f16> = x_data
+        // Safety: We checked T::is_f16() in the caller
+        let x_f16: Vec<f16> = unsafe { std::mem::transmute(x_data) };
+        let scale_f16: Vec<f16> = unsafe { std::mem::transmute(scale_data) };
+        let bias_f16: Vec<f16> = unsafe { std::mem::transmute(bias_data) };
+
+        let result: Vec<f16> = x_f16
             .iter()
-            .zip(scale_data.iter())
-            .zip(bias_data.iter())
+            .zip(scale_f16.iter())
+            .zip(bias_f16.iter())
             .map(|((&x, &s), &b)| x * s + b)
             .collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
-        Tensor::from_vec(result, self.dims().to_vec())
+        Tensor::from_vec(result_t, self.dims().to_vec())
     }
 
     /// Neural Engine implementation of fused add + relu

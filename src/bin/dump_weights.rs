@@ -1,5 +1,6 @@
 use tensorlogic::model::Model;
 use tensorlogic::device::MetalDevice;
+use tensorlogic::tensor::{TensorAccessors, TensorIO};
 use std::env;
 
 fn main() {

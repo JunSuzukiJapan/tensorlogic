@@ -10,7 +10,7 @@
 
 use crate::device::{Device, MetalBuffer};
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform, TensorAutograd};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 
@@ -33,10 +33,13 @@ impl<T: FloatType> Tensor<T> {
     /// - output: [M, N] tensor
     pub fn fused_linear_residual_relu(
         &self,
-        weight: &Tensor,
-        bias: &Tensor,
-        residual: &Tensor,
-    ) -> TensorResult<Self> {
+        weight: &Tensor<T>,
+        bias: &Tensor<T>,
+        residual: &Tensor<T>,
+    ) -> TensorResult<Self>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         // Validate shapes
         if self.shape().rank() != 2 || weight.shape().rank() != 2 {
             return Err(TensorError::InvalidOperation(
@@ -76,13 +79,16 @@ impl<T: FloatType> Tensor<T> {
 
     fn fused_linear_residual_relu_metal(
         &self,
-        weight: &Tensor,
-        bias: &Tensor,
-        residual: &Tensor,
+        weight: &Tensor<T>,
+        bias: &Tensor<T>,
+        residual: &Tensor<T>,
         m: usize,
         k: usize,
         n: usize,
-    ) -> TensorResult<Self> {
+    ) -> TensorResult<Self>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         // Currently only f16 is supported for Metal operations
         if !T::is_f16() {
             return Err(TensorError::InvalidOperation(
@@ -161,13 +167,16 @@ impl<T: FloatType> Tensor<T> {
 
     fn fused_linear_residual_relu_cpu(
         &self,
-        weight: &Tensor,
-        bias: &Tensor,
-        residual: &Tensor,
+        weight: &Tensor<T>,
+        bias: &Tensor<T>,
+        residual: &Tensor<T>,
         _m: usize,
         _k: usize,
         _n: usize,
-    ) -> TensorResult<Self> {
+    ) -> TensorResult<Self>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         // Currently only f16 is supported
         if !T::is_f16() {
             return Err(TensorError::InvalidOperation(
@@ -188,7 +197,10 @@ impl<T: FloatType> Tensor<T> {
     ///
     /// Common in transformer feed-forward networks.
     /// 2x faster than separate GELU and linear operations.
-    pub fn fused_gelu_linear(&self, weight: &Tensor, bias: &Tensor<T>) -> TensorResult<Self> {
+    pub fn fused_gelu_linear(&self, weight: &Tensor<T>, bias: &Tensor<T>) -> TensorResult<Self>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         if self.shape().rank() != 2 || weight.shape().rank() != 2 {
             return Err(TensorError::InvalidOperation(
                 "fused_gelu_linear requires 2D tensors".to_string(),
@@ -218,8 +230,8 @@ impl<T: FloatType> Tensor<T> {
 
     fn fused_gelu_linear_metal(
         &self,
-        weight: &Tensor,
-        bias: &Tensor,
+        weight: &Tensor<T>,
+        bias: &Tensor<T>,
         m: usize,
         k: usize,
         n: usize,
@@ -299,12 +311,15 @@ impl<T: FloatType> Tensor<T> {
 
     fn fused_gelu_linear_cpu(
         &self,
-        weight: &Tensor,
-        bias: &Tensor,
+        weight: &Tensor<T>,
+        bias: &Tensor<T>,
         _m: usize,
         _k: usize,
         _n: usize,
-    ) -> TensorResult<Self> {
+    ) -> TensorResult<Self>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         // Currently only f16 is supported
         if !T::is_f16() {
             return Err(TensorError::InvalidOperation(

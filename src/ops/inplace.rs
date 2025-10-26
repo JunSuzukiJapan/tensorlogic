@@ -5,7 +5,7 @@
 
 use crate::device::Device;
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::{TensorAccessors, TensorAutograd, TensorCreation, TensorIO, TensorTransform};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::Tensor;
 use half::f16;
@@ -15,7 +15,10 @@ impl<T: FloatType> Tensor<T> {
     ///
     /// Modifies self in-place to avoid allocating new memory.
     /// Both tensors must have the same shape.
-    pub fn add_(&mut self, other: &Tensor<T>) -> TensorResult<()> {
+    pub fn add_(&mut self, other: &Tensor<T>) -> TensorResult<()>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         // Shape check
         if self.shape().dims() != other.shape().dims() {
             return Err(TensorError::ShapeMismatch {
@@ -37,15 +40,20 @@ impl<T: FloatType> Tensor<T> {
         let self_data = self.buffer().to_cpu_vec();
         let other_data = other.to_vec();
 
-        let result: Vec<f16> = self_data
+        // Safety: We checked T::is_f16() in the caller
+        let self_f16: Vec<f16> = unsafe { std::mem::transmute(self_data) };
+        let other_f16: Vec<f16> = unsafe { std::mem::transmute(other_data) };
+
+        let result: Vec<f16> = self_f16
             .iter()
-            .zip(other_data.iter())
+            .zip(other_f16.iter())
             .map(|(a, b)| *a + *b)
             .collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
         // Update self's buffer
         *self = Tensor::new(
-            BufferHandle::CPU(result),
+            BufferHandle::CPU(result_t),
             self.shape().clone(),
             Device::CPU,
         )?;
@@ -53,7 +61,10 @@ impl<T: FloatType> Tensor<T> {
         Ok(())
     }
 
-    fn add_metal_inplace(&mut self, other: &Tensor<T>) -> TensorResult<()> {
+    fn add_metal_inplace(&mut self, other: &Tensor<T>) -> TensorResult<()>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         // For Metal, we need to execute the kernel and update the buffer
         // This requires mutable access to the Metal buffer
         let result = self.add(other)?;
@@ -62,7 +73,10 @@ impl<T: FloatType> Tensor<T> {
     }
 
     /// In-place multiplication: self *= other
-    pub fn mul_(&mut self, other: &Tensor<T>) -> TensorResult<()> {
+    pub fn mul_(&mut self, other: &Tensor<T>) -> TensorResult<()>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         if self.shape().dims() != other.shape().dims() {
             return Err(TensorError::ShapeMismatch {
                 expected: self.shape().dims().to_vec(),
@@ -83,14 +97,19 @@ impl<T: FloatType> Tensor<T> {
         let self_data = self.buffer().to_cpu_vec();
         let other_data = other.to_vec();
 
-        let result: Vec<f16> = self_data
+        // Safety: We checked T::is_f16() in the caller
+        let self_f16: Vec<f16> = unsafe { std::mem::transmute(self_data) };
+        let other_f16: Vec<f16> = unsafe { std::mem::transmute(other_data) };
+
+        let result: Vec<f16> = self_f16
             .iter()
-            .zip(other_data.iter())
+            .zip(other_f16.iter())
             .map(|(a, b)| *a * *b)
             .collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
         *self = Tensor::new(
-            BufferHandle::CPU(result),
+            BufferHandle::CPU(result_t),
             self.shape().clone(),
             Device::CPU,
         )?;
@@ -98,14 +117,20 @@ impl<T: FloatType> Tensor<T> {
         Ok(())
     }
 
-    fn mul_metal_inplace(&mut self, other: &Tensor<T>) -> TensorResult<()> {
+    fn mul_metal_inplace(&mut self, other: &Tensor<T>) -> TensorResult<()>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         let result = self.mul(other)?;
         *self = result;
         Ok(())
     }
 
     /// In-place subtraction: self -= other
-    pub fn sub_(&mut self, other: &Tensor<T>) -> TensorResult<()> {
+    pub fn sub_(&mut self, other: &Tensor<T>) -> TensorResult<()>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         if self.shape().dims() != other.shape().dims() {
             return Err(TensorError::ShapeMismatch {
                 expected: self.shape().dims().to_vec(),
@@ -126,14 +151,19 @@ impl<T: FloatType> Tensor<T> {
         let self_data = self.buffer().to_cpu_vec();
         let other_data = other.to_vec();
 
-        let result: Vec<f16> = self_data
+        // Safety: We checked T::is_f16() in the caller
+        let self_f16: Vec<f16> = unsafe { std::mem::transmute(self_data) };
+        let other_f16: Vec<f16> = unsafe { std::mem::transmute(other_data) };
+
+        let result: Vec<f16> = self_f16
             .iter()
-            .zip(other_data.iter())
+            .zip(other_f16.iter())
             .map(|(a, b)| *a - *b)
             .collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
         *self = Tensor::new(
-            BufferHandle::CPU(result),
+            BufferHandle::CPU(result_t),
             self.shape().clone(),
             Device::CPU,
         )?;
@@ -141,14 +171,20 @@ impl<T: FloatType> Tensor<T> {
         Ok(())
     }
 
-    fn sub_metal_inplace(&mut self, other: &Tensor<T>) -> TensorResult<()> {
+    fn sub_metal_inplace(&mut self, other: &Tensor<T>) -> TensorResult<()>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         let result = self.sub(other)?;
         *self = result;
         Ok(())
     }
 
     /// In-place ReLU: self = max(self, 0)
-    pub fn relu_(&mut self) -> TensorResult<()> {
+    pub fn relu_(&mut self) -> TensorResult<()>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         match self.device() {
             Device::Metal(_) => self.relu_metal_inplace(),
             Device::CPU => self.relu_cpu_inplace(),
@@ -160,14 +196,16 @@ impl<T: FloatType> Tensor<T> {
         use crate::tensor::BufferHandle;
 
         let self_data = self.buffer().to_cpu_vec();
+        let self_f16: Vec<f16> = unsafe { std::mem::transmute(self_data) };
 
-        let result: Vec<f16> = self_data
+        let result: Vec<f16> = self_f16
             .iter()
             .map(|&x| if x > f16::ZERO { x } else { f16::ZERO })
             .collect();
 
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
         *self = Tensor::new(
-            BufferHandle::CPU(result),
+            BufferHandle::CPU(result_t),
             self.shape().clone(),
             Device::CPU,
         )?;
@@ -175,7 +213,10 @@ impl<T: FloatType> Tensor<T> {
         Ok(())
     }
 
-    fn relu_metal_inplace(&mut self) -> TensorResult<()> {
+    fn relu_metal_inplace(&mut self) -> TensorResult<()>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         let result = self.relu()?;
         *self = result;
         Ok(())
@@ -187,13 +228,17 @@ impl<T: FloatType> Tensor<T> {
 
         let self_data = self.buffer().to_cpu_vec();
 
-        let result: Vec<f16> = self_data
+        // Safety: We checked T::is_f16() in the caller
+        let self_f16: Vec<f16> = unsafe { std::mem::transmute(self_data) };
+
+        let result: Vec<f16> = self_f16
             .iter()
             .map(|&x| x + scalar)
             .collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
         *self = Tensor::new(
-            BufferHandle::CPU(result),
+            BufferHandle::CPU(result_t),
             self.shape().clone(),
             self.device().clone(),
         )?;
@@ -207,13 +252,17 @@ impl<T: FloatType> Tensor<T> {
 
         let self_data = self.buffer().to_cpu_vec();
 
-        let result: Vec<f16> = self_data
+        // Safety: We checked T::is_f16() in the caller
+        let self_f16: Vec<f16> = unsafe { std::mem::transmute(self_data) };
+
+        let result: Vec<f16> = self_f16
             .iter()
             .map(|&x| x * scalar)
             .collect();
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
         *self = Tensor::new(
-            BufferHandle::CPU(result),
+            BufferHandle::CPU(result_t),
             self.shape().clone(),
             self.device().clone(),
         )?;

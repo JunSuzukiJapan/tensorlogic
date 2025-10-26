@@ -87,8 +87,9 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let data = self.to_vec();
+        let data_f16: Vec<f16> = unsafe { std::mem::transmute(data) };
         let mut sum = f16::ZERO;
-        for &val in &data {
+        for &val in &data_f16 {
             sum += val;
         }
         Ok(sum)
@@ -138,7 +139,8 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let output_numel = output_dims.iter().product();
-        let output_buf = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), output_numel)?;
+        let output_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), output_numel)?;
+        let output_buf: MetalBuffer<T> = unsafe { std::mem::transmute(output_buf_f16) };
 
         // Prepare shape buffers
         let input_shape_u32: Vec<u32> = input_dims.iter().map(|&x| x as u32).collect();
@@ -189,6 +191,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let input = self.to_vec();
+        let input_f16: Vec<f16> = unsafe { std::mem::transmute(input) };
         let input_dims = self.shape().dims();
         let input_strides = self.shape().compute_strides();
 
@@ -245,13 +248,14 @@ impl<T: FloatType> Tensor<T> {
                     input_idx += coord * input_strides[i];
                 }
 
-                sum += input[input_idx];
+                sum += input_f16[input_idx];
             }
 
             output[out_idx] = sum;
         }
 
-        Tensor::from_vec(output, output_dims)
+        let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
+        Tensor::from_vec(output_t, output_dims)
     }
 
     /// Mean of all elements
@@ -305,7 +309,8 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let output_numel = output_dims.iter().product();
-        let output_buf = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), output_numel)?;
+        let output_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), output_numel)?;
+        let output_buf: MetalBuffer<T> = unsafe { std::mem::transmute(output_buf_f16) };
 
         // Prepare shape buffers
         let input_shape_u32: Vec<u32> = input_dims.iter().map(|&x| x as u32).collect();
@@ -359,16 +364,18 @@ impl<T: FloatType> Tensor<T> {
 
         // Divide by dimension size
         let data = sum_result.to_vec();
-        let mean_data: Vec<f16> = data
+        let data_f16: Vec<f16> = unsafe { std::mem::transmute(data) };
+        let mean_data_f16: Vec<f16> = data_f16
             .iter()
             .map(|&x| f16::from_f32(x.to_f32() / dim_size))
             .collect();
+        let mean_data: Vec<T> = unsafe { std::mem::transmute(mean_data_f16) };
 
         Tensor::from_vec(mean_data, sum_result.shape().dims().to_vec())
     }
 
     /// Maximum value in the tensor
-    pub fn max(&self) -> TensorResult<f16> {
+    pub fn max(&self) -> TensorResult<T> {
         match self.device() {
             Device::Metal(_) => self.max_metal(),
             Device::NeuralEngine => self.to_cpu()?.max_cpu(),
@@ -376,7 +383,7 @@ impl<T: FloatType> Tensor<T> {
         }
     }
 
-    fn max_metal(&self) -> TensorResult<f16> {
+    fn max_metal(&self) -> TensorResult<T> {
         // Currently only f16 is supported for Metal operations
         if !T::is_f16() {
             return Err(TensorError::InvalidOperation(
@@ -408,7 +415,8 @@ impl<T: FloatType> Tensor<T> {
         let threadgroup_size = 256;
         let num_blocks = (count + threadgroup_size - 1) / threadgroup_size;
 
-        let stage1_buf = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), num_blocks)?;
+        let stage1_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), num_blocks)?;
+        let stage1_buf: MetalBuffer<T> = unsafe { std::mem::transmute(stage1_buf_f16) };
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
         let pipeline = executor.get_or_compile_pipeline("max_global_f16")?;
@@ -443,7 +451,7 @@ impl<T: FloatType> Tensor<T> {
         Ok(max_val)
     }
 
-    fn max_cpu(&self) -> TensorResult<f16> {
+    fn max_cpu(&self) -> TensorResult<T> {
         // Currently only f16 is supported
         if !T::is_f16() {
             return Err(TensorError::InvalidOperation(
@@ -468,7 +476,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     /// Minimum value in the tensor
-    pub fn min(&self) -> TensorResult<f16> {
+    pub fn min(&self) -> TensorResult<T> {
         match self.device() {
             Device::Metal(_) => self.min_metal(),
             Device::NeuralEngine => self.to_cpu()?.min_cpu(),
@@ -476,7 +484,7 @@ impl<T: FloatType> Tensor<T> {
         }
     }
 
-    fn min_metal(&self) -> TensorResult<f16> {
+    fn min_metal(&self) -> TensorResult<T> {
         // Currently only f16 is supported for Metal operations
         if !T::is_f16() {
             return Err(TensorError::InvalidOperation(
@@ -508,7 +516,8 @@ impl<T: FloatType> Tensor<T> {
         let threadgroup_size = 256;
         let num_blocks = (count + threadgroup_size - 1) / threadgroup_size;
 
-        let stage1_buf = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), num_blocks)?;
+        let stage1_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), num_blocks)?;
+        let stage1_buf: MetalBuffer<T> = unsafe { std::mem::transmute(stage1_buf_f16) };
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
         let pipeline = executor.get_or_compile_pipeline("min_global_f16")?;
@@ -543,7 +552,7 @@ impl<T: FloatType> Tensor<T> {
         Ok(min_val)
     }
 
-    fn min_cpu(&self) -> TensorResult<f16> {
+    fn min_cpu(&self) -> TensorResult<T> {
         // Currently only f16 is supported
         if !T::is_f16() {
             return Err(TensorError::InvalidOperation(
@@ -592,7 +601,7 @@ impl<T: FloatType> Tensor<T> {
                     vec![1]  // Use [1] instead of [] due to numel() bug
                 };
 
-                let indices = vec![half::f16::from_f64(max_idx as f64)];
+                let indices = vec![T::from_f64(max_idx as f64)];
                 Tensor::from_vec(indices, result_shape)
             }
             Some(dim) => {
@@ -637,7 +646,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let data = self.to_vec();
-        let mut result = vec![half::f16::ZERO; output_numel];
+        let mut result = vec![T::zero(); output_numel];
 
         for out_idx in 0..output_numel {
             // Convert output index to input coordinates (skipping reduced dim)
@@ -656,7 +665,7 @@ impl<T: FloatType> Tensor<T> {
 
             // Find argmax along the reduction dimension
             let mut max_idx = 0;
-            let mut max_val = half::f16::NEG_INFINITY;
+            let mut max_val = T::from_f32(f32::NEG_INFINITY);
 
             for d in 0..dim_size {
                 coords[dim] = d;
@@ -674,7 +683,7 @@ impl<T: FloatType> Tensor<T> {
                 }
             }
 
-            result[out_idx] = half::f16::from_f64(max_idx as f64);
+            result[out_idx] = T::from_f64(max_idx as f64);
         }
 
         Tensor::from_vec(result, output_dims)
@@ -705,7 +714,7 @@ impl<T: FloatType> Tensor<T> {
                     vec![1]  // Use [1] instead of [] due to numel() bug
                 };
 
-                let indices = vec![half::f16::from_f64(min_idx as f64)];
+                let indices = vec![T::from_f64(min_idx as f64)];
                 Tensor::from_vec(indices, result_shape)
             }
             Some(dim) => {
@@ -749,7 +758,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let data = self.to_vec();
-        let mut result = vec![half::f16::ZERO; output_numel];
+        let mut result = vec![T::zero(); output_numel];
 
         for out_idx in 0..output_numel {
             // Convert output index to input coordinates (skipping reduced dim)
@@ -766,7 +775,7 @@ impl<T: FloatType> Tensor<T> {
 
             // Find argmin along the reduction dimension
             let mut min_idx = 0;
-            let mut min_val = half::f16::INFINITY;
+            let mut min_val = T::from_f32(f32::INFINITY);
 
             for d in 0..dim_size {
                 coords[dim] = d;
@@ -784,7 +793,7 @@ impl<T: FloatType> Tensor<T> {
                 }
             }
 
-            result[out_idx] = half::f16::from_f64(min_idx as f64);
+            result[out_idx] = T::from_f64(min_idx as f64);
         }
 
         Tensor::from_vec(result, output_dims)

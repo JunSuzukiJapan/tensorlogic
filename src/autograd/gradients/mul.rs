@@ -1,8 +1,9 @@
 use crate::tensor::FloatType;
+use crate::tensor::TensorAutograd;
 use crate::autograd::gradients::reduce_grad_for_broadcast;
 use std::marker::PhantomData;
 use super::prelude::*;
-use crate::autograd::GradientFunction;
+use crate::autograd::GradientFunctionGeneric;
 use crate::error::TensorResult;
 use crate::tensor::{Tensor, TensorShape};
 
@@ -11,15 +12,16 @@ use crate::tensor::{Tensor, TensorShape};
 /// c = a * b の場合:
 /// ∂L/∂a = ∂L/∂c * ∂c/∂a = grad_output * b
 /// ∂L/∂b = ∂L/∂c * ∂c/∂b = grad_output * a
-pub struct MulBackward {
-    a: Tensor<half::f16>,
-    b: Tensor<half::f16>,
+pub struct MulBackward<T: FloatType> {
+    a: Tensor<T>,
+    b: Tensor<T>,
     a_shape: TensorShape,
     b_shape: TensorShape,
+    _phantom: PhantomData<T>,
 }
 
-impl MulBackward {
-    pub fn new(a: Tensor, b: Tensor<half::f16>) -> Self {
+impl<T: FloatType> MulBackward<T> {
+    pub fn new(a: Tensor<T>, b: Tensor<T>) -> Self {
         let a_shape = a.shape().clone();
         let b_shape = b.shape().clone();
         Self {
@@ -27,12 +29,16 @@ impl MulBackward {
             b,
             a_shape,
             b_shape,
+            _phantom: PhantomData,
         }
     }
 }
 
-impl GradientFunction for MulBackward {
-    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
+impl<T: FloatType> GradientFunctionGeneric<T> for MulBackward<T>
+where
+    Tensor<T>: TensorAutograd<T>,
+{
+    fn backward(&self, grad_output: &Tensor<T>, _inputs: &[&Tensor<T>]) -> TensorResult<Vec<Tensor<T>>> {
         // ∂L/∂a = grad_output * b
         let grad_a = grad_output.mul(&self.b)?;
 

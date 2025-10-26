@@ -1,5 +1,5 @@
 use crate::tensor::FloatType;
-use crate::autograd::GradientFunction;
+use crate::autograd::GradientFunctionGeneric;
 use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::{Device, MetalBuffer};
@@ -12,18 +12,22 @@ use half::f16;
 /// GELU(x) = 0.5 * x * (1 + tanh(√(2/π) * (x + 0.044715 * x³)))
 ///
 /// ∂GELU/∂x = 0.5 * (1 + tanh(...)) + 0.5 * x * sech²(...) * derivative_of_inner
-pub struct GELUBackward {
-    input: Tensor<half::f16>,
+pub struct GELUBackward<T: FloatType> {
+    input: Tensor<T>,
+    _phantom: PhantomData<T>,
 }
 
-impl GELUBackward {
-    pub fn new(input: Tensor<half::f16>) -> Self {
-        Self { input }
+impl<T: FloatType> GELUBackward<T> {
+    pub fn new(input: Tensor<T>) -> Self {
+        Self {
+            input,
+            _phantom: PhantomData,
+        }
     }
 }
 
-impl GradientFunction for GELUBackward {
-    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
+impl<T: FloatType> GradientFunctionGeneric<T> for GELUBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>, _inputs: &[&Tensor<T>]) -> TensorResult<Vec<Tensor<T>>> {
         // Use GPU if both tensors are on Metal
         let grad_input = if grad_output.buffer().is_metal() && self.input.buffer().is_metal() {
             self.backward_metal(grad_output)?
@@ -35,9 +39,9 @@ impl GradientFunction for GELUBackward {
     }
 }
 
-impl GELUBackward {
+impl<T: FloatType> GELUBackward<T> {
     /// Metal GPU implementation of GELU backward
-    fn backward_metal(&self, grad_output: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
+    fn backward_metal(&self, grad_output: &Tensor<T>) -> TensorResult<Tensor<T>> {
         let grad_out_buf = grad_output.buffer().as_metal()?;
         let input_buf = self.input.buffer().as_metal()?;
 
@@ -75,41 +79,41 @@ impl GELUBackward {
         command_buffer.commit();
         command_buffer.wait_until_completed();
 
-        <Tensor<half::f16>>::new(
-            BufferHandle::Metal(result_buf),
+        Tensor::<T>::new(
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             grad_output.shape().clone(),
             grad_output.device().clone(),
         )
     }
 
     /// CPU fallback for GELU backward
-    fn backward_cpu(&self, grad_output: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
+    fn backward_cpu(&self, grad_output: &Tensor<T>) -> TensorResult<Tensor<T>> {
         let grad_output_data = grad_output.to_vec();
         let input_data = self.input.to_vec();
 
-        let sqrt_2_over_pi = half::f16::from_f32((2.0_f32 / std::f32::consts::PI).sqrt());
+        let sqrt_2_over_pi_f32 = (2.0_f32 / std::f32::consts::PI).sqrt();
 
-        let grad_input_data: Vec<half::f16> = grad_output_data
+        let grad_input_data: Vec<T> = grad_output_data
             .iter()
             .zip(input_data.iter())
             .map(|(&grad_out, &x)| {
                 let x_f32 = x.to_f32();
                 let x3 = x_f32 * x_f32 * x_f32;
-                let inner = sqrt_2_over_pi.to_f32() * (x_f32 + 0.044715 * x3);
+                let inner = sqrt_2_over_pi_f32 * (x_f32 + 0.044715 * x3);
                 let tanh_val = inner.tanh();
                 let sech2 = 1.0 - tanh_val * tanh_val;
 
                 // ∂GELU/∂x = 0.5 * (1 + tanh(...)) + 0.5 * x * sech²(...) * derivative_of_inner
                 let derivative_of_inner =
-                    sqrt_2_over_pi.to_f32() * (1.0 + 3.0 * 0.044715 * x_f32 * x_f32);
+                    sqrt_2_over_pi_f32 * (1.0 + 3.0 * 0.044715 * x_f32 * x_f32);
                 let gelu_derivative =
                     0.5 * (1.0 + tanh_val) + 0.5 * x_f32 * sech2 * derivative_of_inner;
 
-                half::f16::from_f32(grad_out.to_f32() * gelu_derivative)
+                T::from_f32(grad_out.to_f32() * gelu_derivative)
             })
             .collect();
 
-        <Tensor<half::f16>>::from_vec(grad_input_data, grad_output.dims().to_vec())
+        Tensor::<T>::from_vec(grad_input_data, grad_output.dims().to_vec())
     }
 }
 

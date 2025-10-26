@@ -1,5 +1,6 @@
 use crate::tensor::FloatType;
-use crate::autograd::GradientFunction;
+use crate::tensor::TensorAutograd;
+use crate::autograd::GradientFunctionGeneric;
 use std::marker::PhantomData;
 use super::prelude::*;
 use crate::error::TensorResult;
@@ -10,19 +11,27 @@ use crate::tensor::Tensor;
 /// C = A @ B の場合 (A: [M, K], B: [K, N], C: [M, N]):
 /// ∂L/∂A = ∂L/∂C @ B^T  ([M, N] @ [N, K] = [M, K])
 /// ∂L/∂B = A^T @ ∂L/∂C  ([K, M] @ [M, N] = [K, N])
-pub struct MatMulBackward {
-    a: Tensor<half::f16>,
-    b: Tensor<half::f16>,
+pub struct MatMulBackward<T: FloatType> {
+    a: Tensor<T>,
+    b: Tensor<T>,
+    _phantom: PhantomData<T>,
 }
 
-impl MatMulBackward {
-    pub fn new(a: Tensor, b: Tensor<half::f16>) -> Self {
-        Self { a, b }
+impl<T: FloatType> MatMulBackward<T> {
+    pub fn new(a: Tensor<T>, b: Tensor<T>) -> Self {
+        Self {
+            a,
+            b,
+            _phantom: PhantomData,
+        }
     }
 }
 
-impl GradientFunction for MatMulBackward {
-    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
+impl<T: FloatType> GradientFunctionGeneric<T> for MatMulBackward<T>
+where
+    Tensor<T>: TensorAutograd<T>,
+{
+    fn backward(&self, grad_output: &Tensor<T>, _inputs: &[&Tensor<T>]) -> TensorResult<Vec<Tensor<T>>> {
         // 転置を計算（einsum経由）
         // Note: einsumの結果はCPUテンソルになる可能性があるため、
         // grad_outputをCPUに移動してから計算し、最後に元のデバイスに戻す
@@ -31,11 +40,11 @@ impl GradientFunction for MatMulBackward {
         let b_cpu = self.b.to_cpu()?;
 
         // B^T を計算
-        let b_t = <Tensor<half::f16>>::einsum("ij->ji", &[&b_cpu])?;
+        let b_t = Tensor::<T>::einsum("ij->ji", &[&b_cpu])?;
         let grad_a_cpu = grad_output_cpu.matmul(&b_t)?;
 
         // A^T を計算
-        let a_t = <Tensor<half::f16>>::einsum("ij->ji", &[&a_cpu])?;
+        let a_t = Tensor::<T>::einsum("ij->ji", &[&a_cpu])?;
         let grad_b_cpu = a_t.matmul(&grad_output_cpu)?;
 
         // 元のデバイスがMetalの場合は戻す（ここでは簡略化のためCPUのまま）

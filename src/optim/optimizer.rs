@@ -4,6 +4,7 @@ use crate::error::TensorResult;
 use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO, TensorAutograd};
 use crate::tensor::Tensor;
 use crate::autograd::AutogradContext;
+use half::f16;
 use std::collections::HashMap;
 
 /// Parameter group with learning rate and regularization settings
@@ -114,7 +115,7 @@ pub(crate) fn mul_scalar(tensor: &Tensor, scalar: f32) -> TensorResult<Tensor> {
 /// Helper function to update parameter from registry
 pub(crate) fn update_param_from_registry(param: &mut Tensor) -> TensorResult<()> {
     if let Some(node_id) = param.grad_node() {
-        if let Some(updated) = AutogradContext::get_tensor(node_id) {
+        if let Some(updated) = AutogradContext::get_tensor_generic::<half::f16>(node_id) {
             *param = updated;
         }
     }

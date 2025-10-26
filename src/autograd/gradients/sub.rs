@@ -2,7 +2,7 @@ use crate::tensor::FloatType;
 use crate::autograd::gradients::reduce_grad_for_broadcast;
 use std::marker::PhantomData;
 use super::prelude::*;
-use crate::autograd::GradientFunction;
+use crate::autograd::GradientFunctionGeneric;
 use crate::error::TensorResult;
 use crate::tensor::{Tensor, TensorShape};
 use half::f16;
@@ -12,26 +12,31 @@ use half::f16;
 /// c = a - b の場合:
 /// ∂L/∂a = ∂L/∂c * ∂c/∂a = grad_output * 1 = grad_output
 /// ∂L/∂b = ∂L/∂c * ∂c/∂b = grad_output * (-1) = -grad_output
-pub struct SubBackward {
+pub struct SubBackward<T: FloatType> {
     a_shape: TensorShape,
     b_shape: TensorShape,
+    _phantom: PhantomData<T>,
 }
 
-impl SubBackward {
+impl<T: FloatType> SubBackward<T> {
     pub fn new(a_shape: TensorShape, b_shape: TensorShape) -> Self {
-        Self { a_shape, b_shape }
+        Self {
+            a_shape,
+            b_shape,
+            _phantom: PhantomData,
+        }
     }
 }
 
-impl GradientFunction for SubBackward {
-    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
+impl<T: FloatType> GradientFunctionGeneric<T> for SubBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>, _inputs: &[&Tensor<T>]) -> TensorResult<Vec<Tensor<T>>> {
         // ∂L/∂a = grad_output
         let grad_a = grad_output.clone();
 
         // ∂L/∂b = -grad_output
         let grad_output_data = grad_output.to_vec();
-        let neg_grad_data: Vec<half::f16> = grad_output_data.iter().map(|&x| -x).collect();
-        let grad_b = <Tensor<half::f16>>::from_vec(neg_grad_data, grad_output.dims().to_vec())?;
+        let neg_grad_data: Vec<T> = grad_output_data.iter().map(|&x| T::zero() - x).collect();
+        let grad_b = Tensor::<T>::from_vec(neg_grad_data, grad_output.dims().to_vec())?;
 
         // ブロードキャストされている場合は次元を縮約
         let grad_a = reduce_grad_for_broadcast(&grad_a, &self.a_shape)?;

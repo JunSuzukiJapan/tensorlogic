@@ -33,7 +33,7 @@ impl<T: FloatType> Tensor<T> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn apply_attention_mask(&self, mask: &Tensor<T>) -> TensorResult<Tensor> {
+    pub fn apply_attention_mask(&self, mask: &Tensor<T>) -> TensorResult<Self> {
         // Verify shapes match
         if self.dims() != mask.dims() {
             return Err(TensorError::ShapeMismatch {
@@ -48,10 +48,12 @@ impl<T: FloatType> Tensor<T> {
         // For each element: if mask == 0, use mask_value, else use original value
         let self_data = self.to_vec();
         let mask_data = mask.to_vec();
+        let self_f16: Vec<f16> = unsafe { std::mem::transmute(self_data) };
+        let mask_f16: Vec<f16> = unsafe { std::mem::transmute(mask_data) };
 
-        let result_data: Vec<f16> = self_data
+        let result_data: Vec<f16> = self_f16
             .iter()
-            .zip(mask_data.iter())
+            .zip(mask_f16.iter())
             .map(|(&val, &mask_val)| {
                 if mask_val == f16::ZERO {
                     mask_value
@@ -61,7 +63,8 @@ impl<T: FloatType> Tensor<T> {
             })
             .collect();
 
-        Tensor::from_vec(result_data, self.dims().to_vec())
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result_data) };
+        Tensor::from_vec(result_t, self.dims().to_vec())
     }
 
     /// Create a causal mask for autoregressive attention
@@ -161,7 +164,7 @@ impl<T: FloatType> Tensor<T> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn combine_masks(&self, other: &Tensor<T>) -> TensorResult<Tensor> {
+    pub fn combine_masks(&self, other: &Tensor<T>) -> TensorResult<Self> {
         if self.dims() != other.dims() {
             return Err(TensorError::ShapeMismatch {
                 expected: self.dims().to_vec(),
@@ -171,10 +174,12 @@ impl<T: FloatType> Tensor<T> {
 
         let self_data = self.to_vec();
         let other_data = other.to_vec();
+        let self_f16: Vec<f16> = unsafe { std::mem::transmute(self_data) };
+        let other_f16: Vec<f16> = unsafe { std::mem::transmute(other_data) };
 
-        let result_data: Vec<f16> = self_data
+        let result_data: Vec<f16> = self_f16
             .iter()
-            .zip(other_data.iter())
+            .zip(other_f16.iter())
             .map(|(&a, &b)| {
                 // Logical AND: both must be non-zero
                 if a != f16::ZERO && b != f16::ZERO {
@@ -185,7 +190,8 @@ impl<T: FloatType> Tensor<T> {
             })
             .collect();
 
-        Tensor::from_vec(result_data, self.dims().to_vec())
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result_data) };
+        Tensor::from_vec(result_t, self.dims().to_vec())
     }
 }
 

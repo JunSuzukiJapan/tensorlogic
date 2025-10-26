@@ -201,16 +201,18 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let input = self.to_vec();
+        let input_data = self.to_vec();
+        let input_f16: Vec<f16> = unsafe { std::mem::transmute(input_data) };
         let normalized_size: usize = normalized_shape.iter().product();
         let batch_size = self.numel() / normalized_size;
 
         let mut output = vec![f16::ZERO; self.numel()];
-        let weight_vec = weight.to_vec();
+        let weight_data = weight.to_vec();
+        let weight_vec: Vec<f16> = unsafe { std::mem::transmute(weight_data) };
 
         for batch_idx in 0..batch_size {
             let offset = batch_idx * normalized_size;
-            let slice = &input[offset..offset + normalized_size];
+            let slice = &input_f16[offset..offset + normalized_size];
 
             // Compute RMS: sqrt(mean(x^2) + eps)
             // Use f32 for accumulation to avoid precision loss
@@ -230,9 +232,10 @@ impl<T: FloatType> Tensor<T> {
             }
         }
 
+        let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal_pooled(dev, output, self.dims().to_vec()),
-            _ => Tensor::from_vec(output, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal_pooled(dev, output_t, self.dims().to_vec()),
+            _ => Tensor::from_vec(output_t, self.dims().to_vec()),
         }
     }
 
@@ -456,18 +459,27 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let input = self.to_vec();
+        let input_data = self.to_vec();
+        let input_f16: Vec<f16> = unsafe { std::mem::transmute(input_data) };
         let normalized_size: usize = normalized_shape.iter().product();
         let batch_size = self.numel() / normalized_size;
 
         let mut output = vec![f16::ZERO; self.numel()];
 
-        let weight_vec = weight.map(|w| w.to_vec());
-        let bias_vec = bias.map(|b| b.to_vec());
+        let weight_vec = weight.map(|w| {
+            let data = w.to_vec();
+            let f16_data: Vec<f16> = unsafe { std::mem::transmute(data) };
+            f16_data
+        });
+        let bias_vec = bias.map(|b| {
+            let data = b.to_vec();
+            let f16_data: Vec<f16> = unsafe { std::mem::transmute(data) };
+            f16_data
+        });
 
         for batch_idx in 0..batch_size {
             let offset = batch_idx * normalized_size;
-            let slice = &input[offset..offset + normalized_size];
+            let slice = &input_f16[offset..offset + normalized_size];
 
             // Compute mean
             let sum: f32 = slice.iter().map(|&x| x.to_f32()).sum();
@@ -499,9 +511,10 @@ impl<T: FloatType> Tensor<T> {
             }
         }
 
+        let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal_pooled(dev, output, self.dims().to_vec()),
-            _ => Tensor::from_vec(output, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal_pooled(dev, output_t, self.dims().to_vec()),
+            _ => Tensor::from_vec(output_t, self.dims().to_vec()),
         }
     }
 }

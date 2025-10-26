@@ -1,5 +1,5 @@
 use crate::tensor::FloatType;
-use crate::autograd::GradientFunction;
+use crate::autograd::GradientFunctionGeneric;
 use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::{Device, MetalBuffer};
@@ -11,18 +11,22 @@ use half::f16;
 ///
 /// y = ReLU(x) = max(0, x) の場合:
 /// ∂y/∂x = 1 if x > 0, else 0
-pub struct ReLUBackward {
-    input: Tensor<half::f16>,
+pub struct ReLUBackward<T: FloatType> {
+    input: Tensor<T>,
+    _phantom: PhantomData<T>,
 }
 
-impl ReLUBackward {
-    pub fn new(input: Tensor<half::f16>) -> Self {
-        Self { input }
+impl<T: FloatType> ReLUBackward<T> {
+    pub fn new(input: Tensor<T>) -> Self {
+        Self {
+            input,
+            _phantom: PhantomData,
+        }
     }
 }
 
-impl GradientFunction for ReLUBackward {
-    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
+impl<T: FloatType> GradientFunctionGeneric<T> for ReLUBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>, _inputs: &[&Tensor<T>]) -> TensorResult<Vec<Tensor<T>>> {
         // Use GPU if both tensors are on Metal
         let grad_input = if grad_output.buffer().is_metal() && self.input.buffer().is_metal() {
             self.backward_metal(grad_output)?
@@ -34,9 +38,9 @@ impl GradientFunction for ReLUBackward {
     }
 }
 
-impl ReLUBackward {
+impl<T: FloatType> ReLUBackward<T> {
     /// Metal GPU implementation of ReLU backward
-    fn backward_metal(&self, grad_output: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
+    fn backward_metal(&self, grad_output: &Tensor<T>) -> TensorResult<Tensor<T>> {
         let grad_out_buf = grad_output.buffer().as_metal()?;
         let input_buf = self.input.buffer().as_metal()?;
 
@@ -74,31 +78,31 @@ impl ReLUBackward {
         command_buffer.commit();
         command_buffer.wait_until_completed();
 
-        <Tensor<half::f16>>::new(
-            BufferHandle::Metal(result_buf),
+        Tensor::<T>::new(
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             grad_output.shape().clone(),
             grad_output.device().clone(),
         )
     }
 
     /// CPU fallback for ReLU backward
-    fn backward_cpu(&self, grad_output: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
+    fn backward_cpu(&self, grad_output: &Tensor<T>) -> TensorResult<Tensor<T>> {
         let grad_output_data = grad_output.to_vec();
         let input_data = self.input.to_vec();
 
-        let grad_input_data: Vec<half::f16> = grad_output_data
+        let grad_input_data: Vec<T> = grad_output_data
             .iter()
             .zip(input_data.iter())
             .map(|(&grad_out, &input_val)| {
-                if input_val > half::f16::ZERO {
+                if input_val > T::zero() {
                     grad_out
                 } else {
-                    half::f16::ZERO
+                    T::zero()
                 }
             })
             .collect();
 
-        <Tensor<half::f16>>::from_vec(grad_input_data, grad_output.dims().to_vec())
+        Tensor::<T>::from_vec(grad_input_data, grad_output.dims().to_vec())
     }
 }
 

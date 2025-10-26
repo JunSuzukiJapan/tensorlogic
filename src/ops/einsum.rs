@@ -10,7 +10,7 @@
 
 use crate::device::{Device, MetalDevice, MetalBuffer};
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::{TensorAccessors, TensorAutograd, TensorCreation, TensorIO, TensorTransform};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{Tensor, TensorShape, BufferHandle};
 use half::f16;
@@ -36,7 +36,10 @@ impl<T: FloatType> Tensor<T> {
     /// // Trace (sum of diagonal)
     /// let trace = Tensor::einsum("ii->", &[a])?;
     /// ```
-    pub fn einsum(equation: &str, operands: &[&Tensor]) -> TensorResult<Self> {
+    pub fn einsum(equation: &str, operands: &[&Tensor<T>]) -> TensorResult<Self>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         // Parse equation
         let (input_specs, output_spec) = parse_einsum_equation(equation)?;
 
@@ -133,12 +136,15 @@ fn infer_output_spec(inputs_str: &str) -> TensorResult<String> {
 }
 
 /// Execute einsum on CPU
-fn einsum_cpu(
+fn einsum_cpu<T: FloatType>(
     equation: &str,
     input_specs: &[String],
     output_spec: &str,
-    operands: &[&Tensor],
-) -> TensorResult<Tensor> {
+    operands: &[&Tensor<T>],
+) -> TensorResult<Tensor<T>>
+where
+    Tensor<T>: TensorAutograd<T>,
+{
         // Currently only f16 is supported
         if !T::is_f16() {
             return Err(TensorError::InvalidOperation(
@@ -156,12 +162,15 @@ fn einsum_cpu(
 }
 
 /// Try to use optimized implementations for common patterns
-fn try_optimized_einsum(
+fn try_optimized_einsum<T: FloatType>(
     equation: &str,
     input_specs: &[String],
     output_spec: &str,
-    operands: &[&Tensor],
-) -> TensorResult<Option<Tensor>> {
+    operands: &[&Tensor<T>],
+) -> TensorResult<Option<Tensor<T>>>
+where
+    Tensor<T>: TensorAutograd<T>,
+{
     // Matrix multiplication: ij,jk->ik
     if equation == "ij,jk->ik" || (input_specs.len() == 2 && input_specs[0] == "ij" && input_specs[1] == "jk" && output_spec == "ik") {
         if operands.len() == 2 {
@@ -201,11 +210,11 @@ fn try_optimized_einsum(
 }
 
 /// General einsum implementation
-fn general_einsum_cpu(
+fn general_einsum_cpu<T: FloatType>(
     input_specs: &[String],
     output_spec: &str,
-    operands: &[&Tensor],
-) -> TensorResult<Tensor> {
+    operands: &[&Tensor<T>],
+) -> TensorResult<Tensor<T>> {
         // Currently only f16 is supported
         if !T::is_f16() {
             return Err(TensorError::InvalidOperation(
@@ -277,16 +286,17 @@ fn general_einsum_cpu(
         output[out_idx] = sum_value;
     }
 
-    Tensor::from_vec(output, output_dims)
+    let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
+    Tensor::from_vec(output_t, output_dims)
 }
 
 /// Recursively sum over contraction indices
-fn sum_over_indices(
+fn sum_over_indices<T: FloatType>(
     remaining_indices: &[char],
     index_dims: &HashMap<char, usize>,
     current_values: &HashMap<char, usize>,
     input_specs: &[String],
-    operands: &[&Tensor],
+    operands: &[&Tensor<T>],
 ) -> TensorResult<f16> {
     if remaining_indices.is_empty() {
         // Base case: compute product of all operands
@@ -299,7 +309,8 @@ fn sum_over_indices(
                 .collect();
 
             let linear_idx = coords_to_index(&coords, op.shape().dims());
-            let data = op.to_vec();
+            let data_t = op.to_vec();
+            let data: Vec<f16> = unsafe { std::mem::transmute(data_t) };
             product *= data[linear_idx];
         }
 
@@ -358,7 +369,7 @@ fn coords_to_index(coords: &[usize], dims: &[usize]) -> usize {
 }
 
 /// Transpose a 2D tensor
-fn transpose_2d(tensor: &Tensor<T>) -> TensorResult<Tensor> {
+fn transpose_2d<T: FloatType>(tensor: &Tensor<T>) -> TensorResult<Tensor<T>> {
     let dims = tensor.shape().dims();
     if dims.len() != 2 {
         return Err(TensorError::InvalidOperation(
@@ -367,7 +378,8 @@ fn transpose_2d(tensor: &Tensor<T>) -> TensorResult<Tensor> {
     }
 
     let (m, n) = (dims[0], dims[1]);
-    let data = tensor.to_vec();
+    let data_t = tensor.to_vec();
+    let data: Vec<f16> = unsafe { std::mem::transmute(data_t) };
     let mut transposed = vec![f16::ZERO; m * n];
 
     for i in 0..m {
@@ -376,11 +388,12 @@ fn transpose_2d(tensor: &Tensor<T>) -> TensorResult<Tensor> {
         }
     }
 
-    Tensor::from_vec(transposed, vec![n, m])
+    let transposed_t: Vec<T> = unsafe { std::mem::transmute(transposed) };
+    Tensor::from_vec(transposed_t, vec![n, m])
 }
 
 /// Compute trace of a 2D tensor
-fn trace(tensor: &Tensor<T>) -> TensorResult<Tensor> {
+fn trace<T: FloatType>(tensor: &Tensor<T>) -> TensorResult<Tensor<T>> {
     let dims = tensor.shape().dims();
     if dims.len() != 2 || dims[0] != dims[1] {
         return Err(TensorError::InvalidOperation(
@@ -390,17 +403,19 @@ fn trace(tensor: &Tensor<T>) -> TensorResult<Tensor> {
 
     let n = dims[0];
     let data = tensor.to_vec();
+    let data_f16: Vec<f16> = unsafe { std::mem::transmute(data) };
     let mut sum = f16::ZERO;
 
     for i in 0..n {
-        sum += data[i * n + i];
+        sum += data_f16[i * n + i];
     }
 
-    Tensor::from_vec(vec![sum], vec![1])
+    let result_t: Vec<T> = unsafe { std::mem::transmute(vec![sum]) };
+    Tensor::from_vec(result_t, vec![1])
 }
 
 /// Batch matrix multiplication
-fn batch_matmul(a: &Tensor, b: &Tensor<T>) -> TensorResult<Tensor> {
+fn batch_matmul<T: FloatType>(a: &Tensor<T>, b: &Tensor<T>) -> TensorResult<Tensor<T>> {
     let a_dims = a.shape().dims();
     let b_dims = b.shape().dims();
 
@@ -422,6 +437,8 @@ fn batch_matmul(a: &Tensor, b: &Tensor<T>) -> TensorResult<Tensor> {
 
     let a_data = a.to_vec();
     let b_data = b.to_vec();
+    let a_data_f16: Vec<f16> = unsafe { std::mem::transmute(a_data) };
+    let b_data_f16: Vec<f16> = unsafe { std::mem::transmute(b_data) };
     let mut c_data = vec![f16::ZERO; batch * m * n];
 
     for b_idx in 0..batch {
@@ -431,14 +448,15 @@ fn batch_matmul(a: &Tensor, b: &Tensor<T>) -> TensorResult<Tensor> {
                 for p in 0..k {
                     let a_idx = b_idx * m * k + i * k + p;
                     let b_idx_calc = b_idx * k * n + p * n + j;
-                    sum += a_data[a_idx] * b_data[b_idx_calc];
+                    sum += a_data_f16[a_idx] * b_data_f16[b_idx_calc];
                 }
                 c_data[b_idx * m * n + i * n + j] = sum;
             }
         }
     }
 
-    Tensor::from_vec(c_data, vec![batch, m, n])
+    let c_data_t: Vec<T> = unsafe { std::mem::transmute(c_data) };
+    Tensor::from_vec(c_data_t, vec![batch, m, n])
 }
 
 #[cfg(test)]
@@ -635,13 +653,13 @@ mod tests {
 /// If you encounter incorrect output, the problem is likely in OTHER operations
 /// (RMSNorm, SwiGLU, Softmax, etc.), NOT in these einsum kernels.
 /// Verify other components before modifying this.
-fn try_einsum_metal(
+fn try_einsum_metal<T: FloatType>(
     equation: &str,
     input_specs: &[String],
     output_spec: &str,
-    operands: &[&Tensor],
+    operands: &[&Tensor<T>],
     device: &MetalDevice,
-) -> TensorResult<Option<Tensor>> {
+) -> TensorResult<Option<Tensor<T>>> {
     // Pattern 1: "ihd,jhd->ihj" - Batched dot product for attention scores
     if equation == "ihd,jhd->ihj" && input_specs.len() == 2 && operands.len() == 2 {
         if operands[0].shape().rank() == 3 && operands[1].shape().rank() == 3 {
@@ -666,11 +684,11 @@ fn try_einsum_metal(
 /// Index calculations verified: See shaders/einsum.metal
 ///
 /// Computes attention scores: C[i,h,j] = sum_d A[i,h,d] * B[j,h,d]
-fn einsum_ihd_jhd_ihj_metal(
-    a: &Tensor,  // [I, H, D]
-    b: &Tensor,  // [J, H, D]
+fn einsum_ihd_jhd_ihj_metal<T: FloatType>(
+    a: &Tensor<T>,  // [I, H, D]
+    b: &Tensor<T>,  // [J, H, D]
     device: &MetalDevice,
-) -> TensorResult<Tensor> {
+) -> TensorResult<Tensor<T>> {
         // Currently only f16 is supported for Metal operations
         if !T::is_f16() {
             return Err(TensorError::InvalidOperation(
@@ -765,11 +783,11 @@ fn einsum_ihd_jhd_ihj_metal(
 /// Index calculations verified: See shaders/einsum.metal
 ///
 /// Computes attention output: C[i,h,d] = sum_j A[i,h,j] * B[j,h,d]
-fn einsum_ihj_jhd_ihd_metal(
-    a: &Tensor,  // [I, H, J]
-    b: &Tensor,  // [J, H, D]
+fn einsum_ihj_jhd_ihd_metal<T: FloatType>(
+    a: &Tensor<T>,  // [I, H, J]
+    b: &Tensor<T>,  // [J, H, D]
     device: &MetalDevice,
-) -> TensorResult<Tensor> {
+) -> TensorResult<Tensor<T>> {
         // Currently only f16 is supported for Metal operations
         if !T::is_f16() {
             return Err(TensorError::InvalidOperation(

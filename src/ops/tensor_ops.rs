@@ -110,7 +110,8 @@ impl<T: FloatType> Tensor<T> {
         }
 
         // Write data to Metal buffer
-        let metal_buf = MetalBuffer::from_f16_slice(device.metal_device(), &result_data)?;
+        let metal_buf_f16 = MetalBuffer::from_f16_slice(device.metal_device(), &result_data)?;
+        let metal_buf: MetalBuffer<T> = unsafe { std::mem::transmute(metal_buf_f16) };
 
         Tensor::new(
             BufferHandle::Metal(metal_buf),
@@ -137,7 +138,8 @@ impl<T: FloatType> Tensor<T> {
         // Concatenate along the specified dimension
         for chunk_idx in 0..num_chunks {
             for tensor in tensors {
-                let data = tensor.to_vec();
+                let data_t = tensor.to_vec();
+                let data: Vec<f16> = unsafe { std::mem::transmute(data_t) };
                 let tensor_dim_size = tensor.dims()[dim];
 
                 for i in 0..tensor_dim_size {
@@ -148,7 +150,8 @@ impl<T: FloatType> Tensor<T> {
             }
         }
 
-        Tensor::from_vec(result_data, output_shape)
+        let result_t: Vec<T> = unsafe { std::mem::transmute(result_data) };
+        Tensor::from_vec(result_t, output_shape)
     }
 
     /// Transpose a 2D tensor (swap dimensions 0 and 1)
@@ -224,7 +227,8 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let input_data = self.to_vec();
+        let input_data_t = self.to_vec();
+        let input_data: Vec<f16> = unsafe { std::mem::transmute(input_data_t) };
         let input_shape = self.dims();
 
         // Calculate output shape
@@ -269,9 +273,10 @@ impl<T: FloatType> Tensor<T> {
             output_data[out_idx] = input_data[in_idx];
         }
 
+        let output_t: Vec<T> = unsafe { std::mem::transmute(output_data) };
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, output_data, output_shape),
-            _ => Tensor::from_vec(output_data, output_shape),
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, output_t, output_shape),
+            _ => Tensor::from_vec(output_t, output_shape),
         }
     }
 

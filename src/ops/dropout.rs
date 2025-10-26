@@ -3,6 +3,7 @@
 use crate::tensor::Tensor;
 use crate::tensor::FloatType;
 use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+use crate::error::TensorError;
 use crate::TensorResult;
 use half::f16;
 use rand::Rng;
@@ -34,7 +35,7 @@ impl<T: FloatType> Tensor<T> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn dropout(&self, p: f32, training: bool) -> TensorResult<Tensor> {
+    pub fn dropout(&self, p: f32, training: bool) -> TensorResult<Self> {
         // Validation
         if p < 0.0 || p > 1.0 {
             return Err(crate::error::TensorError::InvalidOperation(
@@ -51,7 +52,7 @@ impl<T: FloatType> Tensor<T> {
         self.dropout_cpu(p)
     }
 
-    fn dropout_cpu(&self, p: f32) -> TensorResult<Tensor> {
+    fn dropout_cpu(&self, p: f32) -> TensorResult<Self> {
         // Currently only f16 is supported
         if !T::is_f16() {
             return Err(TensorError::InvalidOperation(
@@ -60,12 +61,12 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let input_data = self.to_vec();
-        let size = input_data.len();
+        let input_f16: Vec<f16> = unsafe { std::mem::transmute(input_data) };
 
         let mut rng = rand::rng();
         let scale = 1.0 / (1.0 - p);
 
-        let output_data: Vec<f16> = input_data
+        let output_data: Vec<f16> = input_f16
             .iter()
             .map(|&val| {
                 let random: f32 = rng.gen();  // Random number in [0, 1)
@@ -77,7 +78,8 @@ impl<T: FloatType> Tensor<T> {
             })
             .collect();
 
-        Tensor::from_vec(output_data, self.dims().to_vec())
+        let output_t: Vec<T> = unsafe { std::mem::transmute(output_data) };
+        Tensor::from_vec(output_t, self.dims().to_vec())
     }
 }
 

@@ -1,6 +1,7 @@
-use crate::autograd::{ComputationGraph, GradNode, GradientFunction, NodeId, Operation, TensorVariant};
+use crate::autograd::{ComputationGraph, GradNode, GradientFunction, GradientFunctionGeneric, NodeId, Operation, TensorVariant};
 use crate::tensor::{FloatType, Tensor};
-use crate::error::TensorResult;
+use crate::error::{TensorResult, TensorError};
+use half::f16;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -14,6 +15,24 @@ thread_local! {
 
     /// Flag for creating computation graph during backward pass (for higher-order derivatives)
     static CREATE_GRAPH: RefCell<bool> = RefCell::new(false);
+}
+
+/// Wrapper that converts GradientFunctionGeneric<f16> to GradientFunction
+/// This allows us to store generic gradient functions in the computation graph
+struct GenericGradientWrapper {
+    inner: Box<dyn GradientFunctionGeneric<half::f16>>,
+}
+
+impl GenericGradientWrapper {
+    fn new(inner: Box<dyn GradientFunctionGeneric<half::f16>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl GradientFunction for GenericGradientWrapper {
+    fn backward(&self, grad_output: &Tensor<half::f16>, inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
+        self.inner.backward(grad_output, inputs)
+    }
 }
 
 /// Autograd context for managing computation graph
@@ -30,6 +49,39 @@ impl AutogradContext {
             let mut g = graph.borrow_mut();
             let id = g.allocate_id();
             let node = GradNode::new(id, operation, inputs, grad_fn);
+            g.add_node(node);
+            id
+        })
+    }
+
+    /// Add a node with generic gradient function to the computation graph
+    /// Wraps the generic gradient function to be compatible with the graph storage
+    pub fn add_node_generic<T: FloatType>(
+        operation: Operation,
+        inputs: Vec<NodeId>,
+        grad_fn: Option<Box<dyn GradientFunctionGeneric<T>>>,
+    ) -> NodeId {
+        use half::f16;
+
+        // Wrap the generic gradient function in a type-erased wrapper
+        let wrapped_grad_fn = grad_fn.map(|gf| {
+            if T::is_f16() {
+                // Safety: T is f16, so we can transmute the gradient function
+                let f16_gf: Box<dyn GradientFunctionGeneric<f16>> = unsafe {
+                    std::mem::transmute(gf)
+                };
+                Box::new(GenericGradientWrapper::new(f16_gf)) as Box<dyn GradientFunction>
+            } else {
+                // For f32 or other types, we'll need to handle differently
+                // For now, panic - we'll implement f32 support later
+                panic!("Only f16 gradient functions are currently supported in the computation graph");
+            }
+        });
+
+        COMPUTATION_GRAPH.with(|graph| {
+            let mut g = graph.borrow_mut();
+            let id = g.allocate_id();
+            let node = GradNode::new(id, operation, inputs, wrapped_grad_fn);
             g.add_node(node);
             id
         })
@@ -119,7 +171,23 @@ impl AutogradContext {
         Self::set_enabled(false);
 
         // Convert Tensor<T> to TensorVariant for backward computation
-        let grad_variant: TensorVariant = grad.into();
+        let grad_variant: TensorVariant = if T::is_f16() {
+            let grad_f16: Tensor<f16> = unsafe {
+                // Safety: We checked T::is_f16(), so T = f16
+                std::mem::transmute_copy(&grad)
+            };
+            TensorVariant::F16(grad_f16)
+        } else if T::is_f32() {
+            let grad_f32: Tensor<f32> = unsafe {
+                // Safety: We checked T::is_f32(), so T = f32
+                std::mem::transmute_copy(&grad)
+            };
+            TensorVariant::F32(grad_f32)
+        } else {
+            return Err(TensorError::InvalidOperation(format!(
+                "Unsupported float type for backward pass"
+            )));
+        };
 
         let result = COMPUTATION_GRAPH.with(|graph| {
             let g = graph.borrow();

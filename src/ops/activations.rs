@@ -3,19 +3,21 @@
 use crate::autograd::gradients::{GELUBackward, ReLUBackward, SoftmaxBackward};
 use crate::tensor::FloatType;
 use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform, TensorAutograd};
-use crate::autograd::{AutogradContext, GradientFunction, Operation};
+use crate::autograd::{AutogradContext, GradientFunction, GradientFunctionGeneric, Operation};
 use crate::device::{Device, MetalBuffer};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
 
-/// Helper function to record a unary operation in the computation graph
-fn record_unary_op(
+/// Helper function to record a unary operation in the computation graph (generic version)
+fn record_unary_op_generic<T: FloatType>(
     op: Operation,
-    grad_fn: Box<dyn GradientFunction>,
-    input_tensor: &Tensor,
-    result: &mut Tensor,
-) {
+    grad_fn: Box<dyn GradientFunctionGeneric<T>>,
+    input_tensor: &Tensor<T>,
+    result: &mut Tensor<T>,
+) where
+    Tensor<T>: TensorAutograd<T>,
+{
     if !input_tensor.requires_grad() || !AutogradContext::is_enabled() {
         return;
     }
@@ -24,17 +26,19 @@ fn record_unary_op(
         .grad_node()
         .unwrap_or_else(|| AutogradContext::allocate_id());
 
-    let result_node_id = AutogradContext::add_node(op, vec![input_node_id], Some(grad_fn));
+    let result_node_id = AutogradContext::add_node_generic(op, vec![input_node_id], Some(grad_fn));
 
     AutogradContext::register_tensor_generic(input_node_id, input_tensor.clone());
-
     result.set_grad_node(result_node_id);
     result.set_requires_grad(true);
 }
 
 impl<T: FloatType> Tensor<T> {
     /// ReLU activation: f(x) = max(0, x)
-    pub fn relu(&self) -> TensorResult<Self> {
+    pub fn relu(&self) -> TensorResult<Self>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         let mut result = match self.device() {
             Device::Metal(_) => self.relu_metal()?,
             Device::CPU => self.relu_cpu()?,
@@ -42,7 +46,7 @@ impl<T: FloatType> Tensor<T> {
         };
 
         let grad_fn = Box::new(ReLUBackward::new(self.clone()));
-        record_unary_op(Operation::ReLU, grad_fn, self, &mut result);
+        record_unary_op_generic(Operation::ReLU, grad_fn, self, &mut result);
 
         Ok(result)
     }
@@ -72,13 +76,15 @@ impl<T: FloatType> Tensor<T> {
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let input_buf_f16: &MetalBuffer<f16> = unsafe { std::mem::transmute(input_buf) };
 
         let mut executor = crate::device::KernelExecutor::new(device);
-        executor.execute_unary_op("relu_f16", input_buf, &result_buf)?;
+        executor.execute_unary_op("relu_f16", input_buf_f16, &result_buf_f16)?;
 
+        let result_buf: MetalBuffer<T> = unsafe { std::mem::transmute(result_buf_f16) };
         self.new_from_pool(
-            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
+            BufferHandle::Metal(result_buf),
             self.shape().clone(),
         )
     }
@@ -93,13 +99,19 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let input = self.to_vec();
-        let output: Vec<f16> = input.iter().map(|&x| x.max(f16::ZERO)).collect();
+        // Safety: We checked T::is_f16() above
+        let input_f16: Vec<f16> = unsafe { std::mem::transmute(input) };
+        let output: Vec<f16> = input_f16.iter().map(|&x| x.max(f16::ZERO)).collect();
+        let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
 
-        Tensor::from_vec(output, self.shape().dims().to_vec())
+        Tensor::from_vec(output_t, self.shape().dims().to_vec())
     }
 
     /// GELU activation (approximation): f(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
-    pub fn gelu(&self) -> TensorResult<Self> {
+    pub fn gelu(&self) -> TensorResult<Self>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         let mut result = match self.device() {
             Device::Metal(_) => self.gelu_metal()?,
             Device::CPU => self.gelu_cpu()?,
@@ -107,7 +119,7 @@ impl<T: FloatType> Tensor<T> {
         };
 
         let grad_fn = Box::new(GELUBackward::new(self.clone()));
-        record_unary_op(Operation::GELU, grad_fn, self, &mut result);
+        record_unary_op_generic(Operation::GELU, grad_fn, self, &mut result);
 
         Ok(result)
     }
@@ -137,13 +149,15 @@ impl<T: FloatType> Tensor<T> {
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let input_buf_f16: &MetalBuffer<f16> = unsafe { std::mem::transmute(input_buf) };
 
         let mut executor = crate::device::KernelExecutor::new(device);
-        executor.execute_unary_op("gelu_f16", input_buf, &result_buf)?;
+        executor.execute_unary_op("gelu_f16", input_buf_f16, &result_buf_f16)?;
 
+        let result_buf: MetalBuffer<T> = unsafe { std::mem::transmute(result_buf_f16) };
         self.new_from_pool(
-            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
+            BufferHandle::Metal(result_buf),
             self.shape().clone(),
         )
     }
@@ -158,12 +172,13 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let input = self.to_vec();
+        let input_f16: Vec<f16> = unsafe { std::mem::transmute(input) };
         let sqrt_2_over_pi = f16::from_f32(0.7978845608);
         let coeff = f16::from_f32(0.044715);
         let half = f16::from_f32(0.5);
         let one = f16::ONE;
 
-        let output: Vec<f16> = input
+        let output: Vec<f16> = input_f16
             .iter()
             .map(|&x| {
                 let x3 = x * x * x;
@@ -178,7 +193,8 @@ impl<T: FloatType> Tensor<T> {
             })
             .collect();
 
-        Tensor::from_vec(output, self.shape().dims().to_vec())
+        let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
+        Tensor::from_vec(output_t, self.shape().dims().to_vec())
     }
 
     /// Softmax activation: softmax(x)_i = exp(x_i) / sum(exp(x))
@@ -191,7 +207,10 @@ impl<T: FloatType> Tensor<T> {
     /// If you encounter incorrect output, verify OTHER operations first.
     ///
     /// Applies along the last dimension
-    pub fn softmax(&self) -> TensorResult<Self> {
+    pub fn softmax(&self) -> TensorResult<Self>
+    where
+        Tensor<T>: TensorAutograd<T>,
+    {
         let mut result = if self.buffer().is_metal() {
             self.softmax_metal()?
         } else {
@@ -199,7 +218,7 @@ impl<T: FloatType> Tensor<T> {
         };
 
         let grad_fn = Box::new(SoftmaxBackward::new(result.clone()));
-        record_unary_op(Operation::Softmax, grad_fn, self, &mut result);
+        record_unary_op_generic(Operation::Softmax, grad_fn, self, &mut result);
 
         Ok(result)
     }
@@ -309,6 +328,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let input = self.to_vec();
+        let input_f16: Vec<f16> = unsafe { std::mem::transmute(input) };
         let dims = self.shape().dims();
 
         if dims.is_empty() {
@@ -327,7 +347,7 @@ impl<T: FloatType> Tensor<T> {
 
             // Find max for numerical stability
             // Handle NaN and Inf values and empty slices safely
-            let max_val = input[offset..offset + last_dim]
+            let max_val = input_f16[offset..offset + last_dim]
                 .iter()
                 .copied()
                 .filter(|x| x.is_finite())  // Filter out NaN and Inf values
@@ -338,7 +358,7 @@ impl<T: FloatType> Tensor<T> {
             // Replace Inf/NaN with 0 to prevent propagation
             let mut sum = f16::ZERO;
             for i in 0..last_dim {
-                let val = input[offset + i];
+                let val = input_f16[offset + i];
                 let exp_val = if val.is_finite() {
                     f16::from_f32((val - max_val).to_f32().exp())
                 } else {
@@ -362,10 +382,12 @@ impl<T: FloatType> Tensor<T> {
             }
         }
 
+        let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
+
         // Create tensor on the same device as the input
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, output, self.shape().dims().to_vec()),
-            _ => Tensor::from_vec(output, self.shape().dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, output_t, self.shape().dims().to_vec()),
+            _ => Tensor::from_vec(output_t, self.shape().dims().to_vec()),
         }
     }
 
