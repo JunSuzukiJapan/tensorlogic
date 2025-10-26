@@ -16,9 +16,9 @@ impl<T: FloatType> Tensor<T> {
     ///
     /// # Example
     /// ```ignore
-    /// let a = Tensor::zeros(&device, vec![2, 3]).unwrap();
-    /// let b = Tensor::zeros(&device, vec![2, 3]).unwrap();
-    /// let c = Tensor::concat(&[&a, &b], 0).unwrap(); // Shape: [4, 3]
+    /// let a = Tensor::<f16>::zeros(&device, vec![2, 3]).unwrap();
+    /// let b = Tensor::<f16>::zeros(&device, vec![2, 3]).unwrap();
+    /// let c = Tensor::<f16>::concat(&[&a, &b], 0).unwrap(); // Shape: [4, 3]
     /// ```
     pub fn concat(tensors: &[&Tensor], dim: usize) -> TensorResult<Self> {
         if tensors.is_empty() {
@@ -158,7 +158,7 @@ impl<T: FloatType> Tensor<T> {
     ///
     /// # Example
     /// ```ignore
-    /// let a = Tensor::zeros(&device, vec![2, 3]).unwrap();
+    /// let a = Tensor::<f16>::zeros(&device, vec![2, 3]).unwrap();
     /// let b = a.transpose().unwrap(); // Shape: [3, 2]
     /// ```
     pub fn transpose(&self) -> TensorResult<Self> {
@@ -178,7 +178,7 @@ impl<T: FloatType> Tensor<T> {
     ///
     /// # Example
     /// ```ignore
-    /// let a = Tensor::zeros(&device, vec![2, 3, 4]).unwrap();
+    /// let a = Tensor::<f16>::zeros(&device, vec![2, 3, 4]).unwrap();
     /// let b = a.permute(vec![2, 0, 1]).unwrap(); // Shape: [4, 2, 3]
     /// ```
     pub fn permute(&self, dims: Vec<usize>) -> TensorResult<Self> {
@@ -287,7 +287,7 @@ impl<T: FloatType> Tensor<T> {
     ///
     /// # Example
     /// ```ignore
-    /// let a = Tensor::zeros(&device, vec![3, 4]).unwrap();  // Shape: [3, 4]
+    /// let a = Tensor::<f16>::zeros(&device, vec![3, 4]).unwrap();  // Shape: [3, 4]
     /// let b = a.unsqueeze(0).unwrap();  // Shape: [1, 3, 4]
     /// let c = a.unsqueeze(1).unwrap();  // Shape: [3, 1, 4]
     /// let d = a.unsqueeze(2).unwrap();  // Shape: [3, 4, 1]
@@ -323,7 +323,7 @@ impl<T: FloatType> Tensor<T> {
     ///
     /// # Example
     /// ```ignore
-    /// let a = Tensor::zeros(&device, vec![1, 3, 1, 4]).unwrap();  // Shape: [1, 3, 1, 4]
+    /// let a = Tensor::<f16>::zeros(&device, vec![1, 3, 1, 4]).unwrap();  // Shape: [1, 3, 1, 4]
     /// let b = a.squeeze(None).unwrap();  // Shape: [3, 4] - all 1s removed
     /// let c = a.squeeze(Some(0)).unwrap();  // Shape: [3, 1, 4] - only dim 0 removed
     /// ```
@@ -379,7 +379,7 @@ impl<T: FloatType> Tensor<T> {
     ///
     /// # Example
     /// ```ignore
-    /// let a = Tensor::zeros(&device, vec![6, 4]).unwrap();  // Shape: [6, 4]
+    /// let a = Tensor::<f16>::zeros(&device, vec![6, 4]).unwrap();  // Shape: [6, 4]
     /// let parts = a.chunk(3, 0).unwrap();  // Split into 3 chunks along dim 0
     /// // parts[0]: [2, 4], parts[1]: [2, 4], parts[2]: [2, 4]
     /// ```
@@ -409,7 +409,7 @@ impl<T: FloatType> Tensor<T> {
     ///
     /// # Example
     /// ```ignore
-    /// let a = Tensor::zeros(&device, vec![7, 4]).unwrap();  // Shape: [7, 4]
+    /// let a = Tensor::<f16>::zeros(&device, vec![7, 4]).unwrap();  // Shape: [7, 4]
     /// let parts = a.split(3, 0).unwrap();  // Split into size-3 chunks along dim 0
     /// // parts[0]: [3, 4], parts[1]: [3, 4], parts[2]: [1, 4]
     /// ```
@@ -517,7 +517,7 @@ mod tests {
         )
         .unwrap();
 
-        let c = Tensor::concat(&[&a, &b], 0).unwrap();
+        let c = Tensor::<f16>::concat(&[&a, &b], 0).unwrap();
 
         assert_eq!(c.dims(), &[2, 3]);
         let result = c.to_vec();
@@ -547,7 +547,7 @@ mod tests {
         )
         .unwrap();
 
-        let c = Tensor::concat(&[&a, &b], 1).unwrap();
+        let c = Tensor::<f16>::concat(&[&a, &b], 1).unwrap();
 
         assert_eq!(c.dims(), &[2, 2]);
         let result = c.to_vec();
@@ -565,7 +565,7 @@ mod tests {
         let b = Tensor::from_vec_metal(&device, vec![f16::from_f32(2.0)], vec![1, 1]).unwrap();
         let c = Tensor::from_vec_metal(&device, vec![f16::from_f32(3.0)], vec![1, 1]).unwrap();
 
-        let d = Tensor::concat(&[&a, &b, &c], 0).unwrap();
+        let d = Tensor::<f16>::concat(&[&a, &b, &c], 0).unwrap();
 
         assert_eq!(d.dims(), &[3, 1]);
         let result = d.to_vec();

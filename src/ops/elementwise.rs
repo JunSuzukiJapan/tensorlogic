@@ -912,8 +912,8 @@ mod tests {
     fn test_shape_mismatch() {
         let device = get_test_device();
 
-        let a = Tensor::zeros(&device, vec![2, 3]).unwrap();
-        let b = Tensor::zeros(&device, vec![3, 2]).unwrap();
+        let a = Tensor::<f16>::zeros(&device, vec![2, 3]).unwrap();
+        let b = Tensor::<f16>::zeros(&device, vec![3, 2]).unwrap();
 
         assert!(a.add(&b).is_err());
     }

@@ -408,7 +408,17 @@ impl Interpreter {
             }
         } else {
             // Create zero-initialized tensor based on base type
-            self.create_zero_tensor(&decl.tensor_type)?
+            let mut value = self.create_zero_tensor(&decl.tensor_type)?;
+
+            // Set requires_grad if learnable
+            if decl.tensor_type.learnable == LearnableStatus::Learnable {
+                match &mut value {
+                    Value::TensorF16(t) => t.set_requires_grad(true),
+                    Value::TensorF32(t) => t.set_requires_grad(true),
+                    _ => {}
+                }
+            }
+            value
         };
 
         // Use declare_variable for tensor declarations (they create new variables)

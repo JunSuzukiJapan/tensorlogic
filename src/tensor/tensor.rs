@@ -109,7 +109,7 @@ impl<T: FloatType + PartialEq> PartialEq for Tensor<T> {
 mod tests {
     use super::*;
     use crate::device::MetalDevice;
-    use crate::tensor::{TensorCreation, TensorIO, TensorTransform};
+    use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
 
     fn get_test_device() -> MetalDevice {
         MetalDevice::new().expect("No Metal device available")
