@@ -2,6 +2,7 @@
 //! Reduces code duplication across elementwise and activation operations
 
 use crate::device::{Device, KernelExecutor, MetalBuffer};
+use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;

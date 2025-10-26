@@ -1,6 +1,7 @@
 //! Base optimizer trait and common data structures
 
 use crate::error::TensorResult;
+use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO, TensorAutograd};
 use crate::tensor::Tensor;
 use crate::autograd::AutogradContext;
 use std::collections::HashMap;

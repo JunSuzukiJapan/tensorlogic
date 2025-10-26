@@ -4,6 +4,7 @@
 //! by computing first and second moment estimates.
 
 use crate::autograd::AutogradContext;
+use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO, TensorAutograd};
 use crate::tensor::Tensor;
 use crate::{TensorError, TensorResult};
 use std::collections::HashMap;

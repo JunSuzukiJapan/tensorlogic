@@ -47,6 +47,7 @@ use std::path::PathBuf;
 use std::fs;
 
 use crate::ast::*;
+use crate::tensor::{FloatType, TensorAccessors, TensorCreation};
 use crate::tensor::{Tensor, TensorShape};
 use crate::device::{Device, MetalDevice};
 use crate::entity_registry::EntityRegistry;

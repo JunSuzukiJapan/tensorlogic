@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::tensor::Tensor;
+use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO, TensorTransform};
 use crate::error::TensorError;
 use half::f16;
 

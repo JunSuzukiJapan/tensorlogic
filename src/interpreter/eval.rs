@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::ast::*;
+use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO};
 use crate::tensor::Tensor;
 
 impl Interpreter {

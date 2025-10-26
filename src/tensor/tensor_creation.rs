@@ -3,6 +3,7 @@
 use crate::device::{BufferPool, Device, MetalBuffer, MetalDevice};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, FloatType, Tensor, TensorShape};
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
 use std::marker::PhantomData;
 
 /// Trait for creating tensors

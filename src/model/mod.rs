@@ -10,6 +10,7 @@ pub mod convert;
 pub mod formats;
 
 use crate::tensor::Tensor;
+use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO};
 use crate::device::{Device, MetalDevice};
 use crate::error::TensorError;
 use std::collections::HashMap;

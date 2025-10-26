@@ -1,6 +1,7 @@
 //! Stochastic Gradient Descent (SGD) optimizer with momentum support
 
 use crate::error::{TensorError, TensorResult};
+use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO, TensorAutograd};
 use crate::tensor::Tensor;
 use super::optimizer::{Optimizer, ParamGroup, OptimizerState, mul_scalar, update_param_from_registry, register_param};
 use std::collections::HashMap;
