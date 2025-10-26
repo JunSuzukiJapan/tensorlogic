@@ -9,7 +9,7 @@ use crate::device::MetalBuffer;
 use crate::tensor::BufferHandle;
 use metal::MTLSize;
 
-impl Tensor<half::f16> {
+impl<T: FloatType> Tensor<T> {
     /// Apply Rotary Position Embedding (RoPE) to the tensor
     /// Input: [..., seq_len, n_heads, head_dim]
     /// position_offset: Starting position index for the sequence (for KV cache)

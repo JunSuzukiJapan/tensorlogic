@@ -7,7 +7,7 @@ use crate::error::{TensorError, TensorResult};
 use crate::tensor::{Tensor, TensorShape};
 use half::f16;
 
-impl Tensor<half::f16> {
+impl<T: FloatType> Tensor<T> {
     /// Sum all elements in the tensor
     pub fn sum(&self) -> TensorResult<f16> {
         match self.device() {

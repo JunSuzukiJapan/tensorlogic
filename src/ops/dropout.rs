@@ -7,7 +7,7 @@ use crate::TensorResult;
 use half::f16;
 use rand::Rng;
 
-impl Tensor<half::f16> {
+impl<T: FloatType> Tensor<T> {
     /// Dropout regularization
     ///
     /// Randomly zeros out elements with probability `p` during training.

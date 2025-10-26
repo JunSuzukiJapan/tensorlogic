@@ -10,12 +10,12 @@ use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
 
 /// Helper function to record a binary operation in the computation graph
-fn record_binary_op(
+fn record_binary_op<T: FloatType>(
     op: Operation,
     grad_fn: Box<dyn GradientFunction>,
-    self_tensor: &Tensor,
-    other_tensor: &Tensor,
-    result: &mut Tensor,
+    self_tensor: &Tensor<T>,
+    other_tensor: &Tensor<T>,
+    result: &mut Tensor<T>,
 ) {
     if !(self_tensor.requires_grad() || other_tensor.requires_grad()) || !AutogradContext::is_enabled() {
         return;
@@ -41,9 +41,9 @@ fn record_binary_op(
     result.set_requires_grad(true);
 }
 
-impl Tensor<half::f16> {
+impl<T: FloatType> Tensor<T> {
     /// Element-wise addition
-    pub fn add(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
+    pub fn add(&self, other: &Tensor<T>) -> TensorResult<Self> {
         // Check shape compatibility
         if !self.shape().is_same(other.shape()) {
             return Err(TensorError::ShapeMismatch {
@@ -67,7 +67,14 @@ impl Tensor<half::f16> {
     }
 
     /// Metal GPU implementation of addition
-    fn add_metal(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
+    fn add_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                format!("Metal operations currently only support f16, got {}", std::any::type_name::<T>())
+            ));
+        }
+
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -83,22 +90,29 @@ impl Tensor<half::f16> {
             device.load_library(shader_source)?;
         }
 
-        // Create result buffer
+        // Safety: We checked T::is_f16() above, so we can safely transmute to MetalBuffer<f16>
+        let a_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(a_buf) };
+        let b_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(b_buf) };
+
+        // Create result buffer (f16)
         let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         // Create local executor for this operation
         let mut executor = crate::device::KernelExecutor::new(device);
-        executor.execute_binary_op("add_f16", a_buf, b_buf, &result_buf)?;
+        executor.execute_binary_op("add_f16", a_buf_f16, b_buf_f16, &result_buf)?;
+
+        // Safety: We're working with f16, so transmute back to T (which is f16)
+        let result_buf_t: MetalBuffer<T> = unsafe { std::mem::transmute(result_buf) };
 
         // Create result tensor
         self.new_from_pool(
-            BufferHandle::Metal(result_buf),
+            BufferHandle::Metal(result_buf_t),
             self.shape().clone(),
         )
     }
 
     /// CPU fallback for addition
-    fn add_cpu(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
+    fn add_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
         let a = self.to_vec();
         let b = other.to_vec();
 
@@ -112,7 +126,7 @@ impl Tensor<half::f16> {
     }
 
     /// Element-wise subtraction
-    pub fn sub(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
+    pub fn sub(&self, other: &Tensor<T>) -> TensorResult<Self> {
         if !self.shape().is_same(other.shape()) {
             return Err(TensorError::ShapeMismatch {
                 expected: self.dims().to_vec(),
@@ -132,7 +146,7 @@ impl Tensor<half::f16> {
         Ok(result)
     }
 
-    fn sub_metal(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
+    fn sub_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -157,7 +171,7 @@ impl Tensor<half::f16> {
         )
     }
 
-    fn sub_cpu(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
+    fn sub_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
         let a = self.to_vec();
         let b = other.to_vec();
 
@@ -170,7 +184,7 @@ impl Tensor<half::f16> {
     }
 
     /// Element-wise multiplication
-    pub fn mul(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
+    pub fn mul(&self, other: &Tensor<T>) -> TensorResult<Self> {
         if !self.shape().is_same(other.shape()) {
             return Err(TensorError::ShapeMismatch {
                 expected: self.dims().to_vec(),
@@ -190,7 +204,7 @@ impl Tensor<half::f16> {
         Ok(result)
     }
 
-    fn mul_metal(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
+    fn mul_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -215,7 +229,7 @@ impl Tensor<half::f16> {
         )
     }
 
-    fn mul_cpu(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
+    fn mul_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
         let a = self.to_vec();
         let b = other.to_vec();
 
@@ -228,7 +242,7 @@ impl Tensor<half::f16> {
     }
 
     /// Element-wise division
-    pub fn div(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
+    pub fn div(&self, other: &Tensor<T>) -> TensorResult<Self> {
         if !self.shape().is_same(other.shape()) {
             return Err(TensorError::ShapeMismatch {
                 expected: self.dims().to_vec(),
@@ -248,7 +262,7 @@ impl Tensor<half::f16> {
         Ok(result)
     }
 
-    fn div_metal(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
+    fn div_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -273,7 +287,7 @@ impl Tensor<half::f16> {
         )
     }
 
-    fn div_cpu(&self, other: &Tensor<half::f16>) -> TensorResult<Self> {
+    fn div_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
         let a = self.to_vec();
         let b = other.to_vec();
 

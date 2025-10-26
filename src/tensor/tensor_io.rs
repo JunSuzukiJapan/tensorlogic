@@ -3,7 +3,7 @@
 use crate::device::{Device, MetalBuffer, MetalDevice};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, FloatType, Tensor};
-use crate::tensor::TensorAccessors;
+use crate::tensor::{TensorAccessors, TensorCreation};
 
 /// Trait for tensor I/O operations
 pub trait TensorIO<T: FloatType>: Sized {
