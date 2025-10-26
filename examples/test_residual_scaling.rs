@@ -1,0 +1,188 @@
+// Test if residual scaling can fix the magnitude drift issue
+// Common practice: scale residual by 1/sqrt(2*num_layers) or similar
+
+use tensorlogic::device::MetalDevice;
+use tensorlogic::tensor::Tensor;
+
+fn tensor_stats(tensor: &Tensor, name: &str) {
+    let values = tensor.to_vec();
+    let mut min_val = f32::MAX;
+    let mut max_val = f32::MIN;
+    let mut sum = 0.0f32;
+    let mut sum_sq = 0.0f32;
+
+    for val in &values {
+        let f = val.to_f32();
+        if f < min_val { min_val = f; }
+        if f > max_val { max_val = f; }
+        sum += f;
+        sum_sq += f * f;
+    }
+
+    let count = values.len() as f32;
+    let mean = sum / count;
+    let variance = (sum_sq / count) - (mean * mean);
+    let std = variance.sqrt();
+
+    println!("  {}: min={:.6}, max={:.6}, mean={:.6}, std={:.6}",
+             name, min_val, max_val, mean, std);
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("=== Testing Residual Scaling ===\n");
+
+    let device = MetalDevice::new()?;
+    let hidden_dim = 2048;
+
+    // Initialize input
+    let input_data: Vec<f32> = (0..hidden_dim)
+        .map(|i| ((i as f32 * 0.01) % 2.0 - 1.0) * 0.1)
+        .collect();
+    let input_data_f16: Vec<half::f16> = input_data.iter()
+        .map(|&x| half::f16::from_f32(x))
+        .collect();
+    let input = Tensor::from_vec_metal(&device, input_data_f16.clone(), vec![1, hidden_dim])?;
+
+    // Create weights
+    let norm_weight_data: Vec<half::f16> = vec![half::f16::from_f32(1.0); hidden_dim];
+    let norm_weight = Tensor::from_vec_metal(&device, norm_weight_data, vec![hidden_dim])?;
+
+    let weight_data: Vec<f32> = (0..(hidden_dim * hidden_dim))
+        .map(|i| ((i as f32 * 0.001) % 1.0 - 0.5) * 0.01)
+        .collect();
+    let weight_data_f16: Vec<half::f16> = weight_data.iter()
+        .map(|&x| half::f16::from_f32(x))
+        .collect();
+    let weight = Tensor::from_vec_metal(&device, weight_data_f16, vec![hidden_dim, hidden_dim])?;
+
+    println!("Testing 3 different residual scaling strategies:");
+    println!();
+
+    // ===== Strategy 1: No scaling (current implementation) =====
+    println!("=== Strategy 1: No Residual Scaling (current) ===");
+    let mut x1 = input.clone();
+    tensor_stats(&x1, "layer_00");
+
+    for layer_idx in 0..22 {
+        let normed = x1.rms_norm(vec![hidden_dim], &norm_weight, 1e-5)?;
+        let proj = normed.matmul(&weight)?;
+        x1 = x1.add(&proj)?;  // No scaling
+
+        if layer_idx == 4 || layer_idx == 9 || layer_idx == 14 || layer_idx == 19 || layer_idx == 21 {
+            tensor_stats(&x1, &format!("layer_{:02}", layer_idx));
+        }
+    }
+    println!();
+
+    // ===== Strategy 2: Scale by 1/sqrt(2) =====
+    // This is a common approach in some transformers
+    println!("=== Strategy 2: Residual Scaling by 1/sqrt(2) ≈ 0.707 ===");
+    let scale2 = 1.0 / (2.0f32).sqrt();
+    println!("Scale factor: {:.6}", scale2);
+    println!();
+
+    let mut x2 = input.clone();
+    tensor_stats(&x2, "layer_00");
+
+    for layer_idx in 0..22 {
+        let normed = x2.rms_norm(vec![hidden_dim], &norm_weight, 1e-5)?;
+        let proj = normed.matmul(&weight)?;
+
+        // Scale residual before adding (scalar multiplication)
+        let proj_data = proj.to_vec();
+        let proj_scaled_data: Vec<half::f16> = proj_data.iter()
+            .map(|&v| half::f16::from_f32(v.to_f32() * scale2))
+            .collect();
+        let proj_scaled = Tensor::from_vec_metal(&device, proj_scaled_data, vec![1, hidden_dim])?;
+
+        x2 = x2.add(&proj_scaled)?;
+
+        if layer_idx == 4 || layer_idx == 9 || layer_idx == 14 || layer_idx == 19 || layer_idx == 21 {
+            tensor_stats(&x2, &format!("layer_{:02}", layer_idx));
+        }
+    }
+    println!();
+
+    // ===== Strategy 3: Scale by 1/sqrt(2*num_layers) =====
+    // Adaptive scaling based on depth
+    println!("=== Strategy 3: Residual Scaling by 1/sqrt(2*22) ≈ 0.151 ===");
+    let scale3 = 1.0 / ((2.0 * 22.0) as f32).sqrt();
+    println!("Scale factor: {:.6}", scale3);
+    println!();
+
+    let mut x3 = input.clone();
+    tensor_stats(&x3, "layer_00");
+
+    for layer_idx in 0..22 {
+        let normed = x3.rms_norm(vec![hidden_dim], &norm_weight, 1e-5)?;
+        let proj = normed.matmul(&weight)?;
+
+        // Scale residual before adding (scalar multiplication)
+        let proj_data = proj.to_vec();
+        let proj_scaled_data: Vec<half::f16> = proj_data.iter()
+            .map(|&v| half::f16::from_f32(v.to_f32() * scale3))
+            .collect();
+        let proj_scaled = Tensor::from_vec_metal(&device, proj_scaled_data, vec![1, hidden_dim])?;
+
+        x3 = x3.add(&proj_scaled)?;
+
+        if layer_idx == 4 || layer_idx == 9 || layer_idx == 14 || layer_idx == 19 || layer_idx == 21 {
+            tensor_stats(&x3, &format!("layer_{:02}", layer_idx));
+        }
+    }
+    println!();
+
+    println!("=== Comparison Summary ===");
+    println!();
+    println!("Final std values:");
+
+    let std1 = {
+        let vals = x1.to_vec();
+        let mean: f32 = vals.iter().map(|v| v.to_f32()).sum::<f32>() / vals.len() as f32;
+        let variance: f32 = vals.iter()
+            .map(|v| { let diff = v.to_f32() - mean; diff * diff })
+            .sum::<f32>() / vals.len() as f32;
+        variance.sqrt()
+    };
+
+    let std2 = {
+        let vals = x2.to_vec();
+        let mean: f32 = vals.iter().map(|v| v.to_f32()).sum::<f32>() / vals.len() as f32;
+        let variance: f32 = vals.iter()
+            .map(|v| { let diff = v.to_f32() - mean; diff * diff })
+            .sum::<f32>() / vals.len() as f32;
+        variance.sqrt()
+    };
+
+    let std3 = {
+        let vals = x3.to_vec();
+        let mean: f32 = vals.iter().map(|v| v.to_f32()).sum::<f32>() / vals.len() as f32;
+        let variance: f32 = vals.iter()
+            .map(|v| { let diff = v.to_f32() - mean; diff * diff })
+            .sum::<f32>() / vals.len() as f32;
+        variance.sqrt()
+    };
+
+    println!("  Strategy 1 (no scaling):        std = {:.6} (growth: {:.1}x)", std1, std1 / 0.054);
+    println!("  Strategy 2 (scale 0.707):       std = {:.6} (growth: {:.1}x)", std2, std2 / 0.054);
+    println!("  Strategy 3 (scale 0.151):       std = {:.6} (growth: {:.1}x)", std3, std3 / 0.054);
+    println!();
+
+    println!("=== Analysis ===");
+    println!();
+    println!("Target: std should stay close to initial value (~0.05-0.15)");
+    println!();
+
+    if std2 < std1 * 0.5 {
+        println!("✅ Strategy 2 (1/sqrt(2)) significantly reduces drift!");
+    }
+
+    if std3 < std1 * 0.3 {
+        println!("✅ Strategy 3 (1/sqrt(2*N)) dramatically reduces drift!");
+    }
+
+    println!();
+    println!("Next step: Test the best strategy with real TinyLlama model");
+
+    Ok(())
+}
