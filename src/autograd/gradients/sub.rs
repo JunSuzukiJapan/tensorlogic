@@ -1,4 +1,5 @@
 use crate::autograd::gradients::reduce_grad_for_broadcast;
+use std::marker::PhantomData;
 use super::prelude::*;
 use crate::autograd::GradientFunction;
 use crate::error::TensorResult;
@@ -10,19 +11,19 @@ use half::f16;
 /// c = a - b の場合:
 /// ∂L/∂a = ∂L/∂c * ∂c/∂a = grad_output * 1 = grad_output
 /// ∂L/∂b = ∂L/∂c * ∂c/∂b = grad_output * (-1) = -grad_output
-pub struct SubBackward {
+pub struct SubBackward<T: FloatType> {
     a_shape: TensorShape,
     b_shape: TensorShape,
 }
 
-impl SubBackward {
+impl<T: FloatType> SubBackward<T> {
     pub fn new(a_shape: TensorShape, b_shape: TensorShape) -> Self {
         Self { a_shape, b_shape }
     }
 }
 
-impl GradientFunction for SubBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for SubBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         // ∂L/∂a = grad_output
         let grad_a = grad_output.clone();
 

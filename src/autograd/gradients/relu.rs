@@ -1,4 +1,5 @@
 use crate::autograd::GradientFunction;
+use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::{Device, MetalBuffer};
 use crate::error::{TensorError, TensorResult};
@@ -9,18 +10,18 @@ use half::f16;
 ///
 /// y = ReLU(x) = max(0, x) の場合:
 /// ∂y/∂x = 1 if x > 0, else 0
-pub struct ReLUBackward {
-    input: Tensor,
+pub struct ReLUBackward<T: FloatType> {
+    input: Tensor<T>,
 }
 
-impl ReLUBackward {
+impl<T: FloatType> ReLUBackward<T> {
     pub fn new(input: Tensor) -> Self {
         Self { input }
     }
 }
 
-impl GradientFunction for ReLUBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for ReLUBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         // Use GPU if both tensors are on Metal
         let grad_input = if grad_output.buffer().is_metal() && self.input.buffer().is_metal() {
             self.backward_metal(grad_output)?
@@ -32,7 +33,7 @@ impl GradientFunction for ReLUBackward {
     }
 }
 
-impl ReLUBackward {
+impl<T: FloatType> ReLUBackward<T> {
     /// Metal GPU implementation of ReLU backward
     fn backward_metal(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
         let grad_out_buf = grad_output.buffer().as_metal()?;

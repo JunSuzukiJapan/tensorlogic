@@ -1,4 +1,5 @@
 use crate::autograd::gradients::reduce_grad_for_broadcast;
+use std::marker::PhantomData;
 use super::prelude::*;
 use crate::autograd::GradientFunction;
 use crate::error::TensorResult;
@@ -9,19 +10,19 @@ use crate::tensor::{Tensor, TensorShape};
 /// c = a + b の場合:
 /// ∂L/∂a = ∂L/∂c * ∂c/∂a = grad_output * 1 = grad_output
 /// ∂L/∂b = ∂L/∂c * ∂c/∂b = grad_output * 1 = grad_output
-pub struct AddBackward {
+pub struct AddBackward<T: FloatType> {
     a_shape: TensorShape,
     b_shape: TensorShape,
 }
 
-impl AddBackward {
+impl<T: FloatType> AddBackward<T> {
     pub fn new(a_shape: TensorShape, b_shape: TensorShape) -> Self {
         Self { a_shape, b_shape }
     }
 }
 
-impl GradientFunction for AddBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for AddBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         // 加算の勾配は単純にgrad_outputを両方の入力に伝播
         let grad_a = grad_output.clone();
         let grad_b = grad_output.clone();

@@ -1,4 +1,5 @@
 //! Gradient operation for second-order derivatives
+use std::marker::PhantomData;
 use super::prelude::*;
 //!
 //! This module implements GradientBackward which computes gradients
@@ -12,7 +13,7 @@ use crate::TensorResult;
 ///
 /// Computes second-order derivatives (Hessian):
 /// d/dx (dL/dx) = d²L/dx²
-pub struct GradientBackward {
+pub struct GradientBackward<T: FloatType> {
     /// The original operation whose gradient was computed
     original_op: Operation,
     /// Original inputs to the operation
@@ -21,15 +22,15 @@ pub struct GradientBackward {
     input_index: usize,
     /// The gradient output from first backward pass
     #[allow(dead_code)]
-    grad_output: Tensor,
+    grad_output: Tensor<T>,
 }
 
-impl GradientBackward {
+impl<T: FloatType> GradientBackward<T> {
     pub fn new(
         original_op: Operation,
         original_inputs: Vec<Tensor>,
         input_index: usize,
-        grad_output: Tensor,
+        grad_output: Tensor<T>,
     ) -> Self {
         Self {
             original_op,
@@ -50,7 +51,7 @@ impl GradientBackward {
     ///
     /// For each operation type, we need to compute the second derivative.
     /// This is operation-specific.
-    fn compute_hessian(&self, grad_grad_output: &Tensor) -> TensorResult<Vec<Tensor>> {
+    fn compute_hessian(&self, grad_grad_output: &Tensor) -> TensorResult<Vec<Tensor<f16>>> {
         match &self.original_op {
             Operation::Add => {
                 // d²/dx² (x + y) = 0
@@ -157,8 +158,8 @@ impl GradientBackward {
     }
 }
 
-impl GradientFunction for GradientBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for GradientBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         self.compute_hessian(grad_output)
     }
 }

@@ -1,22 +1,23 @@
 use crate::autograd::GradientFunction;
+use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::Device;
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
 use half::f16;
 
-pub struct SinBackward {
-    input: Tensor,
+pub struct SinBackward<T: FloatType> {
+    input: Tensor<T>,
 }
 
-impl SinBackward {
+impl<T: FloatType> SinBackward<T> {
     pub fn new(input: Tensor) -> Self {
         Self { input }
     }
 }
 
-impl GradientFunction for SinBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for SinBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         let grad_input = if grad_output.buffer().is_metal() && self.input.buffer().is_metal() {
             self.backward_metal(grad_output)?
         } else {
@@ -26,7 +27,7 @@ impl GradientFunction for SinBackward {
     }
 }
 
-impl SinBackward {
+impl<T: FloatType> SinBackward<T> {
     fn backward_metal(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
         let input_buf = self.input.buffer().as_metal()?;
         super::metal_helper::execute_simple_metal_gradient(
@@ -58,18 +59,18 @@ impl SinBackward {
     }
 }
 
-pub struct CosBackward {
-    input: Tensor,
+pub struct CosBackward<T: FloatType> {
+    input: Tensor<T>,
 }
 
-impl CosBackward {
+impl<T: FloatType> CosBackward<T> {
     pub fn new(input: Tensor) -> Self {
         Self { input }
     }
 }
 
-impl GradientFunction for CosBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for CosBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         let grad_input = if grad_output.buffer().is_metal() && self.input.buffer().is_metal() {
             self.backward_metal(grad_output)?
         } else {
@@ -79,7 +80,7 @@ impl GradientFunction for CosBackward {
     }
 }
 
-impl CosBackward {
+impl<T: FloatType> CosBackward<T> {
     fn backward_metal(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
         let input_buf = self.input.buffer().as_metal()?;
         super::metal_helper::execute_simple_metal_gradient(

@@ -1,4 +1,5 @@
 use crate::autograd::GradientFunction;
+use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::Device;
 use crate::error::TensorResult;
@@ -6,19 +7,19 @@ use crate::tensor::Tensor;
 use half::f16;
 
 /// Backward for concatenation - splits gradient to match input shapes
-pub struct ConcatBackward {
+pub struct ConcatBackward<T: FloatType> {
     input_shapes: Vec<Vec<usize>>,
     dim: usize,
 }
 
-impl ConcatBackward {
+impl<T: FloatType> ConcatBackward<T> {
     pub fn new(input_shapes: Vec<Vec<usize>>, dim: usize) -> Self {
         Self { input_shapes, dim }
     }
 }
 
-impl GradientFunction for ConcatBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for ConcatBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         // For simplicity, implement CPU version that splits the gradient
         let grad_data = grad_output.to_vec();
         let mut gradients = Vec::new();
@@ -78,14 +79,14 @@ impl GradientFunction for ConcatBackward {
 /// Backward for transpose - just transpose the gradient back
 pub struct TransposeBackward;
 
-impl TransposeBackward {
+impl<T: FloatType> TransposeBackward<T> {
     pub fn new() -> Self {
         Self
     }
 }
 
-impl GradientFunction for TransposeBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for TransposeBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         // Transpose is self-inverse, so just transpose the gradient
         let grad_input = grad_output.transpose()?;
         Ok(vec![grad_input])

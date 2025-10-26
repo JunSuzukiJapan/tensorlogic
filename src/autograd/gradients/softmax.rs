@@ -1,4 +1,5 @@
 use crate::autograd::GradientFunction;
+use std::marker::PhantomData;
 use super::prelude::*;
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
@@ -11,18 +12,18 @@ use half::f16;
 /// ∂y_i/∂x_j = y_i * (δ_ij - y_j)
 /// ∂L/∂x_i = Σ_j (∂L/∂y_j * ∂y_j/∂x_i)
 ///         = grad_output_i * y_i - y_i * Σ_j (grad_output_j * y_j)
-pub struct SoftmaxBackward {
-    output: Tensor,
+pub struct SoftmaxBackward<T: FloatType> {
+    output: Tensor<T>,
 }
 
-impl SoftmaxBackward {
+impl<T: FloatType> SoftmaxBackward<T> {
     pub fn new(output: Tensor) -> Self {
         Self { output }
     }
 }
 
-impl GradientFunction for SoftmaxBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for SoftmaxBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         let grad_output_data = grad_output.to_vec();
         let output_data = self.output.to_vec();
 

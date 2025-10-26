@@ -1,22 +1,23 @@
 use crate::autograd::GradientFunction;
+use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::Device;
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
 use half::f16;
 
-pub struct SigmoidBackward {
-    output: Tensor, // σ(x)
+pub struct SigmoidBackward<T: FloatType> {
+    output: Tensor<T>, // σ(x)
 }
 
-impl SigmoidBackward {
+impl<T: FloatType> SigmoidBackward<T> {
     pub fn new(output: Tensor) -> Self {
         Self { output }
     }
 }
 
-impl GradientFunction for SigmoidBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for SigmoidBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         let grad_input = if grad_output.buffer().is_metal() && self.output.buffer().is_metal() {
             self.backward_metal(grad_output)?
         } else {
@@ -26,7 +27,7 @@ impl GradientFunction for SigmoidBackward {
     }
 }
 
-impl SigmoidBackward {
+impl<T: FloatType> SigmoidBackward<T> {
     fn backward_metal(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
         let output_buf = self.output.buffer().as_metal()?;
         super::metal_helper::execute_simple_metal_gradient(
@@ -59,18 +60,18 @@ impl SigmoidBackward {
     }
 }
 
-pub struct TanhBackward {
-    output: Tensor, // tanh(x)
+pub struct TanhBackward<T: FloatType> {
+    output: Tensor<T>, // tanh(x)
 }
 
-impl TanhBackward {
+impl<T: FloatType> TanhBackward<T> {
     pub fn new(output: Tensor) -> Self {
         Self { output }
     }
 }
 
-impl GradientFunction for TanhBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for TanhBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         let grad_input = if grad_output.buffer().is_metal() && self.output.buffer().is_metal() {
             self.backward_metal(grad_output)?
         } else {
@@ -80,7 +81,7 @@ impl GradientFunction for TanhBackward {
     }
 }
 
-impl TanhBackward {
+impl<T: FloatType> TanhBackward<T> {
     fn backward_metal(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
         let output_buf = self.output.buffer().as_metal()?;
         super::metal_helper::execute_simple_metal_gradient(

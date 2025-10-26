@@ -1,4 +1,5 @@
 use crate::autograd::gradients::reduce_grad_for_broadcast;
+use std::marker::PhantomData;
 use super::prelude::*;
 use crate::autograd::GradientFunction;
 use crate::error::TensorResult;
@@ -10,15 +11,15 @@ use half::f16;
 /// c = a / b の場合:
 /// ∂L/∂a = ∂L/∂c * ∂c/∂a = grad_output * (1/b) = grad_output / b
 /// ∂L/∂b = ∂L/∂c * ∂c/∂b = grad_output * (-a/b²) = -grad_output * a / b²
-pub struct DivBackward {
-    a: Tensor,
-    b: Tensor,
+pub struct DivBackward<T: FloatType> {
+    a: Tensor<T>,
+    b: Tensor<T>,
     a_shape: TensorShape,
     b_shape: TensorShape,
 }
 
-impl DivBackward {
-    pub fn new(a: Tensor, b: Tensor) -> Self {
+impl<T: FloatType> DivBackward<T> {
+    pub fn new(a: Tensor, b: Tensor<T>) -> Self {
         let a_shape = a.shape().clone();
         let b_shape = b.shape().clone();
         Self {
@@ -30,8 +31,8 @@ impl DivBackward {
     }
 }
 
-impl GradientFunction for DivBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for DivBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         // ∂L/∂a = grad_output / b
         let grad_a = grad_output.div(&self.b)?;
 

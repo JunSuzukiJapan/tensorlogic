@@ -1,4 +1,5 @@
 use crate::autograd::GradientFunction;
+use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::Device;
 use crate::error::TensorResult;
@@ -7,26 +8,26 @@ use half::f16;
 
 /// Backward for layer normalization
 /// Returns gradients for [input, weight, bias] (weight and bias can be None)
-pub struct LayerNormBackward {
-    input: Tensor,
+pub struct LayerNormBackward<T: FloatType> {
+    input: Tensor<T>,
     normalized_shape: Vec<usize>,
     weight: Option<Tensor>,
     #[allow(dead_code)]
-    mean: Tensor,      // Saved from forward pass
-    inv_std: Tensor,   // Saved from forward pass
-    normalized: Tensor, // Saved normalized values
+    mean: Tensor<T>,      // Saved from forward pass
+    inv_std: Tensor<T>,   // Saved from forward pass
+    normalized: Tensor<T>, // Saved normalized values
     #[allow(dead_code)]
     eps: f32,
 }
 
-impl LayerNormBackward {
+impl<T: FloatType> LayerNormBackward<T> {
     pub fn new(
-        input: Tensor,
+        input: Tensor<T>,
         normalized_shape: Vec<usize>,
         weight: Option<Tensor>,
-        mean: Tensor,
-        inv_std: Tensor,
-        normalized: Tensor,
+        mean: Tensor<T>,
+        inv_std: Tensor<T>,
+        normalized: Tensor<T>,
         eps: f32,
     ) -> Self {
         Self {
@@ -41,15 +42,15 @@ impl LayerNormBackward {
     }
 }
 
-impl GradientFunction for LayerNormBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for LayerNormBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         // For now, implement CPU version only
         self.backward_cpu(grad_output)
     }
 }
 
-impl LayerNormBackward {
-    fn backward_cpu(&self, grad_output: &Tensor) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> LayerNormBackward<T> {
+    fn backward_cpu(&self, grad_output: &Tensor) -> TensorResult<Vec<Tensor<f16>>> {
         let grad_out = grad_output.to_vec();
         let normalized = self.normalized.to_vec();
         let inv_std = self.inv_std.to_vec();

@@ -1,4 +1,5 @@
 use crate::autograd::GradientFunction;
+use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::{Device, MetalBuffer};
 use crate::error::{TensorError, TensorResult};
@@ -10,18 +11,18 @@ use half::f16;
 /// GELU(x) = 0.5 * x * (1 + tanh(√(2/π) * (x + 0.044715 * x³)))
 ///
 /// ∂GELU/∂x = 0.5 * (1 + tanh(...)) + 0.5 * x * sech²(...) * derivative_of_inner
-pub struct GELUBackward {
-    input: Tensor,
+pub struct GELUBackward<T: FloatType> {
+    input: Tensor<T>,
 }
 
-impl GELUBackward {
+impl<T: FloatType> GELUBackward<T> {
     pub fn new(input: Tensor) -> Self {
         Self { input }
     }
 }
 
-impl GradientFunction for GELUBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for GELUBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         // Use GPU if both tensors are on Metal
         let grad_input = if grad_output.buffer().is_metal() && self.input.buffer().is_metal() {
             self.backward_metal(grad_output)?
@@ -33,7 +34,7 @@ impl GradientFunction for GELUBackward {
     }
 }
 
-impl GELUBackward {
+impl<T: FloatType> GELUBackward<T> {
     /// Metal GPU implementation of GELU backward
     fn backward_metal(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
         let grad_out_buf = grad_output.buffer().as_metal()?;

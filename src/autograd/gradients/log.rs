@@ -1,21 +1,22 @@
 use crate::autograd::GradientFunction;
+use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::Device;
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
 
-pub struct LogBackward {
-    input: Tensor,
+pub struct LogBackward<T: FloatType> {
+    input: Tensor<T>,
 }
 
-impl LogBackward {
+impl<T: FloatType> LogBackward<T> {
     pub fn new(input: Tensor) -> Self {
         Self { input }
     }
 }
 
-impl GradientFunction for LogBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for LogBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         let grad_input = if grad_output.buffer().is_metal() && self.input.buffer().is_metal() {
             self.backward_metal(grad_output)?
         } else {
@@ -25,7 +26,7 @@ impl GradientFunction for LogBackward {
     }
 }
 
-impl LogBackward {
+impl<T: FloatType> LogBackward<T> {
     fn backward_metal(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
         let input_buf = self.input.buffer().as_metal()?;
         super::metal_helper::execute_simple_metal_gradient(

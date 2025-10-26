@@ -1,23 +1,24 @@
 use crate::autograd::GradientFunction;
+use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::{Device, MetalBuffer};
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
 use half::f16;
 
-pub struct PowBackward {
-    input: Tensor,
+pub struct PowBackward<T: FloatType> {
+    input: Tensor<T>,
     exponent: f32,
 }
 
-impl PowBackward {
+impl<T: FloatType> PowBackward<T> {
     pub fn new(input: Tensor, exponent: f32) -> Self {
         Self { input, exponent }
     }
 }
 
-impl GradientFunction for PowBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for PowBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         let grad_input = if grad_output.buffer().is_metal() && self.input.buffer().is_metal() {
             self.backward_metal(grad_output)?
         } else {
@@ -27,7 +28,7 @@ impl GradientFunction for PowBackward {
     }
 }
 
-impl PowBackward {
+impl<T: FloatType> PowBackward<T> {
     fn backward_metal(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
         let input_buf = self.input.buffer().as_metal()?;
 

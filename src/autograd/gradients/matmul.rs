@@ -1,4 +1,5 @@
 use crate::autograd::GradientFunction;
+use std::marker::PhantomData;
 use super::prelude::*;
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
@@ -8,19 +9,19 @@ use crate::tensor::Tensor;
 /// C = A @ B の場合 (A: [M, K], B: [K, N], C: [M, N]):
 /// ∂L/∂A = ∂L/∂C @ B^T  ([M, N] @ [N, K] = [M, K])
 /// ∂L/∂B = A^T @ ∂L/∂C  ([K, M] @ [M, N] = [K, N])
-pub struct MatMulBackward {
-    a: Tensor,
-    b: Tensor,
+pub struct MatMulBackward<T: FloatType> {
+    a: Tensor<T>,
+    b: Tensor<T>,
 }
 
-impl MatMulBackward {
-    pub fn new(a: Tensor, b: Tensor) -> Self {
+impl<T: FloatType> MatMulBackward<T> {
+    pub fn new(a: Tensor, b: Tensor<T>) -> Self {
         Self { a, b }
     }
 }
 
-impl GradientFunction for MatMulBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for MatMulBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         // 転置を計算（einsum経由）
         // Note: einsumの結果はCPUテンソルになる可能性があるため、
         // grad_outputをCPUに移動してから計算し、最後に元のデバイスに戻す

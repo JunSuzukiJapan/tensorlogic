@@ -1,22 +1,23 @@
 use crate::autograd::GradientFunction;
+use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::Device;
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
 use half::f16;
 
-pub struct SqrtBackward {
-    output: Tensor, // sqrt(x)
+pub struct SqrtBackward<T: FloatType> {
+    output: Tensor<T>, // sqrt(x)
 }
 
-impl SqrtBackward {
+impl<T: FloatType> SqrtBackward<T> {
     pub fn new(output: Tensor) -> Self {
         Self { output }
     }
 }
 
-impl GradientFunction for SqrtBackward {
-    fn backward(&self, grad_output: &Tensor, _inputs: &[&Tensor]) -> TensorResult<Vec<Tensor>> {
+impl<T: FloatType> GradientFunction for SqrtBackward<T> {
+    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
         let grad_input = if grad_output.buffer().is_metal() && self.output.buffer().is_metal() {
             self.backward_metal(grad_output)?
         } else {
@@ -26,7 +27,7 @@ impl GradientFunction for SqrtBackward {
     }
 }
 
-impl SqrtBackward {
+impl<T: FloatType> SqrtBackward<T> {
     fn backward_metal(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
         let output_buf = self.output.buffer().as_metal()?;
         super::metal_helper::execute_simple_metal_gradient(
