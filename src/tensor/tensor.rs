@@ -9,7 +9,7 @@
 
 use crate::autograd::NodeId;
 use crate::device::{BufferPool, Device};
-use crate::tensor::{BufferHandle, FloatType, TensorShape};
+use crate::tensor::{BufferHandle, FloatType, TensorShape, TensorIO};
 use half::f16;
 use std::marker::PhantomData;
 use std::sync::Arc;

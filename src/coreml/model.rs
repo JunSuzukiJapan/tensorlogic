@@ -1,8 +1,7 @@
 //! CoreML Model wrapper for Neural Engine inference
 
 use super::{CoreMLError, CoreMLResult};
-use crate::tensor::TensorAccessors;
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorAccessors, TensorCreation, TensorIO};
 use std::path::Path;
 
 #[cfg(target_os = "macos")]

@@ -153,7 +153,7 @@ impl Optimizer for SGD {
                 param.zero_grad();
                 // Re-register after modifying
                 if let Some(node_id) = param.grad_node() {
-                    crate::autograd::AutogradContext::register_tensor(node_id, param.clone());
+                    crate::autograd::AutogradContext::register_tensor_generic(node_id, param.clone());
                 }
             }
         }
@@ -286,7 +286,7 @@ mod tests {
         x.set_grad(grad);
 
         // Register in context
-        AutogradContext::register_tensor(x.grad_node().unwrap(), x.clone());
+        AutogradContext::register_tensor_generic(x.grad_node().unwrap(), x.clone());
 
         // Create optimizer with lr=0.1
         let mut optimizer = SGD::new(vec![x.clone()], 0.1);

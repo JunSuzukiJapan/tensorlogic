@@ -2,7 +2,7 @@
 //!
 //! Loads PyTorch-compatible SafeTensors files and converts to f16 format.
 
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorAccessors, TensorCreation, TensorIO};
 use crate::device::{Device, MetalDevice};
 use crate::error::TensorError;
 use crate::model::{Model, ModelMetadata, ModelFormat, QuantizationType};

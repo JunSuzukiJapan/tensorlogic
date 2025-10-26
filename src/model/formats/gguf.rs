@@ -2,7 +2,7 @@
 //!
 //! Loads quantized GGUF models (llama.cpp format) and dequantizes to f16.
 
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorCreation};
 use crate::device::MetalDevice;
 use crate::error::TensorError;
 use crate::model::{Model, ModelMetadata, ModelFormat, QuantizationType};

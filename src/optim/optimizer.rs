@@ -124,7 +124,7 @@ pub(crate) fn update_param_from_registry(param: &mut Tensor) -> TensorResult<()>
 /// Helper function to register parameter after modification
 pub(crate) fn register_param(param: &Tensor) -> TensorResult<()> {
     if let Some(node_id) = param.grad_node() {
-        AutogradContext::register_tensor(node_id, param.clone());
+        AutogradContext::register_tensor_generic(node_id, param.clone());
     }
     Ok(())
 }

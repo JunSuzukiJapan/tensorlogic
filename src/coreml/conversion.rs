@@ -1,7 +1,7 @@
 //! Conversion between TensorLogic Tensors and CoreML MLMultiArray
 
 use super::{CoreMLError, CoreMLResult};
-use crate::tensor::TensorIO;
+use crate::tensor::{TensorIO, TensorCreation, TensorAccessors};
 use crate::tensor::Tensor;
 
 /// Convert a TensorLogic Tensor to CoreML MLMultiArray

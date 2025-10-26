@@ -2,7 +2,7 @@
 
 use crate::autograd::gradients::{AddBackward, DivBackward, MulBackward, SubBackward};
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform, TensorAutograd};
 use crate::autograd::{AutogradContext, GradientFunction, Operation};
 use crate::device::{Device, MetalBuffer};
 use crate::error::{TensorError, TensorResult};

@@ -234,7 +234,7 @@ impl Optimizer for Adam {
             for param in &mut group.params {
                 param.zero_grad();
                 if let Some(node_id) = param.grad_node() {
-                    AutogradContext::register_tensor(node_id, param.clone());
+                    AutogradContext::register_tensor_generic(node_id, param.clone());
                 }
             }
         }

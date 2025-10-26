@@ -1,7 +1,7 @@
 //! TensorLike trait for operations on tensor-like arrays
 
 use crate::error::TensorResult;
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorAccessors, TensorCreation, TensorIO};
 
 /// Trait for tensor-like data structures
 ///
