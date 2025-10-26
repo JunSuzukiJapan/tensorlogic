@@ -11,19 +11,19 @@ use crate::tensor::{Tensor, TensorShape};
 /// c = a + b の場合:
 /// ∂L/∂a = ∂L/∂c * ∂c/∂a = grad_output * 1 = grad_output
 /// ∂L/∂b = ∂L/∂c * ∂c/∂b = grad_output * 1 = grad_output
-pub struct AddBackward<T: FloatType> {
+pub struct AddBackward {
     a_shape: TensorShape,
     b_shape: TensorShape,
 }
 
-impl<T: FloatType> AddBackward<T> {
+impl AddBackward {
     pub fn new(a_shape: TensorShape, b_shape: TensorShape) -> Self {
         Self { a_shape, b_shape }
     }
 }
 
-impl<T: FloatType> GradientFunction for AddBackward<T> {
-    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
+impl GradientFunction for AddBackward {
+    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
         // 加算の勾配は単純にgrad_outputを両方の入力に伝播
         let grad_a = grad_output.clone();
         let grad_b = grad_output.clone();
@@ -49,13 +49,13 @@ mod tests {
     #[test]
     fn test_add_backward_same_shape() {
         let device = get_test_device();
-        let grad_output = Tensor::from_vec_metal(
+        let grad_output = Tensor<half::f16>::from_vec_metal(
             &device,
             vec![
-                f16::from_f32(1.0),
-                f16::from_f32(2.0),
-                f16::from_f32(3.0),
-                f16::from_f32(4.0),
+                half::f16::from_f32(1.0),
+                half::f16::from_f32(2.0),
+                half::f16::from_f32(3.0),
+                half::f16::from_f32(4.0),
             ],
             vec![2, 2],
         )
@@ -75,13 +75,13 @@ mod tests {
     #[test]
     fn test_add_backward_broadcast_scalar() {
         let device = get_test_device();
-        let grad_output = Tensor::from_vec_metal(
+        let grad_output = Tensor<half::f16>::from_vec_metal(
             &device,
             vec![
-                f16::from_f32(1.0),
-                f16::from_f32(2.0),
-                f16::from_f32(3.0),
-                f16::from_f32(4.0),
+                half::f16::from_f32(1.0),
+                half::f16::from_f32(2.0),
+                half::f16::from_f32(3.0),
+                half::f16::from_f32(4.0),
             ],
             vec![2, 2],
         )
@@ -97,6 +97,6 @@ mod tests {
         assert_eq!(grads[0].dims(), &[2, 2]);
         assert_eq!(grads[1].dims(), &[1]);
         // grad_b = sum of all elements = 1 + 2 + 3 + 4 = 10
-        assert_eq!(grads[1].to_vec()[0], f16::from_f32(10.0));
+        assert_eq!(grads[1].to_vec()[0], half::f16::from_f32(10.0));
     }
 }

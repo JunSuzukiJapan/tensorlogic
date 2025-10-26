@@ -12,26 +12,26 @@ use half::f16;
 /// c = a - b の場合:
 /// ∂L/∂a = ∂L/∂c * ∂c/∂a = grad_output * 1 = grad_output
 /// ∂L/∂b = ∂L/∂c * ∂c/∂b = grad_output * (-1) = -grad_output
-pub struct SubBackward<T: FloatType> {
+pub struct SubBackward {
     a_shape: TensorShape,
     b_shape: TensorShape,
 }
 
-impl<T: FloatType> SubBackward<T> {
+impl SubBackward {
     pub fn new(a_shape: TensorShape, b_shape: TensorShape) -> Self {
         Self { a_shape, b_shape }
     }
 }
 
-impl<T: FloatType> GradientFunction for SubBackward<T> {
-    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
+impl GradientFunction for SubBackward {
+    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
         // ∂L/∂a = grad_output
         let grad_a = grad_output.clone();
 
         // ∂L/∂b = -grad_output
         let grad_output_data = grad_output.to_vec();
-        let neg_grad_data: Vec<f16> = grad_output_data.iter().map(|&x| -x).collect();
-        let grad_b = Tensor::from_vec(neg_grad_data, grad_output.dims().to_vec())?;
+        let neg_grad_data: Vec<half::f16> = grad_output_data.iter().map(|&x| -x).collect();
+        let grad_b = Tensor<half::f16>::from_vec(neg_grad_data, grad_output.dims().to_vec())?;
 
         // ブロードキャストされている場合は次元を縮約
         let grad_a = reduce_grad_for_broadcast(&grad_a, &self.a_shape)?;
@@ -54,13 +54,13 @@ mod tests {
     #[test]
     fn test_sub_backward_same_shape() {
         let device = get_test_device();
-        let grad_output = Tensor::from_vec_metal(
+        let grad_output = Tensor<half::f16>::from_vec_metal(
             &device,
             vec![
-                f16::from_f32(1.0),
-                f16::from_f32(2.0),
-                f16::from_f32(3.0),
-                f16::from_f32(4.0),
+                half::f16::from_f32(1.0),
+                half::f16::from_f32(2.0),
+                half::f16::from_f32(3.0),
+                half::f16::from_f32(4.0),
             ],
             vec![2, 2],
         )
@@ -77,10 +77,10 @@ mod tests {
 
         // grad_b should be -grad_output
         let expected_grad_b = vec![
-            f16::from_f32(-1.0),
-            f16::from_f32(-2.0),
-            f16::from_f32(-3.0),
-            f16::from_f32(-4.0),
+            half::f16::from_f32(-1.0),
+            half::f16::from_f32(-2.0),
+            half::f16::from_f32(-3.0),
+            half::f16::from_f32(-4.0),
         ];
         assert_eq!(grads[1].to_vec(), expected_grad_b);
     }

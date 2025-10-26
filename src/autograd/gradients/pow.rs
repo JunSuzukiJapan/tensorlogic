@@ -7,19 +7,19 @@ use crate::error::TensorResult;
 use crate::tensor::Tensor;
 use half::f16;
 
-pub struct PowBackward<T: FloatType> {
-    input: Tensor<T>,
+pub struct PowBackward {
+    input: Tensor<half::f16>,
     exponent: f32,
 }
 
-impl<T: FloatType> PowBackward<T> {
-    pub fn new(input: Tensor, exponent: f32) -> Self {
+impl PowBackward {
+    pub fn new(input: Tensor<half::f16>, exponent: f32) -> Self {
         Self { input, exponent }
     }
 }
 
-impl<T: FloatType> GradientFunction for PowBackward<T> {
-    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
+impl GradientFunction for PowBackward {
+    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
         let grad_input = if grad_output.buffer().is_metal() && self.input.buffer().is_metal() {
             self.backward_metal(grad_output)?
         } else {
@@ -29,8 +29,8 @@ impl<T: FloatType> GradientFunction for PowBackward<T> {
     }
 }
 
-impl<T: FloatType> PowBackward<T> {
-    fn backward_metal(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
+impl PowBackward {
+    fn backward_metal(&self, grad_output: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
         let input_buf = self.input.buffer().as_metal()?;
 
         let device = match grad_output.device() {
@@ -42,7 +42,7 @@ impl<T: FloatType> PowBackward<T> {
 
         let exponent_buf = MetalBuffer::from_f16_slice(
             device.metal_device(),
-            &[f16::from_f32(self.exponent)],
+            &[half::f16::from_f32(self.exponent)],
         )?;
 
         super::metal_helper::execute_parametric_metal_gradient(
@@ -53,7 +53,7 @@ impl<T: FloatType> PowBackward<T> {
         )
     }
 
-    fn backward_cpu(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
+    fn backward_cpu(&self, grad_output: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
         let grad_out = grad_output.to_vec();
         let input = self.input.to_vec();
 
@@ -63,15 +63,15 @@ impl<T: FloatType> PowBackward<T> {
             .map(|(g, x)| {
                 let x_f32 = x.to_f32();
                 let grad = g.to_f32() * self.exponent * x_f32.powf(self.exponent - 1.0);
-                f16::from_f32(grad)
+                half::f16::from_f32(grad)
             })
             .collect();
 
         match grad_output.device() {
             Device::Metal(dev) => {
-                Tensor::from_vec_metal(dev, grad_input, grad_output.dims().to_vec())
+                Tensor<half::f16>::from_vec_metal(dev, grad_input, grad_output.dims().to_vec())
             }
-            _ => Tensor::from_vec(grad_input, grad_output.dims().to_vec()),
+            _ => Tensor<half::f16>::from_vec(grad_input, grad_output.dims().to_vec()),
         }
     }
 }

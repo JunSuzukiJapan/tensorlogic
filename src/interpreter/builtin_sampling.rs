@@ -1,6 +1,7 @@
 //! Sampling and generation operations for TensorLogic interpreter
 
 use super::*;
+use crate::tensor::TensorIO;
 use crate::tensor::Tensor;
 
 impl Interpreter {

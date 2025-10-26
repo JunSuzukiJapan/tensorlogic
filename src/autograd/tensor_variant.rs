@@ -104,23 +104,3 @@ impl From<Tensor<f32>> for TensorVariant {
         TensorVariant::F32(tensor)
     }
 }
-
-// Generic From implementation for any FloatType
-// This uses runtime type checking to determine which variant to create
-impl<T: crate::tensor::FloatType> From<Tensor<T>> for TensorVariant {
-    fn from(tensor: Tensor<T>) -> Self {
-        if T::is_f16() {
-            // Safety: We checked T::is_f16(), so T = f16
-            let f16_tensor: Tensor<f16> = unsafe { std::mem::transmute_copy(&tensor) };
-            std::mem::forget(tensor); // Prevent double drop
-            TensorVariant::F16(f16_tensor)
-        } else if T::is_f32() {
-            // Safety: We checked T::is_f32(), so T = f32
-            let f32_tensor: Tensor<f32> = unsafe { std::mem::transmute_copy(&tensor) };
-            std::mem::forget(tensor); // Prevent double drop
-            TensorVariant::F32(f32_tensor)
-        } else {
-            panic!("Unsupported FloatType for TensorVariant");
-        }
-    }
-}

@@ -3,7 +3,6 @@
 use crate::autograd::NodeId;
 use crate::device::{BufferPool, Device};
 use crate::tensor::{BufferHandle, FloatType, Tensor, TensorShape};
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
 
 /// Trait for accessing tensor properties
 pub trait TensorAccessors<T: FloatType> {

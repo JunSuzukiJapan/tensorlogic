@@ -26,7 +26,7 @@ fn record_unary_op(
 
     let result_node_id = AutogradContext::add_node(op, vec![input_node_id], Some(grad_fn));
 
-    AutogradContext::register_tensor(input_node_id, input_tensor.clone());
+    AutogradContext::register_tensor_generic(input_node_id, input_tensor.clone());
 
     result.set_grad_node(result_node_id);
     result.set_requires_grad(true);

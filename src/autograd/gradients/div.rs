@@ -12,15 +12,15 @@ use half::f16;
 /// c = a / b の場合:
 /// ∂L/∂a = ∂L/∂c * ∂c/∂a = grad_output * (1/b) = grad_output / b
 /// ∂L/∂b = ∂L/∂c * ∂c/∂b = grad_output * (-a/b²) = -grad_output * a / b²
-pub struct DivBackward<T: FloatType> {
-    a: Tensor<T>,
-    b: Tensor<T>,
+pub struct DivBackward {
+    a: Tensor<half::f16>,
+    b: Tensor<half::f16>,
     a_shape: TensorShape,
     b_shape: TensorShape,
 }
 
-impl<T: FloatType> DivBackward<T> {
-    pub fn new(a: Tensor, b: Tensor<T>) -> Self {
+impl DivBackward {
+    pub fn new(a: Tensor, b: Tensor<half::f16>) -> Self {
         let a_shape = a.shape().clone();
         let b_shape = b.shape().clone();
         Self {
@@ -32,8 +32,8 @@ impl<T: FloatType> DivBackward<T> {
     }
 }
 
-impl<T: FloatType> GradientFunction for DivBackward<T> {
-    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
+impl GradientFunction for DivBackward {
+    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
         // ∂L/∂a = grad_output / b
         let grad_a = grad_output.div(&self.b)?;
 
@@ -44,8 +44,8 @@ impl<T: FloatType> GradientFunction for DivBackward<T> {
 
         // 符号を反転
         let grad_b_data = grad_b_positive.to_vec();
-        let neg_grad_b_data: Vec<f16> = grad_b_data.iter().map(|&x| -x).collect();
-        let grad_b = Tensor::from_vec(neg_grad_b_data, grad_b_positive.dims().to_vec())?;
+        let neg_grad_b_data: Vec<half::f16> = grad_b_data.iter().map(|&x| -x).collect();
+        let grad_b = Tensor<half::f16>::from_vec(neg_grad_b_data, grad_b_positive.dims().to_vec())?;
 
         // ブロードキャストされている場合は次元を縮約
         let grad_a = reduce_grad_for_broadcast(&grad_a, &self.a_shape)?;
@@ -71,23 +71,23 @@ mod tests {
 
         // a = [4.0, 6.0], b = [2.0, 3.0]
         // c = a / b = [2.0, 2.0]
-        let a = Tensor::from_vec_metal(
+        let a = Tensor<half::f16>::from_vec_metal(
             &device,
-            vec![f16::from_f32(4.0), f16::from_f32(6.0)],
+            vec![half::f16::from_f32(4.0), half::f16::from_f32(6.0)],
             vec![2],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor<half::f16>::from_vec_metal(
             &device,
-            vec![f16::from_f32(2.0), f16::from_f32(3.0)],
+            vec![half::f16::from_f32(2.0), half::f16::from_f32(3.0)],
             vec![2],
         )
         .unwrap();
 
-        let grad_output = Tensor::from_vec_metal(
+        let grad_output = Tensor<half::f16>::from_vec_metal(
             &device,
-            vec![f16::from_f32(1.0), f16::from_f32(1.0)],
+            vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)],
             vec![2],
         )
         .unwrap();
@@ -98,7 +98,7 @@ mod tests {
         assert_eq!(grads.len(), 2);
 
         // grad_a = grad_output / b = [1.0, 1.0] / [2.0, 3.0] = [0.5, 0.333...]
-        let grad_a_expected = vec![f16::from_f32(0.5), f16::from_f32(1.0 / 3.0)];
+        let grad_a_expected = vec![half::f16::from_f32(0.5), half::f16::from_f32(1.0 / 3.0)];
         let grad_a_actual = grads[0].to_vec();
         for (actual, expected) in grad_a_actual.iter().zip(grad_a_expected.iter()) {
             assert!((actual.to_f32() - expected.to_f32()).abs() < 0.01);
@@ -106,7 +106,7 @@ mod tests {
 
         // grad_b = -grad_output * a / b² = -[1.0, 1.0] * [4.0, 6.0] / [4.0, 9.0]
         //        = -[4.0/4.0, 6.0/9.0] = -[1.0, 0.666...] = [-1.0, -0.666...]
-        let grad_b_expected = vec![f16::from_f32(-1.0), f16::from_f32(-6.0 / 9.0)];
+        let grad_b_expected = vec![half::f16::from_f32(-1.0), half::f16::from_f32(-6.0 / 9.0)];
         let grad_b_actual = grads[1].to_vec();
         for (actual, expected) in grad_b_actual.iter().zip(grad_b_expected.iter()) {
             assert!((actual.to_f32() - expected.to_f32()).abs() < 0.01);

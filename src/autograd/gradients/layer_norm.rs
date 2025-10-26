@@ -9,26 +9,26 @@ use half::f16;
 
 /// Backward for layer normalization
 /// Returns gradients for [input, weight, bias] (weight and bias can be None)
-pub struct LayerNormBackward<T: FloatType> {
-    input: Tensor<T>,
+pub struct LayerNormBackward {
+    input: Tensor<half::f16>,
     normalized_shape: Vec<usize>,
-    weight: Option<Tensor>,
+    weight: Option<Tensor<half::f16>>,
     #[allow(dead_code)]
-    mean: Tensor<T>,      // Saved from forward pass
-    inv_std: Tensor<T>,   // Saved from forward pass
-    normalized: Tensor<T>, // Saved normalized values
+    mean: Tensor<half::f16>,      // Saved from forward pass
+    inv_std: Tensor<half::f16>,   // Saved from forward pass
+    normalized: Tensor<half::f16>, // Saved normalized values
     #[allow(dead_code)]
     eps: f32,
 }
 
-impl<T: FloatType> LayerNormBackward<T> {
+impl LayerNormBackward {
     pub fn new(
-        input: Tensor<T>,
+        input: Tensor<half::f16>,
         normalized_shape: Vec<usize>,
-        weight: Option<Tensor>,
-        mean: Tensor<T>,
-        inv_std: Tensor<T>,
-        normalized: Tensor<T>,
+        weight: Option<Tensor<half::f16>>,
+        mean: Tensor<half::f16>,
+        inv_std: Tensor<half::f16>,
+        normalized: Tensor<half::f16>,
         eps: f32,
     ) -> Self {
         Self {
@@ -43,15 +43,15 @@ impl<T: FloatType> LayerNormBackward<T> {
     }
 }
 
-impl<T: FloatType> GradientFunction for LayerNormBackward<T> {
-    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
+impl GradientFunction for LayerNormBackward {
+    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
         // For now, implement CPU version only
         self.backward_cpu(grad_output)
     }
 }
 
-impl<T: FloatType> LayerNormBackward<T> {
-    fn backward_cpu(&self, grad_output: &Tensor) -> TensorResult<Vec<Tensor<f16>>> {
+impl LayerNormBackward {
+    fn backward_cpu(&self, grad_output: &Tensor) -> TensorResult<Vec<Tensor<half::f16>>> {
         let grad_out = grad_output.to_vec();
         let normalized = self.normalized.to_vec();
         let inv_std = self.inv_std.to_vec();
@@ -59,14 +59,14 @@ impl<T: FloatType> LayerNormBackward<T> {
         let normalized_size: usize = self.normalized_shape.iter().product();
         let batch_size = self.input.numel() / normalized_size;
 
-        let mut grad_input = vec![f16::ZERO; self.input.numel()];
+        let mut grad_input = vec![half::f16::ZERO; self.input.numel()];
         let mut grad_weight = if self.weight.is_some() {
-            Some(vec![f16::ZERO; normalized_size])
+            Some(vec![half::f16::ZERO; normalized_size])
         } else {
             None
         };
         let mut grad_bias = if self.weight.is_some() {
-            Some(vec![f16::ZERO; normalized_size])
+            Some(vec![half::f16::ZERO; normalized_size])
         } else {
             None
         };
@@ -104,14 +104,14 @@ impl<T: FloatType> LayerNormBackward<T> {
 
                 // d_input = (grad - mean_grad - normalized * mean_grad_norm) * inv_std
                 let d_input = (grad_normalized - mean_grad - norm * mean_grad_norm) * inv_std_val;
-                grad_input[offset + i] = f16::from_f32(d_input);
+                grad_input[offset + i] = half::f16::from_f32(d_input);
 
                 // Accumulate weight and bias gradients
                 if let Some(ref mut gw) = grad_weight {
-                    gw[i] = f16::from_f32(gw[i].to_f32() + grad * norm);
+                    gw[i] = half::f16::from_f32(gw[i].to_f32() + grad * norm);
                 }
                 if let Some(ref mut gb) = grad_bias {
-                    gb[i] = f16::from_f32(gb[i].to_f32() + grad);
+                    gb[i] = half::f16::from_f32(gb[i].to_f32() + grad);
                 }
             }
         }
@@ -121,9 +121,9 @@ impl<T: FloatType> LayerNormBackward<T> {
         // Input gradient
         let grad_input_tensor = match self.input.device() {
             Device::Metal(dev) => {
-                Tensor::from_vec_metal(dev, grad_input, self.input.dims().to_vec())?
+                Tensor<half::f16>::from_vec_metal(dev, grad_input, self.input.dims().to_vec())?
             }
-            _ => Tensor::from_vec(grad_input, self.input.dims().to_vec())?,
+            _ => Tensor<half::f16>::from_vec(grad_input, self.input.dims().to_vec())?,
         };
         gradients.push(grad_input_tensor);
 
@@ -131,9 +131,9 @@ impl<T: FloatType> LayerNormBackward<T> {
         if let Some(gw) = grad_weight {
             let grad_weight_tensor = match self.input.device() {
                 Device::Metal(dev) => {
-                    Tensor::from_vec_metal(dev, gw, self.normalized_shape.clone())?
+                    Tensor<half::f16>::from_vec_metal(dev, gw, self.normalized_shape.clone())?
                 }
-                _ => Tensor::from_vec(gw, self.normalized_shape.clone())?,
+                _ => Tensor<half::f16>::from_vec(gw, self.normalized_shape.clone())?,
             };
             gradients.push(grad_weight_tensor);
         }
@@ -142,9 +142,9 @@ impl<T: FloatType> LayerNormBackward<T> {
         if let Some(gb) = grad_bias {
             let grad_bias_tensor = match self.input.device() {
                 Device::Metal(dev) => {
-                    Tensor::from_vec_metal(dev, gb, self.normalized_shape.clone())?
+                    Tensor<half::f16>::from_vec_metal(dev, gb, self.normalized_shape.clone())?
                 }
-                _ => Tensor::from_vec(gb, self.normalized_shape.clone())?,
+                _ => Tensor<half::f16>::from_vec(gb, self.normalized_shape.clone())?,
             };
             gradients.push(grad_bias_tensor);
         }

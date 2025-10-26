@@ -3,7 +3,7 @@
 use crate::autograd::{AutogradContext, NodeId, TensorVariant};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{FloatType, Tensor};
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::{TensorAccessors, TensorCreation};
 use half::f16;
 
 /// Trait for automatic differentiation operations

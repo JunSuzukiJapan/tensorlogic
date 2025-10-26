@@ -11,18 +11,18 @@ use half::f16;
 ///
 /// y = ReLU(x) = max(0, x) の場合:
 /// ∂y/∂x = 1 if x > 0, else 0
-pub struct ReLUBackward<T: FloatType> {
-    input: Tensor<T>,
+pub struct ReLUBackward {
+    input: Tensor<half::f16>,
 }
 
-impl<T: FloatType> ReLUBackward<T> {
-    pub fn new(input: Tensor) -> Self {
+impl ReLUBackward {
+    pub fn new(input: Tensor<half::f16>) -> Self {
         Self { input }
     }
 }
 
-impl<T: FloatType> GradientFunction for ReLUBackward<T> {
-    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
+impl GradientFunction for ReLUBackward {
+    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
         // Use GPU if both tensors are on Metal
         let grad_input = if grad_output.buffer().is_metal() && self.input.buffer().is_metal() {
             self.backward_metal(grad_output)?
@@ -34,9 +34,9 @@ impl<T: FloatType> GradientFunction for ReLUBackward<T> {
     }
 }
 
-impl<T: FloatType> ReLUBackward<T> {
+impl ReLUBackward {
     /// Metal GPU implementation of ReLU backward
-    fn backward_metal(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
+    fn backward_metal(&self, grad_output: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
         let grad_out_buf = grad_output.buffer().as_metal()?;
         let input_buf = self.input.buffer().as_metal()?;
 
@@ -74,7 +74,7 @@ impl<T: FloatType> ReLUBackward<T> {
         command_buffer.commit();
         command_buffer.wait_until_completed();
 
-        Tensor::new(
+        Tensor<half::f16>::new(
             BufferHandle::Metal(result_buf),
             grad_output.shape().clone(),
             grad_output.device().clone(),
@@ -82,23 +82,23 @@ impl<T: FloatType> ReLUBackward<T> {
     }
 
     /// CPU fallback for ReLU backward
-    fn backward_cpu(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
+    fn backward_cpu(&self, grad_output: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
         let grad_output_data = grad_output.to_vec();
         let input_data = self.input.to_vec();
 
-        let grad_input_data: Vec<f16> = grad_output_data
+        let grad_input_data: Vec<half::f16> = grad_output_data
             .iter()
             .zip(input_data.iter())
             .map(|(&grad_out, &input_val)| {
-                if input_val > f16::ZERO {
+                if input_val > half::f16::ZERO {
                     grad_out
                 } else {
-                    f16::ZERO
+                    half::f16::ZERO
                 }
             })
             .collect();
 
-        Tensor::from_vec(grad_input_data, grad_output.dims().to_vec())
+        Tensor<half::f16>::from_vec(grad_input_data, grad_output.dims().to_vec())
     }
 }
 
@@ -117,26 +117,26 @@ mod tests {
         let device = get_test_device();
 
         // input = [-1.0, 0.0, 1.0, 2.0]
-        let input = Tensor::from_vec_metal(
+        let input = Tensor<half::f16>::from_vec_metal(
             &device,
             vec![
-                f16::from_f32(-1.0),
-                f16::from_f32(0.0),
-                f16::from_f32(1.0),
-                f16::from_f32(2.0),
+                half::f16::from_f32(-1.0),
+                half::f16::from_f32(0.0),
+                half::f16::from_f32(1.0),
+                half::f16::from_f32(2.0),
             ],
             vec![4],
         )
         .unwrap();
 
         // grad_output = [1.0, 1.0, 1.0, 1.0]
-        let grad_output = Tensor::from_vec_metal(
+        let grad_output = Tensor<half::f16>::from_vec_metal(
             &device,
             vec![
-                f16::from_f32(1.0),
-                f16::from_f32(1.0),
-                f16::from_f32(1.0),
-                f16::from_f32(1.0),
+                half::f16::from_f32(1.0),
+                half::f16::from_f32(1.0),
+                half::f16::from_f32(1.0),
+                half::f16::from_f32(1.0),
             ],
             vec![4],
         )
@@ -149,10 +149,10 @@ mod tests {
 
         // grad_input = [0.0, 0.0, 1.0, 1.0] (mask where input > 0)
         let expected = vec![
-            f16::from_f32(0.0),
-            f16::from_f32(0.0),
-            f16::from_f32(1.0),
-            f16::from_f32(1.0),
+            half::f16::from_f32(0.0),
+            half::f16::from_f32(0.0),
+            half::f16::from_f32(1.0),
+            half::f16::from_f32(1.0),
         ];
         assert_eq!(grads[0].to_vec(), expected);
     }

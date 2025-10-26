@@ -1,6 +1,7 @@
 use crate::error::TensorResult;
 use super::prelude::*;
 use crate::tensor::{Tensor, TensorShape};
+use half::f16;
 
 /// ブロードキャストされた勾配を元の形状に縮約
 ///
@@ -10,7 +11,7 @@ use crate::tensor::{Tensor, TensorShape};
 ///
 /// # Returns
 /// 元の形状に縮約された勾配
-pub fn reduce_grad_for_broadcast(grad: &Tensor, original_shape: &TensorShape) -> TensorResult<Tensor> {
+pub fn reduce_grad_for_broadcast(grad: &Tensor<half::f16>, original_shape: &TensorShape) -> TensorResult<Tensor<half::f16>> {
     if grad.shape() == original_shape {
         return Ok(grad.clone());
     }
@@ -55,10 +56,10 @@ mod tests {
         let grad = Tensor::from_vec_metal(
             &device,
             vec![
-                f16::from_f32(1.0),
-                f16::from_f32(2.0),
-                f16::from_f32(3.0),
-                f16::from_f32(4.0),
+                half::f16::from_f32(1.0),
+                half::f16::from_f32(2.0),
+                half::f16::from_f32(3.0),
+                half::f16::from_f32(4.0),
             ],
             vec![2, 2],
         )
@@ -78,10 +79,10 @@ mod tests {
         let grad = Tensor::from_vec_metal(
             &device,
             vec![
-                f16::from_f32(1.0),
-                f16::from_f32(2.0),
-                f16::from_f32(3.0),
-                f16::from_f32(4.0),
+                half::f16::from_f32(1.0),
+                half::f16::from_f32(2.0),
+                half::f16::from_f32(3.0),
+                half::f16::from_f32(4.0),
             ],
             vec![2, 2],
         )
@@ -92,6 +93,6 @@ mod tests {
 
         assert_eq!(result.dims(), &[1]);
         // sum = 1 + 2 + 3 + 4 = 10
-        assert_eq!(result.to_vec()[0], f16::from_f32(10.0));
+        assert_eq!(result.to_vec()[0], half::f16::from_f32(10.0));
     }
 }

@@ -6,18 +6,18 @@ use crate::device::Device;
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
 
-pub struct ExpBackward<T: FloatType> {
-    output: Tensor<T>, // exp(x)
+pub struct ExpBackward {
+    output: Tensor<half::f16>, // exp(x)
 }
 
-impl<T: FloatType> ExpBackward<T> {
-    pub fn new(output: Tensor) -> Self {
+impl ExpBackward {
+    pub fn new(output: Tensor<half::f16>) -> Self {
         Self { output }
     }
 }
 
-impl<T: FloatType> GradientFunction for ExpBackward<T> {
-    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
+impl GradientFunction for ExpBackward {
+    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
         let grad_input = if grad_output.buffer().is_metal() && self.output.buffer().is_metal() {
             self.backward_metal(grad_output)?
         } else {
@@ -27,8 +27,8 @@ impl<T: FloatType> GradientFunction for ExpBackward<T> {
     }
 }
 
-impl<T: FloatType> ExpBackward<T> {
-    fn backward_metal(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
+impl ExpBackward {
+    fn backward_metal(&self, grad_output: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
         let output_buf = self.output.buffer().as_metal()?;
         super::metal_helper::execute_simple_metal_gradient(
             "exp_backward_f16",
@@ -37,7 +37,7 @@ impl<T: FloatType> ExpBackward<T> {
         )
     }
 
-    fn backward_cpu(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
+    fn backward_cpu(&self, grad_output: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
         let grad_out = grad_output.to_vec();
         let output = self.output.to_vec();
 
@@ -49,9 +49,9 @@ impl<T: FloatType> ExpBackward<T> {
 
         match grad_output.device() {
             Device::Metal(dev) => {
-                Tensor::from_vec_metal(dev, grad_input, grad_output.dims().to_vec())
+                Tensor<half::f16>::from_vec_metal(dev, grad_input, grad_output.dims().to_vec())
             }
-            _ => Tensor::from_vec(grad_input, grad_output.dims().to_vec()),
+            _ => Tensor<half::f16>::from_vec(grad_input, grad_output.dims().to_vec()),
         }
     }
 }

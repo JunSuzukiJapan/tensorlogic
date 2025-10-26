@@ -1,7 +1,7 @@
 //! Gradient checking utilities for validating automatic differentiation
 
 use crate::tensor::Tensor;
-use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorAutograd};
+use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO, TensorAutograd};
 use crate::error::TensorResult;
 use half::f16;
 

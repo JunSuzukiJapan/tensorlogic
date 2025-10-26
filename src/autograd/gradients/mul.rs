@@ -11,15 +11,15 @@ use crate::tensor::{Tensor, TensorShape};
 /// c = a * b の場合:
 /// ∂L/∂a = ∂L/∂c * ∂c/∂a = grad_output * b
 /// ∂L/∂b = ∂L/∂c * ∂c/∂b = grad_output * a
-pub struct MulBackward<T: FloatType> {
-    a: Tensor<T>,
-    b: Tensor<T>,
+pub struct MulBackward {
+    a: Tensor<half::f16>,
+    b: Tensor<half::f16>,
     a_shape: TensorShape,
     b_shape: TensorShape,
 }
 
-impl<T: FloatType> MulBackward<T> {
-    pub fn new(a: Tensor, b: Tensor<T>) -> Self {
+impl MulBackward {
+    pub fn new(a: Tensor, b: Tensor<half::f16>) -> Self {
         let a_shape = a.shape().clone();
         let b_shape = b.shape().clone();
         Self {
@@ -31,8 +31,8 @@ impl<T: FloatType> MulBackward<T> {
     }
 }
 
-impl<T: FloatType> GradientFunction for MulBackward<T> {
-    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
+impl GradientFunction for MulBackward {
+    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
         // ∂L/∂a = grad_output * b
         let grad_a = grad_output.mul(&self.b)?;
 
@@ -61,37 +61,37 @@ mod tests {
     fn test_mul_backward_same_shape() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor<half::f16>::from_vec_metal(
             &device,
             vec![
-                f16::from_f32(2.0),
-                f16::from_f32(3.0),
-                f16::from_f32(4.0),
-                f16::from_f32(5.0),
+                half::f16::from_f32(2.0),
+                half::f16::from_f32(3.0),
+                half::f16::from_f32(4.0),
+                half::f16::from_f32(5.0),
             ],
             vec![2, 2],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor<half::f16>::from_vec_metal(
             &device,
             vec![
-                f16::from_f32(6.0),
-                f16::from_f32(7.0),
-                f16::from_f32(8.0),
-                f16::from_f32(9.0),
+                half::f16::from_f32(6.0),
+                half::f16::from_f32(7.0),
+                half::f16::from_f32(8.0),
+                half::f16::from_f32(9.0),
             ],
             vec![2, 2],
         )
         .unwrap();
 
-        let grad_output = Tensor::from_vec_metal(
+        let grad_output = Tensor<half::f16>::from_vec_metal(
             &device,
             vec![
-                f16::from_f32(1.0),
-                f16::from_f32(1.0),
-                f16::from_f32(1.0),
-                f16::from_f32(1.0),
+                half::f16::from_f32(1.0),
+                half::f16::from_f32(1.0),
+                half::f16::from_f32(1.0),
+                half::f16::from_f32(1.0),
             ],
             vec![2, 2],
         )

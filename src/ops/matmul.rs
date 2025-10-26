@@ -69,8 +69,8 @@ impl<T: FloatType> Tensor<T> {
                 Some(grad_fn),
             );
 
-            AutogradContext::register_tensor(self_node_id, self.clone());
-            AutogradContext::register_tensor(other_node_id, other.clone());
+            AutogradContext::register_tensor_generic(self_node_id, self.clone());
+            AutogradContext::register_tensor_generic(other_node_id, other.clone());
 
             result.set_grad_node(result_node_id);
             result.set_requires_grad(true);

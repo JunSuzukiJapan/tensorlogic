@@ -8,19 +8,19 @@ use crate::tensor::Tensor;
 use half::f16;
 
 /// Backward for concatenation - splits gradient to match input shapes
-pub struct ConcatBackward<T: FloatType> {
+pub struct ConcatBackward {
     input_shapes: Vec<Vec<usize>>,
     dim: usize,
 }
 
-impl<T: FloatType> ConcatBackward<T> {
+impl ConcatBackward {
     pub fn new(input_shapes: Vec<Vec<usize>>, dim: usize) -> Self {
         Self { input_shapes, dim }
     }
 }
 
-impl<T: FloatType> GradientFunction for ConcatBackward<T> {
-    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
+impl GradientFunction for ConcatBackward {
+    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
         // For simplicity, implement CPU version that splits the gradient
         let grad_data = grad_output.to_vec();
         let mut gradients = Vec::new();
@@ -38,7 +38,7 @@ impl<T: FloatType> GradientFunction for ConcatBackward<T> {
         for input_shape in &self.input_shapes {
             let size_at_dim = input_shape[self.dim];
             let input_numel: usize = input_shape.iter().product();
-            let mut grad_input_data = vec![f16::ZERO; input_numel];
+            let mut grad_input_data = vec![half::f16::ZERO; input_numel];
 
             // Copy data for this slice
             for idx in 0..input_numel {
@@ -64,9 +64,9 @@ impl<T: FloatType> GradientFunction for ConcatBackward<T> {
 
             let grad_tensor = match grad_output.device() {
                 Device::Metal(dev) => {
-                    Tensor::from_vec_metal(dev, grad_input_data, input_shape.clone())?
+                    Tensor<half::f16>::from_vec_metal(dev, grad_input_data, input_shape.clone())?
                 }
-                _ => Tensor::from_vec(grad_input_data, input_shape.clone())?,
+                _ => Tensor<half::f16>::from_vec(grad_input_data, input_shape.clone())?,
             };
             gradients.push(grad_tensor);
 
@@ -80,14 +80,14 @@ impl<T: FloatType> GradientFunction for ConcatBackward<T> {
 /// Backward for transpose - just transpose the gradient back
 pub struct TransposeBackward;
 
-impl<T: FloatType> TransposeBackward<T> {
+impl TransposeBackward {
     pub fn new() -> Self {
         Self
     }
 }
 
-impl<T: FloatType> GradientFunction for TransposeBackward<T> {
-    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
+impl GradientFunction for TransposeBackward {
+    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
         // Transpose is self-inverse, so just transpose the gradient
         let grad_input = grad_output.transpose()?;
         Ok(vec![grad_input])

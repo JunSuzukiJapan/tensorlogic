@@ -12,18 +12,18 @@ use half::f16;
 /// GELU(x) = 0.5 * x * (1 + tanh(√(2/π) * (x + 0.044715 * x³)))
 ///
 /// ∂GELU/∂x = 0.5 * (1 + tanh(...)) + 0.5 * x * sech²(...) * derivative_of_inner
-pub struct GELUBackward<T: FloatType> {
-    input: Tensor<T>,
+pub struct GELUBackward {
+    input: Tensor<half::f16>,
 }
 
-impl<T: FloatType> GELUBackward<T> {
-    pub fn new(input: Tensor) -> Self {
+impl GELUBackward {
+    pub fn new(input: Tensor<half::f16>) -> Self {
         Self { input }
     }
 }
 
-impl<T: FloatType> GradientFunction for GELUBackward<T> {
-    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
+impl GradientFunction for GELUBackward {
+    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
         // Use GPU if both tensors are on Metal
         let grad_input = if grad_output.buffer().is_metal() && self.input.buffer().is_metal() {
             self.backward_metal(grad_output)?
@@ -35,9 +35,9 @@ impl<T: FloatType> GradientFunction for GELUBackward<T> {
     }
 }
 
-impl<T: FloatType> GELUBackward<T> {
+impl GELUBackward {
     /// Metal GPU implementation of GELU backward
-    fn backward_metal(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
+    fn backward_metal(&self, grad_output: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
         let grad_out_buf = grad_output.buffer().as_metal()?;
         let input_buf = self.input.buffer().as_metal()?;
 
@@ -75,7 +75,7 @@ impl<T: FloatType> GELUBackward<T> {
         command_buffer.commit();
         command_buffer.wait_until_completed();
 
-        Tensor::new(
+        Tensor<half::f16>::new(
             BufferHandle::Metal(result_buf),
             grad_output.shape().clone(),
             grad_output.device().clone(),
@@ -83,13 +83,13 @@ impl<T: FloatType> GELUBackward<T> {
     }
 
     /// CPU fallback for GELU backward
-    fn backward_cpu(&self, grad_output: &Tensor) -> TensorResult<Tensor> {
+    fn backward_cpu(&self, grad_output: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
         let grad_output_data = grad_output.to_vec();
         let input_data = self.input.to_vec();
 
-        let sqrt_2_over_pi = f16::from_f32((2.0_f32 / std::f32::consts::PI).sqrt());
+        let sqrt_2_over_pi = half::f16::from_f32((2.0_f32 / std::f32::consts::PI).sqrt());
 
-        let grad_input_data: Vec<f16> = grad_output_data
+        let grad_input_data: Vec<half::f16> = grad_output_data
             .iter()
             .zip(input_data.iter())
             .map(|(&grad_out, &x)| {
@@ -105,11 +105,11 @@ impl<T: FloatType> GELUBackward<T> {
                 let gelu_derivative =
                     0.5 * (1.0 + tanh_val) + 0.5 * x_f32 * sech2 * derivative_of_inner;
 
-                f16::from_f32(grad_out.to_f32() * gelu_derivative)
+                half::f16::from_f32(grad_out.to_f32() * gelu_derivative)
             })
             .collect();
 
-        Tensor::from_vec(grad_input_data, grad_output.dims().to_vec())
+        Tensor<half::f16>::from_vec(grad_input_data, grad_output.dims().to_vec())
     }
 }
 
@@ -128,17 +128,17 @@ mod tests {
         let device = get_test_device();
 
         // input = [0.0, 1.0]
-        let input = Tensor::from_vec_metal(
+        let input = Tensor<half::f16>::from_vec_metal(
             &device,
-            vec![f16::from_f32(0.0), f16::from_f32(1.0)],
+            vec![half::f16::from_f32(0.0), half::f16::from_f32(1.0)],
             vec![2],
         )
         .unwrap();
 
         // grad_output = [1.0, 1.0]
-        let grad_output = Tensor::from_vec_metal(
+        let grad_output = Tensor<half::f16>::from_vec_metal(
             &device,
-            vec![f16::from_f32(1.0), f16::from_f32(1.0)],
+            vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)],
             vec![2],
         )
         .unwrap();

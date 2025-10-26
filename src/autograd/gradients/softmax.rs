@@ -13,36 +13,36 @@ use half::f16;
 /// ∂y_i/∂x_j = y_i * (δ_ij - y_j)
 /// ∂L/∂x_i = Σ_j (∂L/∂y_j * ∂y_j/∂x_i)
 ///         = grad_output_i * y_i - y_i * Σ_j (grad_output_j * y_j)
-pub struct SoftmaxBackward<T: FloatType> {
-    output: Tensor<T>,
+pub struct SoftmaxBackward {
+    output: Tensor<half::f16>,
 }
 
-impl<T: FloatType> SoftmaxBackward<T> {
-    pub fn new(output: Tensor) -> Self {
+impl SoftmaxBackward {
+    pub fn new(output: Tensor<half::f16>) -> Self {
         Self { output }
     }
 }
 
-impl<T: FloatType> GradientFunction for SoftmaxBackward<T> {
-    fn backward(&self, grad_output: &Tensor<f16>, _inputs: &[&Tensor<f16>]) -> TensorResult<Vec<Tensor<f16>>> {
+impl GradientFunction for SoftmaxBackward {
+    fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
         let grad_output_data = grad_output.to_vec();
         let output_data = self.output.to_vec();
 
         // Σ_j (grad_output_j * y_j)
-        let sum_grad_y: f16 = grad_output_data
+        let sum_grad_y: half::f16 = grad_output_data
             .iter()
             .zip(output_data.iter())
             .map(|(&g, &y)| g * y)
-            .fold(f16::ZERO, |acc, x| acc + x);
+            .fold(half::f16::ZERO, |acc, x| acc + x);
 
         // grad_input_i = grad_output_i * y_i - y_i * sum_grad_y
-        let grad_input_data: Vec<f16> = grad_output_data
+        let grad_input_data: Vec<half::f16> = grad_output_data
             .iter()
             .zip(output_data.iter())
             .map(|(&g_i, &y_i)| g_i * y_i - y_i * sum_grad_y)
             .collect();
 
-        let grad_input = Tensor::from_vec(grad_input_data, grad_output.dims().to_vec())?;
+        let grad_input = Tensor<half::f16>::from_vec(grad_input_data, grad_output.dims().to_vec())?;
         Ok(vec![grad_input])
     }
 }
@@ -63,24 +63,24 @@ mod tests {
 
         // Softmax output (already computed): [0.1, 0.2, 0.7]
         // (これは入力 [1.0, 2.0, 3.0] のsoftmax出力の近似値)
-        let output = Tensor::from_vec_metal(
+        let output = Tensor<half::f16>::from_vec_metal(
             &device,
             vec![
-                f16::from_f32(0.09003057),
-                f16::from_f32(0.24472848),
-                f16::from_f32(0.66524095),
+                half::f16::from_f32(0.09003057),
+                half::f16::from_f32(0.24472848),
+                half::f16::from_f32(0.66524095),
             ],
             vec![3],
         )
         .unwrap();
 
         // grad_output = [1.0, 0.0, 0.0] (one-hot gradient)
-        let grad_output = Tensor::from_vec_metal(
+        let grad_output = Tensor<half::f16>::from_vec_metal(
             &device,
             vec![
-                f16::from_f32(1.0),
-                f16::from_f32(0.0),
-                f16::from_f32(0.0),
+                half::f16::from_f32(1.0),
+                half::f16::from_f32(0.0),
+                half::f16::from_f32(0.0),
             ],
             vec![3],
         )

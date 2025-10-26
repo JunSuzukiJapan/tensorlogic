@@ -33,8 +33,8 @@ fn record_binary_op(
     );
 
     // Register tensors
-    AutogradContext::register_tensor(self_node_id, self_tensor.clone());
-    AutogradContext::register_tensor(other_node_id, other_tensor.clone());
+    AutogradContext::register_tensor_generic(self_node_id, self_tensor.clone());
+    AutogradContext::register_tensor_generic(other_node_id, other_tensor.clone());
 
     // Set node ID and requires_grad on result
     result.set_grad_node(result_node_id);

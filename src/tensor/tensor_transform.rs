@@ -2,7 +2,7 @@
 
 use crate::error::TensorResult;
 use crate::tensor::{FloatType, Tensor};
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::TensorAccessors;
 use std::marker::PhantomData;
 
 /// Trait for transforming tensor shapes
