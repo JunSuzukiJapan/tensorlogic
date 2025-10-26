@@ -52,6 +52,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn dropout_cpu(&self, p: f32) -> TensorResult<Tensor> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let input_data = self.to_vec();
         let size = input_data.len();
 

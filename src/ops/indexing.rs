@@ -195,6 +195,13 @@ impl<T: FloatType> Tensor<T> {
 
     /// Metal GPU implementation of gather
     fn gather_metal(&self, dim: usize, indices: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let input_buf = self.buffer().as_metal()?;
         let indices_buf = indices.buffer().as_metal()?;
 
@@ -288,7 +295,7 @@ impl<T: FloatType> Tensor<T> {
         command_buffer.wait_until_completed();
 
         Tensor::new(
-            BufferHandle::Metal(result_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             indices.shape().clone(),
             self.device().clone(),
         )
@@ -296,6 +303,13 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of gather
     fn gather_cpu(&self, dim: usize, indices: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let self_data = self.to_vec();
         let indices_data = indices.to_vec();
         let self_dims = self.dims();
@@ -421,6 +435,13 @@ impl<T: FloatType> Tensor<T> {
 
     /// Metal GPU implementation of scatter
     fn scatter_metal(&self, dim: usize, indices: &Tensor, src: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let input_buf = self.buffer().as_metal()?;
         let indices_buf = indices.buffer().as_metal()?;
         let src_buf = src.buffer().as_metal()?;
@@ -516,7 +537,7 @@ impl<T: FloatType> Tensor<T> {
         command_buffer.wait_until_completed();
 
         Tensor::new(
-            BufferHandle::Metal(result_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             self.shape().clone(),
             self.device().clone(),
         )
@@ -524,6 +545,13 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of scatter
     fn scatter_cpu(&self, dim: usize, indices: &Tensor, src: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let self_data = self.to_vec();
         let indices_data = indices.to_vec();
         let src_data = src.to_vec();

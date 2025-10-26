@@ -17,6 +17,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sum_metal(&self) -> TensorResult<f16> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let input_buf = self.buffer().as_metal()?;
         let count = self.numel();
 
@@ -72,6 +79,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sum_cpu(&self) -> TensorResult<f16> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let data = self.to_vec();
         let mut sum = f16::ZERO;
         for &val in &data {
@@ -94,6 +108,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sum_dim_metal(&self, dim: usize, keepdim: bool) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let input_buf = self.buffer().as_metal()?;
         let input_dims = self.shape().dims();
 
@@ -160,6 +181,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sum_dim_cpu(&self, dim: usize, keepdim: bool) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let input = self.to_vec();
         let input_dims = self.shape().dims();
         let input_strides = self.shape().compute_strides();
@@ -247,6 +275,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn mean_dim_metal(&self, dim: usize, keepdim: bool) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let input_buf = self.buffer().as_metal()?;
         let input_dims = self.shape().dims();
 
@@ -312,6 +347,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn mean_dim_cpu(&self, dim: usize, keepdim: bool) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let sum_result = self.sum_dim(dim, keepdim)?;
         let dim_size = self.shape().dims()[dim] as f32;
 
@@ -335,6 +377,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn max_metal(&self) -> TensorResult<f16> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let input_buf = self.buffer().as_metal()?;
         let count = self.numel();
 
@@ -395,6 +444,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn max_cpu(&self) -> TensorResult<f16> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let data = self.to_vec();
         if data.is_empty() {
             return Err(TensorError::InvalidOperation(
@@ -421,6 +477,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn min_metal(&self) -> TensorResult<f16> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let input_buf = self.buffer().as_metal()?;
         let count = self.numel();
 
@@ -481,6 +544,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn min_cpu(&self) -> TensorResult<f16> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let data = self.to_vec();
         if data.is_empty() {
             return Err(TensorError::InvalidOperation(

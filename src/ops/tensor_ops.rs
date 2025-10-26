@@ -66,6 +66,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn concat_metal(tensors: &[&Tensor], dim: usize, output_shape: Vec<usize>) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let device = match tensors[0].device() {
             Device::Metal(dev) => dev.clone(),
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
@@ -113,6 +120,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn concat_cpu(tensors: &[&Tensor], dim: usize, output_shape: Vec<usize>) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let total_elements: usize = output_shape.iter().product();
         let mut result_data = Vec::with_capacity(total_elements);
 
@@ -190,12 +204,26 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn permute_metal(&self, dims: &[usize]) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         // For now, use CPU implementation with GPU memory
         // TODO: Implement proper Metal kernel for permute
         self.permute_cpu(dims)
     }
 
     fn permute_cpu(&self, dims: &[usize]) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let input_data = self.to_vec();
         let input_shape = self.dims();
 

@@ -139,6 +139,13 @@ fn einsum_cpu(
     output_spec: &str,
     operands: &[&Tensor],
 ) -> TensorResult<Tensor> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
     // Special case optimizations for common patterns
     if let Some(result) = try_optimized_einsum(equation, input_specs, output_spec, operands)? {
         return Ok(result);
@@ -199,6 +206,13 @@ fn general_einsum_cpu(
     output_spec: &str,
     operands: &[&Tensor],
 ) -> TensorResult<Tensor> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
     // Collect all indices
     let mut all_indices: HashSet<char> = HashSet::new();
     for spec in input_specs {
@@ -657,6 +671,13 @@ fn einsum_ihd_jhd_ihj_metal(
     b: &Tensor,  // [J, H, D]
     device: &MetalDevice,
 ) -> TensorResult<Tensor> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
     let a_buf = a.buffer().as_metal()?;
     let b_buf = b.buffer().as_metal()?;
 
@@ -749,6 +770,13 @@ fn einsum_ihj_jhd_ihd_metal(
     b: &Tensor,  // [J, H, D]
     device: &MetalDevice,
 ) -> TensorResult<Tensor> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
     let a_buf = a.buffer().as_metal()?;
     let b_buf = b.buffer().as_metal()?;
 

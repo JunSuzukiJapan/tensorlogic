@@ -37,6 +37,13 @@ impl<T: FloatType> Tensor<T> {
 
     /// Metal GPU implementation of RoPE
     fn rope_metal(&self, seq_len: usize, n_heads: usize, head_dim: usize, position_offset: usize) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let input_buf = self.buffer().as_metal()?;
 
         let mut device = match self.device() {
@@ -122,7 +129,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Return result tensor
         self.new_from_pool(
-            BufferHandle::Metal(result_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             self.shape().clone(),
         )
     }

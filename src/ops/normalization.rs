@@ -94,6 +94,13 @@ impl<T: FloatType> Tensor<T> {
         weight: &Tensor,
         eps: f32,
     ) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let input_buf = self.buffer().as_metal()?;
         let weight_buf = weight.buffer().as_metal()?;
 
@@ -175,7 +182,7 @@ impl<T: FloatType> Tensor<T> {
         command_buffer.wait_until_completed();
 
         self.new_from_pool(
-            BufferHandle::Metal(result_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             self.shape().clone(),
         )
     }
@@ -187,6 +194,13 @@ impl<T: FloatType> Tensor<T> {
         weight: &Tensor,
         eps: f32,
     ) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let input = self.to_vec();
         let normalized_size: usize = normalized_shape.iter().product();
         let batch_size = self.numel() / normalized_size;
@@ -310,6 +324,13 @@ impl<T: FloatType> Tensor<T> {
         bias: Option<&Tensor>,
         eps: f32,
     ) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let input_buf = self.buffer().as_metal()?;
 
         let mut device = match self.device() {
@@ -415,7 +436,7 @@ impl<T: FloatType> Tensor<T> {
         command_buffer.wait_until_completed();
 
         self.new_from_pool(
-            BufferHandle::Metal(result_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             self.shape().clone(),
         )
     }
@@ -428,6 +449,13 @@ impl<T: FloatType> Tensor<T> {
         bias: Option<&Tensor>,
         eps: f32,
     ) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let input = self.to_vec();
         let normalized_size: usize = normalized_shape.iter().product();
         let batch_size = self.numel() / normalized_size;

@@ -77,6 +77,13 @@ impl<T: FloatType> Tensor<T> {
         batch_size: usize,
         feature_size: usize,
     ) -> TensorResult<Tensor> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let input_data = self.to_vec();
         let gamma_data = gamma.to_vec();
         let beta_data = beta.to_vec();

@@ -84,6 +84,13 @@ impl<T: FloatType> Tensor<T> {
     /// Uses threadgroup memory tiling for improved performance (1.5-2x speedup).
     /// Automatically selects optimal tile size based on matrix dimensions.
     fn matmul_metal(&self, other: &Tensor, m: usize, k: usize, n: usize) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -168,13 +175,20 @@ impl<T: FloatType> Tensor<T> {
         // Create result tensor
         let result_shape = crate::tensor::TensorShape::new(vec![m, n]);
         self.new_from_pool(
-            BufferHandle::Metal(result_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             result_shape,
         )
     }
 
     /// CPU fallback for matmul
     fn matmul_cpu(&self, other: &Tensor, m: usize, k: usize, n: usize) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let a = self.to_vec();
         let b = other.to_vec();
 

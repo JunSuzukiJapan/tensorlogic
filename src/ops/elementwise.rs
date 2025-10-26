@@ -113,6 +113,13 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU fallback for addition
     fn add_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let a = self.to_vec();
         let b = other.to_vec();
 
@@ -147,6 +154,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sub_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -163,15 +177,24 @@ impl<T: FloatType> Tensor<T> {
         let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         let mut executor = crate::device::KernelExecutor::new(device);
-        executor.execute_binary_op("sub_f16", a_buf, b_buf, &result_buf)?;
+        let a_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(a_buf) };
+        let b_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(b_buf) };
+        executor.execute_binary_op("sub_f16", a_buf_f16, b_buf_f16, &result_buf)?;
 
         self.new_from_pool(
-            BufferHandle::Metal(result_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             self.shape().clone(),
         )
     }
 
     fn sub_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let a = self.to_vec();
         let b = other.to_vec();
 
@@ -205,6 +228,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn mul_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -221,15 +251,24 @@ impl<T: FloatType> Tensor<T> {
         let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         let mut executor = crate::device::KernelExecutor::new(device);
-        executor.execute_binary_op("mul_f16", a_buf, b_buf, &result_buf)?;
+        let a_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(a_buf) };
+        let b_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(b_buf) };
+        executor.execute_binary_op("mul_f16", a_buf_f16, b_buf_f16, &result_buf)?;
 
         self.new_from_pool(
-            BufferHandle::Metal(result_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             self.shape().clone(),
         )
     }
 
     fn mul_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let a = self.to_vec();
         let b = other.to_vec();
 
@@ -263,6 +302,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn div_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -279,15 +325,24 @@ impl<T: FloatType> Tensor<T> {
         let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         let mut executor = crate::device::KernelExecutor::new(device);
-        executor.execute_binary_op("div_f16", a_buf, b_buf, &result_buf)?;
+        let a_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(a_buf) };
+        let b_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(b_buf) };
+        executor.execute_binary_op("div_f16", a_buf_f16, b_buf_f16, &result_buf)?;
 
         self.new_from_pool(
-            BufferHandle::Metal(result_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             self.shape().clone(),
         )
     }
 
     fn div_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let a = self.to_vec();
         let b = other.to_vec();
 
@@ -309,10 +364,24 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn exp_metal(&self) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         super::helpers::execute_unary_metal_op(self, "exp_f16")
     }
 
     fn exp_cpu(&self) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         super::helpers::execute_unary_cpu_op(self, |x| x.exp())
     }
 
@@ -326,10 +395,24 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn log_metal(&self) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         super::helpers::execute_unary_metal_op(self, "log_f16")
     }
 
     fn log_cpu(&self) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         super::helpers::execute_unary_cpu_op(self, |x| x.ln())
     }
 
@@ -343,10 +426,24 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sqrt_metal(&self) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         super::helpers::execute_unary_metal_op(self, "sqrt_f16")
     }
 
     fn sqrt_cpu(&self) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         super::helpers::execute_unary_cpu_op(self, |x| x.sqrt())
     }
 
@@ -360,6 +457,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn pow_metal(&self, exponent: f32) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let device = match self.device() {
             Device::Metal(dev) => dev,
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
@@ -369,6 +473,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn pow_cpu(&self, exponent: f32) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         super::helpers::execute_binary_cpu_op(self, exponent, |x, exp| x.powf(exp))
     }
 
@@ -382,10 +493,24 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sin_metal(&self) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         super::helpers::execute_unary_metal_op(self, "sin_f16")
     }
 
     fn sin_cpu(&self) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         super::helpers::execute_unary_cpu_op(self, |x| x.sin())
     }
 
@@ -399,10 +524,24 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn cos_metal(&self) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         super::helpers::execute_unary_metal_op(self, "cos_f16")
     }
 
     fn cos_cpu(&self) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         super::helpers::execute_unary_cpu_op(self, |x| x.cos())
     }
 
@@ -416,10 +555,24 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn tan_metal(&self) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         super::helpers::execute_unary_metal_op(self, "tan_f16")
     }
 
     fn tan_cpu(&self) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         super::helpers::execute_unary_cpu_op(self, |x| x.tan())
     }
 
@@ -433,6 +586,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn add_scalar_metal(&self, scalar: half::f16) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let a = self.to_vec();
         let result: Vec<f16> = a.iter().map(|&x| x + scalar).collect();
         match self.device() {
@@ -442,6 +602,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn add_scalar_cpu(&self, scalar: half::f16) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let a = self.to_vec();
         let result: Vec<f16> = a.iter().map(|&x| x + scalar).collect();
         match self.device() {
@@ -460,6 +627,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sub_scalar_metal(&self, scalar: half::f16) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let a = self.to_vec();
         let result: Vec<f16> = a.iter().map(|&x| x - scalar).collect();
         match self.device() {
@@ -469,6 +643,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sub_scalar_cpu(&self, scalar: half::f16) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let a = self.to_vec();
         let result: Vec<f16> = a.iter().map(|&x| x - scalar).collect();
         match self.device() {
@@ -487,6 +668,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn mul_scalar_metal(&self, scalar: half::f16) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let a = self.to_vec();
         let result: Vec<f16> = a.iter().map(|&x| x * scalar).collect();
         match self.device() {
@@ -496,6 +684,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn mul_scalar_cpu(&self, scalar: half::f16) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let a = self.to_vec();
         let result: Vec<f16> = a.iter().map(|&x| x * scalar).collect();
         match self.device() {
@@ -514,6 +709,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn div_scalar_metal(&self, scalar: half::f16) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let a = self.to_vec();
         let result: Vec<f16> = a.iter().map(|&x| x / scalar).collect();
         match self.device() {
@@ -523,6 +725,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn div_scalar_cpu(&self, scalar: half::f16) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let a = self.to_vec();
         let result: Vec<f16> = a.iter().map(|&x| x / scalar).collect();
         match self.device() {

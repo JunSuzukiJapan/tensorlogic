@@ -32,6 +32,13 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of broadcast
     fn broadcast_to_cpu(&self, target_shape: &TensorShape) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let input = self.to_vec();
         let input_dims = self.shape().dims();
 
@@ -74,6 +81,13 @@ impl<T: FloatType> Tensor<T> {
 
     /// Metal GPU implementation of broadcast
     fn broadcast_to_metal(&self, target_shape: &TensorShape) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         // For now, fallback to CPU
         // TODO: Implement efficient Metal kernel for broadcasting
         let cpu_result = self.to_cpu()?.broadcast_to_cpu(target_shape)?;

@@ -40,6 +40,13 @@ impl<T: FloatType> Tensor<T> {
 
     /// Metal GPU implementation of fused add + relu
     fn fused_add_relu_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -78,7 +85,7 @@ impl<T: FloatType> Tensor<T> {
         command_buffer.wait_until_completed();
 
         Tensor::new(
-            BufferHandle::Metal(result_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             self.shape().clone(),
             self.device().clone(),
         )
@@ -86,6 +93,13 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of fused add + relu
     fn fused_add_relu_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let a_data = self.buffer().to_cpu_vec();
         let b_data = other.buffer().to_cpu_vec();
 
@@ -119,6 +133,13 @@ impl<T: FloatType> Tensor<T> {
 
     /// Metal GPU implementation of fused mul + relu
     fn fused_mul_relu_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -154,7 +175,7 @@ impl<T: FloatType> Tensor<T> {
         command_buffer.wait_until_completed();
 
         Tensor::new(
-            BufferHandle::Metal(result_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             self.shape().clone(),
             self.device().clone(),
         )
@@ -162,6 +183,13 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of fused mul + relu
     fn fused_mul_relu_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let a_data = self.buffer().to_cpu_vec();
         let b_data = other.buffer().to_cpu_vec();
 
@@ -225,6 +253,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn matmul_with_activation_metal(&self, other: &Tensor, activation: Activation) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -296,7 +331,7 @@ impl<T: FloatType> Tensor<T> {
         command_buffer.wait_until_completed();
 
         Tensor::new(
-            BufferHandle::Metal(result_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             crate::tensor::TensorShape::new(output_shape),
             self.device().clone(),
         )
@@ -322,6 +357,13 @@ impl<T: FloatType> Tensor<T> {
 
     /// Metal GPU implementation of fused affine
     fn fused_affine_metal(&self, scale: &Tensor, bias: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let x_buf = self.buffer().as_metal()?;
         let scale_buf = scale.buffer().as_metal()?;
         let bias_buf = bias.buffer().as_metal()?;
@@ -359,7 +401,7 @@ impl<T: FloatType> Tensor<T> {
         command_buffer.wait_until_completed();
 
         Tensor::new(
-            BufferHandle::Metal(result_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             self.shape().clone(),
             self.device().clone(),
         )
@@ -367,6 +409,13 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of fused affine
     fn fused_affine_cpu(&self, scale: &Tensor, bias: &Tensor<T>) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         let x_data = self.buffer().to_cpu_vec();
         let scale_data = scale.buffer().to_cpu_vec();
         let bias_data = bias.buffer().to_cpu_vec();

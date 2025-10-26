@@ -83,6 +83,13 @@ impl<T: FloatType> Tensor<T> {
         k: usize,
         n: usize,
     ) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let x_buf = self.buffer().as_metal()?;
         let w_buf = weight.buffer().as_metal()?;
         let b_buf = bias.buffer().as_metal()?;
@@ -146,7 +153,7 @@ impl<T: FloatType> Tensor<T> {
         command_buffer.wait_until_completed();
 
         Tensor::new(
-            BufferHandle::Metal(result_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             crate::tensor::TensorShape::new(vec![m, n]),
             self.device().clone(),
         )
@@ -161,6 +168,13 @@ impl<T: FloatType> Tensor<T> {
         _k: usize,
         _n: usize,
     ) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         // CPU fallback: separate operations
         let matmul_result = self.matmul(weight)?;
         let with_bias = matmul_result.add(bias)?;
@@ -210,6 +224,13 @@ impl<T: FloatType> Tensor<T> {
         k: usize,
         n: usize,
     ) -> TensorResult<Self> {
+        // Currently only f16 is supported for Metal operations
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "Metal operations currently only support f16".to_string()
+            ));
+        }
+
         let x_buf = self.buffer().as_metal()?;
         let w_buf = weight.buffer().as_metal()?;
         let b_buf = bias.buffer().as_metal()?;
@@ -270,7 +291,7 @@ impl<T: FloatType> Tensor<T> {
         command_buffer.wait_until_completed();
 
         Tensor::new(
-            BufferHandle::Metal(result_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             crate::tensor::TensorShape::new(vec![m, n]),
             self.device().clone(),
         )
@@ -284,6 +305,13 @@ impl<T: FloatType> Tensor<T> {
         _k: usize,
         _n: usize,
     ) -> TensorResult<Self> {
+        // Currently only f16 is supported
+        if !T::is_f16() {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
         // CPU fallback
         let gelu_result = self.gelu()?;
         let matmul_result = gelu_result.matmul(weight)?;
