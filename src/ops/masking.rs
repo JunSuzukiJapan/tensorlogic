@@ -5,7 +5,7 @@ use crate::TensorResult;
 use crate::error::TensorError;
 use half::f16;
 
-impl Tensor {
+impl<T: FloatType> Tensor<T> {
     /// Apply attention mask to attention scores
     ///
     /// Replaces masked positions with a large negative value (-10000.0)
@@ -31,7 +31,7 @@ impl Tensor {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn apply_attention_mask(&self, mask: &Tensor) -> TensorResult<Tensor> {
+    pub fn apply_attention_mask(&self, mask: &Tensor<T>) -> TensorResult<Tensor> {
         // Verify shapes match
         if self.dims() != mask.dims() {
             return Err(TensorError::ShapeMismatch {
@@ -159,7 +159,7 @@ impl Tensor {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn combine_masks(&self, other: &Tensor) -> TensorResult<Tensor> {
+    pub fn combine_masks(&self, other: &Tensor<T>) -> TensorResult<Tensor> {
         if self.dims() != other.dims() {
             return Err(TensorError::ShapeMismatch {
                 expected: self.dims().to_vec(),

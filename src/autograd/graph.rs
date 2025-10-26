@@ -1,6 +1,7 @@
-use crate::autograd::{GradNode, NodeId};
+use crate::autograd::{GradNode, NodeId, TensorVariant};
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
+use half::f16;
 use std::collections::{HashMap, HashSet};
 
 /// 計算グラフ（動的に構築される）
@@ -33,7 +34,7 @@ impl ComputationGraph {
         id
     }
 
-    /// 逆伝播を実行
+    /// 逆伝播を実行 (f16専用、後方互換性のため)
     ///
     /// # Arguments
     /// * `node_id` - 開始ノード（通常は損失テンソルのノード）
@@ -45,12 +46,12 @@ impl ComputationGraph {
     pub fn backward(
         &self,
         node_id: NodeId,
-        grad: Tensor,
+        grad: Tensor<f16>,
         _enabled: bool,
-    ) -> TensorResult<HashMap<NodeId, Tensor>> {
+    ) -> TensorResult<HashMap<NodeId, Tensor<f16>>> {
         // トポロジカルソートで逆順にノードを処理
         let topo_order = self.topological_sort(node_id)?;
-        let mut gradients: HashMap<NodeId, Tensor> = HashMap::new();
+        let mut gradients: HashMap<NodeId, Tensor<f16>> = HashMap::new();
 
         // 初期勾配を設定
         gradients.insert(node_id, grad);
@@ -86,6 +87,38 @@ impl ComputationGraph {
         }
 
         Ok(gradients)
+    }
+
+    /// 逆伝播を実行 (TensorVariant版)
+    ///
+    /// # Arguments
+    /// * `node_id` - 開始ノード（通常は損失テンソルのノード）
+    /// * `grad` - 初期勾配（通常は1.0のスカラー）
+    /// * `enabled` - 勾配計算が有効かどうか（外部から渡される）
+    ///
+    /// # Returns
+    /// 各ノードIDに対する勾配のマップ
+    pub fn backward_variant(
+        &self,
+        node_id: NodeId,
+        grad: TensorVariant,
+        _enabled: bool,
+    ) -> TensorResult<HashMap<NodeId, TensorVariant>> {
+        // TensorVariant版では、現時点では簡易的にf16としてbackwardを呼び出す
+        // TODO: 将来的にはGradNodeにもVariant対応を追加
+        match grad {
+            TensorVariant::F16(tensor_f16) => {
+                let result = self.backward(node_id, tensor_f16, _enabled)?;
+                Ok(result.into_iter().map(|(k, v)| (k, TensorVariant::F16(v))).collect())
+            }
+            TensorVariant::F32(_) => {
+                // f32のbackwardはまだ未実装
+                // 暫定的にエラーを返す
+                Err(crate::error::TensorError::InvalidOperation(
+                    "f32 backward is not yet implemented".to_string()
+                ))
+            }
+        }
     }
 
     /// トポロジカルソート（DFS）

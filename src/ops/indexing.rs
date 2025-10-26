@@ -5,7 +5,7 @@ use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor, TokenIdArray};
 use half::f16;
 
-impl Tensor {
+impl<T: FloatType> Tensor<T> {
     /// Token embedding lookup for language models
     ///
     /// Performs embedding lookup from a weight matrix given token IDs.
@@ -24,7 +24,7 @@ impl Tensor {
     /// let embeddings = weight.embedding(&token_ids)?;
     /// // embeddings.shape() == [batch, seq_len, d_model]
     /// ```
-    pub fn embedding(&self, token_ids: &Tensor) -> TensorResult<Self> {
+    pub fn embedding(&self, token_ids: &Tensor<T>) -> TensorResult<Self> {
         // self is weight with shape [vocab_size, d_model] (PyTorch format after GGUF reverse)
         // token_ids has shape [batch, seq_len] or [seq_len]
         let weight_dims = self.dims();
@@ -178,7 +178,7 @@ impl Tensor {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn gather(&self, dim: usize, indices: &Tensor) -> TensorResult<Self> {
+    pub fn gather(&self, dim: usize, indices: &Tensor<T>) -> TensorResult<Self> {
         if dim >= self.dims().len() {
             return Err(TensorError::InvalidDimension { dim });
         }
@@ -192,7 +192,7 @@ impl Tensor {
     }
 
     /// Metal GPU implementation of gather
-    fn gather_metal(&self, dim: usize, indices: &Tensor) -> TensorResult<Self> {
+    fn gather_metal(&self, dim: usize, indices: &Tensor<T>) -> TensorResult<Self> {
         let input_buf = self.buffer().as_metal()?;
         let indices_buf = indices.buffer().as_metal()?;
 
@@ -293,7 +293,7 @@ impl Tensor {
     }
 
     /// CPU implementation of gather
-    fn gather_cpu(&self, dim: usize, indices: &Tensor) -> TensorResult<Self> {
+    fn gather_cpu(&self, dim: usize, indices: &Tensor<T>) -> TensorResult<Self> {
         let self_data = self.to_vec();
         let indices_data = indices.to_vec();
         let self_dims = self.dims();
@@ -404,7 +404,7 @@ impl Tensor {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn scatter(&self, dim: usize, indices: &Tensor, src: &Tensor) -> TensorResult<Self> {
+    pub fn scatter(&self, dim: usize, indices: &Tensor, src: &Tensor<T>) -> TensorResult<Self> {
         if dim >= self.dims().len() {
             return Err(TensorError::InvalidDimension { dim });
         }
@@ -418,7 +418,7 @@ impl Tensor {
     }
 
     /// Metal GPU implementation of scatter
-    fn scatter_metal(&self, dim: usize, indices: &Tensor, src: &Tensor) -> TensorResult<Self> {
+    fn scatter_metal(&self, dim: usize, indices: &Tensor, src: &Tensor<T>) -> TensorResult<Self> {
         let input_buf = self.buffer().as_metal()?;
         let indices_buf = indices.buffer().as_metal()?;
         let src_buf = src.buffer().as_metal()?;
@@ -521,7 +521,7 @@ impl Tensor {
     }
 
     /// CPU implementation of scatter
-    fn scatter_cpu(&self, dim: usize, indices: &Tensor, src: &Tensor) -> TensorResult<Self> {
+    fn scatter_cpu(&self, dim: usize, indices: &Tensor, src: &Tensor<T>) -> TensorResult<Self> {
         let self_data = self.to_vec();
         let indices_data = indices.to_vec();
         let src_data = src.to_vec();

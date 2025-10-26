@@ -10,7 +10,7 @@ mod tensor_variant;
 pub use context::AutogradContext;
 pub use tensor_variant::TensorVariant;
 pub use graph::ComputationGraph;
-pub use gradient::GradientFunction;
+pub use gradient::{GradientFunction, GradientFunctionVariant, GradientFunctionGeneric};
 pub use node::{GradNode, NodeId, Operation};
 pub use fusion::{
     FusionOptimizer, FusionPattern, FusionOpportunity, FusionConfig,

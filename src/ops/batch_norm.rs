@@ -5,7 +5,7 @@ use crate::TensorResult;
 use crate::error::TensorError;
 use half::f16;
 
-impl Tensor {
+impl<T: FloatType> Tensor<T> {
     /// Batch Normalization
     ///
     /// Normalizes input across the batch dimension

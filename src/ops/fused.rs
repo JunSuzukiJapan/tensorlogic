@@ -16,12 +16,12 @@ pub enum Activation {
     GELU = 2,
 }
 
-impl Tensor {
+impl<T: FloatType> Tensor<T> {
     /// Fused add + relu: relu(self + other)
     ///
     /// This is more efficient than calling add() and relu() separately
     /// as it avoids allocating an intermediate buffer.
-    pub fn fused_add_relu(&self, other: &Tensor) -> TensorResult<Self> {
+    pub fn fused_add_relu(&self, other: &Tensor<T>) -> TensorResult<Self> {
         if !self.shape().is_same(other.shape()) {
             return Err(TensorError::ShapeMismatch {
                 expected: self.dims().to_vec(),
@@ -37,7 +37,7 @@ impl Tensor {
     }
 
     /// Metal GPU implementation of fused add + relu
-    fn fused_add_relu_metal(&self, other: &Tensor) -> TensorResult<Self> {
+    fn fused_add_relu_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -83,7 +83,7 @@ impl Tensor {
     }
 
     /// CPU implementation of fused add + relu
-    fn fused_add_relu_cpu(&self, other: &Tensor) -> TensorResult<Self> {
+    fn fused_add_relu_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
         let a_data = self.buffer().to_cpu_vec();
         let b_data = other.buffer().to_cpu_vec();
 
@@ -100,7 +100,7 @@ impl Tensor {
     }
 
     /// Fused multiply + relu: relu(self * other)
-    pub fn fused_mul_relu(&self, other: &Tensor) -> TensorResult<Self> {
+    pub fn fused_mul_relu(&self, other: &Tensor<T>) -> TensorResult<Self> {
         if !self.shape().is_same(other.shape()) {
             return Err(TensorError::ShapeMismatch {
                 expected: self.dims().to_vec(),
@@ -116,7 +116,7 @@ impl Tensor {
     }
 
     /// Metal GPU implementation of fused mul + relu
-    fn fused_mul_relu_metal(&self, other: &Tensor) -> TensorResult<Self> {
+    fn fused_mul_relu_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
@@ -159,7 +159,7 @@ impl Tensor {
     }
 
     /// CPU implementation of fused mul + relu
-    fn fused_mul_relu_cpu(&self, other: &Tensor) -> TensorResult<Self> {
+    fn fused_mul_relu_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
         let a_data = self.buffer().to_cpu_vec();
         let b_data = other.buffer().to_cpu_vec();
 
@@ -303,7 +303,7 @@ impl Tensor {
     /// Fused affine transformation: self * scale + bias
     ///
     /// Used in batch normalization and similar operations.
-    pub fn fused_affine(&self, scale: &Tensor, bias: &Tensor) -> TensorResult<Self> {
+    pub fn fused_affine(&self, scale: &Tensor, bias: &Tensor<T>) -> TensorResult<Self> {
         if !self.shape().is_same(scale.shape()) || !self.shape().is_same(bias.shape()) {
             return Err(TensorError::ShapeMismatch {
                 expected: self.dims().to_vec(),
@@ -319,7 +319,7 @@ impl Tensor {
     }
 
     /// Metal GPU implementation of fused affine
-    fn fused_affine_metal(&self, scale: &Tensor, bias: &Tensor) -> TensorResult<Self> {
+    fn fused_affine_metal(&self, scale: &Tensor, bias: &Tensor<T>) -> TensorResult<Self> {
         let x_buf = self.buffer().as_metal()?;
         let scale_buf = scale.buffer().as_metal()?;
         let bias_buf = bias.buffer().as_metal()?;
@@ -364,7 +364,7 @@ impl Tensor {
     }
 
     /// CPU implementation of fused affine
-    fn fused_affine_cpu(&self, scale: &Tensor, bias: &Tensor) -> TensorResult<Self> {
+    fn fused_affine_cpu(&self, scale: &Tensor, bias: &Tensor<T>) -> TensorResult<Self> {
         let x_data = self.buffer().to_cpu_vec();
         let scale_data = scale.buffer().to_cpu_vec();
         let bias_data = bias.buffer().to_cpu_vec();
@@ -380,7 +380,7 @@ impl Tensor {
     }
 
     /// Neural Engine implementation of fused add + relu
-    fn fused_add_relu_neural_engine(&self, other: &Tensor) -> TensorResult<Self> {
+    fn fused_add_relu_neural_engine(&self, other: &Tensor<T>) -> TensorResult<Self> {
         let a_buf = self.buffer().as_neural_engine()?;
         let b_buf = other.buffer().as_neural_engine()?;
 
@@ -394,7 +394,7 @@ impl Tensor {
     }
 
     /// Neural Engine implementation of fused mul + relu
-    fn fused_mul_relu_neural_engine(&self, other: &Tensor) -> TensorResult<Self> {
+    fn fused_mul_relu_neural_engine(&self, other: &Tensor<T>) -> TensorResult<Self> {
         let a_buf = self.buffer().as_neural_engine()?;
         let b_buf = other.buffer().as_neural_engine()?;
 
@@ -408,7 +408,7 @@ impl Tensor {
     }
 
     /// Neural Engine implementation of fused affine
-    fn fused_affine_neural_engine(&self, scale: &Tensor, bias: &Tensor) -> TensorResult<Self> {
+    fn fused_affine_neural_engine(&self, scale: &Tensor, bias: &Tensor<T>) -> TensorResult<Self> {
         let x_buf = self.buffer().as_neural_engine()?;
         let scale_buf = scale.buffer().as_neural_engine()?;
         let bias_buf = bias.buffer().as_neural_engine()?;

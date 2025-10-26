@@ -15,7 +15,7 @@ use crate::tensor::{BufferHandle, Tensor};
 #[cfg(test)]
 use half::f16;
 
-impl Tensor {
+impl<T: FloatType> Tensor<T> {
     /// Fused: Linear + Residual + ReLU
     ///
     /// Computes: relu(matmul(x, w) + bias + residual)
@@ -172,7 +172,7 @@ impl Tensor {
     ///
     /// Common in transformer feed-forward networks.
     /// 2x faster than separate GELU and linear operations.
-    pub fn fused_gelu_linear(&self, weight: &Tensor, bias: &Tensor) -> TensorResult<Self> {
+    pub fn fused_gelu_linear(&self, weight: &Tensor, bias: &Tensor<T>) -> TensorResult<Self> {
         if self.shape().rank() != 2 || weight.shape().rank() != 2 {
             return Err(TensorError::InvalidOperation(
                 "fused_gelu_linear requires 2D tensors".to_string(),

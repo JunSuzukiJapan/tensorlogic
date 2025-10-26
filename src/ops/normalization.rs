@@ -5,7 +5,7 @@ use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
 
-impl Tensor {
+impl<T: FloatType> Tensor<T> {
     /// RMS Normalization (Root Mean Square Normalization)
     ///
     /// ⚠️ **MATHEMATICALLY VERIFIED - DO NOT MODIFY**

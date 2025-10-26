@@ -7,7 +7,7 @@ use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
 
-impl Tensor {
+impl<T: FloatType> Tensor<T> {
     /// Matrix multiplication: self @ other
     ///
     /// # Arguments
@@ -16,7 +16,7 @@ impl Tensor {
     ///
     /// # Returns
     /// - result: shape [M, N]
-    pub fn matmul(&self, other: &Tensor) -> TensorResult<Self> {
+    pub fn matmul(&self, other: &Tensor<T>) -> TensorResult<Self> {
         // Validate shapes for matrix multiplication
         if self.shape().rank() != 2 || other.shape().rank() != 2 {
             return Err(TensorError::InvalidOperation(

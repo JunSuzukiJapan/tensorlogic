@@ -5,7 +5,7 @@ use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
 
-impl Tensor {
+impl<T: FloatType> Tensor<T> {
     /// Concatenate tensors along a specified dimension
     ///
     /// # Arguments
