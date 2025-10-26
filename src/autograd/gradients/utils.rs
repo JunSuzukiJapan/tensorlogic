@@ -1,4 +1,5 @@
 use crate::error::TensorResult;
+use super::prelude::*;
 use crate::tensor::{Tensor, TensorShape};
 
 /// ブロードキャストされた勾配を元の形状に縮約

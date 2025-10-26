@@ -1,3 +1,8 @@
+// Prelude for gradient implementations
+mod prelude {
+    pub use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+}
+
 mod add;
 mod div;
 mod gelu;

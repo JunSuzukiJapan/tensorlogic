@@ -2,9 +2,11 @@
 
 use crate::device::MetalBuffer;
 use crate::error::TensorResult;
+use crate::tensor::FloatType;
 use half::f16;
 use metal::{Buffer, Device as MTLDevice, MTLResourceOptions};
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -29,6 +31,8 @@ pub struct PoolStats {
 ///
 /// Reduces memory allocation overhead by maintaining a pool of reusable buffers
 /// organized by size. Tracks last access time for LRU-based eviction.
+///
+/// Currently optimized for f16 only. For f32, buffers are allocated directly without pooling.
 pub struct BufferPool {
     /// Metal device for buffer creation
     device: Arc<MTLDevice>,
@@ -111,7 +115,7 @@ impl BufferPool {
     ///
     /// Uses size-class pooling to improve buffer reuse rates.
     /// The actual allocated buffer may be larger than requested.
-    pub fn allocate(&self, length: usize) -> TensorResult<MetalBuffer> {
+    pub fn allocate(&self, length: usize) -> TensorResult<MetalBuffer<half::f16>> {
         let size_class = get_size_class(length);
 
         let mut pools = self.pools.lock().unwrap();
@@ -155,6 +159,7 @@ impl BufferPool {
                 return Ok(MetalBuffer {
                     buffer,
                     length,  // Store requested length, not size_class
+                    _phantom: PhantomData,
                 });
             }
         }
@@ -187,11 +192,12 @@ impl BufferPool {
         Ok(MetalBuffer {
             buffer: Arc::new(buffer),
             length,  // Store requested length, not size_class
+            _phantom: PhantomData,
         })
     }
 
     /// Allocate a MetalBuffer filled with zeros
-    pub fn allocate_zeros(&self, length: usize) -> TensorResult<MetalBuffer> {
+    pub fn allocate_zeros(&self, length: usize) -> TensorResult<MetalBuffer<half::f16>> {
         let buffer = self.allocate(length)?;
 
         // Zero out the buffer
@@ -210,7 +216,7 @@ impl BufferPool {
     ///
     /// Uses size-class pooling - the buffer is stored in its size class,
     /// not by its exact length, to improve reuse rates.
-    pub fn recycle(&self, buffer: MetalBuffer) -> bool {
+    pub fn recycle(&self, buffer: MetalBuffer<half::f16>) -> bool {
         // Get the actual buffer capacity (not the requested length)
         let actual_capacity = (buffer.buffer.length() as usize) / std::mem::size_of::<f16>();
         let size_class = get_size_class(actual_capacity);

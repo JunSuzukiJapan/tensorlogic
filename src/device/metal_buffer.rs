@@ -1,22 +1,25 @@
-//! Metal buffer management for f16 data
+//! Metal buffer management for generic floating-point data
 
 use crate::device::{BufferPool, NeuralEngineBuffer};
 use crate::error::{TensorError, TensorResult};
+use crate::tensor::FloatType;
 use half::f16;
 use metal::{Buffer, Device as MTLDevice};
+use std::marker::PhantomData;
 use std::sync::Arc;
 
-/// Metal buffer wrapper for f16 data
+/// Metal buffer wrapper for generic floating-point data
 #[derive(Debug, Clone)]
-pub struct MetalBuffer {
+pub struct MetalBuffer<T: FloatType> {
     pub(crate) buffer: Arc<Buffer>,
-    pub(crate) length: usize, // number of f16 elements
+    pub(crate) length: usize, // number of T elements
+    _phantom: PhantomData<T>,
 }
 
-impl MetalBuffer {
-    /// Create a new Metal buffer from f16 slice
-    pub fn from_f16_slice(device: &MTLDevice, data: &[f16]) -> TensorResult<Self> {
-        let byte_length = data.len() * std::mem::size_of::<f16>();
+impl<T: FloatType> MetalBuffer<T> {
+    /// Create a new Metal buffer from slice
+    pub fn from_slice(device: &MTLDevice, data: &[T]) -> TensorResult<Self> {
+        let byte_length = data.len() * T::size_in_bytes();
 
         let buffer = device.new_buffer_with_data(
             data.as_ptr() as *const _,
@@ -27,12 +30,13 @@ impl MetalBuffer {
         Ok(Self {
             buffer: Arc::new(buffer),
             length: data.len(),
+            _phantom: PhantomData,
         })
     }
 
     /// Create a new uninitialized Metal buffer
     pub fn new_uninit(device: &MTLDevice, length: usize) -> TensorResult<Self> {
-        let byte_length = length * std::mem::size_of::<f16>();
+        let byte_length = length * T::size_in_bytes();
 
         let buffer = device.new_buffer(
             byte_length as u64,
@@ -42,39 +46,25 @@ impl MetalBuffer {
         Ok(Self {
             buffer: Arc::new(buffer),
             length,
+            _phantom: PhantomData,
         })
     }
 
     /// Create a new Metal buffer filled with zeros
     pub fn zeros(device: &MTLDevice, length: usize) -> TensorResult<Self> {
-        let zeros = vec![f16::ZERO; length];
-        Self::from_f16_slice(device, &zeros)
+        let zeros = vec![T::zero(); length];
+        Self::from_slice(device, &zeros)
     }
 
     /// Create a new Metal buffer filled with ones
     pub fn ones(device: &MTLDevice, length: usize) -> TensorResult<Self> {
-        let ones = vec![f16::ONE; length];
-        Self::from_f16_slice(device, &ones)
+        let ones = vec![T::one(); length];
+        Self::from_slice(device, &ones)
     }
 
-    /// Create a new uninitialized Metal buffer from pool
-    pub fn new_uninit_pooled(pool: &BufferPool, length: usize) -> TensorResult<Self> {
-        pool.allocate(length)
-    }
+    // Pool methods are f16-only, see impl MetalBuffer<f16> below
 
-    /// Create a new Metal buffer filled with zeros from pool
-    pub fn zeros_pooled(pool: &BufferPool, length: usize) -> TensorResult<Self> {
-        pool.allocate_zeros(length)
-    }
-
-    /// Create a new Metal buffer from f16 slice using pool
-    pub fn from_vec_pooled(pool: &BufferPool, data: &[f16]) -> TensorResult<Self> {
-        let mut buffer = pool.allocate(data.len())?;
-        buffer.write_from_slice(data)?;
-        Ok(buffer)
-    }
-
-    /// Get the buffer length (number of f16 elements)
+    /// Get the buffer length (number of T elements)
     pub fn len(&self) -> usize {
         self.length
     }
@@ -86,7 +76,7 @@ impl MetalBuffer {
 
     /// Get the buffer byte length
     pub fn byte_length(&self) -> usize {
-        self.length * std::mem::size_of::<f16>()
+        self.length * T::size_in_bytes()
     }
 
     /// Get the underlying Metal buffer
@@ -94,14 +84,14 @@ impl MetalBuffer {
         &self.buffer
     }
 
-    /// Read data from buffer to Vec<f16>
-    pub fn to_vec(&self) -> Vec<f16> {
-        let ptr = self.buffer.contents() as *const f16;
+    /// Read data from buffer to Vec<T>
+    pub fn to_vec(&self) -> Vec<T> {
+        let ptr = self.buffer.contents() as *const T;
         unsafe { std::slice::from_raw_parts(ptr, self.length).to_vec() }
     }
 
     /// Write data to buffer from slice
-    pub fn write_from_slice(&mut self, data: &[f16]) -> TensorResult<()> {
+    pub fn write_from_slice(&mut self, data: &[T]) -> TensorResult<()> {
         if data.len() != self.length {
             return Err(TensorError::ShapeMismatch {
                 expected: vec![self.length],
@@ -109,7 +99,7 @@ impl MetalBuffer {
             });
         }
 
-        let ptr = self.buffer.contents() as *mut f16;
+        let ptr = self.buffer.contents() as *mut T;
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), ptr, self.length);
         }
@@ -121,22 +111,25 @@ impl MetalBuffer {
     ///
     /// # Safety
     /// The caller must ensure proper synchronization when accessing the buffer
-    pub unsafe fn contents_mut(&self) -> *mut f16 {
-        self.buffer.contents() as *mut f16
+    pub unsafe fn contents_mut(&self) -> *mut T {
+        self.buffer.contents() as *mut T
     }
 
     /// Get a const pointer to the buffer contents
     ///
     /// # Safety
     /// The caller must ensure proper synchronization when accessing the buffer
-    pub unsafe fn contents(&self) -> *const f16 {
-        self.buffer.contents() as *const f16
+    pub unsafe fn contents(&self) -> *const T {
+        self.buffer.contents() as *const T
     }
 
-    /// Convert to Neural Engine buffer (with data copy)
+    /// Convert to Neural Engine buffer (with data copy, f16 only)
     ///
     /// Note: This performs a data copy. Zero-copy conversion will be implemented in Phase 5.
-    pub fn to_neural_engine(&self, shape: &[usize]) -> TensorResult<NeuralEngineBuffer> {
+    pub fn to_neural_engine(&self, shape: &[usize]) -> TensorResult<NeuralEngineBuffer>
+    where
+        T: 'static,
+    {
         // Validate shape matches buffer size
         let total_elements: usize = shape.iter().product();
         if total_elements != self.length {
@@ -146,13 +139,49 @@ impl MetalBuffer {
             });
         }
 
-        // Copy data from Metal to CPU, then to Neural Engine
+        // For f16, use direct conversion
+        if T::is_f16() {
+            let data = self.to_vec();
+            // Safety: We checked T::is_f16(), so T = f16
+            let f16_data: &[f16] = unsafe {
+                std::slice::from_raw_parts(data.as_ptr() as *const f16, data.len())
+            };
+            return NeuralEngineBuffer::from_f16_slice(f16_data, shape);
+        }
+
+        // For f32, convert to f16 first
         let data = self.to_vec();
-        NeuralEngineBuffer::from_f16_slice(&data, shape)
+        let f16_data: Vec<f16> = data.iter().map(|x| f16::from_f32(x.to_f32())).collect();
+        NeuralEngineBuffer::from_f16_slice(&f16_data, shape)
     }
 }
 
-impl PartialEq for MetalBuffer {
+// Backward compatibility and pool methods for f16
+impl MetalBuffer<f16> {
+    /// Create a new Metal buffer from f16 slice (backward compatibility)
+    pub fn from_f16_slice(device: &MTLDevice, data: &[f16]) -> TensorResult<Self> {
+        Self::from_slice(device, data)
+    }
+
+    /// Create a new uninitialized Metal buffer from pool (f16 only)
+    pub fn new_uninit_pooled(pool: &BufferPool, length: usize) -> TensorResult<Self> {
+        pool.allocate(length)
+    }
+
+    /// Create a new Metal buffer filled with zeros from pool (f16 only)
+    pub fn zeros_pooled(pool: &BufferPool, length: usize) -> TensorResult<Self> {
+        pool.allocate_zeros(length)
+    }
+
+    /// Create a new Metal buffer from slice using pool (f16 only)
+    pub fn from_vec_pooled(pool: &BufferPool, data: &[f16]) -> TensorResult<Self> {
+        let mut buffer = pool.allocate(data.len())?;
+        buffer.write_from_slice(data)?;
+        Ok(buffer)
+    }
+}
+
+impl<T: FloatType> PartialEq for MetalBuffer<T> {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.buffer, &other.buffer)
     }
@@ -171,7 +200,7 @@ mod tests {
         let device = get_test_device();
         let data = vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)];
 
-        let buffer = MetalBuffer::from_f16_slice(&device, &data).unwrap();
+        let buffer = MetalBuffer::<f16>::from_f16_slice(&device, &data).unwrap();
         assert_eq!(buffer.len(), 3);
 
         let read_data = buffer.to_vec();
@@ -184,7 +213,7 @@ mod tests {
     #[test]
     fn test_zeros() {
         let device = get_test_device();
-        let buffer = MetalBuffer::zeros(&device, 5).unwrap();
+        let buffer = MetalBuffer::<f16>::zeros(&device, 5).unwrap();
 
         assert_eq!(buffer.len(), 5);
 
@@ -195,7 +224,7 @@ mod tests {
     #[test]
     fn test_ones() {
         let device = get_test_device();
-        let buffer = MetalBuffer::ones(&device, 5).unwrap();
+        let buffer = MetalBuffer::<f16>::ones(&device, 5).unwrap();
 
         assert_eq!(buffer.len(), 5);
 
@@ -206,7 +235,7 @@ mod tests {
     #[test]
     fn test_write_from_slice() {
         let device = get_test_device();
-        let mut buffer = MetalBuffer::zeros(&device, 3).unwrap();
+        let mut buffer = MetalBuffer::<f16>::zeros(&device, 3).unwrap();
 
         let new_data = vec![f16::from_f32(4.0), f16::from_f32(5.0), f16::from_f32(6.0)];
         buffer.write_from_slice(&new_data).unwrap();
@@ -227,7 +256,7 @@ mod tests {
         let shape = vec![2, 2];
 
         // Create Metal buffer
-        let metal_buffer = MetalBuffer::from_f16_slice(&device, &data).unwrap();
+        let metal_buffer = MetalBuffer::<f16>::from_f16_slice(&device, &data).unwrap();
 
         // Convert to Neural Engine
         let ne_buffer = metal_buffer.to_neural_engine(&shape).unwrap();
@@ -253,7 +282,7 @@ mod tests {
         let shape = vec![3];
 
         // Metal -> Neural Engine -> Metal
-        let metal1 = MetalBuffer::from_f16_slice(&device, &original_data).unwrap();
+        let metal1 = MetalBuffer::<f16>::from_f16_slice(&device, &original_data).unwrap();
         let ne_buffer = metal1.to_neural_engine(&shape).unwrap();
         let metal2 = ne_buffer.to_metal_buffer(&device).unwrap();
 

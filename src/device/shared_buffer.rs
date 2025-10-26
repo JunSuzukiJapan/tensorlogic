@@ -130,7 +130,7 @@ impl SharedBuffer {
     }
 
     /// Create a MetalBuffer view (zero-copy)
-    pub fn as_metal_buffer(&self) -> MetalBuffer {
+    pub fn as_metal_buffer(&self) -> MetalBuffer<half::f16> {
         use std::sync::Arc;
         MetalBuffer {
             buffer: Arc::new(self.metal_buffer.clone()),

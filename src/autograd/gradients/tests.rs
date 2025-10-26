@@ -1,4 +1,5 @@
 //! Tests for new gradient implementations
+use super::prelude::*;
 //!
 //! Note: These tests use CPU device for simplicity. Metal backward pass precision
 //! has been separately verified (see tests/metal_gradient_precision_test.rs).

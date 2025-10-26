@@ -1,4 +1,5 @@
 use crate::autograd::GradientFunction;
+use super::prelude::*;
 use crate::device::Device;
 use crate::error::TensorResult;
 use crate::tensor::Tensor;

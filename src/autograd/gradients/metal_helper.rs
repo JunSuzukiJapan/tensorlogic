@@ -16,7 +16,7 @@ use crate::tensor::Tensor;
 pub fn execute_simple_metal_gradient(
     kernel_name: &str,
     grad_output: &Tensor,
-    input_buffers: &[&MetalBuffer],
+    input_buffers: &[&MetalBuffer<half::f16>],
 ) -> TensorResult<Tensor> {
     let grad_output_buf = grad_output.buffer().as_metal()?;
 
@@ -97,8 +97,8 @@ pub fn execute_simple_metal_gradient(
 pub fn execute_parametric_metal_gradient(
     kernel_name: &str,
     grad_output: &Tensor,
-    input_buffers: &[&MetalBuffer],
-    param_buffers: &[&MetalBuffer],
+    input_buffers: &[&MetalBuffer<half::f16>],
+    param_buffers: &[&MetalBuffer<half::f16>],
 ) -> TensorResult<Tensor> {
     let grad_output_buf = grad_output.buffer().as_metal()?;
 

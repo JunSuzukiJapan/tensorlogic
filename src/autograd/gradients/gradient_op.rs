@@ -1,4 +1,5 @@
 //! Gradient operation for second-order derivatives
+use super::prelude::*;
 //!
 //! This module implements GradientBackward which computes gradients
 //! of gradients (second-order derivatives, Hessian).

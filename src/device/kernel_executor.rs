@@ -61,7 +61,7 @@ impl KernelExecutor {
     pub fn execute(
         &mut self,
         kernel_name: &str,
-        buffers: &[&MetalBuffer],
+        buffers: &[&MetalBuffer<half::f16>],
         grid_size: usize,
     ) -> TensorResult<()> {
         // Get pipeline
@@ -111,9 +111,9 @@ impl KernelExecutor {
     pub fn execute_binary_op(
         &mut self,
         kernel_name: &str,
-        a: &MetalBuffer,
-        b: &MetalBuffer,
-        result: &MetalBuffer,
+        a: &MetalBuffer<half::f16>,
+        b: &MetalBuffer<half::f16>,
+        result: &MetalBuffer<half::f16>,
     ) -> TensorResult<()> {
         if a.len() != b.len() || a.len() != result.len() {
             return Err(TensorError::ShapeMismatch {
@@ -129,8 +129,8 @@ impl KernelExecutor {
     pub fn execute_unary_op(
         &mut self,
         kernel_name: &str,
-        a: &MetalBuffer,
-        result: &MetalBuffer,
+        a: &MetalBuffer<half::f16>,
+        result: &MetalBuffer<half::f16>,
     ) -> TensorResult<()> {
         if a.len() != result.len() {
             return Err(TensorError::ShapeMismatch {

@@ -90,7 +90,7 @@ impl NeuralEngineBuffer {
     /// Convert to Metal buffer (with data copy)
     ///
     /// Note: This performs a data copy. Zero-copy conversion will be implemented in Phase 5.
-    pub fn to_metal_buffer(&self, device: &MTLDevice) -> TensorResult<MetalBuffer> {
+    pub fn to_metal_buffer(&self, device: &MTLDevice) -> TensorResult<MetalBuffer<half::f16>> {
         // Copy data from Neural Engine to CPU, then to Metal
         let data = self.to_f16_vec();
         MetalBuffer::from_f16_slice(device, &data)

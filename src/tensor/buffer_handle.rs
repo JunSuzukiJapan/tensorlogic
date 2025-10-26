@@ -2,22 +2,24 @@
 
 use crate::device::{MetalBuffer, NeuralEngineBuffer};
 use crate::error::{TensorError, TensorResult};
+use crate::tensor::FloatType;
 use half::f16;
 
 /// Handle to tensor data on different devices
 #[derive(Debug, Clone)]
-pub enum BufferHandle {
-    /// Metal GPU buffer (f16)
-    Metal(MetalBuffer),
+pub enum BufferHandle<T: FloatType> {
+    /// Metal GPU buffer
+    Metal(MetalBuffer<T>),
 
-    /// Neural Engine buffer (CoreML MLMultiArray)
+    /// Neural Engine buffer (CoreML MLMultiArray, f16 only)
+    /// Neural Engine always uses f16 internally, conversion happens automatically
     NeuralEngine(NeuralEngineBuffer),
 
-    /// CPU buffer (f16) - avoid if possible, for control flow only
-    CPU(Vec<f16>),
+    /// CPU buffer - avoid if possible, for control flow only
+    CPU(Vec<T>),
 }
 
-impl BufferHandle {
+impl<T: FloatType> BufferHandle<T> {
     /// Get the number of elements in the buffer
     pub fn len(&self) -> usize {
         match self {
@@ -32,11 +34,23 @@ impl BufferHandle {
         self.len() == 0
     }
 
-    /// Read data from buffer to CPU Vec<f16>
-    pub fn to_cpu_vec(&self) -> Vec<f16> {
+    /// Read data from buffer to CPU Vec<T>
+    pub fn to_cpu_vec(&self) -> Vec<T> {
         match self {
             BufferHandle::Metal(buf) => buf.to_vec(),
-            BufferHandle::NeuralEngine(buf) => buf.to_f16_vec(),
+            BufferHandle::NeuralEngine(buf) => {
+                // Neural Engine always uses f16, convert to T if needed
+                let f16_data = buf.to_f16_vec();
+                if T::is_f16() {
+                    // Safety: We checked T::is_f16(), so T = f16
+                    unsafe {
+                        std::slice::from_raw_parts(f16_data.as_ptr() as *const T, f16_data.len()).to_vec()
+                    }
+                } else {
+                    // Convert f16 to T (e.g., f16 to f32)
+                    f16_data.iter().map(|x| T::from_f32(x.to_f32())).collect()
+                }
+            }
             BufferHandle::CPU(vec) => vec.clone(),
         }
     }
@@ -66,7 +80,7 @@ impl BufferHandle {
     }
 
     /// Get reference to Metal buffer if available
-    pub fn as_metal(&self) -> TensorResult<&MetalBuffer> {
+    pub fn as_metal(&self) -> TensorResult<&MetalBuffer<T>> {
         match self {
             BufferHandle::Metal(buf) => Ok(buf),
             _ => Err(TensorError::DeviceConversionError(format!(
@@ -77,7 +91,7 @@ impl BufferHandle {
     }
 
     /// Get mutable reference to Metal buffer if available
-    pub fn as_metal_mut(&mut self) -> TensorResult<&mut MetalBuffer> {
+    pub fn as_metal_mut(&mut self) -> TensorResult<&mut MetalBuffer<T>> {
         match self {
             BufferHandle::Metal(buf) => Ok(buf),
             _ => Err(TensorError::DeviceConversionError(format!(
@@ -88,7 +102,7 @@ impl BufferHandle {
     }
 
     /// Get reference to CPU vec if available
-    pub fn as_cpu(&self) -> TensorResult<&Vec<f16>> {
+    pub fn as_cpu(&self) -> TensorResult<&Vec<T>> {
         match self {
             BufferHandle::CPU(vec) => Ok(vec),
             _ => Err(TensorError::DeviceConversionError(format!(
@@ -111,7 +125,7 @@ impl BufferHandle {
 
 }
 
-impl PartialEq for BufferHandle {
+impl<T: FloatType + PartialEq> PartialEq for BufferHandle<T> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (BufferHandle::Metal(a), BufferHandle::Metal(b)) => a == b,
@@ -133,7 +147,7 @@ mod tests {
     #[test]
     fn test_cpu_buffer() {
         let data = vec![f16::from_f32(1.0), f16::from_f32(2.0)];
-        let handle = BufferHandle::CPU(data.clone());
+        let handle = BufferHandle::<f16>::CPU(data.clone());
 
         assert!(handle.is_cpu());
         assert!(!handle.is_metal());
@@ -145,8 +159,8 @@ mod tests {
     fn test_metal_buffer() {
         let device = MTLDevice::system_default().unwrap();
         let data = vec![f16::from_f32(1.0), f16::from_f32(2.0)];
-        let metal_buf = MetalBuffer::from_f16_slice(&device, &data).unwrap();
-        let handle = BufferHandle::Metal(metal_buf);
+        let metal_buf = MetalBuffer::<f16>::from_f16_slice(&device, &data).unwrap();
+        let handle = BufferHandle::<f16>::Metal(metal_buf);
 
         assert!(handle.is_metal());
         assert!(!handle.is_cpu());

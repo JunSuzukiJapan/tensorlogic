@@ -1,5 +1,6 @@
-use crate::autograd::{ComputationGraph, GradNode, GradientFunction, NodeId, Operation};
-use crate::tensor::Tensor;
+use crate::autograd::{ComputationGraph, GradNode, GradientFunction, NodeId, Operation, TensorVariant};
+use crate::tensor::{FloatType, Tensor};
+use crate::error::TensorResult;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -7,8 +8,9 @@ thread_local! {
     /// Thread-local computation graph
     static COMPUTATION_GRAPH: RefCell<ComputationGraph> = RefCell::new(ComputationGraph::new());
 
-    /// Thread-local tensor registry (NodeId -> Tensor)
-    static TENSOR_REGISTRY: RefCell<HashMap<NodeId, Tensor>> = RefCell::new(HashMap::new());
+    /// Thread-local tensor registry (NodeId -> TensorVariant)
+    /// Stores both f16 and f32 tensors using TensorVariant enum
+    static TENSOR_REGISTRY: RefCell<HashMap<NodeId, TensorVariant>> = RefCell::new(HashMap::new());
 
     /// Flag for creating computation graph during backward pass (for higher-order derivatives)
     static CREATE_GRAPH: RefCell<bool> = RefCell::new(false);
@@ -41,30 +43,55 @@ impl AutogradContext {
         })
     }
 
-    /// Register a tensor with its node ID
-    pub fn register_tensor(node_id: NodeId, tensor: Tensor) {
+    /// Register a tensor with its node ID (using TensorVariant)
+    pub fn register_tensor(node_id: NodeId, tensor: TensorVariant) {
         TENSOR_REGISTRY.with(|registry| {
             registry.borrow_mut().insert(node_id, tensor);
         });
     }
 
-    /// Get a tensor by node ID
-    pub fn get_tensor(node_id: NodeId) -> Option<Tensor> {
-        TENSOR_REGISTRY.with(|registry| registry.borrow().get(&node_id).cloned())
+    /// Register a tensor with its node ID (generic version)
+    pub fn register_tensor_generic<T: FloatType>(node_id: NodeId, tensor: Tensor<T>) {
+        TENSOR_REGISTRY.with(|registry| {
+            registry.borrow_mut().insert(node_id, tensor.into());
+        });
     }
 
-    /// Perform backward pass from a node
-    pub fn backward(node_id: NodeId, grad: Tensor) -> crate::error::TensorResult<HashMap<NodeId, Tensor>> {
-        Self::backward_impl(node_id, grad, false)
+    /// Get a tensor by node ID (generic version)
+    pub fn get_tensor_generic<T: FloatType>(node_id: NodeId) -> Option<Tensor<T>> {
+        TENSOR_REGISTRY.with(|registry| {
+            if let Some(variant) = registry.borrow().get(&node_id) {
+                if T::is_f16() {
+                    variant.clone_f16().map(|t| unsafe {
+                        // Safety: We checked T::is_f16(), so T = f16
+                        std::mem::transmute_copy(&t)
+                    })
+                } else if T::is_f32() {
+                    variant.clone_f32().map(|t| unsafe {
+                        // Safety: We checked T::is_f32(), so T = f32
+                        std::mem::transmute_copy(&t)
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
     }
 
-    /// Perform backward pass with computation graph creation for higher-order derivatives
-    pub fn backward_with_graph(node_id: NodeId, grad: Tensor) -> crate::error::TensorResult<HashMap<NodeId, Tensor>> {
-        Self::backward_impl(node_id, grad, true)
+    /// Perform backward pass from a node (generic version)
+    pub fn backward_generic<T: FloatType>(node_id: NodeId, grad: Tensor<T>) -> TensorResult<HashMap<NodeId, Tensor<T>>> {
+        Self::backward_impl_generic::<T>(node_id, grad, false)
     }
 
-    /// Internal backward implementation
-    fn backward_impl(node_id: NodeId, grad: Tensor, create_graph: bool) -> crate::error::TensorResult<HashMap<NodeId, Tensor>> {
+    /// Perform backward pass with computation graph creation for higher-order derivatives (generic version)
+    pub fn backward_with_graph_generic<T: FloatType>(node_id: NodeId, grad: Tensor<T>) -> TensorResult<HashMap<NodeId, Tensor<T>>> {
+        Self::backward_impl_generic::<T>(node_id, grad, true)
+    }
+
+    /// Internal backward implementation (generic version)
+    fn backward_impl_generic<T: FloatType>(node_id: NodeId, grad: Tensor<T>, create_graph: bool) -> TensorResult<HashMap<NodeId, Tensor<T>>> {
         // Save current states
         let prev_enabled = Self::is_enabled();
         let prev_create_graph = Self::is_create_graph();
@@ -76,15 +103,46 @@ impl AutogradContext {
         // (will be re-enabled during gradient distribution if create_graph=true)
         Self::set_enabled(false);
 
+        // Convert Tensor<T> to TensorVariant for backward computation
+        let grad_variant: TensorVariant = grad.into();
+
         let result = COMPUTATION_GRAPH.with(|graph| {
             let g = graph.borrow();
-            g.backward(node_id, grad, prev_enabled)
+            // backward returns HashMap<NodeId, TensorVariant> internally
+            // We need to convert it back to HashMap<NodeId, Tensor<T>>
+            let variant_result = g.backward_variant(node_id, grad_variant, prev_enabled)?;
+
+            // Convert each TensorVariant back to Tensor<T>
+            let mut tensor_result = HashMap::new();
+            for (nid, variant) in variant_result {
+                if let Some(tensor) = Self::extract_tensor_from_variant::<T>(&variant) {
+                    tensor_result.insert(nid, tensor);
+                }
+            }
+            Ok(tensor_result)
         });
 
         // Restore previous states
         Self::set_enabled(prev_enabled);
         Self::set_create_graph(prev_create_graph);
         result
+    }
+
+    /// Helper to extract Tensor<T> from TensorVariant
+    fn extract_tensor_from_variant<T: FloatType>(variant: &TensorVariant) -> Option<Tensor<T>> {
+        if T::is_f16() {
+            variant.clone_f16().map(|t| unsafe {
+                // Safety: We checked T::is_f16(), so T = f16
+                std::mem::transmute_copy(&t)
+            })
+        } else if T::is_f32() {
+            variant.clone_f32().map(|t| unsafe {
+                // Safety: We checked T::is_f32(), so T = f32
+                std::mem::transmute_copy(&t)
+            })
+        } else {
+            None
+        }
     }
 
     /// Clear the computation graph and tensor registry
