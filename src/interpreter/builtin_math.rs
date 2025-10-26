@@ -40,7 +40,7 @@ impl Interpreter {
         let result = a.matmul(&b)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(result))
+        Ok(Value::TensorF16(result))
     }
 
     /// linear(x, weight, bias) -> tensor
@@ -82,7 +82,7 @@ impl Interpreter {
                 .map_err(|e| RuntimeError::TensorError(e))?;
         }
 
-        Ok(Value::Tensor(result))
+        Ok(Value::TensorF16(result))
     }
 
     /// sigmoid(x) -> tensor
@@ -102,6 +102,6 @@ impl Interpreter {
         let result = tensor.sigmoid()
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(result))
+        Ok(Value::TensorF16(result))
     }
 }

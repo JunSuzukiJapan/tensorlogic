@@ -31,7 +31,7 @@ impl Interpreter {
         let value = self.eval_expr(&args[0])?;
         let length = match value {
             Value::TokenIds(ref ids) => ids.len() as i64,
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 let dims = t.dims();
                 dims[0] as i64
             }
@@ -104,7 +104,7 @@ impl Interpreter {
         let new_token = match self.eval_expr(&args[1])? {
             Value::Integer(i) => i as u32,
             Value::Float(f) => f as u32,
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 // Convert scalar tensor to integer
                 if t.numel() != 1 {
                     return Err(RuntimeError::TypeError(
@@ -135,7 +135,7 @@ impl Interpreter {
         let int_val = match value {
             Value::Integer(i) => i,
             Value::Float(f) => f as i64,
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 if t.numel() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("to_int() tensor must be scalar, got shape {:?}", t.dims())

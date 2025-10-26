@@ -62,7 +62,7 @@ impl Interpreter {
             }
         }.map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(shape_tensor))
+        Ok(Value::TensorF16(shape_tensor))
     }
 
     /// ones(shape) -> tensor
@@ -79,7 +79,7 @@ impl Interpreter {
 
         // Extract shape from array literal
         let shape = match shape_val {
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 // Extract the values and convert to usize
                 let data = t.to_vec_f32();
                 data.iter().map(|&v| v as usize).collect::<Vec<_>>()
@@ -100,7 +100,7 @@ impl Interpreter {
         let tensor = Tensor::from_vec_metal(device, data, shape)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(tensor))
+        Ok(Value::TensorF16(tensor))
     }
 
     /// reshape(tensor, new_shape) -> tensor
@@ -119,7 +119,7 @@ impl Interpreter {
         // Evaluate new_shape argument
         let shape_val = self.eval_expr(&args[1])?;
         let new_shape = match shape_val {
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 let data = t.to_vec_f32();
                 data.iter().map(|&v| v as usize).collect::<Vec<_>>()
             }
@@ -145,7 +145,7 @@ impl Interpreter {
         let reshaped = tensor.reshape(new_shape)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(reshaped))
+        Ok(Value::TensorF16(reshaped))
     }
 
     /// transpose(tensor) -> tensor
@@ -165,7 +165,7 @@ impl Interpreter {
         let transposed = tensor.transpose()
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(transposed))
+        Ok(Value::TensorF16(transposed))
     }
 
     /// broadcast_to(tensor, target_shape) -> tensor
@@ -184,7 +184,7 @@ impl Interpreter {
         // Evaluate target_shape argument
         let shape_val = self.eval_expr(&args[1])?;
         let target_dims = match shape_val {
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 let data = t.to_vec_f32();
                 data.iter().map(|&v| v as usize).collect::<Vec<_>>()
             }
@@ -200,7 +200,7 @@ impl Interpreter {
         let broadcasted = tensor.broadcast_to(&target_shape)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(broadcasted))
+        Ok(Value::TensorF16(broadcasted))
     }
 
     /// concat(tensor1, tensor2, dim) -> tensor
@@ -237,14 +237,14 @@ impl Interpreter {
 
         // Handle Tensor concatenation
         let tensor1 = match val1 {
-            Value::Tensor(ref t) => t,
+            Value::TensorF16(ref t) => t,
             _ => return Err(RuntimeError::TypeError(
                 format!("concat() expects first argument to be a tensor or token array, got {:?}", val1)
             )),
         };
 
         let tensor2 = match val2 {
-            Value::Tensor(ref t) => t,
+            Value::TensorF16(ref t) => t,
             _ => return Err(RuntimeError::TypeError(
                 format!("concat() expects second argument to be a tensor or token array, got {:?}", val2)
             )),
@@ -254,7 +254,7 @@ impl Interpreter {
         let dim_val = self.eval_expr(&args[2])?;
         let dim = match dim_val {
             Value::Float(f) => f as usize,
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 if t.numel() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("concat() expects dim as scalar, got tensor with {} elements", t.numel())
@@ -272,7 +272,7 @@ impl Interpreter {
         let result = Tensor::concat(&tensors, dim)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(result))
+        Ok(Value::TensorF16(result))
     }
 
     /// rope(tensor) -> tensor
@@ -310,7 +310,7 @@ impl Interpreter {
             match offset_val {
                 Value::Float(f) => f as usize,
                 Value::Integer(i) => i as usize,
-                Value::Tensor(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+                Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
                 Value::TokenIdArray(ref arr) if arr.len() == 1 => arr.get(0).unwrap() as usize,
                 _ => return Err(RuntimeError::TypeError(
                     "rope() position_offset must be a scalar integer".to_string()
@@ -324,7 +324,7 @@ impl Interpreter {
         let result = tensor.rope(position_offset)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(result))
+        Ok(Value::TensorF16(result))
     }
 
     /// slice(tensor, row, col_start, col_end) -> tensor
@@ -375,7 +375,7 @@ impl Interpreter {
         let row_val = self.eval_expr(&args[1])?;
         let row = match row_val {
             Value::Float(f) => f as usize,
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 if t.numel() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("slice() expects row as scalar, got tensor with {} elements", t.numel())
@@ -392,7 +392,7 @@ impl Interpreter {
         let col_start_val = self.eval_expr(&args[2])?;
         let col_start = match col_start_val {
             Value::Float(f) => f as usize,
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 if t.numel() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("slice() expects col_start as scalar, got tensor with {} elements", t.numel())
@@ -409,7 +409,7 @@ impl Interpreter {
         let col_end_val = self.eval_expr(&args[3])?;
         let col_end = match col_end_val {
             Value::Float(f) => f as usize,
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 if t.numel() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("slice() expects col_end as scalar, got tensor with {} elements", t.numel())
@@ -462,7 +462,7 @@ impl Interpreter {
             }
         }.map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(result_tensor))
+        Ok(Value::TensorF16(result_tensor))
     }
 
     /// 1D slice: slice(array, start, end)
@@ -475,7 +475,7 @@ impl Interpreter {
         let start = match start_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::Tensor(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
             Value::TokenIdArray(ref arr) if arr.len() == 1 => arr.get(0).unwrap() as usize,
             _ => return Err(RuntimeError::TypeError(
                 format!("slice() start index must be scalar, got {:?}", start_val)
@@ -487,7 +487,7 @@ impl Interpreter {
         let end = match end_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::Tensor(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
             Value::TokenIdArray(ref arr) if arr.len() == 1 => arr.get(0).unwrap() as usize,
             _ => return Err(RuntimeError::TypeError(
                 format!("slice() end index must be scalar, got {:?}", end_val)
@@ -538,6 +538,6 @@ impl Interpreter {
             }
         }.map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(result_tensor))
+        Ok(Value::TensorF16(result_tensor))
     }
 }

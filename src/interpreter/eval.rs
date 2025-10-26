@@ -638,7 +638,7 @@ impl Interpreter {
                         .map_err(|e| RuntimeError::InvalidOperation(e))?;
 
                     println!("✓ Python call: {}({} args)", function, args.len());
-                    Ok(Value::Tensor(result))
+                    Ok(Value::TensorF16(result))
                 }
                 #[cfg(not(any(feature = "python", feature = "python-extension")))]
                 {
@@ -660,7 +660,7 @@ impl Interpreter {
                         let tensor_name = property.as_str();
 
                         if let Some(tensor) = model.get_tensor(tensor_name) {
-                            Ok(Value::Tensor(tensor.clone()))
+                            Ok(Value::TensorF16(tensor.clone()))
                         } else {
                             Err(RuntimeError::InvalidOperation(
                                 format!("Model does not have tensor '{}'", tensor_name)
@@ -682,7 +682,7 @@ impl Interpreter {
                     "shape" => {
                         // Call shape() method - returns Tensor
                         match obj_value {
-                            Value::Tensor(ref t) => {
+                            Value::TensorF16(ref t) => {
                                 // Create shape tensor from dimensions
                                 use half::f16;
                                 let shape_data: Vec<f16> = t.shape().dims().iter()
@@ -700,7 +700,7 @@ impl Interpreter {
                                         crate::tensor::Tensor::from_vec(shape_data, vec![t.shape().dims().len()])
                                     }
                                 }.map_err(|e| RuntimeError::TensorError(e))?;
-                                Ok(Value::Tensor(shape_tensor))
+                                Ok(Value::TensorF16(shape_tensor))
                             }
                             _ => Err(RuntimeError::TypeError(
                                 format!("Cannot call shape() on {:?}", obj_value)
@@ -746,7 +746,7 @@ impl Interpreter {
             use half::f16;
             let tensor = Tensor::from_vec_metal(self.env.metal_device(), vec![], vec![0])
                 .map_err(|e| RuntimeError::TensorError(e))?;
-            return Ok(Value::Tensor(tensor));
+            return Ok(Value::TensorF16(tensor));
         }
 
         // Recursively collect all scalar values
@@ -760,7 +760,7 @@ impl Interpreter {
         let f16_values: Vec<f16> = values.into_iter().map(f16::from_f32).collect();
         let tensor = Tensor::from_vec_metal(self.env.metal_device(), f16_values, shape)
             .map_err(|e| RuntimeError::TensorError(e))?;
-        Ok(Value::Tensor(tensor))
+        Ok(Value::TensorF16(tensor))
     }
 
     /// Collect all scalar values from nested arrays
@@ -826,7 +826,7 @@ impl Interpreter {
     /// Evaluate a binary operation
     pub(super) fn eval_binary_op(&self, op: &BinaryOp, left: Value, right: Value) -> RuntimeResult<Value> {
         match (left, right) {
-            (Value::Tensor(l), Value::Tensor(r)) => {
+            (Value::TensorF16(l), Value::TensorF16(r)) => {
                 let result = match op {
                     BinaryOp::Add => l.add(&r),
                     BinaryOp::Sub => l.sub(&r),
@@ -852,7 +852,35 @@ impl Interpreter {
                 }
                 .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(result))
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(l), Value::TensorF32(r)) => {
+                let result = match op {
+                    BinaryOp::Add => l.add(&r),
+                    BinaryOp::Sub => l.sub(&r),
+                    BinaryOp::Mul => l.mul(&r),
+                    BinaryOp::Div => l.div(&r),
+                    BinaryOp::MatMul => l.matmul(&r),
+                    BinaryOp::Power => {
+                        return Err(RuntimeError::NotImplemented("Power not yet implemented".to_string()));
+                    }
+                    BinaryOp::TensorProd => {
+                        return Err(RuntimeError::NotImplemented("Tensor product not yet implemented".to_string()));
+                    }
+                    BinaryOp::Hadamard => {
+                        // Hadamard is element-wise multiplication (same as mul)
+                        l.mul(&r)
+                    }
+                    BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+                        return Err(RuntimeError::NotImplemented(format!("Comparison {:?} not yet implemented for tensors", op)));
+                    }
+                    BinaryOp::And | BinaryOp::Or => {
+                        return Err(RuntimeError::NotImplemented(format!("Logical {:?} not yet implemented for tensors", op)));
+                    }
+                }
+                .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(Value::TensorF32(result))
             }
             (Value::Float(l), Value::Float(r)) => {
                 match op {
@@ -931,7 +959,7 @@ impl Interpreter {
                 }
             }
             // Tensor-Float operations (e.g., tensor * 0.5)
-            (Value::Tensor(t), Value::Float(s)) => {
+            (Value::TensorF16(t), Value::Float(s)) => {
                 let scalar_f16 = half::f16::from_f32(s as f32);
                 let result = match op {
                     BinaryOp::Add => t.add_scalar(scalar_f16),
@@ -951,10 +979,10 @@ impl Interpreter {
                     }
                 }
                 .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::Tensor(result))
+                Ok(Value::TensorF16(result))
             }
             // Float-Tensor operations (e.g., 0.5 * tensor)
-            (Value::Float(s), Value::Tensor(t)) => {
+            (Value::Float(s), Value::TensorF16(t)) => {
                 let scalar_f16 = half::f16::from_f32(s as f32);
                 let result = match op {
                     BinaryOp::Add => t.add_scalar(scalar_f16),
@@ -981,7 +1009,7 @@ impl Interpreter {
                     }
                 }
                 .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::Tensor(result))
+                Ok(Value::TensorF16(result))
             }
             _ => Err(RuntimeError::TypeError(
                 "Binary operation requires compatible types".to_string(),
@@ -992,7 +1020,7 @@ impl Interpreter {
     /// Evaluate a unary operation
     pub(super) fn eval_unary_op(&self, op: &UnaryOp, operand: Value) -> RuntimeResult<Value> {
         match operand {
-            Value::Tensor(t) => {
+            Value::TensorF16(t) => {
                 let result = match op {
                     UnaryOp::Neg => {
                         // Negate tensor: -t
@@ -1015,7 +1043,7 @@ impl Interpreter {
                 }
                 .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(result))
+                Ok(Value::TensorF16(result))
             }
             Value::Float(f) => {
                 let result = match op {
@@ -1129,7 +1157,7 @@ impl Interpreter {
             vec![dimension]
         )?;
 
-        Ok(Value::Tensor(embedding_tensor))
+        Ok(Value::TensorF16(embedding_tensor))
     }
 
     /// Evaluate tensor indexing: tensor[i, j, ...]
@@ -1219,6 +1247,6 @@ impl Interpreter {
         let result = Tensor::einsum(spec, &tensor_refs)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(result))
+        Ok(Value::TensorF16(result))
     }
 }

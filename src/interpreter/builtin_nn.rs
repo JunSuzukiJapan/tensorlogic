@@ -46,6 +46,6 @@ impl Interpreter {
         let result = tensor.rms_norm(normalized_shape, &weight, eps)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(result))
+        Ok(Value::TensorF16(result))
     }
 }
