@@ -140,7 +140,7 @@ main {
     // To DISABLE scaling (test original behavior):
     //   Set residual_scale = 1.0
     // ========================================
-    let residual_scale = 0.150756
+    let residual_scale = 0.151
     print("Residual scale factor:", residual_scale)
     print("(Recommended: 1/sqrt(2*22) = 0.150756)")
     print("")
