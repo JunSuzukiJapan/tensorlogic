@@ -1187,13 +1187,14 @@ impl Interpreter {
                 // Keep only top-k logits, set others to -inf
                 // Input: logits [vocab_size] or [..., vocab_size]
                 // Output: same shape as input, with non-top-k values set to -inf
+                use crate::interpreter::value::ToValue;
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("top_k() expects 2 arguments (logits, k), got {}", args.len())
                     ));
                 }
 
-                let logits = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let logits_val = self.eval_expr(&args[0])?;
                 let k = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
                     Value::Float(f) => f as usize,
@@ -1202,53 +1203,107 @@ impl Interpreter {
                     )),
                 };
 
-                let shape = logits.shape();
-                let dims = shape.dims();
-                let vocab_size = dims[dims.len() - 1];
+                match logits_val {
+                    Value::TensorF16(logits) => {
+                        let shape = logits.shape();
+                        let dims = shape.dims();
+                        let vocab_size = dims[dims.len() - 1];
 
-                if k > vocab_size {
-                    return Err(RuntimeError::TensorError(
-                        crate::error::TensorError::InvalidOperation(
-                            format!("k ({}) cannot be larger than vocab_size ({})", k, vocab_size)
-                        )
-                    ));
-                }
+                        if k > vocab_size {
+                            return Err(RuntimeError::TensorError(
+                                crate::error::TensorError::InvalidOperation(
+                                    format!("k ({}) cannot be larger than vocab_size ({})", k, vocab_size)
+                                )
+                            ));
+                        }
 
-                // Get logits data
-                let data = logits.to_vec();
-                let mut output_data = data.clone();
+                        // Get logits data
+                        let data = logits.to_vec();
+                        let mut output_data = data.clone();
 
-                // Process each sequence (last dimension is vocab)
-                let batch_size = data.len() / vocab_size;
+                        // Process each sequence (last dimension is vocab)
+                        let batch_size = data.len() / vocab_size;
 
-                for batch_idx in 0..batch_size {
-                    let start_idx = batch_idx * vocab_size;
-                    let end_idx = start_idx + vocab_size;
-                    let logits_slice = &data[start_idx..end_idx];
+                        for batch_idx in 0..batch_size {
+                            let start_idx = batch_idx * vocab_size;
+                            let end_idx = start_idx + vocab_size;
+                            let logits_slice = &data[start_idx..end_idx];
 
-                    // Get indices sorted by logit value (descending)
-                    let mut indexed_logits: Vec<(usize, f32)> = logits_slice
-                        .iter()
-                        .enumerate()
-                        .map(|(i, &v)| (i, v.to_f32()))
-                        .collect();
-                    indexed_logits.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+                            // Get indices sorted by logit value (descending)
+                            let mut indexed_logits: Vec<(usize, f32)> = logits_slice
+                                .iter()
+                                .enumerate()
+                                .map(|(i, &v)| (i, v.to_f32()))
+                                .collect();
+                            indexed_logits.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
-                    // Set non-top-k to -inf
-                    for i in k..vocab_size {
-                        let idx = indexed_logits[i].0;
-                        output_data[start_idx + idx] = half::f16::from_f32(f32::NEG_INFINITY);
+                            // Set non-top-k to -inf
+                            for i in k..vocab_size {
+                                let idx = indexed_logits[i].0;
+                                output_data[start_idx + idx] = half::f16::from_f32(f32::NEG_INFINITY);
+                            }
+                        }
+
+                        // Create output tensor
+                        let output = crate::tensor::Tensor::from_vec_metal(
+                            self.env.metal_device(),
+                            output_data,
+                            dims.to_vec()
+                        ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                        Ok(output.to_value())
                     }
+                    Value::TensorF32(logits) => {
+                        let shape = logits.shape();
+                        let dims = shape.dims();
+                        let vocab_size = dims[dims.len() - 1];
+
+                        if k > vocab_size {
+                            return Err(RuntimeError::TensorError(
+                                crate::error::TensorError::InvalidOperation(
+                                    format!("k ({}) cannot be larger than vocab_size ({})", k, vocab_size)
+                                )
+                            ));
+                        }
+
+                        // Get logits data
+                        let data = logits.to_vec();
+                        let mut output_data = data.clone();
+
+                        // Process each sequence (last dimension is vocab)
+                        let batch_size = data.len() / vocab_size;
+
+                        for batch_idx in 0..batch_size {
+                            let start_idx = batch_idx * vocab_size;
+                            let end_idx = start_idx + vocab_size;
+                            let logits_slice = &data[start_idx..end_idx];
+
+                            // Get indices sorted by logit value (descending)
+                            let mut indexed_logits: Vec<(usize, f32)> = logits_slice
+                                .iter()
+                                .enumerate()
+                                .map(|(i, &v)| (i, v))
+                                .collect();
+                            indexed_logits.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+                            // Set non-top-k to -inf
+                            for i in k..vocab_size {
+                                let idx = indexed_logits[i].0;
+                                output_data[start_idx + idx] = f32::NEG_INFINITY;
+                            }
+                        }
+
+                        // Create output tensor
+                        let output = crate::tensor::Tensor::from_vec_metal(
+                            self.env.metal_device(),
+                            output_data,
+                            dims.to_vec()
+                        ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("top_k() expects tensor (f16 or f32)".to_string()))
                 }
-
-                // Create output tensor
-                let output = crate::tensor::Tensor::from_vec_metal(
-                    self.env.metal_device(),
-                    output_data,
-                    dims.to_vec()
-                ).map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
             }
 
             "top_p" => {
