@@ -2280,16 +2280,25 @@ impl Interpreter {
             "sigmoid" => {
                 // sigmoid(tensor) -> Tensor
                 // Sigmoid activation: 1 / (1 + exp(-x))
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("sigmoid() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let output = tensor.sigmoid().map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                Ok(match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        tensor.sigmoid().map_err(|e| RuntimeError::TensorError(e))?.to_value()
+                    }
+                    Value::TensorF32(tensor) => {
+                        tensor.sigmoid().map_err(|e| RuntimeError::TensorError(e))?.to_value()
+                    }
+                    _ => return Err(RuntimeError::TypeError("sigmoid() expects tensor (f16 or f32)".to_string()))
+                })
             }
 
             "sum" => {
