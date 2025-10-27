@@ -3603,6 +3603,8 @@ impl Interpreter {
                 // binary_cross_entropy(score, target) -> Tensor
                 // BCE loss: -target * log(sigmoid(score)) - (1-target) * log(1-sigmoid(score))
                 // Used for binary classification of triples
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("binary_cross_entropy() expects 2 arguments (score, target), got {}", args.len())
@@ -3610,7 +3612,7 @@ impl Interpreter {
                 }
 
                 // Evaluate arguments
-                let score = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let score_val = self.eval_expr(&args[0])?;
                 let target_val = self.eval_expr(&args[1])?;
 
                 // Parse target (0 or 1)
@@ -3622,44 +3624,77 @@ impl Interpreter {
                     )),
                 };
 
-                // Apply sigmoid to score
-                let prob = score.sigmoid()?;
+                match score_val {
+                    Value::TensorF16(score) => {
+                        // Apply sigmoid to score
+                        let prob = score.sigmoid()?;
 
-                // Compute BCE: -target * log(prob) - (1-target) * log(1-prob)
-                // For numerical stability, use: target * log_sigmoid(score) + (1-target) * log_sigmoid(-score)
-                let device = self.env.metal_device();
+                        // Compute BCE: -target * log(prob) - (1-target) * log(1-prob)
+                        // For numerical stability, use: target * log_sigmoid(score) + (1-target) * log_sigmoid(-score)
+                        let device = self.env.metal_device();
 
-                // Get prob value as f32
-                let prob_data = prob.to_vec();
-                let prob_f32 = prob_data[0].to_f32();
+                        // Get prob value as f32
+                        let prob_data = prob.to_vec();
+                        let prob_f32 = prob_data[0].to_f32();
 
-                // Compute log(prob) and log(1-prob) with numerical stability
-                let log_prob = if prob_f32 > 0.0 { prob_f32.ln() } else { -100.0 }; // Clamp to avoid -inf
-                let log_one_minus_prob = if prob_f32 < 1.0 { (1.0 - prob_f32).ln() } else { -100.0 };
+                        // Compute log(prob) and log(1-prob) with numerical stability
+                        let log_prob = if prob_f32 > 0.0 { prob_f32.ln() } else { -100.0 }; // Clamp to avoid -inf
+                        let log_one_minus_prob = if prob_f32 < 1.0 { (1.0 - prob_f32).ln() } else { -100.0 };
 
-                // BCE = -target * log(prob) - (1-target) * log(1-prob)
-                let bce_f32 = -target_f32 * log_prob - (1.0 - target_f32) * log_one_minus_prob;
-                let bce_f16 = half::f16::from_f32(bce_f32);
+                        // BCE = -target * log(prob) - (1-target) * log(1-prob)
+                        let bce_f32 = -target_f32 * log_prob - (1.0 - target_f32) * log_one_minus_prob;
+                        let bce_f16 = half::f16::from_f32(bce_f32);
 
-                // Create scalar tensor
-                let loss_tensor = Tensor::from_vec_metal(device, vec![bce_f16], vec![1])?;
+                        // Create scalar tensor
+                        let loss_tensor = Tensor::from_vec_metal(device, vec![bce_f16], vec![1])?;
 
-                Ok(Value::TensorF16(loss_tensor))
+                        Ok(loss_tensor.to_value())
+                    }
+                    Value::TensorF32(score) => {
+                        // Apply sigmoid to score
+                        let prob = score.sigmoid()?;
+
+                        // Compute BCE: -target * log(prob) - (1-target) * log(1-prob)
+                        // For numerical stability, use: target * log_sigmoid(score) + (1-target) * log_sigmoid(-score)
+                        let device = self.env.metal_device();
+
+                        // Get prob value as f32
+                        let prob_data = prob.to_vec();
+                        let prob_f32 = prob_data[0];
+
+                        // Compute log(prob) and log(1-prob) with numerical stability
+                        let log_prob = if prob_f32 > 0.0 { prob_f32.ln() } else { -100.0 }; // Clamp to avoid -inf
+                        let log_one_minus_prob = if prob_f32 < 1.0 { (1.0 - prob_f32).ln() } else { -100.0 };
+
+                        // BCE = -target * log(prob) - (1-target) * log(1-prob)
+                        let bce = -target_f32 * log_prob - (1.0 - target_f32) * log_one_minus_prob;
+
+                        // Create scalar tensor
+                        let loss_tensor = Tensor::from_vec_metal(device, vec![bce], vec![1])?;
+
+                        Ok(loss_tensor.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "binary_cross_entropy() score must be a tensor (f16 or f32)".to_string()
+                    ))
+                }
             }
 
             "predict_tail_transe" => {
                 // predict_tail_transe(head, relation, tail_candidates, model: "L2")
                 // Computes TransE scores for multiple tail candidates
                 // Returns list of scores (for now, just computes one at a time)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 3 {
                     return Err(RuntimeError::TypeError(
                         format!("predict_tail_transe() expects at least 3 arguments (head, relation, tail_candidate), got {}", args.len())
                     ));
                 }
 
-                let head = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
-                let tail_candidate = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
+                let head_val = self.eval_expr(&args[0])?;
+                let relation_val = self.eval_expr(&args[1])?;
+                let tail_candidate_val = self.eval_expr(&args[2])?;
 
                 let model = if args.len() > 3 {
                     match self.eval_expr(&args[3])? {
@@ -3670,45 +3705,80 @@ impl Interpreter {
                     "L2".to_string()
                 };
 
-                // Compute TransE score for this candidate
-                let device = self.env.metal_device();
+                match (head_val, relation_val, tail_candidate_val) {
+                    (Value::TensorF16(head), Value::TensorF16(relation), Value::TensorF16(tail_candidate)) => {
+                        // Compute TransE score for this candidate
+                        let device = self.env.metal_device();
 
-                // h + r
-                let h_plus_r = head.add(&relation)?;
-                
-                // h + r - t
-                let diff = h_plus_r.sub(&tail_candidate)?;
+                        // h + r
+                        let h_plus_r = head.add(&relation)?;
 
-                // Compute norm based on model type
-                let score = if model == "L2" {
-                    // L2 norm: -sqrt(sum(x^2))
-                    let squared = diff.mul(&diff)?;
-                    let sum_squared_f16 = squared.sum()?;
-                    let sum_squared_f32 = sum_squared_f16.to_f32();
-                    let l2_norm_f32 = sum_squared_f32.sqrt();
-                    let score_f16 = half::f16::from_f32(-l2_norm_f32);
-                    Tensor::from_vec_metal(device, vec![score_f16], vec![1])?
-                } else {
-                    return Err(RuntimeError::NotImplemented(
-                        format!("predict_tail_transe: model '{}' not yet implemented (only L2 supported)", model)
-                    ));
-                };
+                        // h + r - t
+                        let diff = h_plus_r.sub(&tail_candidate)?;
 
-                Ok(Value::TensorF16(score))
+                        // Compute norm based on model type
+                        let score = if model == "L2" {
+                            // L2 norm: -sqrt(sum(x^2))
+                            let squared = diff.mul(&diff)?;
+                            let sum_squared_f16 = squared.sum()?;
+                            let sum_squared_f32 = sum_squared_f16.to_f32();
+                            let l2_norm_f32 = sum_squared_f32.sqrt();
+                            let score_f16 = half::f16::from_f32(-l2_norm_f32);
+                            Tensor::from_vec_metal(device, vec![score_f16], vec![1])?
+                        } else {
+                            return Err(RuntimeError::NotImplemented(
+                                format!("predict_tail_transe: model '{}' not yet implemented (only L2 supported)", model)
+                            ));
+                        };
+
+                        Ok(score.to_value())
+                    }
+                    (Value::TensorF32(head), Value::TensorF32(relation), Value::TensorF32(tail_candidate)) => {
+                        // Compute TransE score for this candidate
+                        let device = self.env.metal_device();
+
+                        // h + r
+                        let h_plus_r = head.add(&relation)?;
+
+                        // h + r - t
+                        let diff = h_plus_r.sub(&tail_candidate)?;
+
+                        // Compute norm based on model type
+                        let score = if model == "L2" {
+                            // L2 norm: -sqrt(sum(x^2))
+                            let squared = diff.mul(&diff)?;
+                            let sum_squared = squared.sum()?;
+                            let l2_norm = sum_squared.sqrt();
+                            let score_value = -l2_norm;
+                            Tensor::from_vec_metal(device, vec![score_value], vec![1])?
+                        } else {
+                            return Err(RuntimeError::NotImplemented(
+                                format!("predict_tail_transe: model '{}' not yet implemented (only L2 supported)", model)
+                            ));
+                        };
+
+                        Ok(score.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "predict_tail_transe() requires all tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "predict_head_transe" => {
                 // predict_head_transe(head_candidate, relation, tail, model: "L2")
                 // Computes TransE scores for head candidates
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 3 {
                     return Err(RuntimeError::TypeError(
                         format!("predict_head_transe() expects at least 3 arguments (head_candidate, relation, tail), got {}", args.len())
                     ));
                 }
 
-                let head_candidate = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
-                let tail = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
+                let head_candidate_val = self.eval_expr(&args[0])?;
+                let relation_val = self.eval_expr(&args[1])?;
+                let tail_val = self.eval_expr(&args[2])?;
 
                 let model = if args.len() > 3 {
                     match self.eval_expr(&args[3])? {
@@ -3719,26 +3789,54 @@ impl Interpreter {
                     "L2".to_string()
                 };
 
-                // Compute TransE score: -(||h_candidate + r - t||)
-                let device = self.env.metal_device();
+                match (head_candidate_val, relation_val, tail_val) {
+                    (Value::TensorF16(head_candidate), Value::TensorF16(relation), Value::TensorF16(tail)) => {
+                        // Compute TransE score: -(||h_candidate + r - t||)
+                        let device = self.env.metal_device();
 
-                let h_plus_r = head_candidate.add(&relation)?;
-                let diff = h_plus_r.sub(&tail)?;
+                        let h_plus_r = head_candidate.add(&relation)?;
+                        let diff = h_plus_r.sub(&tail)?;
 
-                let score = if model == "L2" {
-                    let squared = diff.mul(&diff)?;
-                    let sum_squared_f16 = squared.sum()?;
-                    let sum_squared_f32 = sum_squared_f16.to_f32();
-                    let l2_norm_f32 = sum_squared_f32.sqrt();
-                    let score_f16 = half::f16::from_f32(-l2_norm_f32);
-                    Tensor::from_vec_metal(device, vec![score_f16], vec![1])?
-                } else {
-                    return Err(RuntimeError::NotImplemented(
-                        format!("predict_head_transe: model '{}' not yet implemented", model)
-                    ));
-                };
+                        let score = if model == "L2" {
+                            let squared = diff.mul(&diff)?;
+                            let sum_squared_f16 = squared.sum()?;
+                            let sum_squared_f32 = sum_squared_f16.to_f32();
+                            let l2_norm_f32 = sum_squared_f32.sqrt();
+                            let score_f16 = half::f16::from_f32(-l2_norm_f32);
+                            Tensor::from_vec_metal(device, vec![score_f16], vec![1])?
+                        } else {
+                            return Err(RuntimeError::NotImplemented(
+                                format!("predict_head_transe: model '{}' not yet implemented", model)
+                            ));
+                        };
 
-                Ok(Value::TensorF16(score))
+                        Ok(score.to_value())
+                    }
+                    (Value::TensorF32(head_candidate), Value::TensorF32(relation), Value::TensorF32(tail)) => {
+                        // Compute TransE score: -(||h_candidate + r - t||)
+                        let device = self.env.metal_device();
+
+                        let h_plus_r = head_candidate.add(&relation)?;
+                        let diff = h_plus_r.sub(&tail)?;
+
+                        let score = if model == "L2" {
+                            let squared = diff.mul(&diff)?;
+                            let sum_squared = squared.sum()?;
+                            let l2_norm = sum_squared.sqrt();
+                            let score_value = -l2_norm;
+                            Tensor::from_vec_metal(device, vec![score_value], vec![1])?
+                        } else {
+                            return Err(RuntimeError::NotImplemented(
+                                format!("predict_head_transe: model '{}' not yet implemented", model)
+                            ));
+                        };
+
+                        Ok(score.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "predict_head_transe() requires all tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "predict_tail_distmult" => {
