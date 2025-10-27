@@ -2422,16 +2422,28 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let dims = tensor.dims();
+                use crate::interpreter::value::ToValue;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                // Convert shape dimensions to a 1D tensor
                 let device = MetalDevice::new().map_err(|e| RuntimeError::TensorError(e))?;
-                let shape_vec: Vec<f16> = dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
-                let shape_tensor = Tensor::from_vec_metal(&device, shape_vec, vec![dims.len()])
-                    .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::TensorF16(shape_tensor))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let dims = tensor.dims();
+                        let shape_vec: Vec<f16> = dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
+                        let shape_tensor = Tensor::from_vec_metal(&device, shape_vec, vec![dims.len()])
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(shape_tensor.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let dims = tensor.dims();
+                        let shape_vec: Vec<f32> = dims.iter().map(|&d| d as f32).collect();
+                        let shape_tensor = Tensor::from_vec_metal(&device, shape_vec, vec![dims.len()])
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(shape_tensor.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("shape() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "broadcast_to" => {
@@ -2506,39 +2518,57 @@ impl Interpreter {
 
             "permute" => {
                 // permute(tensor, [dims])
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("permute() expects 2 arguments (tensor, dims), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
                 let dims_value = self.eval_expr(&args[1])?;
+
+                // Extract dims from TensorF16 or TensorF32
                 let dims = match dims_value {
                     Value::TensorF16(t) => {
                         t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                    }
+                    Value::TensorF32(t) => {
+                        t.to_vec().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
                         "permute() dims must be an array".to_string()
                     )),
                 };
 
-                let output = tensor.permute(dims)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.permute(dims)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.permute(dims)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("permute() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             // Indexing functions
             "gather" => {
                 // gather(tensor, dim, indices)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 3 {
                     return Err(RuntimeError::TypeError(
                         format!("gather() expects 3 arguments (tensor, dim, indices), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
                 let dim = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
                     Value::Float(f) => f as usize,
@@ -2546,12 +2576,23 @@ impl Interpreter {
                         format!("gather() dim must be a number, got {:?}", v)
                     )),
                 };
-                let indices = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
+                let indices_val = self.eval_expr(&args[2])?;
 
-                let output = tensor.gather(dim, &indices)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor_val, indices_val) {
+                    (Value::TensorF16(tensor), Value::TensorF16(indices)) => {
+                        let output = tensor.gather(dim, &indices)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    (Value::TensorF32(tensor), Value::TensorF32(indices)) => {
+                        let output = tensor.gather(dim, &indices)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "gather() requires tensor and indices to be same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "scatter" => {
