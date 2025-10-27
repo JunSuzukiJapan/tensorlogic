@@ -141,6 +141,9 @@ pub struct Interpreter {
     functions: HashMap<String, FunctionDecl>,
     // Function call stack for local scope management
     call_stack: Vec<CallFrame>,
+    // Track learnable tensors declared with 'learnable' keyword
+    // These are the only tensors that should be optimized in learn blocks
+    learnable_params: HashSet<String>,
 }
 
 impl Interpreter {
@@ -160,6 +163,7 @@ impl Interpreter {
             relation_entity_params: HashMap::new(),
             functions: HashMap::new(),
             call_stack: Vec::new(),
+            learnable_params: HashSet::new(),
         }
     }
 
@@ -420,6 +424,11 @@ impl Interpreter {
             }
             value
         };
+
+        // Track learnable parameters (only if explicitly declared with 'learnable' keyword)
+        if decl.tensor_type.learnable == LearnableStatus::Learnable {
+            self.learnable_params.insert(decl.name.as_str().to_string());
+        }
 
         // Use declare_variable for tensor declarations (they create new variables)
         self.env.declare_variable(decl.name.as_str().to_string(), value)?;
@@ -4029,18 +4038,33 @@ impl Interpreter {
         }
 
         // Collect learnable parameters BEFORE executing statements
-        // This ensures only explicitly declared 'learnable' tensors are optimized,
-        // not intermediate variables computed in the learn block
+        // Only collect tensors that were explicitly declared with 'learnable' keyword
+        // This prevents intermediate variables (like loss) from being treated as parameters
         let mut learnable_params = Vec::new();
         let mut learnable_param_names = Vec::new(); // Store names for later rebuilding
-        for (name, value) in &self.env.variables {
-            if let Value::TensorF16(tensor) = value {
-                if tensor.requires_grad() {
-                    learnable_params.push((name.clone(), tensor.clone()));
-                    learnable_param_names.push(name.clone());
-                    println!("\nLearnable parameter: {}", name);
-                    println!("  Shape: {:?}", tensor.shape().dims());
-                    println!("  Initial values: {:?}", &tensor.to_vec()[..std::cmp::min(5, tensor.shape().dims()[0])].iter().map(|v| v.to_f32()).collect::<Vec<_>>());
+        let mut learnable_param_node_ids = Vec::new(); // Store node IDs for gradient retrieval
+        for name in &self.learnable_params {
+            if let Ok(value) = self.env.get_variable(name) {
+                match value {
+                    Value::TensorF16(tensor) => {
+                        let node_id = tensor.grad_node().ok_or_else(|| {
+                            RuntimeError::InvalidOperation(format!(
+                                "Learnable parameter '{}' does not have a computation graph node", name
+                            ))
+                        })?;
+                        learnable_params.push((name.clone(), tensor.clone()));
+                        learnable_param_names.push(name.clone());
+                        learnable_param_node_ids.push(node_id);
+                        println!("\nLearnable parameter: {}", name);
+                        println!("  Shape: {:?}", tensor.shape().dims());
+                        println!("  Initial values: {:?}", &tensor.to_vec()[..std::cmp::min(5, tensor.shape().dims()[0])].iter().map(|v| v.to_f32()).collect::<Vec<_>>());
+                    }
+                    Value::TensorF32(_) => {
+                        return Err(RuntimeError::InvalidOperation(
+                            format!("Learnable parameter '{}' is float32, but autograd currently only supports float16. Please use 'float16' type for learnable tensors.", name)
+                        ));
+                    }
+                    _ => {}
                 }
             }
         }
@@ -4132,6 +4156,27 @@ impl Interpreter {
                 opt.zero_grad();
             }
 
+            // Update node_ids from optimizer parameters (they may change after step())
+            // Also update environment with latest parameter values
+            learnable_param_node_ids.clear();
+            let current_params = opt.params();
+            for (idx, param) in current_params.iter().enumerate() {
+                if let Some(node_id) = param.grad_node() {
+                    learnable_param_node_ids.push(node_id);
+                }
+                // Update environment with current parameter
+                if idx < learnable_param_names.len() {
+                    let name = &learnable_param_names[idx];
+                    let mut param_clone = param.clone();
+                    param_clone.requires_grad = true;
+                    if let Some(node_id) = param.grad_node() {
+                        use crate::tensor::TensorAutograd;
+                        param_clone.set_grad_node(node_id);
+                    }
+                    self.env.variables.insert(name.clone(), Value::TensorF16(param_clone));
+                }
+            }
+
             // Re-execute statements for each epoch (recompute intermediate variables)
             for stmt in &spec.statements {
                 self.execute_statement(stmt)?;
@@ -4158,9 +4203,11 @@ impl Interpreter {
             match loss_tensor_mut.backward() {
                 Ok(_) => {
                     // 2. Collect gradients from all learnable parameters and compute norm
+                    // Get gradients from TENSOR_REGISTRY using node IDs
+                    use crate::autograd::AutogradContext;
                     let mut grad_norm_squared = 0.0f32;
-                    for (name, _) in &learnable_params {
-                        if let Ok(Value::TensorF16(param_tensor)) = self.env.get_variable(name) {
+                    for node_id in learnable_param_node_ids.iter() {
+                        if let Some(param_tensor) = AutogradContext::get_tensor_generic::<half::f16>(*node_id) {
                             if let Some(grad) = param_tensor.grad() {
                                 // Calculate gradient norm contribution
                                 let grad_data = grad.to_vec();
@@ -4181,24 +4228,24 @@ impl Interpreter {
                             // 4. Update environment with optimized parameters
                             // The optimizer has updated the parameters internally
                             // We need to sync them back to the environment
-                            // IMPORTANT: Ensure requires_grad is maintained
+                            // IMPORTANT: Preserve the original node_id to maintain gradient information
                             let updated_params = opt.params();
-                            for ((name, _), new_tensor) in learnable_params.iter().zip(updated_params.iter()) {
+                            for (((name, _), new_tensor), node_id) in learnable_params.iter()
+                                .zip(updated_params.iter())
+                                .zip(learnable_param_node_ids.iter()) {
                                 let mut param_with_grad = new_tensor.clone();
-                                param_with_grad.set_requires_grad(true);
+                                // Manually set requires_grad without allocating a new node
+                                use crate::tensor::TensorAutograd;
+                                param_with_grad.requires_grad = true;
+                                // Restore the original node_id to maintain gradient connection
+                                param_with_grad.set_grad_node(*node_id);
                                 // Learning context - update parameter
                                 self.env.variables.insert(name.clone(), Value::TensorF16(param_with_grad));
                             }
 
-                            // 5. Rebuild learnable_params vector to point to updated tensors
-                            // This ensures the next epoch's backward pass can find the parameters
-                            // Only rebuild from the original learnable parameter names (not local variables)
-                            learnable_params.clear();
-                            for name in &learnable_param_names {
-                                if let Ok(Value::TensorF16(tensor)) = self.env.get_variable(name) {
-                                    learnable_params.push((name.clone(), tensor.clone()));
-                                }
-                            }
+                            // Note: We don't rebuild learnable_params from the environment
+                            // The optimizer maintains the authoritative parameter state
+                            // and we sync to the environment above
                         }
                         Err(e) => {
                             print!(" [Optimizer error: {}]", e);

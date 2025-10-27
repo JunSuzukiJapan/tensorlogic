@@ -107,13 +107,13 @@ impl AutogradContext {
         use half::f16;
         let variant = if T::is_f16() {
             // Safety: We checked T::is_f16(), so T = f16
-            let f16_tensor: Tensor<f16> = unsafe { std::mem::transmute_copy(&tensor) };
-            std::mem::forget(tensor); // Prevent double drop
+            // Use transmute to transfer ownership (no need for forget)
+            let f16_tensor: Tensor<f16> = unsafe { std::mem::transmute(tensor) };
             TensorVariant::F16(f16_tensor)
         } else if T::is_f32() {
             // Safety: We checked T::is_f32(), so T = f32
-            let f32_tensor: Tensor<f32> = unsafe { std::mem::transmute_copy(&tensor) };
-            std::mem::forget(tensor); // Prevent double drop
+            // Use transmute to transfer ownership (no need for forget)
+            let f32_tensor: Tensor<f32> = unsafe { std::mem::transmute(tensor) };
             TensorVariant::F32(f32_tensor)
         } else {
             panic!("Unsupported FloatType for TensorVariant");
@@ -131,12 +131,14 @@ impl AutogradContext {
                 if T::is_f16() {
                     variant.clone_f16().map(|t| unsafe {
                         // Safety: We checked T::is_f16(), so T = f16
-                        std::mem::transmute_copy(&t)
+                        // Use transmute to transfer ownership
+                        std::mem::transmute(t)
                     })
                 } else if T::is_f32() {
                     variant.clone_f32().map(|t| unsafe {
                         // Safety: We checked T::is_f32(), so T = f32
-                        std::mem::transmute_copy(&t)
+                        // Use transmute to transfer ownership
+                        std::mem::transmute(t)
                     })
                 } else {
                     None
@@ -174,13 +176,15 @@ impl AutogradContext {
         let grad_variant: TensorVariant = if T::is_f16() {
             let grad_f16: Tensor<f16> = unsafe {
                 // Safety: We checked T::is_f16(), so T = f16
-                std::mem::transmute_copy(&grad)
+                // Use transmute to transfer ownership
+                std::mem::transmute(grad)
             };
             TensorVariant::F16(grad_f16)
         } else if T::is_f32() {
             let grad_f32: Tensor<f32> = unsafe {
                 // Safety: We checked T::is_f32(), so T = f32
-                std::mem::transmute_copy(&grad)
+                // Use transmute to transfer ownership
+                std::mem::transmute(grad)
             };
             TensorVariant::F32(grad_f32)
         } else {
@@ -200,14 +204,22 @@ impl AutogradContext {
             for (nid, variant) in variant_result {
                 if let Some(tensor) = Self::extract_tensor_from_variant::<T>(&variant) {
                     tensor_result.insert(nid, tensor);
+                } else {
                 }
             }
-            Ok(tensor_result)
+            let ok_result = Ok(tensor_result);
+            ok_result
         });
 
         // Restore previous states
         Self::set_enabled(prev_enabled);
         Self::set_create_graph(prev_create_graph);
+        match result {
+            Ok(ref r) => {
+            }
+            Err(ref e) => {
+            }
+        }
         result
     }
 
@@ -216,12 +228,14 @@ impl AutogradContext {
         if T::is_f16() {
             variant.clone_f16().map(|t| unsafe {
                 // Safety: We checked T::is_f16(), so T = f16
-                std::mem::transmute_copy(&t)
+                // Use transmute (not transmute_copy) to transfer ownership
+                std::mem::transmute(t)
             })
         } else if T::is_f32() {
             variant.clone_f32().map(|t| unsafe {
                 // Safety: We checked T::is_f32(), so T = f32
-                std::mem::transmute_copy(&t)
+                // Use transmute (not transmute_copy) to transfer ownership
+                std::mem::transmute(t)
             })
         } else {
             None
