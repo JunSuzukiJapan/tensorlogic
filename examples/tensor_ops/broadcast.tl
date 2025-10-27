@@ -11,15 +11,15 @@ main {
     let head_dim = 64
     let num_heads = 8
     let x1 = ones([seq_len, head_dim])
-    print("  入力:", shape(x1))
+    print("  入力:", x1.shape())
 
     // まずreshapeして次元を追加 [4, 64] -> [4, 1, 64]
     let x1_reshaped = reshape(x1, [seq_len, 1, head_dim])
-    print("  reshape後:", shape(x1_reshaped))
+    print("  reshape後:", x1_reshaped.shape())
 
     // broadcastで [4, 1, 64] -> [4, 8, 64]
     let y1 = broadcast_to(x1_reshaped, [seq_len, num_heads, head_dim])
-    print("  broadcast後:", shape(y1))
+    print("  broadcast後:", y1.shape())
     print("  ✅ 成功!")
     print("")
 
@@ -29,24 +29,24 @@ main {
     let q_heads = 32
     let group_size = 8  // 32 / 4
     let k = ones([seq_len, kv_heads * head_dim])  // [4, 256]
-    print("  入力 K shape:", shape(k))
+    print("  入力 K shape:", k.shape())
 
     // Reshape K to [seq, kv_heads, head_dim]
     let k_reshaped = reshape(k, [seq_len, kv_heads, head_dim])
-    print("  K reshaped:", shape(k_reshaped))
+    print("  K reshaped:", k_reshaped.shape())
 
     // GQAの正しいアプローチ：各KVヘッドを複数のQヘッドで共有
     // [seq, kv_heads, head_dim] -> [seq, kv_heads, 1, head_dim]
     let k_with_group = reshape(k_reshaped, [seq_len, kv_heads, 1, head_dim])
-    print("  K with group dim:", shape(k_with_group))
+    print("  K with group dim:", k_with_group.shape())
 
     // Broadcast: [seq, kv_heads, 1, head_dim] -> [seq, kv_heads, group_size, head_dim]
     let k_broadcasted = broadcast_to(k_with_group, [seq_len, kv_heads, group_size, head_dim])
-    print("  K broadcasted:", shape(k_broadcasted))
+    print("  K broadcasted:", k_broadcasted.shape())
 
     // Reshape to final: [seq, kv_heads, group_size, head_dim] -> [seq, q_heads, head_dim]
     let k_final = reshape(k_broadcasted, [seq_len, q_heads, head_dim])
-    print("  K final shape:", shape(k_final))
+    print("  K final shape:", k_final.shape())
     print("  ✅ GQA対応成功!")
     print("")
 

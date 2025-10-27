@@ -10,7 +10,7 @@ main {
     print("Creating tensor with positional encoding (contains positive and negative values)")
     let test_tensor = positional_encoding(4, 8)
     print("Applying ReLU (should zero out negative values)")
-    let relu_output = relu(test_tensor)
+    let relu_output = test_tensor.relu()
     print("✓ ReLU executed successfully!")
     print("")
 
@@ -20,7 +20,7 @@ main {
     let matrix_a = positional_encoding(4, 8)  // [4, 8]
     let matrix_b = positional_encoding(8, 6)  // [8, 6]
     print("Computing matmul(A, B) -> should give [4, 6]")
-    let matmul_result = matmul(matrix_a, matrix_b)
+    let matmul_result = matrix_a.matmul(matrix_b)
     print("✓ Matrix multiplication executed successfully!")
     print("")
 
@@ -29,7 +29,7 @@ main {
     print("Creating tensor for normalization")
     let norm_input = positional_encoding(4, 8)
     print("Applying layer_norm (normalizes last dimension)")
-    let norm_output = layer_norm(norm_input)
+    let norm_output = norm_input.layer_norm()
     print("✓ Layer normalization executed successfully!")
     print("")
 
@@ -39,7 +39,7 @@ main {
     let concat_a = positional_encoding(4, 8)  // [4, 8]
     let concat_b = positional_encoding(4, 8)  // [4, 8]
     print("Concatenating along dimension 1 (columns)")
-    let concat_result = concat(concat_a, concat_b, 1)  // Should give [4, 16]
+    let concat_result = concat_a.concat(concat_b, 1)  // Should give [4, 16]
     print("✓ Concatenation executed successfully!")
     print("")
 
@@ -47,7 +47,7 @@ main {
     print("Test 5: Softmax (probability distribution)")
     let logits = positional_encoding(1, 10)  // [1, 10]
     print("Converting logits to probabilities")
-    let probs = softmax(logits)
+    let probs = logits.softmax()
     print("✓ Softmax executed successfully!")
     print("")
 
@@ -66,24 +66,18 @@ main {
     print("  Note: Need transpose operation for full attention")
     print("  For now, computing Q @ K (simplified)")
     let key_for_mul = positional_encoding(8, 4)  // Simulate transpose
-    let scores = matmul(query, key_for_mul)  // [4, 4]
     print("  ✓ Attention scores computed")
     print("")
 
     print("  Step 3: Apply softmax to get attention weights")
-    let attn_weights = softmax(scores)
+    let attn_weights = query.matmul(key_for_mul).softmax()  // [4, 4]
     print("  ✓ Attention weights computed")
     print("")
 
-    print("  Step 4: Apply attention to values")
+    print("  Step 4: Apply attention to values and normalize")
     let value = positional_encoding(4, 8)  // [4, 8]
-    let attn_output = matmul(attn_weights, value)  // [4, 8]
-    print("  ✓ Attention output computed")
-    print("")
-
-    print("  Step 5: Apply layer normalization")
-    let normalized = layer_norm(attn_output)
-    print("  ✓ Normalized output")
+    let normalized = attn_weights.matmul(value).layer_norm()  // [4, 8]
+    print("  ✓ Attention output computed and normalized")
     print("")
 
     // Test 7: MLP block simulation
@@ -91,26 +85,16 @@ main {
     print("Simulating a simple MLP (Multi-Layer Perceptron):")
     print("")
 
-    print("  Step 1: Input projection")
+    print("  Step 1: Input projection and activation")
     let mlp_input = positional_encoding(4, 8)   // [4, 8]
     let w1 = positional_encoding(8, 16)          // [8, 16] - expand dimension
-    let mlp_hidden = matmul(mlp_input, w1)       // [4, 16]
-    print("  ✓ Projected to hidden dimension")
+    let mlp_activated = mlp_input.matmul(w1).relu()  // [4, 16]
+    print("  ✓ Projected to hidden dimension and activated")
     print("")
 
-    print("  Step 2: Apply ReLU activation")
-    let mlp_activated = relu(mlp_hidden)
-    print("  ✓ ReLU activation applied")
-    print("")
-
-    print("  Step 3: Output projection")
+    print("  Step 2: Output projection and normalization")
     let w2 = positional_encoding(16, 8)          // [16, 8] - back to original
-    let mlp_output = matmul(mlp_activated, w2)   // [4, 8]
-    print("  ✓ Projected back to output dimension")
-    print("")
-
-    print("  Step 4: Layer normalization")
-    let mlp_final = layer_norm(mlp_output)
+    let mlp_final = mlp_activated.matmul(w2).layer_norm()  // [4, 8]
     print("  ✓ MLP block complete")
     print("")
 

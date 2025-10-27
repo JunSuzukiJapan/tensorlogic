@@ -11,7 +11,7 @@ main {
     let weight = [1.0, 1.0, 1.0, 1.0]
     let weight_tensor = reshape(weight, [4.0])  // [4]
 
-    let normalized = rms_norm(x_tensor, weight_tensor)
+    let normalized = x_tensor.rms_norm(weight_tensor)
     print("  Input:", x)
     print("  Output:", normalized)
     print("  Expected: values scaled by RMS normalization")
@@ -29,7 +29,7 @@ main {
     let logits = [1.0, 2.0, 3.0]
     let logits_tensor = reshape(logits, [1.0, 3.0])  // [1, 3]
 
-    let probs = softmax(logits_tensor, 1)
+    let probs = logits_tensor.softmax()  // Note: dim parameter currently ignored
     print("  Input:", logits)
     print("  Output:", probs)
 
@@ -57,7 +57,7 @@ main {
     let embedded = embedding(embed_table, token_ids)
 
     print("  Token IDs:", token_ids)
-    print("  Embedded shape:", shape(embedded))
+    print("  Embedded shape:", embedded.shape())
     print("  Expected shape: [3, 3]")
     print("  Expected values:")
     print("    Row 0 (token 0): [1.0, 2.0, 3.0]")
@@ -78,7 +78,7 @@ main {
     let A_tensor = reshape(A, [2.0, 2.0])
     let B_tensor = reshape(B, [2.0, 2.0])
 
-    let C = matmul(A_tensor, B_tensor)
+    let C = A_tensor.matmul(B_tensor)
     print("  A:", A)
     print("  B:", B)
     print("  C = A @ B:", C)

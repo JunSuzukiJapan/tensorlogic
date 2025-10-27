@@ -72,17 +72,17 @@ let X = tensor<float16>([
     [4.0, 5.0, 6.0],
     [7.0, 8.0, 9.0],
     [10.0, 11.0, 12.0]
-], device: gpu)
+])
 
 // ウェイト行列（3 x 2）
 let W = tensor<float16>([
     [0.1, 0.2],
     [0.3, 0.4],
     [0.5, 0.6]
-], device: gpu)
+])
 
 // バイアス（2次元）
-let b = tensor<float16>([0.01, 0.02], device: gpu)
+let b = tensor<float16>([0.01, 0.02])
 
 // 推論実行
 let output = forward(X, W, b)

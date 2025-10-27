@@ -5,21 +5,21 @@ main {
     print("Test 1: Basic RMS normalization")
     let x = positional_encoding(2, 4)
     let weight = ones([4])
-    let normalized = rms_norm(x, weight)
-    print("  Input shape:", shape(x))
-    print("  Weight shape:", shape(weight))
+    let normalized = x.rms_norm(weight)
+    print("  Input shape:", x.shape())
+    print("  Weight shape:", weight.shape())
     print("  ✓ RMS normalization completed")
     print("")
 
     print("Test 2: RMS norm with custom eps")
     let eps = 0.000001
-    let normalized2 = rms_norm(x, weight, eps)
+    let normalized2 = x.rms_norm(weight, eps)
     print("  ✓ Custom eps =", eps)
     print("")
 
     print("Test 3: RMS norm with learned weight")
     let learned_weight = [1.0, 2.0, 3.0, 4.0]
-    let normalized3 = rms_norm(x, learned_weight)
+    let normalized3 = x.rms_norm(learned_weight)
     print("  ✓ Learned weight applied")
     print("")
 
@@ -34,7 +34,7 @@ main {
     print("  Hidden states shape: [", batch_size, ",", seq_len, ",", d_model, "]")
     print("  Norm weight shape: [", d_model, "]")
 
-    let normalized_hidden = rms_norm(hidden, attn_norm_weight)
+    let normalized_hidden = hidden.rms_norm(attn_norm_weight)
     print("  ✓ Pre-attention RMS normalization completed")
     print("")
 

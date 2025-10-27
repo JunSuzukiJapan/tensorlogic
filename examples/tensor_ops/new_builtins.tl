@@ -1,9 +1,8 @@
 // Test new built-in functions
 
-// Test env() function
-let home = env("HOME")
-
 main {
+    // Test env() function
+    let home = env("HOME")
     print("Home directory:", home)
 
     // Test load_model() function
