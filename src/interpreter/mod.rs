@@ -2200,17 +2200,23 @@ impl Interpreter {
             "broadcast_to" => {
                 // broadcast_to(tensor, [target_shape])
                 // Broadcast tensor to target shape following NumPy broadcasting rules
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("broadcast_to() expects 2 arguments (tensor, target_shape), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
                 let shape_value = self.eval_expr(&args[1])?;
+
                 let target_shape = match shape_value {
                     Value::TensorF16(t) => {
                         t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                    }
+                    Value::TensorF32(t) => {
+                        t.to_vec().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
                         "broadcast_to() target_shape must be an array".to_string()
@@ -2218,10 +2224,20 @@ impl Interpreter {
                 };
 
                 let target_tensor_shape = TensorShape::new(target_shape);
-                let output = tensor.broadcast_to(&target_tensor_shape)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.broadcast_to(&target_tensor_shape)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.broadcast_to(&target_tensor_shape)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("broadcast_to() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "transpose" => {
@@ -2335,12 +2351,21 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
 
                 if args.len() == 1 {
                     // max(tensor) -> scalar
-                    let result = tensor.max().map_err(|e| RuntimeError::TensorError(e))?;
-                    Ok(Value::Float(result.to_f32() as f64))
+                    match tensor_val {
+                        Value::TensorF16(tensor) => {
+                            let result = tensor.max().map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(Value::Float(result.to_f32() as f64))
+                        }
+                        Value::TensorF32(tensor) => {
+                            let result = tensor.max().map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(Value::Float(result.to_f32() as f64))
+                        }
+                        _ => Err(RuntimeError::TypeError("max() expects tensor (f16 or f32)".to_string()))
+                    }
                 } else {
                     return Err(RuntimeError::InvalidOperation(
                         "max() with dimension not yet implemented".to_string()
@@ -2356,12 +2381,21 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
 
                 if args.len() == 1 {
                     // min(tensor) -> scalar
-                    let result = tensor.min().map_err(|e| RuntimeError::TensorError(e))?;
-                    Ok(Value::Float(result.to_f32() as f64))
+                    match tensor_val {
+                        Value::TensorF16(tensor) => {
+                            let result = tensor.min().map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(Value::Float(result.to_f32() as f64))
+                        }
+                        Value::TensorF32(tensor) => {
+                            let result = tensor.min().map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(Value::Float(result.to_f32() as f64))
+                        }
+                        _ => Err(RuntimeError::TypeError("min() expects tensor (f16 or f32)".to_string()))
+                    }
                 } else {
                     return Err(RuntimeError::InvalidOperation(
                         "min() with dimension not yet implemented".to_string()
