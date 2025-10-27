@@ -104,7 +104,8 @@ impl<T: FloatType> Tensor<T> {
 
         // Create local executor for this operation
         let mut executor = crate::device::KernelExecutor::new(device);
-        executor.execute_binary_op("add_f16", a_buf_f16, b_buf_f16, &result_buf)?;
+        let kernel_name = format!("add{}", T::kernel_suffix());
+        executor.execute_binary_op(&kernel_name, a_buf_f16, b_buf_f16, &result_buf)?;
 
         // Safety: We're working with f16, so transmute back to T (which is f16)
         let result_buf_t: MetalBuffer<T> = unsafe { std::mem::transmute(result_buf) };
@@ -272,7 +273,8 @@ impl<T: FloatType> Tensor<T> {
         let mut executor = crate::device::KernelExecutor::new(device);
         let a_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(a_buf) };
         let b_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(b_buf) };
-        executor.execute_binary_op("mul_f16", a_buf_f16, b_buf_f16, &result_buf)?;
+        let kernel_name = format!("mul{}", T::kernel_suffix());
+        executor.execute_binary_op(&kernel_name, a_buf_f16, b_buf_f16, &result_buf)?;
 
         self.new_from_pool(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -353,7 +355,8 @@ impl<T: FloatType> Tensor<T> {
         let mut executor = crate::device::KernelExecutor::new(device);
         let a_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(a_buf) };
         let b_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(b_buf) };
-        executor.execute_binary_op("div_f16", a_buf_f16, b_buf_f16, &result_buf)?;
+        let kernel_name = format!("div{}", T::kernel_suffix());
+        executor.execute_binary_op(&kernel_name, a_buf_f16, b_buf_f16, &result_buf)?;
 
         self.new_from_pool(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),

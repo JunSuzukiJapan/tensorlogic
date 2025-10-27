@@ -82,13 +82,14 @@ impl<T: FloatType> Tensor<T> {
                 metal::MTLResourceOptions::CPUCacheModeDefaultCache,
             );
 
-        // Get kernel function
+        // Get kernel function - select based on type
         let library = device.library()
             .ok_or_else(|| TensorError::MetalError("No shader library loaded".to_string()))?;
 
+        let kernel_name = format!("rope{}", T::kernel_suffix());
         let function = library
-            .get_function("rope_f16", None)
-            .map_err(|e| TensorError::MetalError(format!("Kernel 'rope_f16' not found: {}", e)))?;
+            .get_function(&kernel_name, None)
+            .map_err(|e| TensorError::MetalError(format!("Kernel '{}' not found: {}", kernel_name, e)))?;
 
         // Create pipeline
         let pipeline = device

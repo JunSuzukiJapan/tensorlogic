@@ -255,11 +255,12 @@ impl<T: FloatType> Tensor<T> {
             device.load_library(shader_source)?;
         }
 
-        // Choose kernel based on last_dim size
+        // Choose kernel based on last_dim size and type
+        let suffix = T::kernel_suffix();
         let kernel_name = if last_dim <= 256 {
-            "softmax_simple_f16"
+            format!("softmax_simple{}", suffix)
         } else {
-            "softmax_f16"
+            format!("softmax{}", suffix)
         };
 
         let input_buf = self.buffer().as_metal()?;
@@ -279,7 +280,7 @@ impl<T: FloatType> Tensor<T> {
             TensorError::MetalError("Library not loaded".to_string())
         })?;
         let pipeline = library
-            .get_function(kernel_name, None)
+            .get_function(&kernel_name, None)
             .map_err(|e| {
                 TensorError::MetalError(format!("Failed to get kernel {}: {:?}", kernel_name, e))
             })?;

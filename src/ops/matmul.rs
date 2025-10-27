@@ -128,21 +128,22 @@ impl<T: FloatType> Tensor<T> {
         // Execute matmul kernel
         let mut executor = crate::device::KernelExecutor::new(device.clone());
 
-        // Select optimal kernel based on matrix size
+        // Select optimal kernel based on matrix size and type
         // Use tiled version for larger matrices (better cache utilization)
+        let suffix = T::kernel_suffix();
         let (kernel_name, tile_size) = if m >= 256 && n >= 256 && k >= 256 {
             // For large matrices (>=256x256), use 32x32 tiles
-            ("matmul_tiled_32x32_f16", 32)
+            (format!("matmul_tiled_32x32{}", suffix), 32)
         } else if m >= 128 && n >= 128 && k >= 128 {
             // For medium matrices (128-256), use 16x16 tiles
-            ("matmul_tiled_f16", 16)
+            (format!("matmul_tiled{}", suffix), 16)
         } else {
             // For small matrices (<128), use naive implementation (less overhead)
-            ("matmul_f16", 16)
+            (format!("matmul{}", suffix), 16)
         };
 
         // Get pipeline
-        let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
+        let pipeline = executor.get_or_compile_pipeline(&kernel_name)?;
 
         // Create command buffer and encoder
         let command_buffer = device.command_queue().new_command_buffer();

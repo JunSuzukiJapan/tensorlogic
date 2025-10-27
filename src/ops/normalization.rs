@@ -133,11 +133,12 @@ impl<T: FloatType> Tensor<T> {
         )?;
         let eps_buf = MetalBuffer::from_f16_slice(device.metal_device(), &[f16::from_f32(eps)])?;
 
-        // Get pipeline
+        // Get pipeline - select kernel based on size and type
+        let suffix = T::kernel_suffix();
         let kernel_name = if normalized_size <= 256 {
-            "rms_norm_simple_f16"
+            format!("rms_norm_simple{}", suffix)
         } else {
-            "rms_norm_f16"
+            format!("rms_norm{}", suffix)
         };
 
         let library_ref = device.library();
@@ -145,7 +146,7 @@ impl<T: FloatType> Tensor<T> {
             TensorError::MetalError("Library not loaded".to_string())
         })?;
         let pipeline = library
-            .get_function(kernel_name, None)
+            .get_function(&kernel_name, None)
             .map_err(|e| {
                 TensorError::MetalError(format!("Failed to get kernel {}: {:?}", kernel_name, e))
             })?;
@@ -386,11 +387,12 @@ impl<T: FloatType> Tensor<T> {
             &[f16::from_f32(if bias.is_some() { 1.0 } else { 0.0 })],
         )?;
 
-        // Choose kernel based on normalized_size
+        // Choose kernel based on normalized_size and type
+        let suffix = T::kernel_suffix();
         let kernel_name = if normalized_size <= 256 {
-            "layer_norm_simple_f16"
+            format!("layer_norm_simple{}", suffix)
         } else {
-            "layer_norm_f16"
+            format!("layer_norm{}", suffix)
         };
 
         // Get pipeline
@@ -399,7 +401,7 @@ impl<T: FloatType> Tensor<T> {
             TensorError::MetalError("Library not loaded".to_string())
         })?;
         let pipeline = library
-            .get_function(kernel_name, None)
+            .get_function(&kernel_name, None)
             .map_err(|e| {
                 TensorError::MetalError(format!("Failed to get kernel {}: {:?}", kernel_name, e))
             })?;
