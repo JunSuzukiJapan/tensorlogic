@@ -1094,8 +1094,16 @@ impl TensorLogicParser {
                 Ok(ArrayElement::Expression(expr))
             }
             Rule::number => {
-                let value = Self::parse_number(inner)?;
-                Ok(ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Float(value))))
+                let s = inner.as_str();
+                // Check if it's an integer (no decimal point) or float
+                let scalar = if s.contains('.') || s.contains('e') || s.contains('E') {
+                    ScalarLiteral::Float(Self::parse_number(inner)?)
+                } else {
+                    let val = s.parse::<i64>()
+                        .map_err(|e| ParseError::InvalidValue(format!("Invalid integer: {}", e)))?;
+                    ScalarLiteral::Integer(val)
+                };
+                Ok(ArrayElement::Literal(TensorLiteral::Scalar(scalar)))
             }
             _ => Err(ParseError::UnexpectedRule {
                 expected: "tensor literal, number, or tensor expression".to_string(),
@@ -1110,7 +1118,17 @@ impl TensorLogicParser {
         })?;
 
         match inner.as_rule() {
-            Rule::number => Ok(ScalarLiteral::Float(Self::parse_number(inner)?)),
+            Rule::number => {
+                let s = inner.as_str();
+                // Check if it's an integer (no decimal point) or float
+                if s.contains('.') || s.contains('e') || s.contains('E') {
+                    Ok(ScalarLiteral::Float(Self::parse_number(inner)?))
+                } else {
+                    let val = s.parse::<i64>()
+                        .map_err(|e| ParseError::InvalidValue(format!("Invalid integer: {}", e)))?;
+                    Ok(ScalarLiteral::Integer(val))
+                }
+            }
             Rule::boolean => Ok(ScalarLiteral::Boolean(Self::parse_boolean(inner)?)),
             Rule::complex_number => {
                 // Simplified complex parsing
@@ -1834,7 +1852,17 @@ impl TensorLogicParser {
         })?;
 
         match inner.as_rule() {
-            Rule::number => Ok(Constant::Float(Self::parse_number(inner)?)),
+            Rule::number => {
+                let s = inner.as_str();
+                // Check if it's an integer (no decimal point) or float
+                if s.contains('.') || s.contains('e') || s.contains('E') {
+                    Ok(Constant::Float(Self::parse_number(inner)?))
+                } else {
+                    let val = s.parse::<i64>()
+                        .map_err(|e| ParseError::InvalidValue(format!("Invalid integer: {}", e)))?;
+                    Ok(Constant::Integer(val))
+                }
+            }
             Rule::string_literal => Ok(Constant::String(Self::parse_string_literal(inner)?)),
             Rule::boolean => Ok(Constant::Boolean(Self::parse_boolean(inner)?)),
             _ => Err(ParseError::InvalidValue(format!("Invalid constant: {}", inner.as_str()))),

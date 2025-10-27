@@ -38,7 +38,7 @@ impl<T: FloatType> Tensor<T> {
     /// Metal GPU implementation of RoPE
     fn rope_metal(&self, seq_len: usize, n_heads: usize, head_dim: usize, position_offset: usize) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));

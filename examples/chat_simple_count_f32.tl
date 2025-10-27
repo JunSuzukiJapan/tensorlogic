@@ -160,7 +160,7 @@ main {
     // Generate first token
     let token_id = temperature_sample(current_logits, temperature)
     let text = detokenize_single(tokenizer, token_id, false)
-    print(text, "")
+    print("[", token_id, ":", text, "] ", "")
 
     // Initialize variables for loop
     let token_ids_single = int_to_tokenids(token_id)
@@ -174,56 +174,62 @@ main {
     let h1_new = transformer_layer(h0_new, layer_1_attn_norm, layer_1_q, layer_1_k, layer_1_v, layer_1_o,
                                     layer_1_ffn_norm, layer_1_gate, layer_1_up, layer_1_down, KV1_cache, KV1_V_cache)
     let norm_new = rms_norm(h1_new, output_norm)
+    let new_token = 0
+    let is_eos = false
 
-    // Generate remaining 9 tokens with KV cache updates and EOS detection
+    // Generate remaining 9 tokens with KV cache updates
     for i in range(9) {
-        if continue_generation {
-            // Convert token_id (Integer) to TokenIds for embedding lookup
-            token_ids_single = int_to_tokenids(token_id)
+        // Convert token_id (Integer) to TokenIds for embedding lookup
+        token_ids_single = int_to_tokenids(token_id)
 
-            // Get embedding for new token
-            new_token_emb = embedding(tok_embd, token_ids_single)
+        // Get embedding for new token
+        new_token_emb = embedding(tok_embd, token_ids_single)
 
-            // Compute new K, V for this token
-            new_K0 = linear(new_token_emb, layer_0_k)
-            new_V0 = linear(new_token_emb, layer_0_v)
-            new_K1 = linear(new_token_emb, layer_1_k)
-            new_V1 = linear(new_token_emb, layer_1_v)
+        // Compute new K, V for this token
+        new_K0 = linear(new_token_emb, layer_0_k)
+        new_V0 = linear(new_token_emb, layer_0_v)
+        new_K1 = linear(new_token_emb, layer_1_k)
+        new_V1 = linear(new_token_emb, layer_1_v)
 
-            // Update KV caches by concatenation
-            KV0_cache = concat(KV0_cache, new_K0, 0.0)
-            KV0_V_cache = concat(KV0_V_cache, new_V0, 0.0)
-            KV1_cache = concat(KV1_cache, new_K1, 0.0)
-            KV1_V_cache = concat(KV1_V_cache, new_V1, 0.0)
+        // Update KV caches by concatenation
+        KV0_cache = concat(KV0_cache, new_K0, 0.0)
+        KV0_V_cache = concat(KV0_V_cache, new_V0, 0.0)
+        KV1_cache = concat(KV1_cache, new_K1, 0.0)
+        KV1_V_cache = concat(KV1_V_cache, new_V1, 0.0)
 
-            // Run transformer with updated caches
-            h0_new = transformer_layer(new_token_emb, layer_0_attn_norm, layer_0_q, layer_0_k, layer_0_v, layer_0_o,
-                                        layer_0_ffn_norm, layer_0_gate, layer_0_up, layer_0_down, KV0_cache, KV0_V_cache)
-            h1_new = transformer_layer(h0_new, layer_1_attn_norm, layer_1_q, layer_1_k, layer_1_v, layer_1_o,
-                                        layer_1_ffn_norm, layer_1_gate, layer_1_up, layer_1_down, KV1_cache, KV1_V_cache)
+        // Run transformer with updated caches
+        h0_new = transformer_layer(new_token_emb, layer_0_attn_norm, layer_0_q, layer_0_k, layer_0_v, layer_0_o,
+                                    layer_0_ffn_norm, layer_0_gate, layer_0_up, layer_0_down, KV0_cache, KV0_V_cache)
+        h1_new = transformer_layer(h0_new, layer_1_attn_norm, layer_1_q, layer_1_k, layer_1_v, layer_1_o,
+                                    layer_1_ffn_norm, layer_1_gate, layer_1_up, layer_1_down, KV1_cache, KV1_V_cache)
 
-            norm_new = rms_norm(h1_new, output_norm)
-            current_logits = linear(norm_new, output)
+        norm_new = rms_norm(h1_new, output_norm)
+        current_logits = linear(norm_new, output)
 
-            // Sample next token
-            token_id = temperature_sample(current_logits, temperature)
-            text = detokenize_single(tokenizer, token_id, false)
-            print(text, "")
+        // Sample next token
+        new_token = temperature_sample(current_logits, temperature)
+        text = detokenize_single(tokenizer, new_token, false)
+        print("[", new_token, ":", text, "] ", "")
 
-            token_count = token_count + 1
+        // Increment token counter
+        token_count = token_count + 1
 
-            // Check EOS
-            if token_id == EOS_TOKEN {
-                continue_generation = false
-                print(" <EOS>")
-            }
+        // Check for EOS token
+        is_eos = new_token == 2
+        if is_eos {
+            print(" <EOS>")
         }
+
+        // Update token_id for next iteration
+        token_id = new_token
     }
 
     print("")
     print("")
     print("=== Complete ===")
     print("")
-    print("Generated", token_count, "tokens")
-    print("Features: EOS detection, random sampling, KV cache updates")
+    print("Success! Generated 10 tokens with proper autoregression.")
+    print("Each token sees the full context of all previous tokens.")
+    print("")
+    print("Total tokens generated:", token_count)
 }

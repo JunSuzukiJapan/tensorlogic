@@ -446,6 +446,121 @@ impl GGUFLoader {
         Ok(Model { tensors, metadata })
     }
 
+    /// Load a GGUF file and keep as f32 (no conversion to f16)
+    pub fn load_f32<P: AsRef<Path>>(path: P, device: &MetalDevice) -> std::result::Result<Model<f32>, TensorError> {
+        let path = path.as_ref();
+
+        let file = File::open(path)
+            .map_err(|e| TensorError::InvalidOperation(format!("Failed to open file: {}", e)))?;
+
+        let mut reader = GGUFFileReader::new(file)
+            .map_err(|e| TensorError::InvalidOperation(format!("Failed to read GGUF: {}", e)))?;
+
+        let mut tensors = HashMap::new();
+        let mut quantization_type = QuantizationType::None;
+
+        let tensor_infos = reader.tensor_infos().to_vec();
+
+        for tensor_info in &tensor_infos {
+            let name = tensor_info.name.clone();
+            let mut shape: Vec<usize> = tensor_info.shape.dimensions.iter().map(|&d| d as usize).collect();
+
+            let needs_reverse = shape.len() > 1;
+            if needs_reverse {
+                shape.reverse();
+            }
+
+            let f32_data: Vec<f32> = match tensor_info.tensor_type {
+                GGUFTensorType::F32 => {
+                    quantization_type = QuantizationType::F32;
+                    let data = reader.load_tensor_data(&tensor_info.name)
+                        .map_err(|e| TensorError::InvalidOperation(format!("Failed to load tensor data: {}", e)))?
+                        .ok_or_else(|| TensorError::InvalidOperation(format!("Tensor data not found for {}", tensor_info.name)))?;
+                    let bytes = match data {
+                        gguf_rs_lib::tensor::TensorData::Owned(ref v) => v.as_slice(),
+                        gguf_rs_lib::tensor::TensorData::Borrowed(b) => b,
+                        gguf_rs_lib::tensor::TensorData::Shared(ref arc) => arc.as_slice(),
+                        _ => return Err(TensorError::InvalidOperation("Unexpected tensor data type".to_string())),
+                    };
+                    bytes.chunks_exact(4).map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])).collect()
+                }
+                GGUFTensorType::F16 => {
+                    quantization_type = QuantizationType::F16;
+                    let data = reader.load_tensor_data(&tensor_info.name)
+                        .map_err(|e| TensorError::InvalidOperation(format!("Failed to load tensor data: {}", e)))?
+                        .ok_or_else(|| TensorError::InvalidOperation(format!("Tensor data not found for {}", tensor_info.name)))?;
+                    let bytes = match data {
+                        gguf_rs_lib::tensor::TensorData::Owned(ref v) => v.as_slice(),
+                        gguf_rs_lib::tensor::TensorData::Borrowed(b) => b,
+                        gguf_rs_lib::tensor::TensorData::Shared(ref arc) => arc.as_slice(),
+                        _ => return Err(TensorError::InvalidOperation("Unexpected tensor data type".to_string())),
+                    };
+                    bytes.chunks_exact(2).map(|chunk| half::f16::from_le_bytes([chunk[0], chunk[1]]).to_f32()).collect()
+                }
+                GGUFTensorType::Q8_0 => {
+                    quantization_type = QuantizationType::Q8;
+                    let data = reader.load_tensor_data(&tensor_info.name)
+                        .map_err(|e| TensorError::InvalidOperation(format!("Failed to load tensor data: {}", e)))?
+                        .ok_or_else(|| TensorError::InvalidOperation(format!("Tensor data not found for {}", tensor_info.name)))?;
+                    let bytes = match data {
+                        gguf_rs_lib::tensor::TensorData::Owned(ref v) => v.as_slice(),
+                        gguf_rs_lib::tensor::TensorData::Borrowed(b) => b,
+                        gguf_rs_lib::tensor::TensorData::Shared(ref arc) => arc.as_slice(),
+                        _ => return Err(TensorError::InvalidOperation("Unexpected tensor data type".to_string())),
+                    };
+                    let num_elements: usize = shape.iter().product();
+                    Self::dequantize_q8_0(bytes, num_elements).iter().map(|&x| x.to_f32()).collect()
+                }
+                GGUFTensorType::Q4_0 => {
+                    quantization_type = QuantizationType::Q4;
+                    let data = reader.load_tensor_data(&tensor_info.name)
+                        .map_err(|e| TensorError::InvalidOperation(format!("Failed to load tensor data: {}", e)))?
+                        .ok_or_else(|| TensorError::InvalidOperation(format!("Tensor data not found for {}", tensor_info.name)))?;
+                    let bytes = match data {
+                        gguf_rs_lib::tensor::TensorData::Owned(ref v) => v.as_slice(),
+                        gguf_rs_lib::tensor::TensorData::Borrowed(b) => b,
+                        gguf_rs_lib::tensor::TensorData::Shared(ref arc) => arc.as_slice(),
+                        _ => return Err(TensorError::InvalidOperation("Unexpected tensor data type".to_string())),
+                    };
+                    let num_elements: usize = shape.iter().product();
+                    Self::dequantize_q4_0(bytes, num_elements).iter().map(|&x| x.to_f32()).collect()
+                }
+                GGUFTensorType::Q6_K => {
+                    quantization_type = QuantizationType::Q6;
+                    let data = reader.load_tensor_data(&tensor_info.name)
+                        .map_err(|e| TensorError::InvalidOperation(format!("Failed to load tensor data: {}", e)))?
+                        .ok_or_else(|| TensorError::InvalidOperation(format!("Tensor data not found for {}", tensor_info.name)))?;
+                    let bytes = match data {
+                        gguf_rs_lib::tensor::TensorData::Owned(ref v) => v.as_slice(),
+                        gguf_rs_lib::tensor::TensorData::Borrowed(b) => b,
+                        gguf_rs_lib::tensor::TensorData::Shared(ref arc) => arc.as_slice(),
+                        _ => return Err(TensorError::InvalidOperation("Unexpected tensor data type".to_string())),
+                    };
+                    let num_elements: usize = shape.iter().product();
+                    Self::dequantize_q6_k(bytes, num_elements).iter().map(|&x| x.to_f32()).collect()
+                }
+                _ => {
+                    return Err(TensorError::InvalidOperation(format!(
+                        "Unsupported GGUF tensor type for {}: {:?}",
+                        tensor_info.name, tensor_info.tensor_type
+                    )));
+                }
+            };
+
+            let tensor = Tensor::from_vec_metal(device, f32_data, shape)?;
+            tensors.insert(name, tensor);
+        }
+
+        let metadata = ModelMetadata {
+            name: path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string(),
+            format: ModelFormat::GGUF,
+            quantization: Some(quantization_type),
+        };
+
+        Ok(Model { tensors, metadata })
+    }
+
+
     /// Save to GGUF file (with optional quantization)
     pub fn save<P: AsRef<Path>>(_model: &Model, _path: P) -> std::result::Result<(), TensorError> {
         // GGUF writing is complex and requires proper quantization

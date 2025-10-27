@@ -88,7 +88,7 @@ main {
     // Load model
     print("[1/3] Loading model...")
     let home = env("HOME")
-    let model = load_model(home + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf")
+    let model = load_model_f32(home + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf")
     let tokenizer = load_tokenizer(home + "/.llm/tokenizers/tinyllama-tokenizer.json")
 
     // Load embeddings

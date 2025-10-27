@@ -196,7 +196,7 @@ impl<T: FloatType> Tensor<T> {
     /// Metal GPU implementation of gather
     fn gather_metal(&self, dim: usize, indices: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -304,7 +304,7 @@ impl<T: FloatType> Tensor<T> {
     /// CPU implementation of gather
     fn gather_cpu(&self, dim: usize, indices: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -439,7 +439,7 @@ impl<T: FloatType> Tensor<T> {
     /// Metal GPU implementation of scatter
     fn scatter_metal(&self, dim: usize, indices: &Tensor, src: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -549,7 +549,7 @@ impl<T: FloatType> Tensor<T> {
     /// CPU implementation of scatter
     fn scatter_cpu(&self, dim: usize, indices: &Tensor, src: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));

@@ -41,7 +41,7 @@ impl<T: FloatType> Tensor<T> {
     /// Metal GPU implementation of fused add + relu
     fn fused_add_relu_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -94,7 +94,7 @@ impl<T: FloatType> Tensor<T> {
     /// CPU implementation of fused add + relu
     fn fused_add_relu_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -137,7 +137,7 @@ impl<T: FloatType> Tensor<T> {
     /// Metal GPU implementation of fused mul + relu
     fn fused_mul_relu_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -187,7 +187,7 @@ impl<T: FloatType> Tensor<T> {
     /// CPU implementation of fused mul + relu
     fn fused_mul_relu_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -266,7 +266,7 @@ impl<T: FloatType> Tensor<T> {
         Tensor<T>: TensorAutograd<T>,
     {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -370,7 +370,7 @@ impl<T: FloatType> Tensor<T> {
     /// Metal GPU implementation of fused affine
     fn fused_affine_metal(&self, scale: &Tensor, bias: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -422,7 +422,7 @@ impl<T: FloatType> Tensor<T> {
     /// CPU implementation of fused affine
     fn fused_affine_cpu(&self, scale: &Tensor, bias: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));

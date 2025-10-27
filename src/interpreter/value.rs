@@ -53,7 +53,9 @@ impl Value {
     }
 
     /// Convert to tensor (f16) - backward compatibility helper
-    /// Prefer as_tensor_f16() or as_tensor_f32() for clarity
+    /// **WARNING**: This assumes f16. Prefer as_tensor_f16() or as_tensor_f32() for clarity.
+    /// Functions using this need to be converted to support both f16 and f32.
+    #[deprecated(note = "Use as_tensor_f16() or as_tensor_f32() for explicit type handling")]
     pub fn as_tensor(&self) -> RuntimeResult<&Tensor<f16>> {
         self.as_tensor_f16()
     }

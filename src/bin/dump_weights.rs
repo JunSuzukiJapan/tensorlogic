@@ -20,7 +20,7 @@ fn main() {
         std::process::exit(1);
     });
 
-    let model = Model::load(model_path, &device).unwrap_or_else(|e| {
+    let model = Model::<half::f16>::load(model_path, &device).unwrap_or_else(|e| {
         eprintln!("Error loading model: {}", e);
         std::process::exit(1);
     });

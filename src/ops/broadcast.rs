@@ -33,7 +33,7 @@ impl<T: FloatType> Tensor<T> {
     /// CPU implementation of broadcast
     fn broadcast_to_cpu(&self, target_shape: &TensorShape) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -82,7 +82,7 @@ impl<T: FloatType> Tensor<T> {
     /// Metal GPU implementation of broadcast
     fn broadcast_to_metal(&self, target_shape: &TensorShape) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));

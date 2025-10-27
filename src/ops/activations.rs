@@ -54,7 +54,7 @@ impl<T: FloatType> Tensor<T> {
     /// Metal GPU implementation of ReLU
     fn relu_metal(&self) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -92,7 +92,7 @@ impl<T: FloatType> Tensor<T> {
     /// CPU fallback for ReLU
     fn relu_cpu(&self) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -127,7 +127,7 @@ impl<T: FloatType> Tensor<T> {
     /// Metal GPU implementation of GELU
     fn gelu_metal(&self) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -165,7 +165,7 @@ impl<T: FloatType> Tensor<T> {
     /// CPU fallback for GELU
     fn gelu_cpu(&self) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -226,7 +226,7 @@ impl<T: FloatType> Tensor<T> {
     /// Metal GPU implementation of softmax
     fn softmax_metal(&self) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -321,7 +321,7 @@ impl<T: FloatType> Tensor<T> {
     /// CPU implementation of softmax
     fn softmax_cpu(&self) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -402,7 +402,7 @@ impl<T: FloatType> Tensor<T> {
 
     fn sigmoid_metal(&self) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -413,7 +413,7 @@ impl<T: FloatType> Tensor<T> {
 
     fn sigmoid_cpu(&self) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -433,7 +433,7 @@ impl<T: FloatType> Tensor<T> {
 
     fn tanh_metal(&self) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -444,7 +444,7 @@ impl<T: FloatType> Tensor<T> {
 
     fn tanh_cpu(&self) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));

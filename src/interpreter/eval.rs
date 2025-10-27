@@ -1197,6 +1197,29 @@ impl Interpreter {
                 .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF32(result))
             }
+            // Integer-Float mixed operations (convert integer to float)
+            (Value::Integer(l), Value::Float(r)) => {
+                let left_f = l as f64;
+                self.eval_binary_op(op, Value::Float(left_f), Value::Float(r))
+            }
+            (Value::Float(l), Value::Integer(r)) => {
+                let right_f = r as f64;
+                self.eval_binary_op(op, Value::Float(l), Value::Float(right_f))
+            }
+            // TensorF16-Integer operations (convert integer to float)
+            (Value::TensorF16(t), Value::Integer(i)) => {
+                self.eval_binary_op(op, Value::TensorF16(t), Value::Float(i as f64))
+            }
+            (Value::Integer(i), Value::TensorF16(t)) => {
+                self.eval_binary_op(op, Value::Float(i as f64), Value::TensorF16(t))
+            }
+            // TensorF32-Integer operations (convert integer to float)
+            (Value::TensorF32(t), Value::Integer(i)) => {
+                self.eval_binary_op(op, Value::TensorF32(t), Value::Float(i as f64))
+            }
+            (Value::Integer(i), Value::TensorF32(t)) => {
+                self.eval_binary_op(op, Value::Float(i as f64), Value::TensorF32(t))
+            }
             _ => Err(RuntimeError::TypeError(
                 "Binary operation requires compatible types".to_string(),
             )),

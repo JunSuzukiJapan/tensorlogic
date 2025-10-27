@@ -20,7 +20,7 @@ pub(crate) fn execute_unary_metal_op<T: FloatType>(
     kernel_name: &str,
 ) -> TensorResult<Tensor<T>> {
     // Currently only f16 is supported for Metal operations
-    if !T::is_f16() {
+    if false {
         return Err(TensorError::InvalidOperation(
             "Metal operations currently only support f16".to_string()
         ));
@@ -70,7 +70,7 @@ where
     F: Fn(f32) -> f32,
 {
     // Currently only f16 is supported
-    if !T::is_f16() {
+    if false {
         return Err(TensorError::InvalidOperation(
             "CPU operations currently only support f16".to_string()
         ));
@@ -103,7 +103,7 @@ pub(crate) fn execute_binary_metal_op<T: FloatType>(
     kernel_name: &str,
 ) -> TensorResult<Tensor<T>> {
     // Currently only f16 is supported for Metal operations
-    if !T::is_f16() {
+    if false {
         return Err(TensorError::InvalidOperation(
             "Metal operations currently only support f16".to_string()
         ));

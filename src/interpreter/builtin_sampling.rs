@@ -23,6 +23,8 @@ impl Interpreter {
     /// softmax(x) or softmax(x, dim) -> tensor
     /// Softmax activation along the last dimension (or specified dimension)
     fn eval_softmax(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
         if args.is_empty() || args.len() > 2 {
             return Err(RuntimeError::TypeError(
                 format!("softmax() expects 1 or 2 arguments (tensor, [dim]), got {}", args.len())
@@ -31,7 +33,6 @@ impl Interpreter {
 
         // Evaluate tensor argument
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?;
 
         // For now, ignore the dimension argument and apply along last dimension
         // TODO: Implement softmax with custom dimension support
@@ -40,11 +41,21 @@ impl Interpreter {
             // Dimension parameter is ignored for now
         }
 
-        // Apply softmax
-        let result = tensor.softmax()
-            .map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(result))
+        Ok(match tensor_val {
+            Value::TensorF16(tensor) => {
+                // Apply softmax
+                let result = tensor.softmax()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                result.to_value()
+            }
+            Value::TensorF32(tensor) => {
+                // Apply softmax
+                let result = tensor.softmax()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                result.to_value()
+            }
+            _ => return Err(RuntimeError::TypeError("softmax() expects tensor (f16 or f32)".to_string()))
+        })
     }
 
     /// temperature_sample(logits, temperature) -> int
@@ -53,8 +64,6 @@ impl Interpreter {
     ///
     /// For 2D logits [seq_len, vocab_size], uses only the last sequence position
     fn eval_temperature_sample(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
-        use half::f16;
-
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("temperature_sample() expects 2 arguments (logits, temperature), got {}", args.len())
@@ -63,7 +72,6 @@ impl Interpreter {
 
         // Evaluate logits tensor
         let logits_val = self.eval_expr(&args[0])?;
-        let logits = logits_val.as_tensor()?;
 
         // Evaluate temperature
         let temp_val = self.eval_expr(&args[1])?;
@@ -75,9 +83,20 @@ impl Interpreter {
             )),
         };
 
-        // Get logits as vector
-        let logits_data = logits.to_vec();
-        let dims = logits.dims();
+        // Get logits as f32 vector and dimensions (convert from f16 or f32)
+        let (logits_data, dims) = match logits_val {
+            Value::TensorF16(ref logits) => {
+                let data = logits.to_vec();
+                let f32_data: Vec<f32> = data.iter().map(|&x| x.to_f32()).collect();
+                (f32_data, logits.dims().to_vec())
+            }
+            Value::TensorF32(ref logits) => {
+                (logits.to_vec(), logits.dims().to_vec())
+            }
+            _ => return Err(RuntimeError::TypeError(
+                "temperature_sample() expects tensor (f16 or f32)".to_string()
+            ))
+        };
 
         // For 2D tensors [seq_len, vocab_size], use only the last sequence position
         let (start_idx, vocab_size) = if dims.len() == 2 {
@@ -97,7 +116,7 @@ impl Interpreter {
         // Extract logits for last position
         let mut logits_last: Vec<f32> = Vec::with_capacity(vocab_size);
         for idx in 0..vocab_size {
-            logits_last.push(logits_data[start_idx + idx].to_f32());
+            logits_last.push(logits_data[start_idx + idx]);
         }
 
         // Apply temperature scaling

@@ -25,16 +25,16 @@ pub type ModelResult<T> = Result<T, TensorError>;
 /// Model structure containing multiple named tensors
 ///
 /// Represents a complete model with all its weights and parameters.
-/// All tensors are stored in TensorLogic's native f16 format.
+/// Generic over tensor precision type (f16 or f32).
 #[derive(Debug, Clone)]
-pub struct Model {
+pub struct Model<T: FloatType = half::f16> {
     /// Named tensors (e.g., "layers.0.weight", "layers.0.bias")
-    pub tensors: HashMap<String, Tensor>,
+    pub tensors: HashMap<String, Tensor<T>>,
     /// Model metadata (format, quantization, etc.)
     pub metadata: ModelMetadata,
 }
 
-impl Model {
+impl<T: FloatType> Model<T> {
     /// Create a new empty model
     pub fn new(metadata: ModelMetadata) -> Self {
         Self {
@@ -44,22 +44,22 @@ impl Model {
     }
 
     /// Create a model from a hashmap of tensors
-    pub fn from_tensors(tensors: HashMap<String, Tensor>, metadata: ModelMetadata) -> Self {
+    pub fn from_tensors(tensors: HashMap<String, Tensor<T>>, metadata: ModelMetadata) -> Self {
         Self { tensors, metadata }
     }
 
     /// Get a tensor by name
-    pub fn get_tensor(&self, name: &str) -> Option<&Tensor> {
+    pub fn get_tensor(&self, name: &str) -> Option<&Tensor<T>> {
         self.tensors.get(name)
     }
 
     /// Get a mutable reference to a tensor by name
-    pub fn get_tensor_mut(&mut self, name: &str) -> Option<&mut Tensor> {
+    pub fn get_tensor_mut(&mut self, name: &str) -> Option<&mut Tensor<T>> {
         self.tensors.get_mut(name)
     }
 
     /// Insert a tensor with a name
-    pub fn insert_tensor(&mut self, name: String, tensor: Tensor) {
+    pub fn insert_tensor(&mut self, name: String, tensor: Tensor<T>) {
         self.tensors.insert(name, tensor);
     }
 
@@ -81,7 +81,10 @@ impl Model {
     /// - `.mlmodel`, `.mlpackage` → CoreML format
     ///
     /// Tensors are loaded directly to Metal GPU for optimal performance.
-    pub fn load<P: AsRef<Path>>(path: P, device: &MetalDevice) -> ModelResult<Self> {
+    pub fn load<P: AsRef<Path>>(path: P, device: &MetalDevice) -> ModelResult<Model<half::f16>>
+    where
+        T: FloatType
+    {
         let path = path.as_ref();
         let extension = path.extension()
             .and_then(|ext| ext.to_str())
@@ -99,7 +102,14 @@ impl Model {
         }
     }
 
+}
+
+/// Implementation specific to Model<f16> for format-specific save operations
+impl Model<half::f16> {
     /// Save the model to a file
+    ///
+    /// Note: Save operations currently only support f16 models.
+    /// For f32 models, convert to f16 first or use format-specific savers.
     pub fn save<P: AsRef<Path>>(&self, path: P, format: ModelFormat) -> ModelResult<()> {
         let path = path.as_ref();
 

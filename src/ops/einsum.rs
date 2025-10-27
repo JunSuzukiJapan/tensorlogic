@@ -146,7 +146,7 @@ where
     Tensor<T>: TensorAutograd<T>,
 {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -216,7 +216,7 @@ fn general_einsum_cpu<T: FloatType>(
     operands: &[&Tensor<T>],
 ) -> TensorResult<Tensor<T>> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -690,7 +690,7 @@ fn einsum_ihd_jhd_ihj_metal<T: FloatType>(
     device: &MetalDevice,
 ) -> TensorResult<Tensor<T>> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -789,7 +789,7 @@ fn einsum_ihj_jhd_ihd_metal<T: FloatType>(
     device: &MetalDevice,
 ) -> TensorResult<Tensor<T>> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));

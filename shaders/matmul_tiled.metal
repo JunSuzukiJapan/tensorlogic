@@ -330,3 +330,317 @@ kernel void matmul_tiled_activation_f16(
         C[row * N + col] = result;
     }
 }
+
+// ===== F32 VERSIONS =====
+
+/// Tiled matrix multiplication for f32 (16x16 tiles)
+kernel void matmul_tiled_f32(
+    device const float* A [[buffer(0)]],     // Input matrix A [M, K]
+    device const float* B [[buffer(1)]],     // Input matrix B [K, N]
+    device float* C [[buffer(2)]],           // Output matrix C [M, N]
+    constant uint& M [[buffer(3)]],          // Number of rows in A and C
+    constant uint& N [[buffer(4)]],          // Number of columns in B and C
+    constant uint& K [[buffer(5)]],          // Shared dimension
+    uint2 thread_position_in_threadgroup [[thread_position_in_threadgroup]],
+    uint2 threadgroup_position_in_grid [[threadgroup_position_in_grid]]
+) {
+    constexpr uint TILE_SIZE = 16;
+
+    threadgroup float A_tile[TILE_SIZE][TILE_SIZE];
+    threadgroup float B_tile[TILE_SIZE][TILE_SIZE];
+
+    uint tx = thread_position_in_threadgroup.x;
+    uint ty = thread_position_in_threadgroup.y;
+
+    uint row = threadgroup_position_in_grid.y * TILE_SIZE + ty;
+    uint col = threadgroup_position_in_grid.x * TILE_SIZE + tx;
+
+    float sum = 0.0f;
+
+    uint num_tiles = (K + TILE_SIZE - 1) / TILE_SIZE;
+
+    for (uint tile = 0; tile < num_tiles; tile++) {
+        uint k_offset = tile * TILE_SIZE;
+
+        // Load tile of A
+        uint a_row = row;
+        uint a_col = k_offset + tx;
+        if (a_row < M && a_col < K) {
+            A_tile[ty][tx] = A[a_row * K + a_col];
+        } else {
+            A_tile[ty][tx] = 0.0f;
+        }
+
+        // Load tile of B
+        uint b_row = k_offset + ty;
+        uint b_col = col;
+        if (b_row < K && b_col < N) {
+            B_tile[ty][tx] = B[b_row * N + b_col];
+        } else {
+            B_tile[ty][tx] = 0.0f;
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // Compute partial dot product
+        for (uint k = 0; k < TILE_SIZE; k++) {
+            sum += A_tile[ty][k] * B_tile[k][tx];
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    // Write result
+    if (row < M && col < N) {
+        C[row * N + col] = sum;
+    }
+}
+
+/// Tiled matrix multiplication for f32 (32x32 tiles)
+kernel void matmul_tiled_32x32_f32(
+    device const float* A [[buffer(0)]],
+    device const float* B [[buffer(1)]],
+    device float* C [[buffer(2)]],
+    constant uint& M [[buffer(3)]],
+    constant uint& N [[buffer(4)]],
+    constant uint& K [[buffer(5)]],
+    uint2 thread_position_in_threadgroup [[thread_position_in_threadgroup]],
+    uint2 threadgroup_position_in_grid [[threadgroup_position_in_grid]]
+) {
+    constexpr uint TILE_SIZE = 32;
+
+    threadgroup float A_tile[TILE_SIZE][TILE_SIZE];
+    threadgroup float B_tile[TILE_SIZE][TILE_SIZE];
+
+    uint tx = thread_position_in_threadgroup.x;
+    uint ty = thread_position_in_threadgroup.y;
+
+    uint row = threadgroup_position_in_grid.y * TILE_SIZE + ty;
+    uint col = threadgroup_position_in_grid.x * TILE_SIZE + tx;
+
+    float sum = 0.0f;
+
+    uint num_tiles = (K + TILE_SIZE - 1) / TILE_SIZE;
+
+    for (uint tile = 0; tile < num_tiles; tile++) {
+        uint k_offset = tile * TILE_SIZE;
+
+        uint a_row = row;
+        uint a_col = k_offset + tx;
+        if (a_row < M && a_col < K) {
+            A_tile[ty][tx] = A[a_row * K + a_col];
+        } else {
+            A_tile[ty][tx] = 0.0f;
+        }
+
+        uint b_row = k_offset + ty;
+        uint b_col = col;
+        if (b_row < K && b_col < N) {
+            B_tile[ty][tx] = B[b_row * N + b_col];
+        } else {
+            B_tile[ty][tx] = 0.0f;
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint k = 0; k < TILE_SIZE; k++) {
+            sum += A_tile[ty][k] * B_tile[k][tx];
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    if (row < M && col < N) {
+        C[row * N + col] = sum;
+    }
+}
+
+/// Simple matrix multiplication for f16 (no tiling)
+kernel void matmul_f16(
+    device const half* A [[buffer(0)]],
+    device const half* B [[buffer(1)]],
+    device half* C [[buffer(2)]],
+    constant uint& M [[buffer(3)]],
+    constant uint& N [[buffer(4)]],
+    constant uint& K [[buffer(5)]],
+    uint2 gid [[thread_position_in_grid]]
+) {
+    uint row = gid.y;
+    uint col = gid.x;
+
+    if (row < M && col < N) {
+        float sum = 0.0f;  // Use f32 accumulator for better precision
+        for (uint k = 0; k < K; k++) {
+            sum += float(A[row * K + k]) * float(B[k * N + col]);
+        }
+        C[row * N + col] = half(sum);
+    }
+}
+
+/// Simple matrix multiplication for f32 (no tiling)
+kernel void matmul_f32(
+    device const float* A [[buffer(0)]],
+    device const float* B [[buffer(1)]],
+    device float* C [[buffer(2)]],
+    constant uint& M [[buffer(3)]],
+    constant uint& N [[buffer(4)]],
+    constant uint& K [[buffer(5)]],
+    uint2 gid [[thread_position_in_grid]]
+) {
+    uint row = gid.y;
+    uint col = gid.x;
+
+    if (row < M && col < N) {
+        float sum = 0.0f;
+        for (uint k = 0; k < K; k++) {
+            sum += A[row * K + k] * B[k * N + col];
+        }
+        C[row * N + col] = sum;
+    }
+}
+
+// F32 version
+kernel void matmul_tiled_bias_f32(
+    device const float* A [[buffer(0)]],
+    device const float* B [[buffer(1)]],
+    device const float* bias [[buffer(2)]],
+    device float* C [[buffer(3)]],
+    constant uint& M [[buffer(4)]],
+    constant uint& N [[buffer(5)]],
+    constant uint& K [[buffer(6)]],
+    uint2 thread_position_in_threadgroup [[thread_position_in_threadgroup]],
+    uint2 threadgroup_position_in_grid [[threadgroup_position_in_grid]]
+) {
+    constexpr uint TILE_SIZE = 16;
+
+    threadgroup float A_tile[TILE_SIZE][TILE_SIZE];
+    threadgroup float B_tile[TILE_SIZE][TILE_SIZE];
+
+    uint tx = thread_position_in_threadgroup.x;
+    uint ty = thread_position_in_threadgroup.y;
+
+    uint row = threadgroup_position_in_grid.y * TILE_SIZE + ty;
+    uint col = threadgroup_position_in_grid.x * TILE_SIZE + tx;
+
+    // Use float (f32) for accumulation to prevent precision loss
+    float sum = 0.0f;
+
+    uint num_tiles = (K + TILE_SIZE - 1) / TILE_SIZE;
+
+    for (uint tile = 0; tile < num_tiles; tile++) {
+        uint k_offset = tile * TILE_SIZE;
+
+        uint a_row = row;
+        uint a_col = k_offset + tx;
+        if (a_row < M && a_col < K) {
+            A_tile[ty][tx] = A[a_row * K + a_col];
+        } else {
+            A_tile[ty][tx] = 0.0f;
+        }
+
+        uint b_row = k_offset + ty;
+        uint b_col = col;
+        if (b_row < K && b_col < N) {
+            B_tile[ty][tx] = B[b_row * N + b_col];
+        } else {
+            B_tile[ty][tx] = 0.0f;
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // Convert to f32 for accumulation
+        for (uint k = 0; k < TILE_SIZE; k++) {
+            sum += float(A_tile[ty][k]) * float(B_tile[k][tx]);
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    // Add bias and convert to f16
+    if (row < M && col < N) {
+        C[row * N + col] = float(sum + float(bias[col]));
+    }
+}
+
+// F32 version
+kernel void matmul_tiled_activation_f32(
+    device const float* A [[buffer(0)]],
+    device const float* B [[buffer(1)]],
+    device const float* bias [[buffer(2)]],
+    device float* C [[buffer(3)]],
+    constant uint& M [[buffer(4)]],
+    constant uint& N [[buffer(5)]],
+    constant uint& K [[buffer(6)]],
+    constant uint& activation [[buffer(7)]],  // 0=none, 1=relu, 2=gelu
+    constant bool& has_bias [[buffer(8)]],
+    uint2 thread_position_in_threadgroup [[thread_position_in_threadgroup]],
+    uint2 threadgroup_position_in_grid [[threadgroup_position_in_grid]]
+) {
+    constexpr uint TILE_SIZE = 16;
+
+    threadgroup float A_tile[TILE_SIZE][TILE_SIZE];
+    threadgroup float B_tile[TILE_SIZE][TILE_SIZE];
+
+    uint tx = thread_position_in_threadgroup.x;
+    uint ty = thread_position_in_threadgroup.y;
+
+    uint row = threadgroup_position_in_grid.y * TILE_SIZE + ty;
+    uint col = threadgroup_position_in_grid.x * TILE_SIZE + tx;
+
+    float sum = 0.0f;
+
+    uint num_tiles = (K + TILE_SIZE - 1) / TILE_SIZE;
+
+    for (uint tile = 0; tile < num_tiles; tile++) {
+        uint k_offset = tile * TILE_SIZE;
+
+        uint a_row = row;
+        uint a_col = k_offset + tx;
+        if (a_row < M && a_col < K) {
+            A_tile[ty][tx] = A[a_row * K + a_col];
+        } else {
+            A_tile[ty][tx] = 0.0f;
+        }
+
+        uint b_row = k_offset + ty;
+        uint b_col = col;
+        if (b_row < K && b_col < N) {
+            B_tile[ty][tx] = B[b_row * N + b_col];
+        } else {
+            B_tile[ty][tx] = 0.0f;
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint k = 0; k < TILE_SIZE; k++) {
+            sum += A_tile[ty][k] * B_tile[k][tx];
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    if (row < M && col < N) {
+        // Add bias if present
+        if (has_bias) {
+            sum += bias[col];
+        }
+
+        // Apply activation
+        float result;
+        if (activation == 1) {
+            // ReLU
+            result = max(sum, float(0.0));
+        } else if (activation == 2) {
+            // GELU approximation
+            float x = sum;
+            float x3 = x * x * x;
+            float inner = float(0.7978845608) * (x + float(0.044715) * x3);
+            result = float(0.5) * x * (float(1.0) + tanh(inner));
+        } else {
+            // No activation
+            result = sum;
+        }
+
+        C[row * N + col] = result;
+    }
+}

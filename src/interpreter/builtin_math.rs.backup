@@ -45,24 +45,16 @@ impl Interpreter {
 
         // Evaluate both tensor arguments
         let a_val = self.eval_expr(&args[0])?;
-        let b_val = self.eval_expr(&args[1])?;
+        let a = a_val.as_tensor()?;
 
-        // Process based on input type (f16 or f32)
-        match (a_val, b_val) {
-            (Value::TensorF16(a), Value::TensorF16(b)) => {
-                let result = a.matmul(&b)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
-            }
-            (Value::TensorF32(a), Value::TensorF32(b)) => {
-                let result = a.matmul(&b)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
-            }
-            _ => Err(RuntimeError::TypeError(
-                "matmul() requires both tensors to be same type (both f16 or both f32)".to_string()
-            ))
-        }
+        let b_val = self.eval_expr(&args[1])?;
+        let b = b_val.as_tensor()?;
+
+        // Perform matrix multiplication
+        let result = a.matmul(&b)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(Value::TensorF16(result))
     }
 
     /// linear(x, weight, bias) -> tensor
@@ -98,10 +90,7 @@ impl Interpreter {
                 // Add bias if provided
                 if args.len() == 3 {
                     let bias_val = self.eval_expr(&args[2])?;
-                    let bias = match bias_val {
-                        Value::TensorF16(ref t) => t,
-                        _ => return Err(RuntimeError::TypeError("linear() bias must be f16 tensor".to_string()))
-                    };
+                    let bias = bias_val.as_tensor_f16()?;
                     result = result.add(&bias)
                         .map_err(|e| RuntimeError::TensorError(e))?;
                 }
@@ -120,10 +109,7 @@ impl Interpreter {
                 // Add bias if provided
                 if args.len() == 3 {
                     let bias_val = self.eval_expr(&args[2])?;
-                    let bias = match bias_val {
-                        Value::TensorF32(ref t) => t,
-                        _ => return Err(RuntimeError::TypeError("linear() bias must be f32 tensor".to_string()))
-                    };
+                    let bias = bias_val.as_tensor_f32()?;
                     result = result.add(&bias)
                         .map_err(|e| RuntimeError::TensorError(e))?;
                 }

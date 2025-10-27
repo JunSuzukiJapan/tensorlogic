@@ -42,7 +42,7 @@ impl<T: FloatType> Tensor<T> {
     pub fn rms_norm(
         &self,
         normalized_shape: Vec<usize>,
-        weight: &Tensor,
+        weight: &Tensor<T>,
         eps: f32,
     ) -> TensorResult<Self> {
         // Validate normalized_shape
@@ -91,11 +91,11 @@ impl<T: FloatType> Tensor<T> {
     fn rms_norm_metal(
         &self,
         normalized_shape: &[usize],
-        weight: &Tensor,
+        weight: &Tensor<T>,
         eps: f32,
     ) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -191,11 +191,11 @@ impl<T: FloatType> Tensor<T> {
     fn rms_norm_cpu(
         &self,
         normalized_shape: &[usize],
-        weight: &Tensor,
+        weight: &Tensor<T>,
         eps: f32,
     ) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -328,7 +328,7 @@ impl<T: FloatType> Tensor<T> {
         eps: f32,
     ) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -453,7 +453,7 @@ impl<T: FloatType> Tensor<T> {
         eps: f32,
     ) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));

@@ -78,7 +78,7 @@ impl<T: FloatType> Tensor<T> {
         feature_size: usize,
     ) -> TensorResult<Tensor> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));

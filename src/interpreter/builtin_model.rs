@@ -9,6 +9,7 @@ impl Interpreter {
             "save" => Some(self.eval_save(args)),
             "load" => Some(self.eval_load(args)),
             "load_model" => Some(self.eval_load_model(args)),
+            "load_model_f32" => Some(self.eval_load_model_f32(args)),
             "get_tensor" => Some(self.eval_get_tensor(args)),
             "print" => Some(self.eval_print(args)),
             "load_tokenizer" => Some(self.eval_load_tokenizer(args)),
@@ -105,13 +106,43 @@ impl Interpreter {
             )),
         };
 
-        // Load model using Metal device
+        // Load model as f16 using Metal device
         let device = self.env.metal_device();
-        let model = Model::load(&path, device)
+        let model = Model::<half::f16>::load(&path, device)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        println!("Loaded model from: {}", path);
-        Ok(Value::Model(model))
+        println!("Loaded model from: {} (f16)", path);
+        Ok(Value::ModelF16(model))
+    }
+
+    /// load_model_f32("path/to/model.gguf")
+    /// Load a GGUF model as f32 (no f16 conversion)
+    fn eval_load_model_f32(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::model::Model;
+        use crate::model::formats::GGUFLoader;
+
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("load_model_f32() expects 1 argument (path), got {}", args.len())
+            ));
+        }
+
+        // Evaluate path argument
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "load_model_f32() argument must be a string (path)".to_string()
+            )),
+        };
+
+        // Load model as f32 using Metal device
+        let device = self.env.metal_device();
+        let model = GGUFLoader::load_f32(&path, device)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        println!("Loaded model from: {} (f32)", path);
+        Ok(Value::ModelF32(model))
     }
 
     /// get_tensor(model, "tensor_name")
@@ -125,12 +156,6 @@ impl Interpreter {
 
         // Evaluate model argument
         let model_val = self.eval_expr(&args[0])?;
-        let model = match model_val {
-            Value::Model(m) => m,
-            _ => return Err(RuntimeError::TypeError(
-                "get_tensor() first argument must be a Model".to_string()
-            )),
-        };
 
         // Evaluate tensor name argument
         let name_val = self.eval_expr(&args[1])?;
@@ -141,13 +166,26 @@ impl Interpreter {
             )),
         };
 
-        // Get tensor from model
-        let tensor = model.get_tensor(&tensor_name)
-            .ok_or_else(|| RuntimeError::InvalidOperation(
-                format!("Tensor '{}' not found in model", tensor_name)
-            ))?;
-
-        Ok(Value::TensorF16(tensor.clone()))
+        // Get tensor from model (f16 or f32)
+        match model_val {
+            Value::ModelF16(model) => {
+                let tensor = model.get_tensor(&tensor_name)
+                    .ok_or_else(|| RuntimeError::InvalidOperation(
+                        format!("Tensor '{}' not found in model", tensor_name)
+                    ))?;
+                Ok(Value::TensorF16(tensor.clone()))
+            }
+            Value::ModelF32(model) => {
+                let tensor = model.get_tensor(&tensor_name)
+                    .ok_or_else(|| RuntimeError::InvalidOperation(
+                        format!("Tensor '{}' not found in model", tensor_name)
+                    ))?;
+                Ok(Value::TensorF32(tensor.clone()))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "get_tensor() first argument must be a Model".to_string()
+            )),
+        }
     }
 
     /// print(args...)
@@ -172,7 +210,8 @@ impl Interpreter {
                 Value::TensorF32(ref t) => {
                     output.push_str(&format!("Tensor(shape={:?})", t.dims()));
                 }
-                Value::Model(_) => output.push_str("Model(...)"),
+                Value::ModelF16(_) => output.push_str("Model<f16>(...)"),
+                Value::ModelF32(_) => output.push_str("Model<f32>(...)"),
                 Value::Tokenizer(_) => output.push_str("Tokenizer(...)"),
                 Value::TokenIds(ref ids) => {
                     output.push_str(&format!("TokenIds(len={})", ids.len()));

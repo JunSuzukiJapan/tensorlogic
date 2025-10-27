@@ -88,7 +88,7 @@ impl<T: FloatType> Tensor<T> {
     /// Automatically selects optimal tile size based on matrix dimensions.
     fn matmul_metal(&self, other: &Tensor<T>, m: usize, k: usize, n: usize) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -186,7 +186,7 @@ impl<T: FloatType> Tensor<T> {
     /// CPU fallback for matmul
     fn matmul_cpu(&self, other: &Tensor<T>, m: usize, k: usize, n: usize) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));

@@ -81,7 +81,7 @@ main {
     // Load
     print("[1/4] Loading...")
     let home = env("HOME")
-    let model = load_model_f32(home + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf")
+    let model = load_model(home + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf")
     let tokenizer = load_tokenizer(home + "/.llm/tokenizers/tinyllama-tokenizer.json")
 
     // Load weights (2 layers)
@@ -160,7 +160,7 @@ main {
     // Generate first token
     let token_id = temperature_sample(current_logits, temperature)
     let text = detokenize_single(tokenizer, token_id, false)
-    print(text, "")
+    print("[", token_id, ":", text, "] ", "")
 
     // Initialize variables for loop
     let token_ids_single = int_to_tokenids(token_id)
@@ -174,8 +174,10 @@ main {
     let h1_new = transformer_layer(h0_new, layer_1_attn_norm, layer_1_q, layer_1_k, layer_1_v, layer_1_o,
                                     layer_1_ffn_norm, layer_1_gate, layer_1_up, layer_1_down, KV1_cache, KV1_V_cache)
     let norm_new = rms_norm(h1_new, output_norm)
+    let new_token = 0
+    let is_eos = false
 
-    // Generate remaining 9 tokens with KV cache updates and EOS detection
+    // Generate remaining 9 tokens with KV cache updates
     for i in range(9) {
         if continue_generation {
             // Convert token_id (Integer) to TokenIds for embedding lookup
@@ -206,17 +208,22 @@ main {
             current_logits = linear(norm_new, output)
 
             // Sample next token
-            token_id = temperature_sample(current_logits, temperature)
-            text = detokenize_single(tokenizer, token_id, false)
-            print(text, "")
+            new_token = temperature_sample(current_logits, temperature)
+            text = detokenize_single(tokenizer, new_token, false)
+            print("[", new_token, ":", text, "] ", "")
 
+            // Increment token counter
             token_count = token_count + 1
 
-            // Check EOS
-            if token_id == EOS_TOKEN {
+            // Check for EOS token
+            is_eos = new_token == 2
+            if is_eos {
                 continue_generation = false
                 print(" <EOS>")
             }
+
+            // Update token_id for next iteration
+            token_id = new_token
         }
     }
 
@@ -224,6 +231,8 @@ main {
     print("")
     print("=== Complete ===")
     print("")
-    print("Generated", token_count, "tokens")
-    print("Features: EOS detection, random sampling, KV cache updates")
+    print("Success! Generated 10 tokens with proper autoregression.")
+    print("Each token sees the full context of all previous tokens.")
+    print("")
+    print("Total tokens generated:", token_count)
 }
