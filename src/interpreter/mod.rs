@@ -3430,6 +3430,8 @@ impl Interpreter {
                 // + h_re[i] * r_im[i] * t_im[i]
                 // + h_im[i] * r_re[i] * t_im[i]
                 // - h_im[i] * r_im[i] * t_re[i]
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 6 {
                     return Err(RuntimeError::TypeError(
                         format!("complex_score() expects 6 arguments (h_re, h_im, r_re, r_im, t_re, t_im), got {}", args.len())
@@ -3437,58 +3439,110 @@ impl Interpreter {
                 }
 
                 // Evaluate arguments
-                let h_re = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let h_im = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
-                let r_re = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
-                let r_im = self.eval_expr(&args[3])?.as_tensor_f16()?.clone();
-                let t_re = self.eval_expr(&args[4])?.as_tensor_f16()?.clone();
-                let t_im = self.eval_expr(&args[5])?.as_tensor_f16()?.clone();
+                let h_re_val = self.eval_expr(&args[0])?;
+                let h_im_val = self.eval_expr(&args[1])?;
+                let r_re_val = self.eval_expr(&args[2])?;
+                let r_im_val = self.eval_expr(&args[3])?;
+                let t_re_val = self.eval_expr(&args[4])?;
+                let t_im_val = self.eval_expr(&args[5])?;
 
-                // Compute the four trilinear products
+                match (h_re_val, h_im_val, r_re_val, r_im_val, t_re_val, t_im_val) {
+                    (Value::TensorF16(h_re), Value::TensorF16(h_im), Value::TensorF16(r_re),
+                     Value::TensorF16(r_im), Value::TensorF16(t_re), Value::TensorF16(t_im)) => {
+                        // Compute the four trilinear products
 
-                // Term 1: h_re * r_re * t_re
-                let h_re_r_re = h_re.mul(&r_re)?;
-                let term1_product = h_re_r_re.mul(&t_re)?;
-                let term1 = term1_product.sum()?;
+                        // Term 1: h_re * r_re * t_re
+                        let h_re_r_re = h_re.mul(&r_re)?;
+                        let term1_product = h_re_r_re.mul(&t_re)?;
+                        let term1 = term1_product.sum()?;
 
-                // Term 2: h_re * r_im * t_im
-                let h_re_r_im = h_re.mul(&r_im)?;
-                let term2_product = h_re_r_im.mul(&t_im)?;
-                let term2 = term2_product.sum()?;
+                        // Term 2: h_re * r_im * t_im
+                        let h_re_r_im = h_re.mul(&r_im)?;
+                        let term2_product = h_re_r_im.mul(&t_im)?;
+                        let term2 = term2_product.sum()?;
 
-                // Term 3: h_im * r_re * t_im
-                let h_im_r_re = h_im.mul(&r_re)?;
-                let term3_product = h_im_r_re.mul(&t_im)?;
-                let term3 = term3_product.sum()?;
+                        // Term 3: h_im * r_re * t_im
+                        let h_im_r_re = h_im.mul(&r_re)?;
+                        let term3_product = h_im_r_re.mul(&t_im)?;
+                        let term3 = term3_product.sum()?;
 
-                // Term 4: h_im * r_im * t_re
-                let h_im_r_im = h_im.mul(&r_im)?;
-                let term4_product = h_im_r_im.mul(&t_re)?;
-                let term4 = term4_product.sum()?;
+                        // Term 4: h_im * r_im * t_re
+                        let h_im_r_im = h_im.mul(&r_im)?;
+                        let term4_product = h_im_r_im.mul(&t_re)?;
+                        let term4 = term4_product.sum()?;
 
-                // Combine: term1 + term2 + term3 - term4
-                let device = self.env.metal_device();
+                        // Combine: term1 + term2 + term3 - term4
+                        let device = self.env.metal_device();
 
-                // Create scalar tensors for each term
-                let term1_tensor = Tensor::from_vec_metal(device, vec![term1], vec![1])?;
-                let term2_tensor = Tensor::from_vec_metal(device, vec![term2], vec![1])?;
-                let term3_tensor = Tensor::from_vec_metal(device, vec![term3], vec![1])?;
-                let term4_tensor = Tensor::from_vec_metal(device, vec![term4], vec![1])?;
+                        // Create scalar tensors for each term
+                        let term1_tensor = Tensor::from_vec_metal(device, vec![term1], vec![1])?;
+                        let term2_tensor = Tensor::from_vec_metal(device, vec![term2], vec![1])?;
+                        let term3_tensor = Tensor::from_vec_metal(device, vec![term3], vec![1])?;
+                        let term4_tensor = Tensor::from_vec_metal(device, vec![term4], vec![1])?;
 
-                // Add first three terms
-                let sum12 = term1_tensor.add(&term2_tensor)?;
-                let sum123 = sum12.add(&term3_tensor)?;
+                        // Add first three terms
+                        let sum12 = term1_tensor.add(&term2_tensor)?;
+                        let sum123 = sum12.add(&term3_tensor)?;
 
-                // Subtract fourth term
-                let score = sum123.sub(&term4_tensor)?;
+                        // Subtract fourth term
+                        let score = sum123.sub(&term4_tensor)?;
 
-                Ok(Value::TensorF16(score))
+                        Ok(score.to_value())
+                    }
+                    (Value::TensorF32(h_re), Value::TensorF32(h_im), Value::TensorF32(r_re),
+                     Value::TensorF32(r_im), Value::TensorF32(t_re), Value::TensorF32(t_im)) => {
+                        // Compute the four trilinear products
+
+                        // Term 1: h_re * r_re * t_re
+                        let h_re_r_re = h_re.mul(&r_re)?;
+                        let term1_product = h_re_r_re.mul(&t_re)?;
+                        let term1 = term1_product.sum()?;
+
+                        // Term 2: h_re * r_im * t_im
+                        let h_re_r_im = h_re.mul(&r_im)?;
+                        let term2_product = h_re_r_im.mul(&t_im)?;
+                        let term2 = term2_product.sum()?;
+
+                        // Term 3: h_im * r_re * t_im
+                        let h_im_r_re = h_im.mul(&r_re)?;
+                        let term3_product = h_im_r_re.mul(&t_im)?;
+                        let term3 = term3_product.sum()?;
+
+                        // Term 4: h_im * r_im * t_re
+                        let h_im_r_im = h_im.mul(&r_im)?;
+                        let term4_product = h_im_r_im.mul(&t_re)?;
+                        let term4 = term4_product.sum()?;
+
+                        // Combine: term1 + term2 + term3 - term4
+                        let device = self.env.metal_device();
+
+                        // Create scalar tensors for each term
+                        let term1_tensor = Tensor::from_vec_metal(device, vec![term1], vec![1])?;
+                        let term2_tensor = Tensor::from_vec_metal(device, vec![term2], vec![1])?;
+                        let term3_tensor = Tensor::from_vec_metal(device, vec![term3], vec![1])?;
+                        let term4_tensor = Tensor::from_vec_metal(device, vec![term4], vec![1])?;
+
+                        // Add first three terms
+                        let sum12 = term1_tensor.add(&term2_tensor)?;
+                        let sum123 = sum12.add(&term3_tensor)?;
+
+                        // Subtract fourth term
+                        let score = sum123.sub(&term4_tensor)?;
+
+                        Ok(score.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "complex_score() requires all 6 tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "margin_ranking_loss" => {
                 // margin_ranking_loss(pos_score, neg_score, margin) -> Tensor
                 // Margin ranking loss: loss = max(0, margin + neg_score - pos_score)
                 // Used in TransE training
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 3 {
                     return Err(RuntimeError::TypeError(
                         format!("margin_ranking_loss() expects 3 arguments (pos_score, neg_score, margin), got {}", args.len())
@@ -3496,8 +3550,8 @@ impl Interpreter {
                 }
 
                 // Evaluate arguments
-                let pos_score = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let neg_score = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let pos_score_val = self.eval_expr(&args[0])?;
+                let neg_score_val = self.eval_expr(&args[1])?;
                 let margin_val = self.eval_expr(&args[2])?;
 
                 // Parse margin
@@ -3509,19 +3563,40 @@ impl Interpreter {
                     )),
                 };
 
-                // Compute: margin + neg_score - pos_score
-                let neg_minus_pos = neg_score.sub(&pos_score)?;
+                match (pos_score_val, neg_score_val) {
+                    (Value::TensorF16(pos_score), Value::TensorF16(neg_score)) => {
+                        // Compute: margin + neg_score - pos_score
+                        let neg_minus_pos = neg_score.sub(&pos_score)?;
 
-                // Add margin
-                let margin_f16 = half::f16::from_f32(margin);
-                let device = self.env.metal_device();
-                let margin_tensor = Tensor::from_vec_metal(device, vec![margin_f16], vec![1])?;
-                let diff_plus_margin = neg_minus_pos.add(&margin_tensor)?;
+                        // Add margin
+                        let margin_f16 = half::f16::from_f32(margin);
+                        let device = self.env.metal_device();
+                        let margin_tensor = Tensor::from_vec_metal(device, vec![margin_f16], vec![1])?;
+                        let diff_plus_margin = neg_minus_pos.add(&margin_tensor)?;
 
-                // Apply max(0, x) = ReLU
-                let loss = diff_plus_margin.relu()?;
+                        // Apply max(0, x) = ReLU
+                        let loss = diff_plus_margin.relu()?;
 
-                Ok(Value::TensorF16(loss))
+                        Ok(loss.to_value())
+                    }
+                    (Value::TensorF32(pos_score), Value::TensorF32(neg_score)) => {
+                        // Compute: margin + neg_score - pos_score
+                        let neg_minus_pos = neg_score.sub(&pos_score)?;
+
+                        // Add margin
+                        let device = self.env.metal_device();
+                        let margin_tensor = Tensor::from_vec_metal(device, vec![margin], vec![1])?;
+                        let diff_plus_margin = neg_minus_pos.add(&margin_tensor)?;
+
+                        // Apply max(0, x) = ReLU
+                        let loss = diff_plus_margin.relu()?;
+
+                        Ok(loss.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "margin_ranking_loss() requires both tensors to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "binary_cross_entropy" => {
