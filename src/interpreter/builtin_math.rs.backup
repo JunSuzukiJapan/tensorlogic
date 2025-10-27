@@ -45,10 +45,10 @@ impl Interpreter {
 
         // Evaluate both tensor arguments
         let a_val = self.eval_expr(&args[0])?;
-        let a = a_val.as_tensor()?;
+        let a = a_val.as_tensor_f16()?;
 
         let b_val = self.eval_expr(&args[1])?;
-        let b = b_val.as_tensor()?;
+        let b = b_val.as_tensor_f16()?;
 
         // Perform matrix multiplication
         let result = a.matmul(&b)

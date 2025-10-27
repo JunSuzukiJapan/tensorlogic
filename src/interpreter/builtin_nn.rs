@@ -2,7 +2,8 @@
 
 use super::*;
 use crate::interpreter::value::ToValue;
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorCreation};
+use half::f16;
 
 impl Interpreter {
     pub(super) fn eval_nn_function(&mut self, name: &str, args: &[TensorExpr]) -> Option<RuntimeResult<Value>> {
@@ -10,6 +11,7 @@ impl Interpreter {
             "rms_norm" => Some(self.eval_rms_norm(args)),
             "layer_norm" => Some(self.eval_layer_norm(args)),
             "positional_encoding" => Some(self.eval_positional_encoding(args)),
+            "embedding" => Some(self.eval_embedding(args)),
             "apply_attention_mask" => Some(self.eval_apply_attention_mask(args)),
             "padding_mask" => Some(self.eval_padding_mask(args)),
             "combine_masks" => Some(self.eval_combine_masks(args)),
@@ -434,5 +436,147 @@ impl Interpreter {
                 "fused_gelu_linear() requires all tensors to be same type (all f16 or all f32)".to_string()
             ))
         })
+    }
+
+    /// embedding(embedding_table, token_ids) -> tensor
+    /// Embedding lookup: retrieve embedding vectors for token IDs
+    fn eval_embedding(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("embedding() expects 2 arguments (embedding_table, token_ids), got {}", args.len())
+            ));
+        }
+
+        // Evaluate embedding table
+        let table_val = self.eval_expr(&args[0])?;
+
+        // Evaluate token IDs
+        let tokens_val = self.eval_expr(&args[1])?;
+
+        // Convert tokens to i64 vector, accepting both TokenIds and TokenIdArray
+        let token_data: Vec<i64> = match tokens_val {
+            Value::TokenIdArray(ref ids) => {
+                // TokenIdArray already has i64 data
+                ids.data().to_vec()
+            }
+            Value::TokenIds(ref ids) => {
+                // TokenIds is Vec<u32>, convert to i64
+                ids.iter().map(|&id| id as i64).collect()
+            }
+            _ => return Err(RuntimeError::TypeError(
+                "embedding() second argument must be TokenIds or TokenIdArray".to_string()
+            )),
+        };
+
+        // Perform embedding lookup based on table type
+        // For embedding lookup, we manually select rows from the table based on token IDs
+        match table_val {
+            Value::TensorF16(table) => {
+                use crate::tensor::TensorAccessors;
+
+                // Get table dimensions: [vocab_size, embedding_dim]
+                let table_dims = table.shape().dims();
+                if table_dims.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("embedding() table must be 2D, got {:?}", table_dims)
+                    ));
+                }
+
+                let vocab_size = table_dims[0];
+                let emb_dim = table_dims[1];
+
+                // Validate token IDs
+                for &token_id in &token_data {
+                    if token_id < 0 || token_id as usize >= vocab_size {
+                        return Err(RuntimeError::InvalidOperation(
+                            format!("Token ID {} out of bounds for vocab size {}", token_id, vocab_size)
+                        ));
+                    }
+                }
+
+                // Get table data
+                let table_data = table.to_vec_f32();
+
+                // Build output: [seq_len, emb_dim]
+                let seq_len = token_data.len();
+                let mut output_data = Vec::with_capacity(seq_len * emb_dim);
+
+                for &token_id in &token_data {
+                    let row_start = (token_id as usize) * emb_dim;
+                    let row_end = row_start + emb_dim;
+                    output_data.extend_from_slice(&table_data[row_start..row_end]);
+                }
+
+                // Convert back to f16
+                let output_f16: Vec<f16> = output_data.iter().map(|&f| f16::from_f32(f)).collect();
+
+                // Create result tensor on same device as table
+                let result = match table.device() {
+                    crate::device::Device::Metal(metal_device) => {
+                        Tensor::from_vec_metal(metal_device, output_f16, vec![seq_len, emb_dim])
+                            .map_err(|e| RuntimeError::TensorError(e))?
+                    }
+                    _ => {
+                        Tensor::from_vec(output_f16, vec![seq_len, emb_dim])
+                            .map_err(|e| RuntimeError::TensorError(e))?
+                    }
+                };
+
+                Ok(result.to_value())
+            }
+            Value::TensorF32(table) => {
+                use crate::tensor::TensorAccessors;
+
+                // Get table dimensions: [vocab_size, embedding_dim]
+                let table_dims = table.shape().dims();
+                if table_dims.len() != 2 {
+                    return Err(RuntimeError::TypeError(
+                        format!("embedding() table must be 2D, got {:?}", table_dims)
+                    ));
+                }
+
+                let vocab_size = table_dims[0];
+                let emb_dim = table_dims[1];
+
+                // Validate token IDs
+                for &token_id in &token_data {
+                    if token_id < 0 || token_id as usize >= vocab_size {
+                        return Err(RuntimeError::InvalidOperation(
+                            format!("Token ID {} out of bounds for vocab size {}", token_id, vocab_size)
+                        ));
+                    }
+                }
+
+                // Get table data
+                let table_data = table.to_vec();
+
+                // Build output: [seq_len, emb_dim]
+                let seq_len = token_data.len();
+                let mut output_data = Vec::with_capacity(seq_len * emb_dim);
+
+                for &token_id in &token_data {
+                    let row_start = (token_id as usize) * emb_dim;
+                    let row_end = row_start + emb_dim;
+                    output_data.extend_from_slice(&table_data[row_start..row_end]);
+                }
+
+                // Create result tensor on same device as table
+                let result = match table.device() {
+                    crate::device::Device::Metal(metal_device) => {
+                        Tensor::from_vec_metal(metal_device, output_data, vec![seq_len, emb_dim])
+                            .map_err(|e| RuntimeError::TensorError(e))?
+                    }
+                    _ => {
+                        Tensor::from_vec(output_data, vec![seq_len, emb_dim])
+                            .map_err(|e| RuntimeError::TensorError(e))?
+                    }
+                };
+
+                Ok(result.to_value())
+            }
+            _ => Err(RuntimeError::TypeError(
+                "embedding() first argument must be tensor (f16 or f32)".to_string()
+            ))
+        }
     }
 }

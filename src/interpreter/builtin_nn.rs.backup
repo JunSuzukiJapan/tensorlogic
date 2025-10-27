@@ -135,7 +135,7 @@ impl Interpreter {
         }
 
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?.clone();
+        let tensor = tensor_val.as_tensor_f16()?.clone();
 
         // Default: normalize over last dimension
         let shape = tensor.shape();
@@ -176,10 +176,10 @@ impl Interpreter {
         }
 
         let scores_val = self.eval_expr(&args[0])?;
-        let scores = scores_val.as_tensor()?.clone();
+        let scores = scores_val.as_tensor_f16()?.clone();
 
         let mask_val = self.eval_expr(&args[1])?;
-        let mask = mask_val.as_tensor()?.clone();
+        let mask = mask_val.as_tensor_f16()?.clone();
 
         // Apply mask: scores + (1 - mask) * (-1e9)
         // Where mask is 0, add -1e9; where mask is 1, add 0
@@ -211,7 +211,7 @@ impl Interpreter {
         }
 
         let lengths_val = self.eval_expr(&args[0])?;
-        let lengths_tensor = lengths_val.as_tensor()?;
+        let lengths_tensor = lengths_val.as_tensor_f16()?;
         let lengths_vec = lengths_tensor.to_vec();
         let lengths: Vec<usize> = lengths_vec.iter()
             .map(|&v| v.to_f32() as usize)
@@ -253,10 +253,10 @@ impl Interpreter {
         }
 
         let mask1_val = self.eval_expr(&args[0])?;
-        let mask1 = mask1_val.as_tensor()?.clone();
+        let mask1 = mask1_val.as_tensor_f16()?.clone();
 
         let mask2_val = self.eval_expr(&args[1])?;
-        let mask2 = mask2_val.as_tensor()?.clone();
+        let mask2 = mask2_val.as_tensor_f16()?.clone();
 
         // Combine masks: mask1 * mask2 (element-wise multiplication)
         let result = mask1.mul(&mask2).map_err(|e| RuntimeError::TensorError(e))?;
@@ -274,10 +274,10 @@ impl Interpreter {
         }
 
         let a_val = self.eval_expr(&args[0])?;
-        let a = a_val.as_tensor()?.clone();
+        let a = a_val.as_tensor_f16()?.clone();
 
         let b_val = self.eval_expr(&args[1])?;
-        let b = b_val.as_tensor()?.clone();
+        let b = b_val.as_tensor_f16()?.clone();
 
         // Fused: add + relu
         let sum = a.add(&b).map_err(|e| RuntimeError::TensorError(e))?;
@@ -296,10 +296,10 @@ impl Interpreter {
         }
 
         let a_val = self.eval_expr(&args[0])?;
-        let a = a_val.as_tensor()?.clone();
+        let a = a_val.as_tensor_f16()?.clone();
 
         let b_val = self.eval_expr(&args[1])?;
-        let b = b_val.as_tensor()?.clone();
+        let b = b_val.as_tensor_f16()?.clone();
 
         // Fused: mul + relu
         let product = a.mul(&b).map_err(|e| RuntimeError::TensorError(e))?;
@@ -318,13 +318,13 @@ impl Interpreter {
         }
 
         let x_val = self.eval_expr(&args[0])?;
-        let x = x_val.as_tensor()?.clone();
+        let x = x_val.as_tensor_f16()?.clone();
 
         let scale_val = self.eval_expr(&args[1])?;
-        let scale = scale_val.as_tensor()?.clone();
+        let scale = scale_val.as_tensor_f16()?.clone();
 
         let bias_val = self.eval_expr(&args[2])?;
-        let bias = bias_val.as_tensor()?.clone();
+        let bias = bias_val.as_tensor_f16()?.clone();
 
         // Fused: x * scale + bias
         let scaled = x.mul(&scale).map_err(|e| RuntimeError::TensorError(e))?;
@@ -343,13 +343,13 @@ impl Interpreter {
         }
 
         let input_val = self.eval_expr(&args[0])?;
-        let input = input_val.as_tensor()?.clone();
+        let input = input_val.as_tensor_f16()?.clone();
 
         let weight_val = self.eval_expr(&args[1])?;
-        let weight = weight_val.as_tensor()?.clone();
+        let weight = weight_val.as_tensor_f16()?.clone();
 
         let bias_val = self.eval_expr(&args[2])?;
-        let bias = bias_val.as_tensor()?.clone();
+        let bias = bias_val.as_tensor_f16()?.clone();
 
         // Fused: gelu -> matmul -> add
         let activated = input.gelu().map_err(|e| RuntimeError::TensorError(e))?;

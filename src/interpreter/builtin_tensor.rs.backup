@@ -65,7 +65,7 @@ impl Interpreter {
 
         // Evaluate argument and get tensor
         let val = self.eval_expr(&args[0])?;
-        let tensor = val.as_tensor()?;
+        let tensor = val.as_tensor_f16()?;
 
         // Get dimensions
         let dims = tensor.dims();
@@ -140,7 +140,7 @@ impl Interpreter {
 
         // Evaluate tensor argument
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?;
+        let tensor = tensor_val.as_tensor_f16()?;
 
         // Evaluate new_shape argument
         let shape_val = self.eval_expr(&args[1])?;
@@ -185,7 +185,7 @@ impl Interpreter {
 
         // Evaluate tensor argument
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?;
+        let tensor = tensor_val.as_tensor_f16()?;
 
         // Transpose the tensor
         let transposed = tensor.transpose()
@@ -205,7 +205,7 @@ impl Interpreter {
 
         // Evaluate tensor argument
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?;
+        let tensor = tensor_val.as_tensor_f16()?;
 
         // Evaluate target_shape argument
         let shape_val = self.eval_expr(&args[1])?;
@@ -328,7 +328,7 @@ impl Interpreter {
 
         // Evaluate tensor argument
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?;
+        let tensor = tensor_val.as_tensor_f16()?;
 
         // Get position offset (default 0 for backward compatibility)
         let position_offset = if args.len() == 2 {
@@ -384,7 +384,7 @@ impl Interpreter {
 
         // Evaluate tensor argument
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?;
+        let tensor = tensor_val.as_tensor_f16()?;
 
         // Check tensor is 2D
         let dims = tensor.dims();
@@ -528,7 +528,7 @@ impl Interpreter {
         }
 
         // Handle Tensor (1D)
-        let tensor = array_val.as_tensor()?;
+        let tensor = array_val.as_tensor_f16()?;
         let dims = tensor.dims();
 
         if dims.len() != 1 {
