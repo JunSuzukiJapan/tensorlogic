@@ -159,7 +159,7 @@ additive_expr = { multiplicative_expr ~ (additive_op ~ multiplicative_expr)* }
 additive_op = { "+" | "-" }
 
 multiplicative_expr = { power_expr ~ (multiplicative_op ~ power_expr)* }
-multiplicative_op = { "*" | "/" | "@" | "⊙" }
+multiplicative_op = { "*" | "/" | "%" | "@" | "⊙" }
 
 power_expr = { unary_expr ~ (power_op ~ unary_expr)* }
 power_op = { "**" | "⊗" }
@@ -207,7 +207,7 @@ index_access = {
 binary_op = {
     "||" | "&&"
     | "==" | "!=" | "<=" | ">=" | "<" | ">"
-    | "**" | "⊗" | "⊙" | "@" | "*" | "/" | "+" | "-"
+    | "**" | "⊗" | "⊙" | "@" | "*" | "/" | "%" | "+" | "-"
 }
 
 unary_op = {

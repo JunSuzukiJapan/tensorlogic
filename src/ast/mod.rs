@@ -354,6 +354,7 @@ pub enum BinaryOp {
     Sub,          // -
     Mul,          // *
     Div,          // /
+    Mod,          // %
     MatMul,       // @
     Power,        // **
     TensorProd,   // ⊗
@@ -797,6 +798,7 @@ impl fmt::Display for BinaryOp {
             BinaryOp::Sub => write!(f, "-"),
             BinaryOp::Mul => write!(f, "*"),
             BinaryOp::Div => write!(f, "/"),
+            BinaryOp::Mod => write!(f, "%"),
             BinaryOp::MatMul => write!(f, "@"),
             BinaryOp::Power => write!(f, "**"),
             BinaryOp::TensorProd => write!(f, "⊗"),

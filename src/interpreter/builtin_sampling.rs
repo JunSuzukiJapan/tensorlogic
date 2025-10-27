@@ -3,6 +3,7 @@
 use super::*;
 use crate::tensor::TensorIO;
 use crate::tensor::Tensor;
+use rand::Rng;
 
 impl Interpreter {
     pub(super) fn eval_sampling_function(&mut self, name: &str, args: &[TensorExpr]) -> Option<RuntimeResult<Value>> {
@@ -92,45 +93,70 @@ impl Interpreter {
             ));
         };
 
-        // For now, implement greedy sampling (argmax)
-        // TODO: Implement proper temperature-scaled sampling with random selection
-
-        // Find argmax in the last sequence position
-        let mut max_idx = 0;
-        let mut max_val = f16::NEG_INFINITY;
-
+        // Apply temperature scaling and sample
+        // Extract logits for last position
+        let mut logits_last: Vec<f32> = Vec::with_capacity(vocab_size);
         for idx in 0..vocab_size {
-            let val = logits_data[start_idx + idx];
-            if val > max_val {
-                max_val = val;
-                max_idx = idx;
+            logits_last.push(logits_data[start_idx + idx].to_f32());
+        }
+
+        // Apply temperature scaling
+        for logit in &mut logits_last {
+            *logit /= temperature as f32;
+        }
+
+        // Compute softmax (convert to probabilities)
+        let max_logit = logits_last.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let mut exp_sum = 0.0f32;
+        let mut probs: Vec<f32> = Vec::with_capacity(vocab_size);
+
+        for &logit in &logits_last {
+            let exp_val = (logit - max_logit).exp();
+            probs.push(exp_val);
+            exp_sum += exp_val;
+        }
+
+        // Normalize to get probabilities
+        for prob in &mut probs {
+            *prob /= exp_sum;
+        }
+
+        // Sample from the probability distribution using cumulative probabilities
+        let mut rng = rand::thread_rng();
+        let random_value: f32 = rng.gen();
+
+        let mut cumulative = 0.0f32;
+        let mut sampled_idx = 0;
+        for (idx, &prob) in probs.iter().enumerate() {
+            cumulative += prob;
+            if random_value < cumulative {
+                sampled_idx = idx;
+                break;
             }
         }
 
-        // Debug: Print logits statistics
+        // Debug: Print sampling statistics
         if std::env::var("TL_DEBUG_SAMPLING").is_ok() {
             eprintln!("\n=== Temperature Sample Debug ===");
             eprintln!("  Logits shape: {:?}", dims);
             eprintln!("  Vocab size: {}", vocab_size);
-            eprintln!("  Sampled token: {}", max_idx);
-            eprintln!("  Max logit value: {}", max_val);
+            eprintln!("  Temperature: {}", temperature);
+            eprintln!("  Sampled token: {}", sampled_idx);
 
-            // Find top 5 tokens
-            let mut top_tokens: Vec<(usize, f16)> = Vec::new();
-            for idx in 0..vocab_size {
-                let val = logits_data[start_idx + idx];
-                top_tokens.push((idx, val));
-            }
-            top_tokens.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            // Find top 5 tokens by probability
+            let mut top_probs: Vec<(usize, f32)> = probs.iter().enumerate()
+                .map(|(i, &p)| (i, p))
+                .collect();
+            top_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-            eprintln!("  Top 5 tokens:");
-            for (i, (token_id, logit_val)) in top_tokens.iter().take(5).enumerate() {
-                eprintln!("    {}: token={}, logit={}", i+1, token_id, logit_val);
+            eprintln!("  Top 5 tokens by probability:");
+            for (i, (token_id, prob)) in top_probs.iter().take(5).enumerate() {
+                eprintln!("    {}: token={}, prob={:.4}", i+1, token_id, prob);
             }
             eprintln!("================================\n");
         }
 
         // Return token ID as integer
-        Ok(Value::Integer(max_idx as i64))
+        Ok(Value::Integer(sampled_idx as i64))
     }
 }

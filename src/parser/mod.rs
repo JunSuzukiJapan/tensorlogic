@@ -777,6 +777,7 @@ impl TensorLogicParser {
             let op = match op_pair.as_str() {
                 "*" => BinaryOp::Mul,
                 "/" => BinaryOp::Div,
+                "%" => BinaryOp::Mod,
                 "@" => BinaryOp::MatMul,
                 "⊙" => BinaryOp::Hadamard,
                 _ => return Err(ParseError::InvalidValue(format!("unknown multiplicative operator: {}", op_pair.as_str()))),
@@ -851,6 +852,7 @@ impl TensorLogicParser {
             "-" => Ok(BinaryOp::Sub),
             "*" => Ok(BinaryOp::Mul),
             "/" => Ok(BinaryOp::Div),
+            "%" => Ok(BinaryOp::Mod),
             "@" => Ok(BinaryOp::MatMul),
             "**" => Ok(BinaryOp::Power),
             "⊗" => Ok(BinaryOp::TensorProd),

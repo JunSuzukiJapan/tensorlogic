@@ -549,7 +549,7 @@ impl TypeChecker {
         }
 
         match op {
-            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod => {
                 // Element-wise operations: same shape required
                 if !left.dimensions_match(&right.dimensions) {
                     return Err(TypeError::DimensionMismatch {

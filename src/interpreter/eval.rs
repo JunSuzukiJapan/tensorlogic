@@ -85,8 +85,36 @@ impl Interpreter {
                             ))
                         }
                     }
+                    EquationType::Exact => {
+                        // = can be used for assignment if left side is a variable
+                        if let TensorExpr::Variable(var_name) = &eq.left {
+                            let value = self.eval_expr(&eq.right)?;
+
+                            // Check if we're inside a function call
+                            if let Some(frame) = self.call_stack.last_mut() {
+                                // Inside function: update local variable
+                                frame.local_vars.insert(var_name.as_str().to_string(), value);
+                            } else {
+                                // Global scope: update existing variable
+                                if self.env.has_variable(var_name.as_str()) {
+                                    self.env.set_variable(var_name.as_str().to_string(), value)?;
+                                } else {
+                                    return Err(RuntimeError::InvalidOperation(format!(
+                                        "Variable '{}' not declared. Use 'let {} = ...' to declare.",
+                                        var_name.as_str(), var_name.as_str()
+                                    )));
+                                }
+                            }
+                            Ok(())
+                        } else {
+                            // For non-variable left sides, just execute both sides (equation semantics)
+                            let _left = self.eval_expr(&eq.left)?;
+                            let _right = self.eval_expr(&eq.right)?;
+                            Ok(())
+                        }
+                    }
                     _ => {
-                        // For other equation types (=, ~), just execute both sides
+                        // For other equation types (~), just execute both sides
                         let _left = self.eval_expr(&eq.left)?;
                         let _right = self.eval_expr(&eq.right)?;
                         // In a full implementation, this would perform unification or constraint solving
@@ -832,6 +860,9 @@ impl Interpreter {
                     BinaryOp::Sub => l.sub(&r),
                     BinaryOp::Mul => l.mul(&r),
                     BinaryOp::Div => l.div(&r),
+                    BinaryOp::Mod => {
+                        return Err(RuntimeError::NotImplemented("Modulo not yet implemented for tensors".to_string()));
+                    }
                     BinaryOp::MatMul => l.matmul(&r),
                     BinaryOp::Power => {
                         return Err(RuntimeError::NotImplemented("Power not yet implemented".to_string()));
@@ -860,6 +891,9 @@ impl Interpreter {
                     BinaryOp::Sub => l.sub(&r),
                     BinaryOp::Mul => l.mul(&r),
                     BinaryOp::Div => l.div(&r),
+                    BinaryOp::Mod => {
+                        return Err(RuntimeError::NotImplemented("Modulo not yet implemented for tensors".to_string()));
+                    }
                     BinaryOp::MatMul => l.matmul(&r),
                     BinaryOp::Power => {
                         return Err(RuntimeError::NotImplemented("Power not yet implemented".to_string()));
@@ -893,6 +927,12 @@ impl Interpreter {
                         }
                         Ok(Value::Float(l / r))
                     }
+                    BinaryOp::Mod => {
+                        if r == 0.0 {
+                            return Err(RuntimeError::DivisionByZero);
+                        }
+                        Ok(Value::Float(l % r))
+                    }
                     BinaryOp::Power => Ok(Value::Float(l.powf(r))),
                     BinaryOp::Eq => Ok(Value::Boolean(l == r)),
                     BinaryOp::Ne => Ok(Value::Boolean(l != r)),
@@ -918,6 +958,38 @@ impl Interpreter {
                         "Operation {:?} not supported for booleans",
                         op
                     ))),
+                }
+            }
+            (Value::Integer(l), Value::Integer(r)) => {
+                match op {
+                    BinaryOp::Add => Ok(Value::Integer(l + r)),
+                    BinaryOp::Sub => Ok(Value::Integer(l - r)),
+                    BinaryOp::Mul => Ok(Value::Integer(l * r)),
+                    BinaryOp::Div => {
+                        if r == 0 {
+                            return Err(RuntimeError::DivisionByZero);
+                        }
+                        Ok(Value::Integer(l / r))
+                    }
+                    BinaryOp::Mod => {
+                        if r == 0 {
+                            return Err(RuntimeError::DivisionByZero);
+                        }
+                        Ok(Value::Integer(l % r))
+                    }
+                    BinaryOp::Power => Ok(Value::Integer(l.pow(r as u32))),
+                    BinaryOp::Eq => Ok(Value::Boolean(l == r)),
+                    BinaryOp::Ne => Ok(Value::Boolean(l != r)),
+                    BinaryOp::Lt => Ok(Value::Boolean(l < r)),
+                    BinaryOp::Le => Ok(Value::Boolean(l <= r)),
+                    BinaryOp::Gt => Ok(Value::Boolean(l > r)),
+                    BinaryOp::Ge => Ok(Value::Boolean(l >= r)),
+                    _ => {
+                        return Err(RuntimeError::InvalidOperation(format!(
+                            "Operation {:?} not supported for integers",
+                            op
+                        )));
+                    }
                 }
             }
             (Value::String(l), Value::String(r)) => {
