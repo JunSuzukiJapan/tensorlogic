@@ -978,53 +978,69 @@ impl Interpreter {
             }
 
             "batch_norm" => {
-                // batch_norm(x, gamma, beta, eps)
+                // batch_norm(x, gamma, beta, eps) - f16 only
+                use crate::interpreter::value::ToValue;
                 if args.len() != 4 {
                     return Err(RuntimeError::TypeError(
                         format!("batch_norm() expects 4 arguments (x, gamma, beta, eps), got {}", args.len())
                     ));
                 }
 
-                let x = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let x_val = self.eval_expr(&args[0])?;
                 let gamma_val = self.eval_expr(&args[1])?;
-                let gamma = gamma_val.as_tensor_f16()?;
                 let beta_val = self.eval_expr(&args[2])?;
-                let beta = beta_val.as_tensor_f16()?;
                 let eps = self.eval_expr(&args[3])?.as_float()? as f32;
 
-                let result = x.batch_norm(gamma, beta, eps)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(result))
+                match (x_val, gamma_val, beta_val) {
+                    (Value::TensorF16(x), Value::TensorF16(gamma), Value::TensorF16(beta)) => {
+                        let result = x.batch_norm(&gamma, &beta, eps)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "batch_norm() requires all tensors to be f16 (f32 not yet supported)".to_string()
+                    ))
+                }
             }
 
             "dropout" => {
                 // dropout(x, p, training)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 3 {
                     return Err(RuntimeError::TypeError(
                         format!("dropout() expects 3 arguments (x, p, training), got {}", args.len())
                     ));
                 }
 
-                let x = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let x_val = self.eval_expr(&args[0])?;
                 let p = self.eval_expr(&args[1])?.as_float()? as f32;
                 let training = self.eval_expr(&args[2])?.as_bool()?;
 
-                let result = x.dropout(p, training)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(result))
+                match x_val {
+                    Value::TensorF16(x) => {
+                        let result = x.dropout(p, training)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    Value::TensorF32(x) => {
+                        let result = x.dropout(p, training)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("dropout() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "argmax" => {
                 // argmax(tensor, dim: int = -1, keepdim: bool = false)
+                use crate::interpreter::value::ToValue;
                 if args.is_empty() || args.len() > 3 {
                     return Err(RuntimeError::TypeError(
                         format!("argmax() expects 1-3 arguments (tensor, optional dim, optional keepdim), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
 
                 let dim = if args.len() >= 2 {
                     let dim_val = self.eval_expr(&args[1])?;
@@ -1059,21 +1075,31 @@ impl Interpreter {
                     false
                 };
 
-                let result = tensor.argmax(dim, keepdim)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(result))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let result = tensor.argmax(dim, keepdim)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let result = tensor.argmax(dim, keepdim)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("argmax() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "argmin" => {
                 // argmin(tensor, dim: int = -1, keepdim: bool = false)
+                use crate::interpreter::value::ToValue;
                 if args.is_empty() || args.len() > 3 {
                     return Err(RuntimeError::TypeError(
                         format!("argmin() expects 1-3 arguments (tensor, optional dim, optional keepdim), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
 
                 let dim = if args.len() >= 2 {
                     let dim_val = self.eval_expr(&args[1])?;
@@ -1108,10 +1134,19 @@ impl Interpreter {
                     false
                 };
 
-                let result = tensor.argmin(dim, keepdim)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(result))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let result = tensor.argmin(dim, keepdim)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let result = tensor.argmin(dim, keepdim)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("argmin() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "unsqueeze" => {
@@ -1795,25 +1830,14 @@ impl Interpreter {
             "layer_norm" => {
                 // layer_norm(tensor, normalized_shape, eps=1e-5) -> Tensor
                 // Layer normalization
+                use crate::interpreter::value::ToValue;
                 if args.len() < 1 || args.len() > 3 {
                     return Err(RuntimeError::TypeError(
                         format!("layer_norm() expects 1-3 arguments (tensor, optional normalized_shape, optional eps), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-
-                // Default: normalize over last dimension
-                let shape = tensor.shape();
-                let dims = shape.dims();
-                let default_normalized_shape = vec![dims[dims.len() - 1]];
-
-                let normalized_shape = if args.len() >= 2 {
-                    // TODO: parse normalized_shape from argument
-                    default_normalized_shape
-                } else {
-                    default_normalized_shape
-                };
+                let tensor_val = self.eval_expr(&args[0])?;
 
                 let eps = if args.len() >= 3 {
                     match self.eval_expr(&args[2])? {
@@ -1825,10 +1849,43 @@ impl Interpreter {
                     1e-5_f32
                 };
 
-                let output = tensor.layer_norm(normalized_shape, None, None, eps)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        // Default: normalize over last dimension
+                        let shape = tensor.shape();
+                        let dims = shape.dims();
+                        let default_normalized_shape = vec![dims[dims.len() - 1]];
 
-                Ok(Value::TensorF16(output))
+                        let normalized_shape = if args.len() >= 2 {
+                            // TODO: parse normalized_shape from argument
+                            default_normalized_shape
+                        } else {
+                            default_normalized_shape
+                        };
+
+                        let output = tensor.layer_norm(normalized_shape, None, None, eps)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        // Default: normalize over last dimension
+                        let shape = tensor.shape();
+                        let dims = shape.dims();
+                        let default_normalized_shape = vec![dims[dims.len() - 1]];
+
+                        let normalized_shape = if args.len() >= 2 {
+                            // TODO: parse normalized_shape from argument
+                            default_normalized_shape
+                        } else {
+                            default_normalized_shape
+                        };
+
+                        let output = tensor.layer_norm(normalized_shape, None, None, eps)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("layer_norm() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "rms_norm" => {
