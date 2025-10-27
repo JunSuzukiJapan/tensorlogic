@@ -31,9 +31,10 @@ fn attention_with_cache(
     let Q_rope = rope(Q_heads)
 
     let K_heads = reshape(K_cache, [cache_len_f, 4.0, 64.0])
+    let K_rope = rope(K_heads)
     let V_heads = reshape(V_cache, [cache_len_f, 4.0, 64.0])
 
-    let K_exp = reshape(K_heads, [cache_len_f, 4.0, 1.0, 64.0])
+    let K_exp = reshape(K_rope, [cache_len_f, 4.0, 1.0, 64.0])
     let K_broadcast = broadcast_to(K_exp, [cache_len_f, 4.0, 8.0, 64.0])
     let K_expanded = reshape(K_broadcast, [cache_len_f, 32.0, 64.0])
 
