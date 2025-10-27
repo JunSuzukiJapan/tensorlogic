@@ -2001,18 +2001,29 @@ impl Interpreter {
             "mean" => {
                 // mean(tensor, dim, keepdim) -> Tensor or Float
                 // Mean along dimension, or mean of all elements
+                use crate::interpreter::value::ToValue;
+
                 if args.is_empty() || args.len() > 3 {
                     return Err(RuntimeError::TypeError(
                         format!("mean() expects 1-3 arguments (tensor, optional dim, optional keepdim), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
 
                 if args.len() == 1 {
                     // Mean of all elements
-                    let result = tensor.mean().map_err(|e| RuntimeError::TensorError(e))?;
-                    Ok(Value::Float(result.to_f32() as f64))
+                    match tensor_val {
+                        Value::TensorF16(tensor) => {
+                            let result = tensor.mean().map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(Value::Float(result.to_f32() as f64))
+                        }
+                        Value::TensorF32(tensor) => {
+                            let result = tensor.mean().map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(Value::Float(result.to_f32() as f64))
+                        }
+                        _ => Err(RuntimeError::TypeError("mean() expects tensor (f16 or f32)".to_string()))
+                    }
                 } else {
                     // Mean along dimension
                     let dim = match self.eval_expr(&args[1])? {
@@ -2029,10 +2040,19 @@ impl Interpreter {
                         false
                     };
 
-                    let output = tensor.mean_dim(dim, keepdim)
-                        .map_err(|e| RuntimeError::TensorError(e))?;
-
-                    Ok(Value::TensorF16(output))
+                    match tensor_val {
+                        Value::TensorF16(tensor) => {
+                            let output = tensor.mean_dim(dim, keepdim)
+                                .map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(output.to_value())
+                        }
+                        Value::TensorF32(tensor) => {
+                            let output = tensor.mean_dim(dim, keepdim)
+                                .map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(output.to_value())
+                        }
+                        _ => Err(RuntimeError::TypeError("mean() expects tensor (f16 or f32)".to_string()))
+                    }
                 }
             }
 
@@ -2403,55 +2423,90 @@ impl Interpreter {
             // Math functions
             "exp" => {
                 // exp(tensor)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("exp() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let output = tensor.exp().map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.exp().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.exp().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("exp() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "log" => {
                 // log(tensor)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("log() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let output = tensor.log().map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.log().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.log().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("log() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "sqrt" => {
                 // sqrt(tensor)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("sqrt() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let output = tensor.sqrt().map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.sqrt().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.sqrt().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("sqrt() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "pow" => {
                 // pow(tensor, exponent)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("pow() expects 2 arguments (tensor, exponent), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
                 let exponent = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as f32,
                     Value::Float(f) => f as f32,
@@ -2460,9 +2515,17 @@ impl Interpreter {
                     )),
                 };
 
-                let output = tensor.pow(exponent).map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.pow(exponent).map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.pow(exponent).map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("pow() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "sin" => {
