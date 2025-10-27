@@ -14,6 +14,7 @@ impl Interpreter {
             "load_tokenizer" => Some(self.eval_load_tokenizer(args)),
             "tokenize" => Some(self.eval_tokenize(args)),
             "detokenize" => Some(self.eval_detokenize(args)),
+            "detokenize_single" => Some(self.eval_detokenize_single(args)),
             "generate" | "print_top_k" => {
                 Some(Err(RuntimeError::NotImplemented(
                     format!("Model/IO function '{}' migration in progress", name)
@@ -293,6 +294,52 @@ impl Interpreter {
                 "detokenize() third argument must be a boolean".to_string()
             )),
         };
+
+        // Detokenize
+        let text = tokenizer.decode(&token_ids, skip_special)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(Value::String(text))
+    }
+
+    /// detokenize_single(tokenizer, token_id, skip_special_tokens)
+    /// Convert a single token ID (Integer) to text
+    fn eval_detokenize_single(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 3 {
+            return Err(RuntimeError::TypeError(
+                format!("detokenize_single() expects 3 arguments (tokenizer, token_id, skip_special_tokens), got {}", args.len())
+            ));
+        }
+
+        // Get tokenizer
+        let tokenizer_val = self.eval_expr(&args[0])?;
+        let tokenizer = match tokenizer_val {
+            Value::Tokenizer(t) => t,
+            _ => return Err(RuntimeError::TypeError(
+                "detokenize_single() first argument must be a Tokenizer".to_string()
+            )),
+        };
+
+        // Get token ID (Integer)
+        let token_id_val = self.eval_expr(&args[1])?;
+        let token_id = match token_id_val {
+            Value::Integer(id) => id as u32,
+            _ => return Err(RuntimeError::TypeError(
+                "detokenize_single() second argument must be an Integer (token ID)".to_string()
+            )),
+        };
+
+        // Get skip_special_tokens flag
+        let skip_val = self.eval_expr(&args[2])?;
+        let skip_special = match skip_val {
+            Value::Boolean(b) => b,
+            _ => return Err(RuntimeError::TypeError(
+                "detokenize_single() third argument must be a boolean".to_string()
+            )),
+        };
+
+        // Convert single token to TokenIds array
+        let token_ids = vec![token_id];
 
         // Detokenize
         let text = tokenizer.decode(&token_ids, skip_special)
