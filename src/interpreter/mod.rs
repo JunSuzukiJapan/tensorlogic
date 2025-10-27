@@ -3274,6 +3274,8 @@ impl Interpreter {
             "transe_score" => {
                 // transe_score(head, relation, tail, norm: "L1" or "L2") -> Tensor
                 // TransE scoring function: score = -||h + r - t||
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 3 || args.len() > 4 {
                     return Err(RuntimeError::TypeError(
                         format!("transe_score() expects 3-4 arguments (head, relation, tail, norm?), got {}", args.len())
@@ -3281,9 +3283,9 @@ impl Interpreter {
                 }
 
                 // Evaluate arguments
-                let head = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
-                let tail = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
+                let head_val = self.eval_expr(&args[0])?;
+                let relation_val = self.eval_expr(&args[1])?;
+                let tail_val = self.eval_expr(&args[2])?;
 
                 // Parse norm type (default: L2)
                 let norm_type = if args.len() == 4 {
@@ -3297,42 +3299,83 @@ impl Interpreter {
                     "L2".to_string()
                 };
 
-                // Compute h + r - t
-                let h_plus_r = head.add(&relation)?;
-                let diff = h_plus_r.sub(&tail)?;
+                match (head_val, relation_val, tail_val) {
+                    (Value::TensorF16(head), Value::TensorF16(relation), Value::TensorF16(tail)) => {
+                        // Compute h + r - t
+                        let h_plus_r = head.add(&relation)?;
+                        let diff = h_plus_r.sub(&tail)?;
 
-                // Compute norm
-                let score = match norm_type.as_str() {
-                    "L1" => {
-                        // L1 norm: sum(|x|)
-                        // TODO: Implement abs() method for Tensor
-                        return Err(RuntimeError::NotImplemented(
-                            "L1 norm not yet implemented (requires Tensor.abs())".to_string()
-                        ));
+                        // Compute norm
+                        let score = match norm_type.as_str() {
+                            "L1" => {
+                                // L1 norm: sum(|x|)
+                                // TODO: Implement abs() method for Tensor
+                                return Err(RuntimeError::NotImplemented(
+                                    "L1 norm not yet implemented (requires Tensor.abs())".to_string()
+                                ));
+                            }
+                            "L2" => {
+                                // L2 norm: sqrt(sum(x^2))
+                                let squared = diff.mul(&diff)?;
+                                let sum_squared_f16 = squared.sum()?;
+                                let sum_squared_f32 = sum_squared_f16.to_f32();
+                                let l2_norm_f32 = sum_squared_f32.sqrt();
+                                let l2_norm_f16 = half::f16::from_f32(-l2_norm_f32);
+
+                                // Create scalar tensor
+                                let device = self.env.metal_device();
+                                Tensor::from_vec_metal(device, vec![l2_norm_f16], vec![1])?
+                            }
+                            _ => return Err(RuntimeError::InvalidOperation(
+                                format!("transe_score() norm must be \"L1\" or \"L2\", got \"{}\"", norm_type)
+                            )),
+                        };
+
+                        Ok(score.to_value())
                     }
-                    "L2" => {
-                        // L2 norm: sqrt(sum(x^2))
-                        let squared = diff.mul(&diff)?;
-                        let sum_squared_f16 = squared.sum()?;
-                        let sum_squared_f32 = sum_squared_f16.to_f32();
-                        let l2_norm_f32 = sum_squared_f32.sqrt();
-                        let l2_norm_f16 = half::f16::from_f32(-l2_norm_f32);
+                    (Value::TensorF32(head), Value::TensorF32(relation), Value::TensorF32(tail)) => {
+                        // Compute h + r - t
+                        let h_plus_r = head.add(&relation)?;
+                        let diff = h_plus_r.sub(&tail)?;
 
-                        // Create scalar tensor
-                        let device = self.env.metal_device();
-                        Tensor::from_vec_metal(device, vec![l2_norm_f16], vec![1])?
+                        // Compute norm
+                        let score = match norm_type.as_str() {
+                            "L1" => {
+                                // L1 norm: sum(|x|)
+                                // TODO: Implement abs() method for Tensor
+                                return Err(RuntimeError::NotImplemented(
+                                    "L1 norm not yet implemented (requires Tensor.abs())".to_string()
+                                ));
+                            }
+                            "L2" => {
+                                // L2 norm: sqrt(sum(x^2))
+                                let squared = diff.mul(&diff)?;
+                                let sum_squared = squared.sum()?;
+                                let l2_norm = sum_squared.sqrt();
+                                let score_value = -l2_norm;
+
+                                // Create scalar tensor
+                                let device = self.env.metal_device();
+                                Tensor::from_vec_metal(device, vec![score_value], vec![1])?
+                            }
+                            _ => return Err(RuntimeError::InvalidOperation(
+                                format!("transe_score() norm must be \"L1\" or \"L2\", got \"{}\"", norm_type)
+                            )),
+                        };
+
+                        Ok(score.to_value())
                     }
-                    _ => return Err(RuntimeError::InvalidOperation(
-                        format!("transe_score() norm must be \"L1\" or \"L2\", got \"{}\"", norm_type)
-                    )),
-                };
-
-                Ok(Value::TensorF16(score))
+                    _ => Err(RuntimeError::TypeError(
+                        "transe_score() requires all tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "distmult_score" => {
                 // distmult_score(head, relation, tail) -> Tensor
                 // DistMult scoring function: score = sum(h * r * t)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 3 {
                     return Err(RuntimeError::TypeError(
                         format!("distmult_score() expects 3 arguments (head, relation, tail), got {}", args.len())
@@ -3340,22 +3383,43 @@ impl Interpreter {
                 }
 
                 // Evaluate arguments
-                let head = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
-                let tail = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
+                let head_val = self.eval_expr(&args[0])?;
+                let relation_val = self.eval_expr(&args[1])?;
+                let tail_val = self.eval_expr(&args[2])?;
 
-                // Compute element-wise product: h * r * t
-                let h_mul_r = head.mul(&relation)?;
-                let product = h_mul_r.mul(&tail)?;
+                match (head_val, relation_val, tail_val) {
+                    (Value::TensorF16(head), Value::TensorF16(relation), Value::TensorF16(tail)) => {
+                        // Compute element-wise product: h * r * t
+                        let h_mul_r = head.mul(&relation)?;
+                        let product = h_mul_r.mul(&tail)?;
 
-                // Sum all elements
-                let score_f16 = product.sum()?;
+                        // Sum all elements
+                        let score_f16 = product.sum()?;
 
-                // Create scalar tensor
-                let device = self.env.metal_device();
-                let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
+                        // Create scalar tensor
+                        let device = self.env.metal_device();
+                        let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
 
-                Ok(Value::TensorF16(score_tensor))
+                        Ok(score_tensor.to_value())
+                    }
+                    (Value::TensorF32(head), Value::TensorF32(relation), Value::TensorF32(tail)) => {
+                        // Compute element-wise product: h * r * t
+                        let h_mul_r = head.mul(&relation)?;
+                        let product = h_mul_r.mul(&tail)?;
+
+                        // Sum all elements
+                        let score = product.sum()?;
+
+                        // Create scalar tensor
+                        let device = self.env.metal_device();
+                        let score_tensor = Tensor::from_vec_metal(device, vec![score], vec![1])?;
+
+                        Ok(score_tensor.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "distmult_score() requires all tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "complex_score" => {
