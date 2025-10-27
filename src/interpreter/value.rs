@@ -16,7 +16,10 @@ pub enum Value {
     Integer(i64),
     Float(f64),
     String(String),
-    Model(Model),
+    /// Model with f16 tensors
+    ModelF16(Model<f16>),
+    /// Model with f32 tensors
+    ModelF32(Model<f32>),
     Tokenizer(std::sync::Arc<crate::tokenizer::Tokenizer>),
     TokenIds(Vec<u32>),
     /// Token ID array with integer precision (no f16 precision loss)
@@ -154,7 +157,8 @@ impl std::fmt::Display for Value {
             Value::Integer(i) => write!(f, "{}", i),
             Value::Float(fl) => write!(f, "{}", fl),
             Value::String(s) => write!(f, "{}", s),
-            Value::Model(m) => write!(f, "Model({:?})", m.metadata.format),
+            Value::ModelF16(m) => write!(f, "Model<f16>({:?})", m.metadata.format),
+            Value::ModelF32(m) => write!(f, "Model({:?})", m.metadata.format),
             Value::Tokenizer(_) => write!(f, "Tokenizer"),
             Value::TokenIds(ids) => write!(f, "TokenIds({:?})", ids),
             Value::TokenIdArray(arr) => {
@@ -176,5 +180,22 @@ impl std::fmt::Display for Value {
             Value::Type(type_name) => write!(f, "Type({})", type_name),
             Value::Void => write!(f, "()"),
         }
+    }
+}
+
+/// Trait for converting tensor results to Value
+pub trait ToValue {
+    fn to_value(self) -> Value;
+}
+
+impl ToValue for Tensor<f16> {
+    fn to_value(self) -> Value {
+        Value::TensorF16(self)
+    }
+}
+
+impl ToValue for Tensor<f32> {
+    fn to_value(self) -> Value {
+        Value::TensorF32(self)
     }
 }

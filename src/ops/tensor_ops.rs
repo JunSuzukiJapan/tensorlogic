@@ -20,7 +20,7 @@ impl<T: FloatType> Tensor<T> {
     /// let b = Tensor::<f16>::zeros(&device, vec![2, 3]).unwrap();
     /// let c = Tensor::<f16>::concat(&[&a, &b], 0).unwrap(); // Shape: [4, 3]
     /// ```
-    pub fn concat(tensors: &[&Tensor], dim: usize) -> TensorResult<Self> {
+    pub fn concat(tensors: &[&Tensor<T>], dim: usize) -> TensorResult<Self> {
         if tensors.is_empty() {
             return Err(TensorError::InvalidOperation(
                 "Cannot concatenate empty tensor list".to_string(),
@@ -65,9 +65,9 @@ impl<T: FloatType> Tensor<T> {
         }
     }
 
-    fn concat_metal(tensors: &[&Tensor], dim: usize, output_shape: Vec<usize>) -> TensorResult<Self> {
+    fn concat_metal(tensors: &[&Tensor<T>], dim: usize, output_shape: Vec<usize>) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -110,8 +110,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         // Write data to Metal buffer
-        let metal_buf_f16 = MetalBuffer::from_f16_slice(device.metal_device(), &result_data)?;
-        let metal_buf: MetalBuffer<T> = unsafe { std::mem::transmute(metal_buf_f16) };
+        let metal_buf = MetalBuffer::from_slice(device.metal_device(), &result_data)?;
 
         Tensor::new(
             BufferHandle::Metal(metal_buf),
@@ -120,9 +119,9 @@ impl<T: FloatType> Tensor<T> {
         )
     }
 
-    fn concat_cpu(tensors: &[&Tensor], dim: usize, output_shape: Vec<usize>) -> TensorResult<Self> {
+    fn concat_cpu(tensors: &[&Tensor<T>], dim: usize, output_shape: Vec<usize>) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -138,8 +137,7 @@ impl<T: FloatType> Tensor<T> {
         // Concatenate along the specified dimension
         for chunk_idx in 0..num_chunks {
             for tensor in tensors {
-                let data_t = tensor.to_vec();
-                let data: Vec<f16> = unsafe { std::mem::transmute(data_t) };
+                let data = tensor.to_vec();
                 let tensor_dim_size = tensor.dims()[dim];
 
                 for i in 0..tensor_dim_size {
@@ -150,8 +148,7 @@ impl<T: FloatType> Tensor<T> {
             }
         }
 
-        let result_t: Vec<T> = unsafe { std::mem::transmute(result_data) };
-        Tensor::from_vec(result_t, output_shape)
+        Tensor::from_vec(result_data, output_shape)
     }
 
     /// Transpose a 2D tensor (swap dimensions 0 and 1)
@@ -208,7 +205,7 @@ impl<T: FloatType> Tensor<T> {
 
     fn permute_metal(&self, dims: &[usize]) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -221,7 +218,7 @@ impl<T: FloatType> Tensor<T> {
 
     fn permute_cpu(&self, dims: &[usize]) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));

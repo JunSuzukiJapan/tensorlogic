@@ -192,9 +192,21 @@ impl Interpreter {
                         Iterable::Tensor(expr) => {
                             // Iterate over tensor elements
                             let tensor_val = self.eval_expr(expr)?;
-                            let tensor = tensor_val.as_tensor()?;
-                            let data = tensor.to_vec();
-                            data.iter().map(|&v| Value::Float(v.to_f32() as f64)).collect()
+                            match tensor_val {
+                                Value::TensorF16(tensor) => {
+                                    let data = tensor.to_vec();
+                                    data.iter().map(|&v| Value::Float(v.to_f32() as f64)).collect()
+                                }
+                                Value::TensorF32(tensor) => {
+                                    let data = tensor.to_vec();
+                                    data.iter().map(|&v| Value::Float(v as f64)).collect()
+                                }
+                                _ => {
+                                    return Err(RuntimeError::TypeError(
+                                        "Expected tensor (f16 or f32) for iteration".to_string()
+                                    ));
+                                }
+                            }
                         }
                         Iterable::EntitySet(entity_set) => {
                             // Get entities from set
@@ -641,6 +653,8 @@ impl Interpreter {
             TensorExpr::PythonCall { function, args } => {
                 #[cfg(any(feature = "python", feature = "python-extension"))]
                 {
+                    use crate::interpreter::value::ToValue;
+
                     // Ensure Python environment is initialized
                     if self.python_env.is_none() {
                         return Err(RuntimeError::InvalidOperation(
@@ -649,24 +663,59 @@ impl Interpreter {
                     }
 
                     // Evaluate all arguments
-                    let tensor_args: Result<Vec<_>, _> = args.iter()
-                        .map(|arg| {
-                            let val = self.eval_expr(arg)?;
-                            val.as_tensor().map(|t| t.clone())
-                        })
-                        .collect();
-                    let tensor_args = tensor_args?;
+                    let values: Vec<Value> = args.iter()
+                        .map(|arg| self.eval_expr(arg))
+                        .collect::<Result<_, _>>()?;
 
-                    // Create references for the call
-                    let tensor_refs: Vec<&Tensor> = tensor_args.iter().collect();
+                    // Check if all tensors are f16 or all f32
+                    let all_f16 = values.iter().all(|v| matches!(v, Value::TensorF16(_)));
+                    let all_f32 = values.iter().all(|v| matches!(v, Value::TensorF32(_)));
 
-                    // Call Python function
-                    let result = self.python_env.as_ref().unwrap()
-                        .call_function(function, tensor_refs)
-                        .map_err(|e| RuntimeError::InvalidOperation(e))?;
+                    if !all_f16 && !all_f32 {
+                        return Err(RuntimeError::TypeError(
+                            "Python function call requires all tensors to be the same type (all f16 or all f32)".to_string()
+                        ));
+                    }
 
-                    println!("✓ Python call: {}({} args)", function, args.len());
-                    Ok(Value::TensorF16(result))
+                    if all_f16 {
+                        // Extract f16 tensors
+                        let tensor_args: Vec<_> = values.iter()
+                            .filter_map(|v| match v {
+                                Value::TensorF16(t) => Some(t.clone()),
+                                _ => None
+                            })
+                            .collect();
+
+                        // Create references for the call
+                        let tensor_refs: Vec<&Tensor<f16>> = tensor_args.iter().collect();
+
+                        // Call Python function
+                        let result = self.python_env.as_ref().unwrap()
+                            .call_function(function, tensor_refs)
+                            .map_err(|e| RuntimeError::InvalidOperation(e))?;
+
+                        println!("✓ Python call: {}({} args)", function, args.len());
+                        Ok(result.to_value())
+                    } else {
+                        // Extract f32 tensors
+                        let tensor_args: Vec<_> = values.iter()
+                            .filter_map(|v| match v {
+                                Value::TensorF32(t) => Some(t.clone()),
+                                _ => None
+                            })
+                            .collect();
+
+                        // Create references for the call
+                        let tensor_refs: Vec<&Tensor<f32>> = tensor_args.iter().collect();
+
+                        // Call Python function
+                        let result = self.python_env.as_ref().unwrap()
+                            .call_function(function, tensor_refs)
+                            .map_err(|e| RuntimeError::InvalidOperation(e))?;
+
+                        println!("✓ Python call: {}({} args)", function, args.len());
+                        Ok(result.to_value())
+                    }
                 }
                 #[cfg(not(any(feature = "python", feature = "python-extension")))]
                 {
@@ -682,13 +731,25 @@ impl Interpreter {
 
                 // Access the property based on object type
                 match obj_value {
-                    Value::Model(ref model) => {
+                    Value::ModelF16(ref model) => {
                         // Access model tensors by name
                         // Common property names: tok_embeddings, output, norm, etc.
                         let tensor_name = property.as_str();
 
                         if let Some(tensor) = model.get_tensor(tensor_name) {
                             Ok(Value::TensorF16(tensor.clone()))
+                        } else {
+                            Err(RuntimeError::InvalidOperation(
+                                format!("Model does not have tensor '{}'", tensor_name)
+                            ))
+                        }
+                    }
+                    Value::ModelF32(ref model) => {
+                        // Access model tensors by name
+                        let tensor_name = property.as_str();
+
+                        if let Some(tensor) = model.get_tensor(tensor_name) {
+                            Ok(Value::TensorF32(tensor.clone()))
                         } else {
                             Err(RuntimeError::InvalidOperation(
                                 format!("Model does not have tensor '{}'", tensor_name)
@@ -1083,6 +1144,59 @@ impl Interpreter {
                 .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF16(result))
             }
+            // TensorF32-Float operations (e.g., tensor * 0.5)
+            (Value::TensorF32(t), Value::Float(s)) => {
+                let scalar_f32 = s as f32;
+                let result = match op {
+                    BinaryOp::Add => t.add_scalar(scalar_f32),
+                    BinaryOp::Sub => t.sub_scalar(scalar_f32),
+                    BinaryOp::Mul => t.mul_scalar(scalar_f32),
+                    BinaryOp::Div => {
+                        if s == 0.0 {
+                            return Err(RuntimeError::DivisionByZero);
+                        }
+                        t.div_scalar(scalar_f32)
+                    }
+                    _ => {
+                        return Err(RuntimeError::InvalidOperation(format!(
+                            "Operation {:?} not supported for TensorF32-Float",
+                            op
+                        )));
+                    }
+                }
+                .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            // Float-TensorF32 operations (e.g., 0.5 * tensor)
+            (Value::Float(s), Value::TensorF32(t)) => {
+                let scalar_f32 = s as f32;
+                let result = match op {
+                    BinaryOp::Add => t.add_scalar(scalar_f32),
+                    BinaryOp::Mul => t.mul_scalar(scalar_f32),
+                    BinaryOp::Sub => {
+                        // s - tensor = -(tensor - s)
+                        let temp = t.sub_scalar(scalar_f32)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        let zero = Tensor::zeros(self.env.metal_device(), t.shape().dims().to_vec())
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        zero.sub(&temp)
+                    }
+                    BinaryOp::Div => {
+                        // s / tensor = s * (1/tensor)
+                        return Err(RuntimeError::InvalidOperation(
+                            "Scalar / Tensor not yet supported".to_string()
+                        ));
+                    }
+                    _ => {
+                        return Err(RuntimeError::InvalidOperation(format!(
+                            "Operation {:?} not supported for Float-TensorF32",
+                            op
+                        )));
+                    }
+                }
+                .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
             _ => Err(RuntimeError::TypeError(
                 "Binary operation requires compatible types".to_string(),
             )),
@@ -1238,7 +1352,6 @@ impl Interpreter {
 
         // Evaluate the tensor expression
         let tensor_value = self.eval_expr(tensor_expr)?;
-        let tensor = tensor_value.as_tensor()?;
 
         // Convert indices to usizes
         let mut idx_values = Vec::new();
@@ -1270,55 +1383,133 @@ impl Interpreter {
             }
         }
 
-        // Calculate linear index
-        let dims = tensor.dims();
-        if idx_values.len() != dims.len() {
-            return Err(RuntimeError::InvalidOperation(format!(
-                "Index dimension mismatch: tensor has {} dimensions, got {} indices",
-                dims.len(),
-                idx_values.len()
-            )));
-        }
+        // Handle both f16 and f32 tensors
+        match tensor_value {
+            Value::TensorF16(tensor) => {
+                // Calculate linear index
+                let dims = tensor.dims();
+                if idx_values.len() != dims.len() {
+                    return Err(RuntimeError::InvalidOperation(format!(
+                        "Index dimension mismatch: tensor has {} dimensions, got {} indices",
+                        dims.len(),
+                        idx_values.len()
+                    )));
+                }
 
-        // Compute linear index
-        let mut linear_idx = 0;
-        let mut stride = 1;
-        for i in (0..dims.len()).rev() {
-            if idx_values[i] >= dims[i] {
-                return Err(RuntimeError::InvalidOperation(format!(
-                    "Index out of bounds: index {} = {}, dimension size = {}",
-                    i, idx_values[i], dims[i]
-                )));
+                // Compute linear index
+                let mut linear_idx = 0;
+                let mut stride = 1;
+                for i in (0..dims.len()).rev() {
+                    if idx_values[i] >= dims[i] {
+                        return Err(RuntimeError::InvalidOperation(format!(
+                            "Index out of bounds: index {} = {}, dimension size = {}",
+                            i, idx_values[i], dims[i]
+                        )));
+                    }
+                    linear_idx += idx_values[i] * stride;
+                    stride *= dims[i];
+                }
+
+                // Get the value at the index
+                let data = tensor.to_vec();
+                let value = data[linear_idx];
+
+                // Return as a scalar float
+                Ok(Value::Float(value.to_f32() as f64))
             }
-            linear_idx += idx_values[i] * stride;
-            stride *= dims[i];
+            Value::TensorF32(tensor) => {
+                // Calculate linear index
+                let dims = tensor.dims();
+                if idx_values.len() != dims.len() {
+                    return Err(RuntimeError::InvalidOperation(format!(
+                        "Index dimension mismatch: tensor has {} dimensions, got {} indices",
+                        dims.len(),
+                        idx_values.len()
+                    )));
+                }
+
+                // Compute linear index
+                let mut linear_idx = 0;
+                let mut stride = 1;
+                for i in (0..dims.len()).rev() {
+                    if idx_values[i] >= dims[i] {
+                        return Err(RuntimeError::InvalidOperation(format!(
+                            "Index out of bounds: index {} = {}, dimension size = {}",
+                            i, idx_values[i], dims[i]
+                        )));
+                    }
+                    linear_idx += idx_values[i] * stride;
+                    stride *= dims[i];
+                }
+
+                // Get the value at the index
+                let data = tensor.to_vec();
+                let value = data[linear_idx];
+
+                // Return as a scalar float
+                Ok(Value::Float(value as f64))
+            }
+            _ => Err(RuntimeError::TypeError("Expected tensor (f16 or f32) for indexing".to_string()))
         }
-
-        // Get the value at the index
-        let data = tensor.to_vec();
-        let value = data[linear_idx];
-
-        // Return as a scalar float
-        Ok(Value::Float(value.to_f32() as f64))
     }
 
     /// Evaluate Einstein summation: einsum("ij,jk->ik", A, B)
     pub(super) fn eval_einsum(&mut self, spec: &str, tensor_exprs: &[TensorExpr]) -> RuntimeResult<Value> {
-        // Evaluate all tensor expressions
-        let mut tensors = Vec::new();
-        for expr in tensor_exprs {
-            let value = self.eval_expr(expr)?;
-            let tensor = value.as_tensor()?;
-            tensors.push(tensor.clone());
+        use crate::interpreter::value::ToValue;
+
+        if tensor_exprs.is_empty() {
+            return Err(RuntimeError::TypeError("einsum requires at least one tensor".to_string()));
         }
 
-        // Create references for einsum call
-        let tensor_refs: Vec<&Tensor> = tensors.iter().collect();
+        // Evaluate all tensor expressions
+        let values: Vec<Value> = tensor_exprs.iter()
+            .map(|expr| self.eval_expr(expr))
+            .collect::<Result<_, _>>()?;
 
-        // Call einsum operation
-        let result = Tensor::einsum(spec, &tensor_refs)
-            .map_err(|e| RuntimeError::TensorError(e))?;
+        // Check if all tensors are f16
+        let all_f16 = values.iter().all(|v| matches!(v, Value::TensorF16(_)));
+        let all_f32 = values.iter().all(|v| matches!(v, Value::TensorF32(_)));
 
-        Ok(Value::TensorF16(result))
+        if !all_f16 && !all_f32 {
+            return Err(RuntimeError::TypeError(
+                "einsum requires all tensors to be the same type (all f16 or all f32)".to_string()
+            ));
+        }
+
+        if all_f16 {
+            // Extract f16 tensors
+            let tensors: Vec<_> = values.iter()
+                .filter_map(|v| match v {
+                    Value::TensorF16(t) => Some(t.clone()),
+                    _ => None
+                })
+                .collect();
+
+            // Create references for einsum call
+            let tensor_refs: Vec<&Tensor<f16>> = tensors.iter().collect();
+
+            // Call einsum operation
+            let result = Tensor::einsum(spec, &tensor_refs)
+                .map_err(|e| RuntimeError::TensorError(e))?;
+
+            Ok(result.to_value())
+        } else {
+            // Extract f32 tensors
+            let tensors: Vec<_> = values.iter()
+                .filter_map(|v| match v {
+                    Value::TensorF32(t) => Some(t.clone()),
+                    _ => None
+                })
+                .collect();
+
+            // Create references for einsum call
+            let tensor_refs: Vec<&Tensor<f32>> = tensors.iter().collect();
+
+            // Call einsum operation
+            let result = Tensor::einsum(spec, &tensor_refs)
+                .map_err(|e| RuntimeError::TensorError(e))?;
+
+            Ok(result.to_value())
+        }
     }
 }

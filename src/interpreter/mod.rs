@@ -777,10 +777,40 @@ impl Interpreter {
             EntityType::Tensor(tensor_type) => {
                 match value {
                     Value::TensorF16(t) => {
-                        // Note: TensorLogic uses f16 internally for all tensors
-                        // Base type checking is skipped (all tensors are f16)
-                        // Focus on shape validation
+                        // Check shape if specified (non-dynamic dimensions)
+                        let expected_dimensions = &tensor_type.dimensions;
+                        if !expected_dimensions.is_empty() {
+                            let actual_shape = t.shape().dims();
 
+                            // Check rank (number of dimensions)
+                            if expected_dimensions.len() != actual_shape.len() {
+                                return Err(RuntimeError::TypeError(
+                                    format!(
+                                        "Parameter '{}' expects rank {} tensor, got rank {}",
+                                        param_name, expected_dimensions.len(), actual_shape.len()
+                                    )
+                                ));
+                            }
+
+                            // Check each dimension (if not dynamic)
+                            for (i, expected_dim) in expected_dimensions.iter().enumerate() {
+                                if let Dimension::Fixed(expected_size) = expected_dim {
+                                    if actual_shape[i] != *expected_size {
+                                        return Err(RuntimeError::TypeError(
+                                            format!(
+                                                "Parameter '{}' dimension {} expects size {}, got {}",
+                                                param_name, i, expected_size, actual_shape[i]
+                                            )
+                                        ));
+                                    }
+                                }
+                                // Dynamic and Variable dimensions accept any size
+                            }
+                        }
+
+                        Ok(())
+                    }
+                    Value::TensorF32(t) => {
                         // Check shape if specified (non-dynamic dimensions)
                         let expected_dimensions = &tensor_type.dimensions;
                         if !expected_dimensions.is_empty() {
@@ -897,20 +927,32 @@ impl Interpreter {
         match name_str {
             "apply_mask" => {
                 // apply_mask(scores, mask)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("apply_mask() expects 2 arguments (scores, mask), got {}", args.len())
                     ));
                 }
 
-                let scores = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let scores_val = self.eval_expr(&args[0])?;
                 let mask_val = self.eval_expr(&args[1])?;
-                let mask = mask_val.as_tensor()?;
 
-                let result = scores.apply_attention_mask(mask)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(result))
+                match (scores_val, mask_val) {
+                    (Value::TensorF16(scores), Value::TensorF16(mask)) => {
+                        let result = scores.apply_attention_mask(&mask)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    (Value::TensorF32(scores), Value::TensorF32(mask)) => {
+                        let result = scores.apply_attention_mask(&mask)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "apply_mask() requires both tensors to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "causal_mask" => {
@@ -1222,11 +1264,11 @@ impl Interpreter {
                     )),
                 };
 
-                let model = Model::load(&path, self.env.metal_device())
+                let model = Model::<half::f16>::load(&path, self.env.metal_device())
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                 println!("Loaded model from: {} (format: {:?})", path, model.metadata.format);
-                Ok(Value::Model(model))
+                Ok(Value::ModelF16(model))
             }
 
             "load_tokenizer" => {
@@ -1267,12 +1309,6 @@ impl Interpreter {
                 }
 
                 let model_val = self.eval_expr(&args[0])?;
-                let model = match model_val {
-                    Value::Model(m) => m,
-                    _ => return Err(RuntimeError::TypeError(
-                        "get_tensor() first argument must be a Model".to_string()
-                    )),
-                };
 
                 let name_val = self.eval_expr(&args[1])?;
                 let tensor_name = match name_val {
@@ -1282,12 +1318,25 @@ impl Interpreter {
                     )),
                 };
 
-                let tensor = model.get_tensor(&tensor_name)
-                    .ok_or_else(|| RuntimeError::InvalidOperation(
-                        format!("Tensor '{}' not found in model", tensor_name)
-                    ))?;
-
-                Ok(Value::TensorF16(tensor.clone()))
+                match model_val {
+                    Value::ModelF16(model) => {
+                        let tensor = model.get_tensor(&tensor_name)
+                            .ok_or_else(|| RuntimeError::InvalidOperation(
+                                format!("Tensor '{}' not found in model", tensor_name)
+                            ))?;
+                        Ok(Value::TensorF16(tensor.clone()))
+                    }
+                    Value::ModelF32(model) => {
+                        let tensor = model.get_tensor(&tensor_name)
+                            .ok_or_else(|| RuntimeError::InvalidOperation(
+                                format!("Tensor '{}' not found in model", tensor_name)
+                            ))?;
+                        Ok(Value::TensorF32(tensor.clone()))
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "get_tensor() first argument must be a Model".to_string()
+                    )),
+                }
             }
 
             "tokenize" => {
@@ -1363,45 +1412,78 @@ impl Interpreter {
                 // embedding_table: [d_model, vocab_size] (GGUF format)
                 // token_ids: TokenIds, TokenIdArray, or Tensor with shape [seq_len] or [batch, seq_len]
                 // output: [seq_len, d_model] or [batch, seq_len, d_model]
+                // Returns same type as embedding_table (f16 or f32)
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("embedding() expects 2 arguments (embedding_table, token_ids), got {}", args.len())
                     ));
                 }
 
-                let embedding_table = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let embedding_table_val = self.eval_expr(&args[0])?;
+                let token_ids_val = self.eval_expr(&args[1])?;
 
-                // Handle different token_ids types
-                let output = match self.eval_expr(&args[1])? {
-                    Value::TokenIdArray(ref arr) => {
-                        // Use embedding_from_token_ids() to avoid f16 precision loss
-                        embedding_table.embedding_from_token_ids(arr)
-                            .map_err(|e| RuntimeError::TensorError(e))?
+                // Process based on embedding_table type
+                match embedding_table_val {
+                    Value::TensorF16(embedding_table) => {
+                        let output = match token_ids_val {
+                            Value::TokenIdArray(ref arr) => {
+                                embedding_table.embedding_from_token_ids(arr)
+                                    .map_err(|e| RuntimeError::TensorError(e))?
+                            }
+                            Value::TokenIds(ids) => {
+                                let token_data: Vec<half::f16> = ids.iter()
+                                    .map(|&id| half::f16::from_f32(id as f32))
+                                    .collect();
+                                let token_ids_tensor = crate::tensor::Tensor::from_vec_metal(
+                                    self.env.metal_device(),
+                                    token_data,
+                                    vec![ids.len()]
+                                ).map_err(|e| RuntimeError::TensorError(e))?;
+                                embedding_table.embedding(&token_ids_tensor)
+                                    .map_err(|e| RuntimeError::TensorError(e))?
+                            }
+                            Value::TensorF16(t) => {
+                                embedding_table.embedding(&t)
+                                    .map_err(|e| RuntimeError::TensorError(e))?
+                            }
+                            _ => return Err(RuntimeError::TypeError(
+                                "embedding() second argument must be TokenIdArray, TokenIds, or TensorF16".to_string()
+                            )),
+                        };
+                        Ok(Value::TensorF16(output))
                     }
-                    Value::TokenIds(ids) => {
-                        // Convert Vec<u32> to f16 tensor (legacy support)
-                        let token_data: Vec<half::f16> = ids.iter()
-                            .map(|&id| half::f16::from_f32(id as f32))
-                            .collect();
-                        let token_ids_tensor = crate::tensor::Tensor::from_vec_metal(
-                            self.env.metal_device(),
-                            token_data,
-                            vec![ids.len()]
-                        ).map_err(|e| RuntimeError::TensorError(e))?;
-
-                        embedding_table.embedding(&token_ids_tensor)
-                            .map_err(|e| RuntimeError::TensorError(e))?
+                    Value::TensorF32(embedding_table) => {
+                        let output = match token_ids_val {
+                            Value::TokenIdArray(ref arr) => {
+                                embedding_table.embedding_from_token_ids(arr)
+                                    .map_err(|e| RuntimeError::TensorError(e))?
+                            }
+                            Value::TokenIds(ids) => {
+                                let token_data: Vec<f32> = ids.iter()
+                                    .map(|&id| id as f32)
+                                    .collect();
+                                let token_ids_tensor = crate::tensor::Tensor::from_vec_metal(
+                                    self.env.metal_device(),
+                                    token_data,
+                                    vec![ids.len()]
+                                ).map_err(|e| RuntimeError::TensorError(e))?;
+                                embedding_table.embedding(&token_ids_tensor)
+                                    .map_err(|e| RuntimeError::TensorError(e))?
+                            }
+                            Value::TensorF32(t) => {
+                                embedding_table.embedding(&t)
+                                    .map_err(|e| RuntimeError::TensorError(e))?
+                            }
+                            _ => return Err(RuntimeError::TypeError(
+                                "embedding() second argument must be TokenIdArray, TokenIds, or TensorF32".to_string()
+                            )),
+                        };
+                        Ok(Value::TensorF32(output))
                     }
-                    Value::TensorF16(t) => {
-                        embedding_table.embedding(&t)
-                            .map_err(|e| RuntimeError::TensorError(e))?
-                    }
-                    _ => return Err(RuntimeError::TypeError(
-                        "embedding() second argument must be TokenIdArray, TokenIds, or Tensor".to_string()
+                    _ => Err(RuntimeError::TypeError(
+                        "embedding() first argument must be a Tensor (f16 or f32)".to_string()
                     )),
-                };
-
-                Ok(Value::TensorF16(output))
+                }
             }
 
             "positional_encoding" => {
@@ -1666,58 +1748,109 @@ impl Interpreter {
                 // softmax(logits, dim=-1) -> Tensor
                 // Convert logits to probability distribution
                 // Default: apply softmax on last dimension
+                use crate::interpreter::value::ToValue;
+
                 if args.is_empty() || args.len() > 2 {
                     return Err(RuntimeError::TypeError(
                         format!("softmax() expects 1-2 arguments (logits, optional dim), got {}", args.len())
                     ));
                 }
 
-                let logits = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let logits_val = self.eval_expr(&args[0])?;
 
-                // For now, always apply softmax on last dimension
-                // TODO: support custom dimension when needed
-                let shape = logits.shape();
-                let dims = shape.dims();
-                let last_dim_size = dims[dims.len() - 1];
+                match logits_val {
+                    Value::TensorF16(logits) => {
+                        // For now, always apply softmax on last dimension
+                        let shape = logits.shape();
+                        let dims = shape.dims();
+                        let last_dim_size = dims[dims.len() - 1];
 
-                // Get logits data
-                let data = logits.to_vec();
-                let mut output_data = Vec::with_capacity(data.len());
+                        // Get logits data
+                        let data = logits.to_vec();
+                        let mut output_data = Vec::with_capacity(data.len());
 
-                // Process each sequence (last dimension is vocab)
-                let batch_size = data.len() / last_dim_size;
+                        // Process each sequence (last dimension is vocab)
+                        let batch_size = data.len() / last_dim_size;
 
-                for batch_idx in 0..batch_size {
-                    let start_idx = batch_idx * last_dim_size;
-                    let end_idx = start_idx + last_dim_size;
-                    let logits_slice = &data[start_idx..end_idx];
+                        for batch_idx in 0..batch_size {
+                            let start_idx = batch_idx * last_dim_size;
+                            let end_idx = start_idx + last_dim_size;
+                            let logits_slice = &data[start_idx..end_idx];
 
-                    // Compute softmax with numerical stability
-                    let max_logit = logits_slice.iter()
-                        .map(|v| v.to_f32())
-                        .fold(f32::NEG_INFINITY, f32::max);
+                            // Compute softmax with numerical stability
+                            let max_logit = logits_slice.iter()
+                                .map(|v| v.to_f32())
+                                .fold(f32::NEG_INFINITY, f32::max);
 
-                    let exp_logits: Vec<f32> = logits_slice
-                        .iter()
-                        .map(|v| (v.to_f32() - max_logit).exp())
-                        .collect();
+                            let exp_logits: Vec<f32> = logits_slice
+                                .iter()
+                                .map(|v| (v.to_f32() - max_logit).exp())
+                                .collect();
 
-                    let sum_exp: f32 = exp_logits.iter().sum();
+                            let sum_exp: f32 = exp_logits.iter().sum();
 
-                    // Normalize to get probabilities
-                    for exp_val in exp_logits {
-                        output_data.push(half::f16::from_f32(exp_val / sum_exp));
+                            // Normalize to get probabilities
+                            for exp_val in exp_logits {
+                                output_data.push(half::f16::from_f32(exp_val / sum_exp));
+                            }
+                        }
+
+                        // Create output tensor
+                        let output = crate::tensor::Tensor::from_vec_metal(
+                            self.env.metal_device(),
+                            output_data,
+                            dims.to_vec()
+                        ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                        Ok(output.to_value())
                     }
+                    Value::TensorF32(logits) => {
+                        // For now, always apply softmax on last dimension
+                        let shape = logits.shape();
+                        let dims = shape.dims();
+                        let last_dim_size = dims[dims.len() - 1];
+
+                        // Get logits data
+                        let data = logits.to_vec();
+                        let mut output_data = Vec::with_capacity(data.len());
+
+                        // Process each sequence (last dimension is vocab)
+                        let batch_size = data.len() / last_dim_size;
+
+                        for batch_idx in 0..batch_size {
+                            let start_idx = batch_idx * last_dim_size;
+                            let end_idx = start_idx + last_dim_size;
+                            let logits_slice = &data[start_idx..end_idx];
+
+                            // Compute softmax with numerical stability
+                            let max_logit = logits_slice.iter()
+                                .copied()
+                                .fold(f32::NEG_INFINITY, f32::max);
+
+                            let exp_logits: Vec<f32> = logits_slice
+                                .iter()
+                                .map(|v| (v - max_logit).exp())
+                                .collect();
+
+                            let sum_exp: f32 = exp_logits.iter().sum();
+
+                            // Normalize to get probabilities
+                            for exp_val in exp_logits {
+                                output_data.push(exp_val / sum_exp);
+                            }
+                        }
+
+                        // Create output tensor
+                        let output = crate::tensor::Tensor::from_vec_metal(
+                            self.env.metal_device(),
+                            output_data,
+                            dims.to_vec()
+                        ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("softmax() expects tensor (f16 or f32)".to_string()))
                 }
-
-                // Create output tensor
-                let output = crate::tensor::Tensor::from_vec_metal(
-                    self.env.metal_device(),
-                    output_data,
-                    dims.to_vec()
-                ).map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
             }
 
             "sample" => {
@@ -2106,14 +2239,16 @@ impl Interpreter {
                 // concat(tensors, dim) -> Tensor
                 // Concatenate tensors along dimension
                 // For now, simplified version that takes 2 tensors
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 3 {
                     return Err(RuntimeError::TypeError(
                         format!("concat() expects 3 arguments (tensor1, tensor2, dim), got {}", args.len())
                     ));
                 }
 
-                let tensor1 = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let tensor2 = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let tensor1_val = self.eval_expr(&args[0])?;
+                let tensor2_val = self.eval_expr(&args[1])?;
 
                 let dim = match self.eval_expr(&args[2])? {
                     Value::Integer(i) => i as usize,
@@ -2123,11 +2258,23 @@ impl Interpreter {
                     )),
                 };
 
-                let tensors = vec![&tensor1, &tensor2];
-                let output = crate::tensor::Tensor::concat(&tensors, dim)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor1_val, tensor2_val) {
+                    (Value::TensorF16(tensor1), Value::TensorF16(tensor2)) => {
+                        let tensors = vec![&tensor1, &tensor2];
+                        let output = crate::tensor::Tensor::concat(&tensors[..], dim)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    (Value::TensorF32(tensor1), Value::TensorF32(tensor2)) => {
+                        let tensors = vec![&tensor1, &tensor2];
+                        let output = crate::tensor::Tensor::concat(&tensors[..], dim)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "concat() requires both tensors to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "sigmoid" => {
@@ -2806,8 +2953,8 @@ impl Interpreter {
                 }
 
                 let model_val = self.eval_expr(&args[0])?;
-                let _model = match model_val {
-                    Value::Model(m) => m,
+                match model_val {
+                    Value::ModelF16(_) | Value::ModelF32(_) => {},
                     _ => return Err(RuntimeError::TypeError(
                         "generate() first argument must be a Model".to_string()
                     )),
@@ -2854,11 +3001,8 @@ impl Interpreter {
                 // 3. KV cache for efficient generation
                 // 4. Sampling strategies (greedy, top-k, top-p, etc.)
                 let response = format!(
-                    "[Placeholder Response] You said: \"{}\". Full LLM inference not yet implemented. \
-                    Model loaded: {:?}, tensors: {}",
-                    prompt,
-                    _model.metadata.format,
-                    _model.num_tensors()
+                    "[Placeholder Response] You said: \"{}\". Full LLM inference not yet implemented.",
+                    prompt
                 );
 
                 Ok(Value::String(response))
@@ -3722,7 +3866,8 @@ impl Interpreter {
                         Value::Boolean(b) => print!("{}", b),
                         Value::TensorF16(t) => print!("{:?}", t),
                         Value::TensorF32(t) => print!("{:?}", t),
-                        Value::Model(m) => print!("Model({:?})", m.metadata.format),
+                        Value::ModelF16(m) => print!("Model<f16>({:?})", m.metadata.format),
+                        Value::ModelF32(m) => print!("Model<f32>({:?})", m.metadata.format),
                         Value::Tokenizer(t) => print!("{:?}", t),
                         Value::TokenIds(ids) => print!("{:?}", ids),
                         Value::TokenIdArray(ref arr) => print!("[{}]", arr.data().iter().map(|&id| format!("{:.4}", id as f64)).collect::<Vec<_>>().join(", ")),

@@ -1,6 +1,7 @@
 //! Neural network operations for TensorLogic interpreter
 
 use super::*;
+use crate::interpreter::value::ToValue;
 use crate::tensor::Tensor;
 
 impl Interpreter {
@@ -35,16 +36,9 @@ impl Interpreter {
             ));
         }
 
-        // Evaluate tensor argument
+        // Evaluate tensor and weight arguments
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?;
-
-        // Evaluate weight argument
         let weight_val = self.eval_expr(&args[1])?;
-        let weight = weight_val.as_tensor()?;
-
-        // Get the normalized shape from weight dimensions
-        let normalized_shape = weight.dims().to_vec();
 
         // Use default epsilon value (1e-6 for LLaMA/TinyLlama) or custom value
         let eps = if args.len() >= 3 {
@@ -57,11 +51,24 @@ impl Interpreter {
             1e-6_f32
         };
 
-        // Apply RMS normalization
-        let result = tensor.rms_norm(normalized_shape, &weight, eps)
-            .map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(result))
+        // Process based on input type (f16 or f32)
+        match (tensor_val, weight_val) {
+            (Value::TensorF16(tensor), Value::TensorF16(weight)) => {
+                let normalized_shape = weight.dims().to_vec();
+                let result = tensor.rms_norm(normalized_shape, &weight, eps)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(tensor), Value::TensorF32(weight)) => {
+                let normalized_shape = weight.dims().to_vec();
+                let result = tensor.rms_norm(normalized_shape, &weight, eps)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "rms_norm() requires tensor and weight to be same type (both f16 or both f32)".to_string()
+            )),
+        }
     }
 
     /// positional_encoding(seq_len, d_model) -> tensor
@@ -122,6 +129,8 @@ impl Interpreter {
     /// layer_norm(tensor, [normalized_shape], [eps]) -> tensor
     /// Layer Normalization
     fn eval_layer_norm(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
         if args.is_empty() || args.len() > 3 {
             return Err(RuntimeError::TypeError(
                 format!("layer_norm() expects 1-3 arguments (tensor, optional normalized_shape, optional eps), got {}", args.len())
@@ -129,19 +138,6 @@ impl Interpreter {
         }
 
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?.clone();
-
-        // Default: normalize over last dimension
-        let shape = tensor.shape();
-        let dims = shape.dims();
-        let default_normalized_shape = vec![dims[dims.len() - 1]];
-
-        let normalized_shape = if args.len() >= 2 {
-            // TODO: parse normalized_shape from argument
-            default_normalized_shape
-        } else {
-            default_normalized_shape
-        };
 
         let eps = if args.len() >= 3 {
             match self.eval_expr(&args[2])? {
@@ -153,16 +149,31 @@ impl Interpreter {
             1e-5_f32
         };
 
-        let output = tensor.layer_norm(normalized_shape, None, None, eps)
-            .map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(output))
+        Ok(match tensor_val {
+            Value::TensorF16(tensor) => {
+                let shape = tensor.shape();
+                let dims = shape.dims();
+                let normalized_shape = vec![dims[dims.len() - 1]];
+                tensor.layer_norm(normalized_shape, None, None, eps)
+                    .map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            Value::TensorF32(tensor) => {
+                let shape = tensor.shape();
+                let dims = shape.dims();
+                let normalized_shape = vec![dims[dims.len() - 1]];
+                tensor.layer_norm(normalized_shape, None, None, eps)
+                    .map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            _ => return Err(RuntimeError::TypeError("Expected tensor".to_string()))
+        })
     }
 
     /// apply_attention_mask(scores, mask) -> tensor
     /// Apply attention mask to scores
     /// mask: 1 = keep, 0 = mask out (set to -1e9)
     fn eval_apply_attention_mask(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("apply_attention_mask() expects 2 arguments (scores, mask), got {}", args.len())
@@ -170,34 +181,50 @@ impl Interpreter {
         }
 
         let scores_val = self.eval_expr(&args[0])?;
-        let scores = scores_val.as_tensor()?.clone();
-
         let mask_val = self.eval_expr(&args[1])?;
-        let mask = mask_val.as_tensor()?.clone();
 
-        // Apply mask: scores + (1 - mask) * (-1e9)
-        // Where mask is 0, add -1e9; where mask is 1, add 0
         let device = self.env.metal_device();
-        let ones = Tensor::ones(device, scores.shape().dims().to_vec())
-            .map_err(|e| RuntimeError::TensorError(e))?;
-        let inv_mask = ones.sub(&mask).map_err(|e| RuntimeError::TensorError(e))?;
 
-        // Create a tensor filled with -1e9
-        let large_neg_value = half::f16::from_f32(-1e9);
-        let large_neg_vec = vec![large_neg_value; inv_mask.shape().numel()];
-        let large_neg = Tensor::from_vec_metal(device, large_neg_vec, inv_mask.shape().dims().to_vec())
-            .map_err(|e| RuntimeError::TensorError(e))?;
+        Ok(match (scores_val, mask_val) {
+            (Value::TensorF16(scores), Value::TensorF16(mask)) => {
+                // Apply mask: scores + (1 - mask) * (-1e9)
+                let ones = Tensor::ones(device, scores.shape().dims().to_vec())
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                let inv_mask = ones.sub(&mask).map_err(|e| RuntimeError::TensorError(e))?;
 
-        let mask_value = inv_mask.mul(&large_neg).map_err(|e| RuntimeError::TensorError(e))?;
-        let result = scores.add(&mask_value).map_err(|e| RuntimeError::TensorError(e))?;
+                let large_neg_value = half::f16::from_f32(-1e9);
+                let large_neg_vec = vec![large_neg_value; inv_mask.shape().numel()];
+                let large_neg = Tensor::from_vec_metal(device, large_neg_vec, inv_mask.shape().dims().to_vec())
+                    .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::TensorF16(result))
+                let mask_value = inv_mask.mul(&large_neg).map_err(|e| RuntimeError::TensorError(e))?;
+                scores.add(&mask_value).map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            (Value::TensorF32(scores), Value::TensorF32(mask)) => {
+                // Apply mask: scores + (1 - mask) * (-1e9)
+                let ones = Tensor::ones(device, scores.shape().dims().to_vec())
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                let inv_mask = ones.sub(&mask).map_err(|e| RuntimeError::TensorError(e))?;
+
+                let large_neg_vec = vec![-1e9_f32; inv_mask.shape().numel()];
+                let large_neg = Tensor::from_vec_metal(device, large_neg_vec, inv_mask.shape().dims().to_vec())
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                let mask_value = inv_mask.mul(&large_neg).map_err(|e| RuntimeError::TensorError(e))?;
+                scores.add(&mask_value).map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            _ => return Err(RuntimeError::TypeError(
+                "apply_attention_mask() requires both tensors to be same type (both f16 or both f32)".to_string()
+            ))
+        })
     }
 
     /// padding_mask(lengths, max_length) -> tensor
     /// Create padding mask from sequence lengths
     /// Returns [batch_size, max_length] tensor where 1 = valid, 0 = padding
     fn eval_padding_mask(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("padding_mask() expects 2 arguments (lengths, max_length), got {}", args.len())
@@ -205,41 +232,68 @@ impl Interpreter {
         }
 
         let lengths_val = self.eval_expr(&args[0])?;
-        let lengths_tensor = lengths_val.as_tensor()?;
-        let lengths_vec = lengths_tensor.to_vec();
-        let lengths: Vec<usize> = lengths_vec.iter()
-            .map(|&v| v.to_f32() as usize)
-            .collect();
-
         let max_length = match self.eval_expr(&args[1])? {
             Value::Integer(i) => i as usize,
             Value::Float(f) => f as usize,
             _ => return Err(RuntimeError::TypeError("max_length must be an integer".to_string())),
         };
 
-        let batch_size = lengths.len();
-        let mut mask_data = Vec::with_capacity(batch_size * max_length);
-
-        for len in lengths {
-            for pos in 0..max_length {
-                if pos < len {
-                    mask_data.push(half::f16::ONE);
-                } else {
-                    mask_data.push(half::f16::ZERO);
-                }
-            }
-        }
-
         let device = self.env.metal_device();
-        let mask = Tensor::from_vec_metal(device, mask_data, vec![batch_size, max_length])
-            .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::TensorF16(mask))
+        Ok(match lengths_val {
+            Value::TensorF16(lengths_tensor) => {
+                let lengths_vec = lengths_tensor.to_vec();
+                let lengths: Vec<usize> = lengths_vec.iter()
+                    .map(|&v| v.to_f32() as usize)
+                    .collect();
+
+                let batch_size = lengths.len();
+                let mut mask_data = Vec::with_capacity(batch_size * max_length);
+
+                for len in lengths {
+                    for pos in 0..max_length {
+                        if pos < len {
+                            mask_data.push(half::f16::ONE);
+                        } else {
+                            mask_data.push(half::f16::ZERO);
+                        }
+                    }
+                }
+
+                Tensor::from_vec_metal(device, mask_data, vec![batch_size, max_length])
+                    .map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            Value::TensorF32(lengths_tensor) => {
+                let lengths_vec = lengths_tensor.to_vec_f32();
+                let lengths: Vec<usize> = lengths_vec.iter()
+                    .map(|&v| v as usize)
+                    .collect();
+
+                let batch_size = lengths.len();
+                let mut mask_data = Vec::with_capacity(batch_size * max_length);
+
+                for len in lengths {
+                    for pos in 0..max_length {
+                        if pos < len {
+                            mask_data.push(1.0_f32);
+                        } else {
+                            mask_data.push(0.0_f32);
+                        }
+                    }
+                }
+
+                Tensor::from_vec_metal(device, mask_data, vec![batch_size, max_length])
+                    .map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            _ => return Err(RuntimeError::TypeError("padding_mask() expects a tensor for lengths".to_string()))
+        })
     }
 
     /// combine_masks(mask1, mask2) -> tensor
     /// Combine two masks using element-wise multiplication (logical AND)
     fn eval_combine_masks(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("combine_masks() expects 2 arguments (mask1, mask2), got {}", args.len())
@@ -247,20 +301,26 @@ impl Interpreter {
         }
 
         let mask1_val = self.eval_expr(&args[0])?;
-        let mask1 = mask1_val.as_tensor()?.clone();
-
         let mask2_val = self.eval_expr(&args[1])?;
-        let mask2 = mask2_val.as_tensor()?.clone();
 
-        // Combine masks: mask1 * mask2 (element-wise multiplication)
-        let result = mask1.mul(&mask2).map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(result))
+        Ok(match (mask1_val, mask2_val) {
+            (Value::TensorF16(mask1), Value::TensorF16(mask2)) => {
+                mask1.mul(&mask2).map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            (Value::TensorF32(mask1), Value::TensorF32(mask2)) => {
+                mask1.mul(&mask2).map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            _ => return Err(RuntimeError::TypeError(
+                "combine_masks() requires both masks to be same type (both f16 or both f32)".to_string()
+            ))
+        })
     }
 
     /// fused_add_relu(a, b) -> tensor
     /// Fused operation: ReLU(a + b)
     fn eval_fused_add_relu(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("fused_add_relu() expects 2 arguments (a, b), got {}", args.len())
@@ -268,21 +328,28 @@ impl Interpreter {
         }
 
         let a_val = self.eval_expr(&args[0])?;
-        let a = a_val.as_tensor()?.clone();
-
         let b_val = self.eval_expr(&args[1])?;
-        let b = b_val.as_tensor()?.clone();
 
-        // Fused: add + relu
-        let sum = a.add(&b).map_err(|e| RuntimeError::TensorError(e))?;
-        let result = sum.relu().map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(result))
+        Ok(match (a_val, b_val) {
+            (Value::TensorF16(a), Value::TensorF16(b)) => {
+                let sum = a.add(&b).map_err(|e| RuntimeError::TensorError(e))?;
+                sum.relu().map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            (Value::TensorF32(a), Value::TensorF32(b)) => {
+                let sum = a.add(&b).map_err(|e| RuntimeError::TensorError(e))?;
+                sum.relu().map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            _ => return Err(RuntimeError::TypeError(
+                "fused_add_relu() requires both tensors to be same type (both f16 or both f32)".to_string()
+            ))
+        })
     }
 
     /// fused_mul_relu(a, b) -> tensor
     /// Fused operation: ReLU(a * b)
     fn eval_fused_mul_relu(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("fused_mul_relu() expects 2 arguments (a, b), got {}", args.len())
@@ -290,21 +357,28 @@ impl Interpreter {
         }
 
         let a_val = self.eval_expr(&args[0])?;
-        let a = a_val.as_tensor()?.clone();
-
         let b_val = self.eval_expr(&args[1])?;
-        let b = b_val.as_tensor()?.clone();
 
-        // Fused: mul + relu
-        let product = a.mul(&b).map_err(|e| RuntimeError::TensorError(e))?;
-        let result = product.relu().map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(result))
+        Ok(match (a_val, b_val) {
+            (Value::TensorF16(a), Value::TensorF16(b)) => {
+                let product = a.mul(&b).map_err(|e| RuntimeError::TensorError(e))?;
+                product.relu().map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            (Value::TensorF32(a), Value::TensorF32(b)) => {
+                let product = a.mul(&b).map_err(|e| RuntimeError::TensorError(e))?;
+                product.relu().map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            _ => return Err(RuntimeError::TypeError(
+                "fused_mul_relu() requires both tensors to be same type (both f16 or both f32)".to_string()
+            ))
+        })
     }
 
     /// fused_affine(x, scale, bias) -> tensor
     /// Fused operation: x * scale + bias
     fn eval_fused_affine(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
         if args.len() != 3 {
             return Err(RuntimeError::TypeError(
                 format!("fused_affine() expects 3 arguments (x, scale, bias), got {}", args.len())
@@ -312,24 +386,29 @@ impl Interpreter {
         }
 
         let x_val = self.eval_expr(&args[0])?;
-        let x = x_val.as_tensor()?.clone();
-
         let scale_val = self.eval_expr(&args[1])?;
-        let scale = scale_val.as_tensor()?.clone();
-
         let bias_val = self.eval_expr(&args[2])?;
-        let bias = bias_val.as_tensor()?.clone();
 
-        // Fused: x * scale + bias
-        let scaled = x.mul(&scale).map_err(|e| RuntimeError::TensorError(e))?;
-        let result = scaled.add(&bias).map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(result))
+        Ok(match (x_val, scale_val, bias_val) {
+            (Value::TensorF16(x), Value::TensorF16(scale), Value::TensorF16(bias)) => {
+                let scaled = x.mul(&scale).map_err(|e| RuntimeError::TensorError(e))?;
+                scaled.add(&bias).map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            (Value::TensorF32(x), Value::TensorF32(scale), Value::TensorF32(bias)) => {
+                let scaled = x.mul(&scale).map_err(|e| RuntimeError::TensorError(e))?;
+                scaled.add(&bias).map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            _ => return Err(RuntimeError::TypeError(
+                "fused_affine() requires all tensors to be same type (all f16 or all f32)".to_string()
+            ))
+        })
     }
 
     /// fused_gelu_linear(input, weight, bias) -> tensor
     /// Fused operation: GELU(input) @ weight + bias
     fn eval_fused_gelu_linear(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
         if args.len() != 3 {
             return Err(RuntimeError::TypeError(
                 format!("fused_gelu_linear() expects 3 arguments (input, weight, bias), got {}", args.len())
@@ -337,19 +416,23 @@ impl Interpreter {
         }
 
         let input_val = self.eval_expr(&args[0])?;
-        let input = input_val.as_tensor()?.clone();
-
         let weight_val = self.eval_expr(&args[1])?;
-        let weight = weight_val.as_tensor()?.clone();
-
         let bias_val = self.eval_expr(&args[2])?;
-        let bias = bias_val.as_tensor()?.clone();
 
-        // Fused: gelu -> matmul -> add
-        let activated = input.gelu().map_err(|e| RuntimeError::TensorError(e))?;
-        let linear = activated.matmul(&weight).map_err(|e| RuntimeError::TensorError(e))?;
-        let result = linear.add(&bias).map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(result))
+        Ok(match (input_val, weight_val, bias_val) {
+            (Value::TensorF16(input), Value::TensorF16(weight), Value::TensorF16(bias)) => {
+                let activated = input.gelu().map_err(|e| RuntimeError::TensorError(e))?;
+                let linear = activated.matmul(&weight).map_err(|e| RuntimeError::TensorError(e))?;
+                linear.add(&bias).map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            (Value::TensorF32(input), Value::TensorF32(weight), Value::TensorF32(bias)) => {
+                let activated = input.gelu().map_err(|e| RuntimeError::TensorError(e))?;
+                let linear = activated.matmul(&weight).map_err(|e| RuntimeError::TensorError(e))?;
+                linear.add(&bias).map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            _ => return Err(RuntimeError::TypeError(
+                "fused_gelu_linear() requires all tensors to be same type (all f16 or all f32)".to_string()
+            ))
+        })
     }
 }

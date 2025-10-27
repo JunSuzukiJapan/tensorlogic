@@ -45,16 +45,24 @@ impl Interpreter {
 
         // Evaluate both tensor arguments
         let a_val = self.eval_expr(&args[0])?;
-        let a = a_val.as_tensor()?;
-
         let b_val = self.eval_expr(&args[1])?;
-        let b = b_val.as_tensor()?;
 
-        // Perform matrix multiplication
-        let result = a.matmul(&b)
-            .map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(result))
+        // Process based on input type (f16 or f32)
+        match (a_val, b_val) {
+            (Value::TensorF16(a), Value::TensorF16(b)) => {
+                let result = a.matmul(&b)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(a), Value::TensorF32(b)) => {
+                let result = a.matmul(&b)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "matmul() requires both tensors to be same type (both f16 or both f32)".to_string()
+            ))
+        }
     }
 
     /// linear(x, weight, bias) -> tensor
@@ -74,49 +82,72 @@ impl Interpreter {
 
         // Evaluate input tensor
         let x_val = self.eval_expr(&args[0])?;
-        let x = x_val.as_tensor()?;
-
-        // Evaluate weight tensor
         let weight_val = self.eval_expr(&args[1])?;
-        let weight = weight_val.as_tensor()?;
 
-        // Transpose weight: [out_features, in_features] -> [in_features, out_features]
-        let weight_t = weight.transpose()
-            .map_err(|e| RuntimeError::TensorError(e))?;
+        // Process based on input type (f16 or f32)
+        match (x_val, weight_val) {
+            (Value::TensorF16(x), Value::TensorF16(weight)) => {
+                // Transpose weight: [out_features, in_features] -> [in_features, out_features]
+                let weight_t = weight.transpose()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
 
-        // Compute x @ weight.T
-        let mut result = x.matmul(&weight_t)
-            .map_err(|e| RuntimeError::TensorError(e))?;
+                // Compute x @ weight.T
+                let mut result = x.matmul(&weight_t)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
 
-        // Add bias if provided
-        if args.len() == 3 {
-            let bias_val = self.eval_expr(&args[2])?;
-            let bias = bias_val.as_tensor()?;
-            result = result.add(&bias)
-                .map_err(|e| RuntimeError::TensorError(e))?;
+                // Add bias if provided
+                if args.len() == 3 {
+                    let bias_val = self.eval_expr(&args[2])?;
+                    let bias = bias_val.as_tensor_f16()?;
+                    result = result.add(&bias)
+                        .map_err(|e| RuntimeError::TensorError(e))?;
+                }
+
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(x), Value::TensorF32(weight)) => {
+                // Transpose weight: [out_features, in_features] -> [in_features, out_features]
+                let weight_t = weight.transpose()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                // Compute x @ weight.T
+                let mut result = x.matmul(&weight_t)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                // Add bias if provided
+                if args.len() == 3 {
+                    let bias_val = self.eval_expr(&args[2])?;
+                    let bias = bias_val.as_tensor_f32()?;
+                    result = result.add(&bias)
+                        .map_err(|e| RuntimeError::TensorError(e))?;
+                }
+
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "linear() requires x and weight to be same type (both f16 or both f32)".to_string()
+            )),
         }
-
-        Ok(Value::TensorF16(result))
     }
 
     /// sigmoid(x) -> tensor
     /// Sigmoid activation: σ(x) = 1 / (1 + exp(-x))
     fn eval_sigmoid(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
                 format!("sigmoid() expects 1 argument (tensor), got {}", args.len())
             ));
         }
 
-        // Evaluate tensor argument
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?;
 
-        // Apply sigmoid
-        let result = tensor.sigmoid()
-            .map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(result))
+        Ok(match tensor_val {
+            Value::TensorF16(t) => t.sigmoid().map_err(|e| RuntimeError::TensorError(e))?.to_value(),
+            Value::TensorF32(t) => t.sigmoid().map_err(|e| RuntimeError::TensorError(e))?.to_value(),
+            _ => return Err(RuntimeError::TypeError("Expected tensor".to_string()))
+        })
     }
 
     /// relu(tensor) -> tensor
