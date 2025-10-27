@@ -15,6 +15,7 @@ impl Interpreter {
             "tokenize" => Some(self.eval_tokenize(args)),
             "detokenize" => Some(self.eval_detokenize(args)),
             "detokenize_single" => Some(self.eval_detokenize_single(args)),
+            "int_to_tokenids" => Some(self.eval_int_to_tokenids(args)),
             "generate" | "print_top_k" => {
                 Some(Err(RuntimeError::NotImplemented(
                     format!("Model/IO function '{}' migration in progress", name)
@@ -346,5 +347,29 @@ impl Interpreter {
             .map_err(|e| RuntimeError::TensorError(e))?;
 
         Ok(Value::String(text))
+    }
+
+    /// int_to_tokenids(token_id)
+    /// Convert a single token ID (Integer) to TokenIds array
+    fn eval_int_to_tokenids(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("int_to_tokenids() expects 1 argument (token_id), got {}", args.len())
+            ));
+        }
+
+        // Get token ID (Integer)
+        let token_id_val = self.eval_expr(&args[0])?;
+        let token_id = match token_id_val {
+            Value::Integer(id) => id as u32,
+            _ => return Err(RuntimeError::TypeError(
+                "int_to_tokenids() argument must be an Integer (token ID)".to_string()
+            )),
+        };
+
+        // Create single-element TokenIds vector
+        let token_ids = vec![token_id];
+
+        Ok(Value::TokenIds(token_ids))
     }
 }
