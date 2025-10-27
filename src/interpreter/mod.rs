@@ -2564,66 +2564,106 @@ impl Interpreter {
 
             "sin" => {
                 // sin(tensor)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("sin() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let output = tensor.sin().map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                let tensor_val = self.eval_expr(&args[0])?;
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.sin().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.sin().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("sin() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "cos" => {
                 // cos(tensor)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("cos() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let output = tensor.cos().map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                let tensor_val = self.eval_expr(&args[0])?;
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.cos().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.cos().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("cos() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "tan" => {
                 // tan(tensor)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("tan() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let output = tensor.tan().map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                let tensor_val = self.eval_expr(&args[0])?;
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.tan().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.tan().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("tan() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             // Masking operations
             "apply_attention_mask" => {
                 // apply_attention_mask(tensor, mask)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("apply_attention_mask() expects 2 arguments (tensor, mask), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let mask = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
+                let mask_val = self.eval_expr(&args[1])?;
 
-                let output = tensor.apply_attention_mask(&mask)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor_val, mask_val) {
+                    (Value::TensorF16(tensor), Value::TensorF16(mask)) => {
+                        let output = tensor.apply_attention_mask(&mask)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    (Value::TensorF32(tensor), Value::TensorF32(mask)) => {
+                        let output = tensor.apply_attention_mask(&mask)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "apply_attention_mask() requires both tensors to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "padding_mask" => {
                 // padding_mask([lengths], max_len)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("padding_mask() expects 2 arguments (lengths, max_len), got {}", args.len())
@@ -2635,6 +2675,9 @@ impl Interpreter {
                 let lengths: Vec<usize> = match lengths_value {
                     Value::TensorF16(t) => {
                         t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                    }
+                    Value::TensorF32(t) => {
+                        t.to_vec().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
                         "padding_mask() lengths must be an array".to_string()
@@ -2649,126 +2692,149 @@ impl Interpreter {
                     )),
                 };
 
+                // Return f16 version by default for masks
                 let output = crate::tensor::Tensor::<half::f16>::padding_mask(&lengths, max_len)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::TensorF16(output))
+                Ok(output.to_value())
             }
 
             "combine_masks" => {
                 // combine_masks(mask1, mask2)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("combine_masks() expects 2 arguments (mask1, mask2), got {}", args.len())
                     ));
                 }
 
-                let mask1 = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let mask2 = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let mask1_val = self.eval_expr(&args[0])?;
+                let mask2_val = self.eval_expr(&args[1])?;
 
-                let output = mask1.combine_masks(&mask2)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
-            }
-
-            // Broadcast operation
-            "broadcast_to" => {
-                // broadcast_to(tensor, [target_shape])
-                if args.len() != 2 {
-                    return Err(RuntimeError::TypeError(
-                        format!("broadcast_to() expects 2 arguments (tensor, target_shape), got {}", args.len())
-                    ));
-                }
-
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let shape_value = self.eval_expr(&args[1])?;
-                let target_shape = match shape_value {
-                    Value::TensorF16(t) => {
-                        t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                match (mask1_val, mask2_val) {
+                    (Value::TensorF16(mask1), Value::TensorF16(mask2)) => {
+                        let output = mask1.combine_masks(&mask2)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
                     }
-                    _ => return Err(RuntimeError::TypeError(
-                        "broadcast_to() target_shape must be an array".to_string()
-                    )),
-                };
-
-                use crate::tensor::TensorShape;
-                let target_tensor_shape = TensorShape::new(target_shape);
-                let output = tensor.broadcast_to(&target_tensor_shape)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                    (Value::TensorF32(mask1), Value::TensorF32(mask2)) => {
+                        let output = mask1.combine_masks(&mask2)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "combine_masks() requires both masks to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             // Fused operations
             "fused_add_relu" => {
                 // fused_add_relu(tensor, other)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("fused_add_relu() expects 2 arguments (tensor, other), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let other = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
+                let other_val = self.eval_expr(&args[1])?;
 
-                let output = tensor.fused_add_relu(&other)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor_val, other_val) {
+                    (Value::TensorF16(tensor), Value::TensorF16(other)) => {
+                        let output = tensor.fused_add_relu(&other)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    (Value::TensorF32(tensor), Value::TensorF32(other)) => {
+                        let output = tensor.fused_add_relu(&other)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "fused_add_relu() requires both tensors to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "fused_mul_relu" => {
                 // fused_mul_relu(tensor, other)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("fused_mul_relu() expects 2 arguments (tensor, other), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let other = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
+                let other_val = self.eval_expr(&args[1])?;
 
-                let output = tensor.fused_mul_relu(&other)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor_val, other_val) {
+                    (Value::TensorF16(tensor), Value::TensorF16(other)) => {
+                        let output = tensor.fused_mul_relu(&other)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    (Value::TensorF32(tensor), Value::TensorF32(other)) => {
+                        let output = tensor.fused_mul_relu(&other)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "fused_mul_relu() requires both tensors to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "fused_affine" => {
-                // fused_affine(tensor, scale, bias)
+                // fused_affine(tensor, scale, bias) - f16 only
+                use crate::interpreter::value::ToValue;
                 if args.len() != 3 {
                     return Err(RuntimeError::TypeError(
                         format!("fused_affine() expects 3 arguments (tensor, scale, bias), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let scale = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
-                let bias = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
+                let scale_val = self.eval_expr(&args[1])?;
+                let bias_val = self.eval_expr(&args[2])?;
 
-                let output = tensor.fused_affine(&scale, &bias)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor_val, scale_val, bias_val) {
+                    (Value::TensorF16(tensor), Value::TensorF16(scale), Value::TensorF16(bias)) => {
+                        let output = tensor.fused_affine(&scale, &bias)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "fused_affine() requires all tensors to be f16 (f32 not yet supported for fused operations)".to_string()
+                    ))
+                }
             }
 
             "fused_gelu_linear" => {
-                // fused_gelu_linear(tensor, weight, bias)
+                // fused_gelu_linear(tensor, weight, bias) - f16 only
+                use crate::interpreter::value::ToValue;
                 if args.len() != 3 {
                     return Err(RuntimeError::TypeError(
                         format!("fused_gelu_linear() expects 3 arguments (tensor, weight, bias), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let weight = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
-                let bias = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
+                let weight_val = self.eval_expr(&args[1])?;
+                let bias_val = self.eval_expr(&args[2])?;
 
-                let output = tensor.fused_gelu_linear(&weight, &bias)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor_val, weight_val, bias_val) {
+                    (Value::TensorF16(tensor), Value::TensorF16(weight), Value::TensorF16(bias)) => {
+                        let output = tensor.fused_gelu_linear(&weight, &bias)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "fused_gelu_linear() requires all tensors to be f16 (f32 not yet supported for fused operations)".to_string()
+                    ))
+                }
             }
 
             "generate" => {
