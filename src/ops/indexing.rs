@@ -438,13 +438,6 @@ impl<T: FloatType> Tensor<T> {
 
     /// Metal GPU implementation of scatter
     fn scatter_metal(&self, dim: usize, indices: &Tensor, src: &Tensor<T>) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
         let input_buf = self.buffer().as_metal()?;
         let indices_buf = indices.buffer().as_metal()?;
         let src_buf = src.buffer().as_metal()?;
@@ -480,20 +473,59 @@ impl<T: FloatType> Tensor<T> {
         }
 
         // Create output buffer
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), self.numel())?;
 
-        // Create parameter buffers
-        let input_strides_f16: Vec<f16> = input_strides.iter().map(|&s| f16::from_f32(s as f32)).collect();
-        let src_strides_f16: Vec<f16> = src_strides.iter().map(|&s| f16::from_f32(s as f32)).collect();
-        let input_dims_f16: Vec<f16> = self_dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
-        let src_dims_f16: Vec<f16> = src_dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
+        // Create parameter buffers and select kernel based on type
+        let kernel_name = if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f16>() {
+            "scatter_f16"
+        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
+            "scatter_f32"
+        } else {
+            return Err(TensorError::InvalidOperation(
+                format!("scatter() not implemented for type {:?}", std::any::type_name::<T>())
+            ));
+        };
 
-        let input_strides_buf = MetalBuffer::from_f16_slice(device.metal_device(), &input_strides_f16)?;
-        let src_strides_buf = MetalBuffer::from_f16_slice(device.metal_device(), &src_strides_f16)?;
-        let input_dims_buf = MetalBuffer::from_f16_slice(device.metal_device(), &input_dims_f16)?;
-        let src_dims_buf = MetalBuffer::from_f16_slice(device.metal_device(), &src_dims_f16)?;
-        let dim_buf = MetalBuffer::from_f16_slice(device.metal_device(), &[f16::from_f32(dim as f32)])?;
-        let ndim_buf = MetalBuffer::from_f16_slice(device.metal_device(), &[f16::from_f32(ndim as f32)])?;
+        // Create parameter buffers with appropriate type
+        let (input_strides_buf, src_strides_buf, input_dims_buf, src_dims_buf, dim_buf, ndim_buf) =
+            if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f16>() {
+                let input_strides_data: Vec<f16> = input_strides.iter().map(|&s| f16::from_f32(s as f32)).collect();
+                let src_strides_data: Vec<f16> = src_strides.iter().map(|&s| f16::from_f32(s as f32)).collect();
+                let input_dims_data: Vec<f16> = self_dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
+                let src_dims_data: Vec<f16> = src_dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
+
+                let buf1 = MetalBuffer::from_f16_slice(device.metal_device(), &input_strides_data)?;
+                let buf2 = MetalBuffer::from_f16_slice(device.metal_device(), &src_strides_data)?;
+                let buf3 = MetalBuffer::from_f16_slice(device.metal_device(), &input_dims_data)?;
+                let buf4 = MetalBuffer::from_f16_slice(device.metal_device(), &src_dims_data)?;
+                let buf5 = MetalBuffer::from_f16_slice(device.metal_device(), &[f16::from_f32(dim as f32)])?;
+                let buf6 = MetalBuffer::from_f16_slice(device.metal_device(), &[f16::from_f32(ndim as f32)])?;
+
+                // Transmute to generic type
+                unsafe { (
+                    std::mem::transmute(buf1),
+                    std::mem::transmute(buf2),
+                    std::mem::transmute(buf3),
+                    std::mem::transmute(buf4),
+                    std::mem::transmute(buf5),
+                    std::mem::transmute(buf6),
+                )}
+            } else {
+                // f32 case
+                let input_strides_data: Vec<f32> = input_strides.iter().map(|&s| s as f32).collect();
+                let src_strides_data: Vec<f32> = src_strides.iter().map(|&s| s as f32).collect();
+                let input_dims_data: Vec<f32> = self_dims.iter().map(|&d| d as f32).collect();
+                let src_dims_data: Vec<f32> = src_dims.iter().map(|&d| d as f32).collect();
+
+                let buf1 = MetalBuffer::from_slice(device.metal_device(), &input_strides_data)?;
+                let buf2 = MetalBuffer::from_slice(device.metal_device(), &src_strides_data)?;
+                let buf3 = MetalBuffer::from_slice(device.metal_device(), &input_dims_data)?;
+                let buf4 = MetalBuffer::from_slice(device.metal_device(), &src_dims_data)?;
+                let buf5 = MetalBuffer::from_slice(device.metal_device(), &[dim as f32])?;
+                let buf6 = MetalBuffer::from_slice(device.metal_device(), &[ndim as f32])?;
+
+                (buf1, buf2, buf3, buf4, buf5, buf6)
+            };
 
         // Get pipeline
         let library_ref = device.library();
@@ -501,9 +533,9 @@ impl<T: FloatType> Tensor<T> {
             TensorError::MetalError("Library not loaded".to_string())
         })?;
         let pipeline = library
-            .get_function("scatter_f16", None)
+            .get_function(kernel_name, None)
             .map_err(|e| {
-                TensorError::MetalError(format!("Failed to get kernel scatter_f16: {:?}", e))
+                TensorError::MetalError(format!("Failed to get kernel {}: {:?}", kernel_name, e))
             })?;
 
         let pipeline_state = device
@@ -548,13 +580,6 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of scatter
     fn scatter_cpu(&self, dim: usize, indices: &Tensor, src: &Tensor<T>) -> TensorResult<Self> {
-        // Currently only f16 is supported
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "CPU operations currently only support f16".to_string()
-            ));
-        }
-
         let self_data = self.to_vec();
         let indices_data = indices.to_vec();
         let src_data = src.to_vec();
