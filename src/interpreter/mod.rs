@@ -1426,13 +1426,14 @@ impl Interpreter {
                 // temperature(logits, temp) -> Tensor
                 // Scale logits by temperature: logits / temp
                 // Higher temp = more random, lower temp = more deterministic
+                use crate::interpreter::value::ToValue;
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("temperature() expects 2 arguments (logits, temp), got {}", args.len())
                     ));
                 }
 
-                let logits = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let logits_val = self.eval_expr(&args[0])?;
                 let temp = match self.eval_expr(&args[1])? {
                     Value::Float(f) => f as f32,
                     Value::Integer(i) => i as f32,
@@ -1449,21 +1450,39 @@ impl Interpreter {
                     ));
                 }
 
-                // Scale logits by temperature
-                let data = logits.to_vec();
-                let output_data: Vec<half::f16> = data
-                    .iter()
-                    .map(|&v| half::f16::from_f32(v.to_f32() / temp))
-                    .collect();
+                match logits_val {
+                    Value::TensorF16(logits) => {
+                        let data = logits.to_vec();
+                        let output_data: Vec<half::f16> = data
+                            .iter()
+                            .map(|&v| half::f16::from_f32(v.to_f32() / temp))
+                            .collect();
 
-                // Create output tensor
-                let output = crate::tensor::Tensor::from_vec_metal(
-                    self.env.metal_device(),
-                    output_data,
-                    logits.shape().dims().to_vec()
-                ).map_err(|e| RuntimeError::TensorError(e))?;
+                        let output = crate::tensor::Tensor::from_vec_metal(
+                            self.env.metal_device(),
+                            output_data,
+                            logits.shape().dims().to_vec()
+                        ).map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::TensorF16(output))
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(logits) => {
+                        let data = logits.to_vec();
+                        let output_data: Vec<f32> = data
+                            .iter()
+                            .map(|&v| v / temp)
+                            .collect();
+
+                        let output = crate::tensor::Tensor::from_vec_metal(
+                            self.env.metal_device(),
+                            output_data,
+                            logits.shape().dims().to_vec()
+                        ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("temperature() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "softmax" => {
@@ -1643,7 +1662,7 @@ impl Interpreter {
                     ));
                 }
 
-                let logits_tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let logits_val = self.eval_expr(&args[0])?;
                 let temperature = match self.eval_expr(&args[1])? {
                     Value::Float(f) => f as f32,
                     Value::Integer(i) => i as f32,
@@ -1658,26 +1677,45 @@ impl Interpreter {
                     ));
                 }
 
-                let shape = logits_tensor.shape();
-                let dims = shape.dims();
+                let logits_f32: Vec<f32> = match logits_val {
+                    Value::TensorF16(logits_tensor) => {
+                        let shape = logits_tensor.shape();
+                        let dims = shape.dims();
 
-                // Support both 1D and 2D tensors
-                // For 2D [seq_len, vocab_size], use the last row (last token's logits)
-                let logits_f32: Vec<f32> = if dims.len() == 1 {
-                    // 1D: [vocab_size]
-                    let logits = logits_tensor.to_vec();
-                    logits.iter().map(|v| v.to_f32()).collect()
-                } else if dims.len() == 2 {
-                    // 2D: [seq_len, vocab_size] - extract last row
-                    let seq_len = dims[0];
-                    let vocab_size = dims[1];
-                    let logits = logits_tensor.to_vec();
-                    let start_idx = (seq_len - 1) * vocab_size;
-                    logits[start_idx..].iter().map(|v| v.to_f32()).collect()
-                } else {
-                    return Err(RuntimeError::TypeError(
-                        format!("temperature_sample() expects 1D or 2D logits, got shape {:?}", dims)
-                    ));
+                        if dims.len() == 1 {
+                            let logits = logits_tensor.to_vec();
+                            logits.iter().map(|v| v.to_f32()).collect()
+                        } else if dims.len() == 2 {
+                            let seq_len = dims[0];
+                            let vocab_size = dims[1];
+                            let logits = logits_tensor.to_vec();
+                            let start_idx = (seq_len - 1) * vocab_size;
+                            logits[start_idx..].iter().map(|v| v.to_f32()).collect()
+                        } else {
+                            return Err(RuntimeError::TypeError(
+                                format!("temperature_sample() expects 1D or 2D logits, got shape {:?}", dims)
+                            ));
+                        }
+                    }
+                    Value::TensorF32(logits_tensor) => {
+                        let shape = logits_tensor.shape();
+                        let dims = shape.dims();
+
+                        if dims.len() == 1 {
+                            logits_tensor.to_vec()
+                        } else if dims.len() == 2 {
+                            let seq_len = dims[0];
+                            let vocab_size = dims[1];
+                            let logits = logits_tensor.to_vec();
+                            let start_idx = (seq_len - 1) * vocab_size;
+                            logits[start_idx..].to_vec()
+                        } else {
+                            return Err(RuntimeError::TypeError(
+                                format!("temperature_sample() expects 1D or 2D logits, got shape {:?}", dims)
+                            ));
+                        }
+                    }
+                    _ => return Err(RuntimeError::TypeError("temperature_sample() expects tensor (f16 or f32)".to_string()))
                 };
 
                 // Apply temperature scaling
