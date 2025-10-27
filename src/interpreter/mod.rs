@@ -1311,13 +1311,14 @@ impl Interpreter {
                 // Nucleus sampling: keep smallest set of logits with cumulative probability >= p
                 // Input: logits [vocab_size] or [..., vocab_size]
                 // Output: same shape, with non-nucleus values set to -inf
+                use crate::interpreter::value::ToValue;
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("top_p() expects 2 arguments (logits, p), got {}", args.len())
                     ));
                 }
 
-                let logits = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let logits_val = self.eval_expr(&args[0])?;
                 let p = match self.eval_expr(&args[1])? {
                     Value::Float(f) => f as f32,
                     Value::Integer(i) => i as f32,
@@ -1334,65 +1335,91 @@ impl Interpreter {
                     ));
                 }
 
-                let shape = logits.shape();
-                let dims = shape.dims();
-                let vocab_size = dims[dims.len() - 1];
+                match logits_val {
+                    Value::TensorF16(logits) => {
+                        let shape = logits.shape();
+                        let dims = shape.dims();
+                        let vocab_size = dims[dims.len() - 1];
+                        let data = logits.to_vec();
+                        let mut output_data = data.clone();
+                        let batch_size = data.len() / vocab_size;
 
-                // Get logits data
-                let data = logits.to_vec();
-                let mut output_data = data.clone();
+                        for batch_idx in 0..batch_size {
+                            let start_idx = batch_idx * vocab_size;
+                            let end_idx = start_idx + vocab_size;
+                            let logits_slice = &data[start_idx..end_idx];
 
-                // Process each sequence
-                let batch_size = data.len() / vocab_size;
+                            let max_logit = logits_slice.iter().map(|v| v.to_f32()).fold(f32::NEG_INFINITY, f32::max);
+                            let exp_logits: Vec<f32> = logits_slice.iter().map(|v| (v.to_f32() - max_logit).exp()).collect();
+                            let sum_exp: f32 = exp_logits.iter().sum();
+                            let probs: Vec<f32> = exp_logits.iter().map(|e| e / sum_exp).collect();
 
-                for batch_idx in 0..batch_size {
-                    let start_idx = batch_idx * vocab_size;
-                    let end_idx = start_idx + vocab_size;
-                    let logits_slice = &data[start_idx..end_idx];
+                            let mut indexed_probs: Vec<(usize, f32)> = probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
+                            indexed_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
-                    // Convert to probabilities using softmax
-                    let max_logit = logits_slice.iter().map(|v| v.to_f32()).fold(f32::NEG_INFINITY, f32::max);
-                    let exp_logits: Vec<f32> = logits_slice
-                        .iter()
-                        .map(|v| (v.to_f32() - max_logit).exp())
-                        .collect();
-                    let sum_exp: f32 = exp_logits.iter().sum();
-                    let probs: Vec<f32> = exp_logits.iter().map(|e| e / sum_exp).collect();
+                            let mut cumulative_prob = 0.0;
+                            let mut nucleus_size = 0;
+                            for (_, prob) in &indexed_probs {
+                                cumulative_prob += prob;
+                                nucleus_size += 1;
+                                if cumulative_prob >= p {
+                                    break;
+                                }
+                            }
 
-                    // Sort by probability (descending)
-                    let mut indexed_probs: Vec<(usize, f32)> = probs
-                        .iter()
-                        .enumerate()
-                        .map(|(i, &p)| (i, p))
-                        .collect();
-                    indexed_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-
-                    // Find nucleus: smallest set with cumulative prob >= p
-                    let mut cumulative_prob = 0.0;
-                    let mut nucleus_size = 0;
-                    for (_, prob) in &indexed_probs {
-                        cumulative_prob += prob;
-                        nucleus_size += 1;
-                        if cumulative_prob >= p {
-                            break;
+                            for i in nucleus_size..vocab_size {
+                                let idx = indexed_probs[i].0;
+                                output_data[start_idx + idx] = half::f16::from_f32(f32::NEG_INFINITY);
+                            }
                         }
-                    }
 
-                    // Set non-nucleus to -inf
-                    for i in nucleus_size..vocab_size {
-                        let idx = indexed_probs[i].0;
-                        output_data[start_idx + idx] = half::f16::from_f32(f32::NEG_INFINITY);
+                        let output = crate::tensor::Tensor::from_vec_metal(self.env.metal_device(), output_data, dims.to_vec())
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
                     }
+                    Value::TensorF32(logits) => {
+                        let shape = logits.shape();
+                        let dims = shape.dims();
+                        let vocab_size = dims[dims.len() - 1];
+                        let data = logits.to_vec();
+                        let mut output_data = data.clone();
+                        let batch_size = data.len() / vocab_size;
+
+                        for batch_idx in 0..batch_size {
+                            let start_idx = batch_idx * vocab_size;
+                            let end_idx = start_idx + vocab_size;
+                            let logits_slice = &data[start_idx..end_idx];
+
+                            let max_logit = logits_slice.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                            let exp_logits: Vec<f32> = logits_slice.iter().map(|&v| (v - max_logit).exp()).collect();
+                            let sum_exp: f32 = exp_logits.iter().sum();
+                            let probs: Vec<f32> = exp_logits.iter().map(|e| e / sum_exp).collect();
+
+                            let mut indexed_probs: Vec<(usize, f32)> = probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
+                            indexed_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+                            let mut cumulative_prob = 0.0;
+                            let mut nucleus_size = 0;
+                            for (_, prob) in &indexed_probs {
+                                cumulative_prob += prob;
+                                nucleus_size += 1;
+                                if cumulative_prob >= p {
+                                    break;
+                                }
+                            }
+
+                            for i in nucleus_size..vocab_size {
+                                let idx = indexed_probs[i].0;
+                                output_data[start_idx + idx] = f32::NEG_INFINITY;
+                            }
+                        }
+
+                        let output = crate::tensor::Tensor::from_vec_metal(self.env.metal_device(), output_data, dims.to_vec())
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("top_p() expects tensor (f16 or f32)".to_string()))
                 }
-
-                // Create output tensor
-                let output = crate::tensor::Tensor::from_vec_metal(
-                    self.env.metal_device(),
-                    output_data,
-                    dims.to_vec()
-                ).map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
             }
 
             "temperature" => {
