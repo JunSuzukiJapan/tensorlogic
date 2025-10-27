@@ -183,6 +183,7 @@ impl<T: FloatType> Tensor<T> {
         Tensor<T>: TensorAutograd<T>,
     {
         use crate::autograd::AutogradContext;
+        
 
         // Get node ID for this tensor
         let node_id = self.grad_node.ok_or_else(|| {
@@ -193,9 +194,24 @@ impl<T: FloatType> Tensor<T> {
 
         // Perform backward pass through computation graph
         let gradients = if create_graph {
-            AutogradContext::backward_with_graph_generic::<T>(node_id, grad)?
+            match AutogradContext::backward_with_graph_generic::<T>(node_id, grad) {
+                Ok(g) => {
+                    g
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+            }
         } else {
-            AutogradContext::backward_generic::<T>(node_id, grad)?
+            let result = AutogradContext::backward_generic::<T>(node_id, grad);
+            match result {
+                Ok(g) => {
+                    g
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+            }
         };
 
         // Distribute gradients to all tensors in the graph
@@ -227,6 +243,7 @@ impl<T: FloatType> Tensor<T> {
 
                 // Re-register the updated tensor
                 AutogradContext::register_tensor_generic::<T>(tensor_node_id, tensor);
+            } else {
             }
         }
 

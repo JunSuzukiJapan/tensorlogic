@@ -18,7 +18,7 @@ fn test_simple_tensor_decl() {
 
     // Verify tensor was created
     let w = interpreter.get_variable("w").unwrap();
-    assert!(matches!(w, Value::Tensor(_)));
+    assert!(matches!(w, Value::TensorF16(_)));
 }
 
 #[test]
@@ -30,7 +30,7 @@ fn test_learnable_tensor() {
     interpreter.execute(&program).unwrap();
 
     let w = interpreter.get_variable("w").unwrap();
-    if let Value::Tensor(tensor) = w {
+    if let Value::TensorF16(tensor) = w {
         assert!(tensor.requires_grad());
     } else {
         panic!("Expected tensor");
@@ -46,7 +46,7 @@ fn test_tensor_with_init() {
     interpreter.execute(&program).unwrap();
 
     let w = interpreter.get_variable("w").unwrap();
-    if let Value::Tensor(tensor) = w {
+    if let Value::TensorF16(tensor) = w {
         assert_eq!(tensor.shape().dims(), &[3]);
     } else {
         panic!("Expected tensor");
@@ -144,7 +144,7 @@ fn test_array_literal_1d() {
 
     let value = interpreter.eval_literal(&lit).unwrap();
 
-    if let Value::Tensor(tensor) = value {
+    if let Value::TensorF16(tensor) = value {
         assert_eq!(tensor.shape().dims(), &[3]);
     } else {
         panic!("Expected tensor");
@@ -168,7 +168,7 @@ fn test_array_literal_2d() {
 
     let value = interpreter.eval_literal(&lit).unwrap();
 
-    if let Value::Tensor(tensor) = value {
+    if let Value::TensorF16(tensor) = value {
         assert_eq!(tensor.shape().dims(), &[2, 2]);
     } else {
         panic!("Expected tensor");
@@ -190,7 +190,7 @@ fn test_binary_op_add_tensors() {
     interpreter.execute(&program).unwrap();
 
     let c = interpreter.get_variable("c").unwrap();
-    if let Value::Tensor(tensor) = c {
+    if let Value::TensorF16(tensor) = c {
         assert_eq!(tensor.shape().dims(), &[3]);
     } else {
         panic!("Expected tensor");
@@ -396,7 +396,7 @@ fn test_infer_shape_2d() {
 fn test_value_as_tensor() {
     let device = MetalDevice::new().unwrap();
     let tensor = Tensor::zeros(&device, vec![2, 3]).unwrap();
-    let value = Value::Tensor(tensor);
+    let value = Value::TensorF16(tensor);
 
     assert!(value.as_tensor().is_ok());
 }
@@ -444,7 +444,7 @@ main {
     // Get initial value
     interpreter.execute_declaration(&program.declarations[0]).unwrap();
     let w_initial = interpreter.get_variable("w").unwrap();
-    let w_initial_val = if let Value::Tensor(t) = w_initial {
+    let w_initial_val = if let Value::TensorF16(t) = w_initial {
         t.to_vec()[0].to_f32()
     } else {
         panic!("w should be tensor");
@@ -462,7 +462,7 @@ main {
             println!("✅ Learning executed successfully");
             // If learning succeeded, check if parameter was updated
             let w_final = interpreter.get_variable("w").unwrap();
-            let w_final_val = if let Value::Tensor(t) = w_final {
+            let w_final_val = if let Value::TensorF16(t) = w_final {
                 t.to_vec()[0].to_f32()
             } else {
                 panic!("w should be tensor");
@@ -1056,7 +1056,7 @@ main {
     
     // Verify that alice_vec is a tensor with dimension 8
     let alice_vec = interpreter.env.get_variable("alice_vec").unwrap();
-    if let Value::Tensor(t) = alice_vec {
+    if let Value::TensorF16(t) = alice_vec {
         assert_eq!(t.shape().dims(), &[8], "Alice embedding should have dimension 8");
     } else {
         panic!("Expected Tensor value for alice_vec");
@@ -1117,7 +1117,7 @@ main {
     
     // Verify similarity tensor exists and has correct shape
     let similarity = interpreter.env.get_variable("similarity").unwrap();
-    if let Value::Tensor(t) = similarity {
+    if let Value::TensorF16(t) = similarity {
         assert_eq!(t.shape().dims(), &[4], "Similarity should have dimension 4");
     } else {
         panic!("Expected Tensor value for similarity");
@@ -1194,7 +1194,7 @@ main {
     
     // Verify result shape
     let c = interpreter.env.get_variable("C").unwrap();
-    if let Value::Tensor(t) = c {
+    if let Value::TensorF16(t) = c {
         assert_eq!(t.shape().dims(), &[2, 2], "Result should be 2x2 matrix");
     } else {
         panic!("Expected Tensor value for C");
@@ -1234,7 +1234,7 @@ main {
     
     // Verify result shape (should be transposed)
     let b = interpreter.env.get_variable("B").unwrap();
-    if let Value::Tensor(t) = b {
+    if let Value::TensorF16(t) = b {
         assert_eq!(t.shape().dims(), &[3, 2], "Result should be 3x2 matrix (transposed)");
     } else {
         panic!("Expected Tensor value for B");
@@ -1259,7 +1259,7 @@ main {
     
     // Verify result shape
     let c = interpreter.env.get_variable("C").unwrap();
-    if let Value::Tensor(t) = c {
+    if let Value::TensorF16(t) = c {
         assert_eq!(t.shape().dims(), &[2, 2, 2], "Result should be 2x2x2 tensor");
     } else {
         panic!("Expected Tensor value for C");

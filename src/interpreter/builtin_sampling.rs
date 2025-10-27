@@ -43,7 +43,7 @@ impl Interpreter {
         let result = tensor.softmax()
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(result))
+        Ok(Value::TensorF16(result))
     }
 
     /// temperature_sample(logits, temperature) -> int

@@ -2,16 +2,16 @@
 
 main {
     // Variables starting with keywords
-    tensor input: float16[3] = [1.0, 2.0, 3.0]
-    tensor index: float16[1] = [0.0]
-    tensor information: float16[2] = [4.0, 5.0]
+    let input = [1.0, 2.0, 3.0]
+    let index = [0.0]
+    let information = [4.0, 5.0]
 
     // Variables that could be confused with keywords
-    tensor query_param: float16[2] = [6.0, 7.0]
-    tensor tensor_data: float16[2] = [8.0, 9.0]
+    let query_param = [6.0, 7.0]
+    let tensor_data = [8.0, 9.0]
 
     // Use them
-    tensor result: float16[3] = input + [1.0, 1.0, 1.0]
+    let result = input.add([1.0, 1.0, 1.0])
 
     print("input:", input)
     print("index:", index)

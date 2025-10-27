@@ -139,7 +139,7 @@ fn get_token_embedding(embedding_table: float16[V, D],
 // let embeddings = model.get_tensor("token_embd.weight")
 
 // 推論実行（TensorLogicの通常の演算を使用）
-// let input_ids = tensor<int>([1, 2, 3, 4], device: gpu)
+// let input_ids = tensor<int>([1, 2, 3, 4])
 // let embedded = embeddings[input_ids, :]
 // print("Embedded shape:", embedded.shape)
 

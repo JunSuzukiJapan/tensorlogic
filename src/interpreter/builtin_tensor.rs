@@ -9,6 +9,7 @@ use half::f16;
 impl Interpreter {
     pub(super) fn eval_tensor_function(&mut self, name: &str, args: &[TensorExpr]) -> Option<RuntimeResult<Value>> {
         match name {
+            // Tensor properties and creation
             "shape" => Some(self.eval_shape(args)),
             "ones" => Some(self.eval_ones(args)),
             "reshape" => Some(self.eval_reshape(args)),
@@ -17,13 +18,38 @@ impl Interpreter {
             "concat" => Some(self.eval_concat(args)),
             "rope" => Some(self.eval_rope(args)),
             "slice" => Some(self.eval_slice(args)),
-            "zeros" | "flatten" | "permute" |
-            "gather" | "scatter" | "chunk" | "split" |
-            "squeeze" | "unsqueeze" => {
-                Some(Err(RuntimeError::NotImplemented(
-                    format!("Tensor function '{}' migration in progress", name)
-                )))
-            }
+
+            // Arithmetic operations (for method chaining)
+            "add" => Some(self.eval_add_method(args)),
+            "sub" => Some(self.eval_sub_method(args)),
+            "mul" => Some(self.eval_mul_method(args)),
+            "div" => Some(self.eval_div_method(args)),
+
+            // Reduction operations (for method chaining)
+            "sum" => Some(self.eval_sum_method(args)),
+            "mean" => Some(self.eval_mean_method(args)),
+            "max" => Some(self.eval_max_method(args)),
+            "min" => Some(self.eval_min_method(args)),
+            "argmax" => Some(self.eval_argmax_method(args)),
+            "argmin" => Some(self.eval_argmin_method(args)),
+
+            // Tensor shape operations
+            "zeros" => Some(self.eval_zeros(args)),
+            "flatten" => Some(self.eval_flatten(args)),
+            "squeeze" => Some(self.eval_squeeze(args)),
+            "unsqueeze" => Some(self.eval_unsqueeze(args)),
+            "permute" => Some(self.eval_permute(args)),
+
+            // Advanced indexing operations
+            "gather" => Some(self.eval_gather(args)),
+            "scatter" => Some(self.eval_scatter(args)),
+
+            // Split operations
+            "chunk" => Some(self.eval_chunk(args)),
+            "split" => Some(self.eval_split(args)),
+
+            // No longer any unimplemented tensor operations
+
             _ => None,
         }
     }
@@ -62,7 +88,7 @@ impl Interpreter {
             }
         }.map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(shape_tensor))
+        Ok(Value::TensorF16(shape_tensor))
     }
 
     /// ones(shape) -> tensor
@@ -79,7 +105,7 @@ impl Interpreter {
 
         // Extract shape from array literal
         let shape = match shape_val {
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 // Extract the values and convert to usize
                 let data = t.to_vec_f32();
                 data.iter().map(|&v| v as usize).collect::<Vec<_>>()
@@ -100,7 +126,7 @@ impl Interpreter {
         let tensor = Tensor::from_vec_metal(device, data, shape)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(tensor))
+        Ok(Value::TensorF16(tensor))
     }
 
     /// reshape(tensor, new_shape) -> tensor
@@ -119,7 +145,7 @@ impl Interpreter {
         // Evaluate new_shape argument
         let shape_val = self.eval_expr(&args[1])?;
         let new_shape = match shape_val {
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 let data = t.to_vec_f32();
                 data.iter().map(|&v| v as usize).collect::<Vec<_>>()
             }
@@ -145,7 +171,7 @@ impl Interpreter {
         let reshaped = tensor.reshape(new_shape)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(reshaped))
+        Ok(Value::TensorF16(reshaped))
     }
 
     /// transpose(tensor) -> tensor
@@ -165,7 +191,7 @@ impl Interpreter {
         let transposed = tensor.transpose()
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(transposed))
+        Ok(Value::TensorF16(transposed))
     }
 
     /// broadcast_to(tensor, target_shape) -> tensor
@@ -184,7 +210,7 @@ impl Interpreter {
         // Evaluate target_shape argument
         let shape_val = self.eval_expr(&args[1])?;
         let target_dims = match shape_val {
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 let data = t.to_vec_f32();
                 data.iter().map(|&v| v as usize).collect::<Vec<_>>()
             }
@@ -200,7 +226,7 @@ impl Interpreter {
         let broadcasted = tensor.broadcast_to(&target_shape)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(broadcasted))
+        Ok(Value::TensorF16(broadcasted))
     }
 
     /// concat(tensor1, tensor2, dim) -> tensor
@@ -237,14 +263,14 @@ impl Interpreter {
 
         // Handle Tensor concatenation
         let tensor1 = match val1 {
-            Value::Tensor(ref t) => t,
+            Value::TensorF16(ref t) => t,
             _ => return Err(RuntimeError::TypeError(
                 format!("concat() expects first argument to be a tensor or token array, got {:?}", val1)
             )),
         };
 
         let tensor2 = match val2 {
-            Value::Tensor(ref t) => t,
+            Value::TensorF16(ref t) => t,
             _ => return Err(RuntimeError::TypeError(
                 format!("concat() expects second argument to be a tensor or token array, got {:?}", val2)
             )),
@@ -254,7 +280,7 @@ impl Interpreter {
         let dim_val = self.eval_expr(&args[2])?;
         let dim = match dim_val {
             Value::Float(f) => f as usize,
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 if t.numel() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("concat() expects dim as scalar, got tensor with {} elements", t.numel())
@@ -272,7 +298,7 @@ impl Interpreter {
         let result = Tensor::concat(&tensors, dim)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(result))
+        Ok(Value::TensorF16(result))
     }
 
     /// rope(tensor) -> tensor
@@ -310,7 +336,7 @@ impl Interpreter {
             match offset_val {
                 Value::Float(f) => f as usize,
                 Value::Integer(i) => i as usize,
-                Value::Tensor(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+                Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
                 Value::TokenIdArray(ref arr) if arr.len() == 1 => arr.get(0).unwrap() as usize,
                 _ => return Err(RuntimeError::TypeError(
                     "rope() position_offset must be a scalar integer".to_string()
@@ -324,7 +350,7 @@ impl Interpreter {
         let result = tensor.rope(position_offset)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(result))
+        Ok(Value::TensorF16(result))
     }
 
     /// slice(tensor, row, col_start, col_end) -> tensor
@@ -375,7 +401,7 @@ impl Interpreter {
         let row_val = self.eval_expr(&args[1])?;
         let row = match row_val {
             Value::Float(f) => f as usize,
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 if t.numel() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("slice() expects row as scalar, got tensor with {} elements", t.numel())
@@ -392,7 +418,7 @@ impl Interpreter {
         let col_start_val = self.eval_expr(&args[2])?;
         let col_start = match col_start_val {
             Value::Float(f) => f as usize,
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 if t.numel() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("slice() expects col_start as scalar, got tensor with {} elements", t.numel())
@@ -409,7 +435,7 @@ impl Interpreter {
         let col_end_val = self.eval_expr(&args[3])?;
         let col_end = match col_end_val {
             Value::Float(f) => f as usize,
-            Value::Tensor(ref t) => {
+            Value::TensorF16(ref t) => {
                 if t.numel() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("slice() expects col_end as scalar, got tensor with {} elements", t.numel())
@@ -462,7 +488,7 @@ impl Interpreter {
             }
         }.map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(result_tensor))
+        Ok(Value::TensorF16(result_tensor))
     }
 
     /// 1D slice: slice(array, start, end)
@@ -475,7 +501,7 @@ impl Interpreter {
         let start = match start_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::Tensor(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
             Value::TokenIdArray(ref arr) if arr.len() == 1 => arr.get(0).unwrap() as usize,
             _ => return Err(RuntimeError::TypeError(
                 format!("slice() start index must be scalar, got {:?}", start_val)
@@ -487,7 +513,7 @@ impl Interpreter {
         let end = match end_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::Tensor(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
             Value::TokenIdArray(ref arr) if arr.len() == 1 => arr.get(0).unwrap() as usize,
             _ => return Err(RuntimeError::TypeError(
                 format!("slice() end index must be scalar, got {:?}", end_val)
@@ -538,6 +564,779 @@ impl Interpreter {
             }
         }.map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::Tensor(result_tensor))
+        Ok(Value::TensorF16(result_tensor))
+    }
+
+    /// add(tensor1, tensor2) -> tensor
+    /// Adds two tensors element-wise (supports method chaining)
+    fn eval_add_method(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("add() expects 2 arguments, got {}", args.len())
+            ));
+        }
+
+        let left = self.eval_expr(&args[0])?;
+        let right = self.eval_expr(&args[1])?;
+
+        match (left, right) {
+            (Value::TensorF16(t1), Value::TensorF16(t2)) => {
+                let result = t1.add(&t2).map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(t1), Value::TensorF32(t2)) => {
+                let result = t1.add(&t2).map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "add() requires two tensors of the same type".to_string()
+            ))
+        }
+    }
+
+    /// sub(tensor1, tensor2) -> tensor
+    /// Subtracts tensor2 from tensor1 element-wise (supports method chaining)
+    fn eval_sub_method(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("sub() expects 2 arguments, got {}", args.len())
+            ));
+        }
+
+        let left = self.eval_expr(&args[0])?;
+        let right = self.eval_expr(&args[1])?;
+
+        match (left, right) {
+            (Value::TensorF16(t1), Value::TensorF16(t2)) => {
+                let result = t1.sub(&t2).map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(t1), Value::TensorF32(t2)) => {
+                let result = t1.sub(&t2).map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "sub() requires two tensors of the same type".to_string()
+            ))
+        }
+    }
+
+    /// mul(tensor1, tensor2_or_scalar) -> tensor
+    /// Multiplies tensors element-wise or by scalar (supports method chaining)
+    fn eval_mul_method(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("mul() expects 2 arguments, got {}", args.len())
+            ));
+        }
+
+        let left = self.eval_expr(&args[0])?;
+        let right = self.eval_expr(&args[1])?;
+
+        match (left, right) {
+            (Value::TensorF16(t1), Value::TensorF16(t2)) => {
+                let result = t1.mul(&t2).map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(t1), Value::TensorF32(t2)) => {
+                let result = t1.mul(&t2).map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            (Value::TensorF16(t), Value::Float(scalar)) | (Value::Float(scalar), Value::TensorF16(t)) => {
+                let result = t.mul_scalar(f16::from_f32(scalar as f32))
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            // TODO: Implement mul_scalar for f32 tensors
+            (Value::TensorF32(_), Value::Float(_)) | (Value::Float(_), Value::TensorF32(_)) => {
+                Err(RuntimeError::NotImplemented(
+                    "mul_scalar for f32 tensors not yet implemented".to_string()
+                ))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "mul() requires two tensors or a tensor and a scalar".to_string()
+            ))
+        }
+    }
+
+    /// div(tensor1, tensor2_or_scalar) -> tensor
+    /// Divides tensor1 by tensor2 or scalar element-wise (supports method chaining)
+    fn eval_div_method(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("div() expects 2 arguments, got {}", args.len())
+            ));
+        }
+
+        let left = self.eval_expr(&args[0])?;
+        let right = self.eval_expr(&args[1])?;
+
+        match (left, right) {
+            (Value::TensorF16(t1), Value::TensorF16(t2)) => {
+                let result = t1.div(&t2).map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(t1), Value::TensorF32(t2)) => {
+                let result = t1.div(&t2).map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "div() requires two tensors of the same type".to_string()
+            ))
+        }
+    }
+
+    /// sum(tensor) -> scalar
+    /// Computes the sum of all elements in the tensor
+    fn eval_sum_method(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("sum() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.sum()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::Float(result.to_f32() as f64))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.sum()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::Float(result.to_f32() as f64))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "sum() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// mean(tensor) -> scalar
+    /// Computes the mean (average) of all elements in the tensor
+    fn eval_mean_method(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("mean() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.mean()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::Float(result.to_f32() as f64))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.mean()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::Float(result.to_f32() as f64))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "mean() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// zeros(shape) -> tensor
+    /// Creates a tensor filled with zeros
+    fn eval_zeros(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("zeros() expects 1 argument (shape array), got {}", args.len())
+            ));
+        }
+
+        // Evaluate shape argument
+        let shape_val = self.eval_expr(&args[0])?;
+
+        // Extract shape from array literal
+        let shape = match shape_val {
+            Value::TensorF16(ref t) => {
+                let data = t.to_vec_f32();
+                data.iter().map(|&v| v as usize).collect::<Vec<_>>()
+            }
+            _ => return Err(RuntimeError::TypeError(
+                format!("zeros() expects shape as array, got {:?}", shape_val)
+            )),
+        };
+
+        // Calculate total number of elements
+        let numel: usize = shape.iter().product();
+
+        // Create vector filled with zeros
+        let data = vec![f16::ZERO; numel];
+
+        // Create tensor on Metal device
+        let device = self.env.metal_device();
+        let tensor = Tensor::from_vec_metal(device, data, shape)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(Value::TensorF16(tensor))
+    }
+
+    /// flatten(tensor) -> tensor
+    /// Flattens a tensor to 1D
+    fn eval_flatten(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("flatten() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let numel = tensor.numel();
+                let result = tensor.reshape(vec![numel])
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            Value::TensorF32(tensor) => {
+                let numel = tensor.numel();
+                let result = tensor.reshape(vec![numel])
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "flatten() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// squeeze(tensor) -> tensor
+    /// Removes dimensions of size 1 from the tensor shape
+    fn eval_squeeze(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.is_empty() || args.len() > 2 {
+            return Err(RuntimeError::TypeError(
+                format!("squeeze() expects 1-2 arguments (tensor, optional dim), got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        // Parse optional dim parameter
+        let dim = if args.len() >= 2 {
+            match self.eval_expr(&args[1])? {
+                Value::Integer(i) => Some(i as usize),
+                Value::Float(f) => Some(f as usize),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.squeeze(dim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.squeeze(dim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "squeeze() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// unsqueeze(tensor, dim) -> tensor
+    /// Adds a dimension of size 1 at the specified position
+    fn eval_unsqueeze(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("unsqueeze() expects 2 arguments (tensor, dim), got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+        let dim_val = self.eval_expr(&args[1])?;
+
+        let dim = match dim_val {
+            Value::Float(f) => f as usize,
+            Value::Integer(i) => i as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "unsqueeze() dim must be a scalar".to_string()
+            )),
+        };
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let mut dims = tensor.dims().to_vec();
+
+                if dim > dims.len() {
+                    return Err(RuntimeError::TypeError(
+                        format!("unsqueeze() dim {} out of range for tensor with {} dimensions", dim, dims.len())
+                    ));
+                }
+
+                dims.insert(dim, 1);
+
+                let result = tensor.reshape(dims)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            Value::TensorF32(tensor) => {
+                let mut dims = tensor.dims().to_vec();
+
+                if dim > dims.len() {
+                    return Err(RuntimeError::TypeError(
+                        format!("unsqueeze() dim {} out of range for tensor with {} dimensions", dim, dims.len())
+                    ));
+                }
+
+                dims.insert(dim, 1);
+
+                let result = tensor.reshape(dims)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "unsqueeze() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// max(tensor) -> scalar
+    /// Returns the maximum value in the tensor
+    fn eval_max_method(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("max() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let data = tensor.to_vec();
+                let max_val = data.iter().max_by(|a, b| a.partial_cmp(b).unwrap())
+                    .ok_or_else(|| RuntimeError::TensorError(TensorError::InvalidOperation("Empty tensor".to_string())))?;
+                Ok(Value::Float(max_val.to_f32() as f64))
+            }
+            Value::TensorF32(tensor) => {
+                let data = tensor.to_vec();
+                let max_val = data.iter().max_by(|a, b| a.partial_cmp(b).unwrap())
+                    .ok_or_else(|| RuntimeError::TensorError(TensorError::InvalidOperation("Empty tensor".to_string())))?;
+                Ok(Value::Float(max_val.to_f32() as f64))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "max() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// min(tensor) -> scalar
+    /// Returns the minimum value in the tensor
+    fn eval_min_method(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("min() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let data = tensor.to_vec();
+                let min_val = data.iter().min_by(|a, b| a.partial_cmp(b).unwrap())
+                    .ok_or_else(|| RuntimeError::TensorError(TensorError::InvalidOperation("Empty tensor".to_string())))?;
+                Ok(Value::Float(min_val.to_f32() as f64))
+            }
+            Value::TensorF32(tensor) => {
+                let data = tensor.to_vec();
+                let min_val = data.iter().min_by(|a, b| a.partial_cmp(b).unwrap())
+                    .ok_or_else(|| RuntimeError::TensorError(TensorError::InvalidOperation("Empty tensor".to_string())))?;
+                Ok(Value::Float(min_val.to_f32() as f64))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "min() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// argmax(tensor) -> integer
+    /// Returns the index of the maximum value in the flattened tensor
+    fn eval_argmax_method(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.is_empty() || args.len() > 3 {
+            return Err(RuntimeError::TypeError(
+                format!("argmax() expects 1-3 arguments (tensor, optional dim, optional keepdim), got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        // Parse optional dim parameter
+        let dim = if args.len() >= 2 {
+            match self.eval_expr(&args[1])? {
+                Value::Integer(i) => Some(i as usize),
+                Value::Float(f) => Some(f as usize),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        // Parse optional keepdim parameter
+        let keepdim = if args.len() >= 3 {
+            match self.eval_expr(&args[2])? {
+                Value::Integer(i) => i != 0,
+                Value::Float(f) => f != 0.0,
+                _ => false,
+            }
+        } else {
+            false
+        };
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.argmax(dim, keepdim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                // If no dim specified, return as integer (backward compatibility)
+                if dim.is_none() && !keepdim {
+                    let data = result.to_vec();
+                    Ok(Value::Integer(data[0].to_f32() as i64))
+                } else {
+                    Ok(Value::TensorF16(result))
+                }
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.argmax(dim, keepdim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                // If no dim specified, return as integer (backward compatibility)
+                if dim.is_none() && !keepdim {
+                    let data = result.to_vec_f32();
+                    Ok(Value::Integer(data[0] as i64))
+                } else {
+                    Ok(Value::TensorF32(result))
+                }
+            }
+            _ => Err(RuntimeError::TypeError(
+                "argmax() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// argmin(tensor, [dim], [keepdim]) -> integer or tensor
+    /// Returns the index of the minimum value
+    fn eval_argmin_method(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.is_empty() || args.len() > 3 {
+            return Err(RuntimeError::TypeError(
+                format!("argmin() expects 1-3 arguments (tensor, optional dim, optional keepdim), got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        // Parse optional dim parameter
+        let dim = if args.len() >= 2 {
+            match self.eval_expr(&args[1])? {
+                Value::Integer(i) => Some(i as usize),
+                Value::Float(f) => Some(f as usize),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        // Parse optional keepdim parameter
+        let keepdim = if args.len() >= 3 {
+            match self.eval_expr(&args[2])? {
+                Value::Integer(i) => i != 0,
+                Value::Float(f) => f != 0.0,
+                _ => false,
+            }
+        } else {
+            false
+        };
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.argmin(dim, keepdim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                // If no dim specified, return as integer (backward compatibility)
+                if dim.is_none() && !keepdim {
+                    let data = result.to_vec();
+                    Ok(Value::Integer(data[0].to_f32() as i64))
+                } else {
+                    Ok(Value::TensorF16(result))
+                }
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.argmin(dim, keepdim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                // If no dim specified, return as integer (backward compatibility)
+                if dim.is_none() && !keepdim {
+                    let data = result.to_vec_f32();
+                    Ok(Value::Integer(data[0] as i64))
+                } else {
+                    Ok(Value::TensorF32(result))
+                }
+            }
+            _ => Err(RuntimeError::TypeError(
+                "argmin() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// permute(tensor, dims) -> tensor
+    /// Permutes the dimensions of the tensor according to the given order
+    /// Example: permute([2, 3, 4], [2, 0, 1]) -> [4, 2, 3]
+    fn eval_permute(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("permute() expects 2 arguments (tensor, dims), got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+        let dims_val = self.eval_expr(&args[1])?;
+
+        // Extract dims from array
+        let dims = match dims_val {
+            Value::TensorF16(ref t) => {
+                let data = t.to_vec_f32();
+                data.iter().map(|&v| v as usize).collect::<Vec<_>>()
+            }
+            _ => return Err(RuntimeError::TypeError(
+                format!("permute() expects dims as array, got {:?}", dims_val)
+            )),
+        };
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.permute(dims)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.permute(dims)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "permute() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// gather(tensor, dim, index) -> tensor
+    /// Gathers values along an axis specified by dim
+    fn eval_gather(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 3 {
+            return Err(RuntimeError::TypeError(
+                format!("gather() expects 3 arguments (tensor, dim, index), got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+        let dim_val = self.eval_expr(&args[1])?;
+        let index_val = self.eval_expr(&args[2])?;
+
+        let dim = match dim_val {
+            Value::Float(f) => f as usize,
+            Value::Integer(i) => i as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "gather() dim must be a scalar".to_string()
+            )),
+        };
+
+        match (val, index_val) {
+            (Value::TensorF16(tensor), Value::TensorF16(index)) => {
+                let result = tensor.gather(dim, &index)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(tensor), Value::TensorF32(index)) => {
+                let result = tensor.gather(dim, &index)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "gather() requires tensor and index of the same type".to_string()
+            ))
+        }
+    }
+
+    /// scatter(tensor, dim, index, src) -> tensor
+    /// Scatters values along an axis specified by dim
+    fn eval_scatter(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 4 {
+            return Err(RuntimeError::TypeError(
+                format!("scatter() expects 4 arguments (tensor, dim, index, src), got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+        let dim_val = self.eval_expr(&args[1])?;
+        let index_val = self.eval_expr(&args[2])?;
+        let src_val = self.eval_expr(&args[3])?;
+
+        let dim = match dim_val {
+            Value::Float(f) => f as usize,
+            Value::Integer(i) => i as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "scatter() dim must be a scalar".to_string()
+            )),
+        };
+
+        // Note: scatter expects indices as &Tensor<f16> regardless of the main tensor type
+        match (val, src_val) {
+            (Value::TensorF16(tensor), Value::TensorF16(src)) => {
+                // Extract index as f16 tensor
+                let index = match index_val {
+                    Value::TensorF16(idx) => idx,
+                    _ => return Err(RuntimeError::TypeError(
+                        "scatter() requires index as f16 tensor".to_string()
+                    )),
+                };
+                let result = tensor.scatter(dim, &index, &src)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(tensor), Value::TensorF32(src)) => {
+                // Extract index as f16 tensor (indices are always f16)
+                let index = match index_val {
+                    Value::TensorF16(idx) => idx,
+                    _ => return Err(RuntimeError::TypeError(
+                        "scatter() requires index as f16 tensor".to_string()
+                    )),
+                };
+                let result = tensor.scatter(dim, &index, &src)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "scatter() requires tensor and src of the same type".to_string()
+            ))
+        }
+    }
+
+    /// chunk(tensor, chunks, dim) -> list of tensors
+    /// Splits a tensor into a specific number of chunks along a dimension
+    fn eval_chunk(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 3 {
+            return Err(RuntimeError::TypeError(
+                format!("chunk() expects 3 arguments (tensor, chunks, dim), got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+        let chunks_val = self.eval_expr(&args[1])?;
+        let dim_val = self.eval_expr(&args[2])?;
+
+        let chunks = match chunks_val {
+            Value::Float(f) => f as usize,
+            Value::Integer(i) => i as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "chunk() chunks must be a scalar".to_string()
+            )),
+        };
+
+        let dim = match dim_val {
+            Value::Float(f) => f as usize,
+            Value::Integer(i) => i as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "chunk() dim must be a scalar".to_string()
+            )),
+        };
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.chunk(chunks, dim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                // Return as array of tensors
+                let tensor_values: Vec<Value> = result.into_iter()
+                    .map(|t| Value::TensorF16(t))
+                    .collect();
+                // For now, return the first chunk as we don't have array support
+                // TODO: Implement proper array return type
+                Ok(tensor_values.into_iter().next().unwrap_or(Value::TensorF16(tensor)))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.chunk(chunks, dim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_values: Vec<Value> = result.into_iter()
+                    .map(|t| Value::TensorF32(t))
+                    .collect();
+                Ok(tensor_values.into_iter().next().unwrap_or(Value::TensorF32(tensor)))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "chunk() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// split(tensor, split_size, dim) -> list of tensors
+    /// Splits a tensor into chunks of a specific size along a dimension
+    fn eval_split(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 3 {
+            return Err(RuntimeError::TypeError(
+                format!("split() expects 3 arguments (tensor, split_size, dim), got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+        let split_size_val = self.eval_expr(&args[1])?;
+        let dim_val = self.eval_expr(&args[2])?;
+
+        let split_size = match split_size_val {
+            Value::Float(f) => f as usize,
+            Value::Integer(i) => i as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "split() split_size must be a scalar".to_string()
+            )),
+        };
+
+        let dim = match dim_val {
+            Value::Float(f) => f as usize,
+            Value::Integer(i) => i as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "split() dim must be a scalar".to_string()
+            )),
+        };
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.split(split_size, dim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_values: Vec<Value> = result.into_iter()
+                    .map(|t| Value::TensorF16(t))
+                    .collect();
+                Ok(tensor_values.into_iter().next().unwrap_or(Value::TensorF16(tensor)))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.split(split_size, dim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_values: Vec<Value> = result.into_iter()
+                    .map(|t| Value::TensorF32(t))
+                    .collect();
+                Ok(tensor_values.into_iter().next().unwrap_or(Value::TensorF32(tensor)))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "split() expects a tensor".to_string()
+            ))
+        }
     }
 }

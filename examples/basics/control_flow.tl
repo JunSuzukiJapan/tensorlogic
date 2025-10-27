@@ -5,7 +5,7 @@ main {
 
     // Test 1: If-else
     print("\n1. If-else test:")
-    tensor x: float16[1] = [5.0]
+    let x = [5.0]
 
     if x[0] > 3.0 {
         print("  x[0] > 3.0: TRUE")
@@ -21,7 +21,7 @@ main {
 
     // Test 3: While loop
     print("\n3. While loop test:")
-    tensor counter: float16[1] = [0.0]
+    let counter = [0.0]
 
     while counter[0] < 3.0 {
         print("  counter =", counter[0])

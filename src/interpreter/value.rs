@@ -8,7 +8,10 @@ use super::{RuntimeError, RuntimeResult, DISPLAY_LIMIT};
 /// Runtime value
 #[derive(Debug, Clone)]
 pub enum Value {
-    Tensor(Tensor<f16>),
+    /// Tensor with f16 precision (float16)
+    TensorF16(Tensor<f16>),
+    /// Tensor with f32 precision (float32)
+    TensorF32(Tensor<f32>),
     Boolean(bool),
     Integer(i64),
     Float(f64),
@@ -24,15 +27,32 @@ pub enum Value {
 }
 
 impl Value {
-    /// Convert to tensor if possible
-    pub fn as_tensor(&self) -> RuntimeResult<&Tensor<f16>> {
+    /// Convert to f16 tensor if possible
+    pub fn as_tensor_f16(&self) -> RuntimeResult<&Tensor<f16>> {
         match self {
-            Value::Tensor(t) => Ok(t),
+            Value::TensorF16(t) => Ok(t),
             _ => Err(RuntimeError::TypeError(format!(
-                "Expected tensor, found {:?}",
+                "Expected f16 tensor, found {:?}",
                 self
             ))),
         }
+    }
+
+    /// Convert to f32 tensor if possible
+    pub fn as_tensor_f32(&self) -> RuntimeResult<&Tensor<f32>> {
+        match self {
+            Value::TensorF32(t) => Ok(t),
+            _ => Err(RuntimeError::TypeError(format!(
+                "Expected f32 tensor, found {:?}",
+                self
+            ))),
+        }
+    }
+
+    /// Convert to tensor (f16) - backward compatibility helper
+    /// Prefer as_tensor_f16() or as_tensor_f32() for clarity
+    pub fn as_tensor(&self) -> RuntimeResult<&Tensor<f16>> {
+        self.as_tensor_f16()
     }
 
     /// Convert to float if possible
@@ -96,8 +116,8 @@ impl Value {
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::Tensor(t) => {
-                // Display tensor in a compact format
+            Value::TensorF16(t) => {
+                // Display f16 tensor in a compact format
                 let data = t.to_vec();
                 if data.len() <= DISPLAY_LIMIT {
                     write!(f, "[")?;
@@ -111,6 +131,23 @@ impl std::fmt::Display for Value {
                 } else {
                     write!(f, "[{:.4}, {:.4}, ..., {:.4}] (len={})",
                         data[0].to_f32(), data[1].to_f32(), data[data.len()-1].to_f32(), data.len())
+                }
+            }
+            Value::TensorF32(t) => {
+                // Display f32 tensor in a compact format
+                let data = t.to_vec();
+                if data.len() <= DISPLAY_LIMIT {
+                    write!(f, "[")?;
+                    for (i, val) in data.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{:.4}", val)?;
+                    }
+                    write!(f, "]")
+                } else {
+                    write!(f, "[{:.4}, {:.4}, ..., {:.4}] (len={})",
+                        data[0], data[1], data[data.len()-1], data.len())
                 }
             }
             Value::Boolean(b) => write!(f, "{}", b),

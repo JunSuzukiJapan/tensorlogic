@@ -1,10 +1,11 @@
 //! Tests for new gradient implementations
-use super::prelude::*;
 //!
 //! Note: These tests use CPU device for simplicity. Metal backward pass precision
 //! has been separately verified (see tests/metal_gradient_precision_test.rs).
 //! All gradients achieve perfect CPU-Metal parity when run with --test-threads=1.
 //! See: claudedocs/metal_backward_pass_investigation.md
+
+use super::prelude::*;
 
 use crate::autograd::gradients::*;
 use crate::autograd::GradientFunction;

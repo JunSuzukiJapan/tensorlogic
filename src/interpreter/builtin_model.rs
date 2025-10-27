@@ -35,7 +35,7 @@ impl Interpreter {
         // Evaluate tensor argument
         let tensor_val = self.eval_expr(&args[0])?;
         let tensor = match tensor_val {
-            Value::Tensor(t) => t,
+            Value::TensorF16(t) => t,
             _ => return Err(RuntimeError::TypeError(
                 "save() first argument must be a tensor".to_string()
             )),
@@ -80,7 +80,7 @@ impl Interpreter {
         let tensor = Tensor::load(&device, &filename).map_err(|e| RuntimeError::TensorError(e))?;
 
         println!("Loaded tensor from: {} (shape: {:?})", filename, tensor.dims());
-        Ok(Value::Tensor(tensor))
+        Ok(Value::TensorF16(tensor))
     }
 
     /// load_model("path/to/model.gguf")
@@ -145,7 +145,7 @@ impl Interpreter {
                 format!("Tensor '{}' not found in model", tensor_name)
             ))?;
 
-        Ok(Value::Tensor(tensor.clone()))
+        Ok(Value::TensorF16(tensor.clone()))
     }
 
     /// print(args...)
@@ -164,7 +164,10 @@ impl Interpreter {
                 Value::Integer(n) => output.push_str(&n.to_string()),
                 Value::Float(f) => output.push_str(&f.to_string()),
                 Value::Boolean(b) => output.push_str(&b.to_string()),
-                Value::Tensor(ref t) => {
+                Value::TensorF16(ref t) => {
+                    output.push_str(&format!("Tensor(shape={:?})", t.dims()));
+                }
+                Value::TensorF32(ref t) => {
                     output.push_str(&format!("Tensor(shape={:?})", t.dims()));
                 }
                 Value::Model(_) => output.push_str("Model(...)"),

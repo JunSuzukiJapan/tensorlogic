@@ -141,6 +141,9 @@ pub struct Interpreter {
     functions: HashMap<String, FunctionDecl>,
     // Function call stack for local scope management
     call_stack: Vec<CallFrame>,
+    // Track learnable tensors declared with 'learnable' keyword
+    // These are the only tensors that should be optimized in learn blocks
+    learnable_params: HashSet<String>,
 }
 
 impl Interpreter {
@@ -160,6 +163,7 @@ impl Interpreter {
             relation_entity_params: HashMap::new(),
             functions: HashMap::new(),
             call_stack: Vec::new(),
+            learnable_params: HashSet::new(),
         }
     }
 
@@ -365,31 +369,69 @@ impl Interpreter {
 
     /// Execute a tensor declaration
     fn execute_tensor_decl(&mut self, decl: &TensorDecl) -> RuntimeResult<()> {
-        let mut tensor = if let Some(init_expr) = &decl.init_expr {
+        use crate::ast::BaseType;
+
+        let value = if let Some(init_expr) = &decl.init_expr {
             // Evaluate initialization expression
-            let value = self.eval_expr(init_expr)?;
-            let mut t = value.as_tensor()?.clone();
+            let init_value = self.eval_expr(init_expr)?;
 
             // Reshape tensor to match declared shape (if needed)
             let declared_shape = self.get_declared_shape(&decl.tensor_type)?;
-            if t.shape().dims() != declared_shape.as_slice() {
-                t = t.reshape(declared_shape)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+            match (&init_value, &decl.tensor_type.base_type) {
+                (Value::TensorF16(t), BaseType::Float32) => {
+                    // f16 tensor
+                    let mut tensor = t.clone();
+                    if tensor.shape().dims() != declared_shape.as_slice() {
+                        tensor = tensor.reshape(declared_shape)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                    }
+                    if decl.tensor_type.learnable == LearnableStatus::Learnable {
+                        tensor.set_requires_grad(true);
+                    }
+                    Value::TensorF16(tensor)
+                }
+                (Value::TensorF32(t), BaseType::Float64) => {
+                    // f32 tensor
+                    let mut tensor = t.clone();
+                    if tensor.shape().dims() != declared_shape.as_slice() {
+                        tensor = tensor.reshape(declared_shape)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                    }
+                    if decl.tensor_type.learnable == LearnableStatus::Learnable {
+                        tensor.set_requires_grad(true);
+                    }
+                    Value::TensorF32(tensor)
+                }
+                _ => {
+                    return Err(RuntimeError::TypeError(
+                        format!("Type mismatch in tensor declaration: expected {:?}, got {:?}",
+                            decl.tensor_type.base_type, init_value)
+                    ));
+                }
             }
-            t
         } else {
-            // Create zero-initialized tensor
-            self.create_zero_tensor(&decl.tensor_type)?
+            // Create zero-initialized tensor based on base type
+            let mut value = self.create_zero_tensor(&decl.tensor_type)?;
+
+            // Set requires_grad if learnable
+            if decl.tensor_type.learnable == LearnableStatus::Learnable {
+                match &mut value {
+                    Value::TensorF16(t) => t.set_requires_grad(true),
+                    Value::TensorF32(t) => t.set_requires_grad(true),
+                    _ => {}
+                }
+            }
+            value
         };
 
-        // Set requires_grad based on learnable status
+        // Track learnable parameters (only if explicitly declared with 'learnable' keyword)
         if decl.tensor_type.learnable == LearnableStatus::Learnable {
-            tensor.set_requires_grad(true);
+            self.learnable_params.insert(decl.name.as_str().to_string());
         }
 
         // Use declare_variable for tensor declarations (they create new variables)
-        self.env
-            .declare_variable(decl.name.as_str().to_string(), Value::Tensor(tensor))?;
+        self.env.declare_variable(decl.name.as_str().to_string(), value)?;
 
         Ok(())
     }
@@ -593,7 +635,9 @@ impl Interpreter {
     }
 
     /// Create a zero-initialized tensor
-    fn create_zero_tensor(&self, tensor_type: &TensorType) -> RuntimeResult<Tensor> {
+    fn create_zero_tensor(&self, tensor_type: &TensorType) -> RuntimeResult<Value> {
+        use crate::ast::BaseType;
+
         // Convert dimensions to usize (resolve fixed dimensions)
         let mut shape = Vec::new();
         for dim in &tensor_type.dimensions {
@@ -614,9 +658,17 @@ impl Interpreter {
 
         // Create tensor based on base type
         match tensor_type.base_type {
-            BaseType::Float32 | BaseType::Float64 => {
-                Tensor::zeros(self.env.metal_device(), shape)
-                    .map_err(|e| RuntimeError::TensorError(e))
+            BaseType::Float32 => {
+                // float16 -> f16 tensor
+                let tensor = Tensor::<half::f16>::zeros(self.env.metal_device(), shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(tensor))
+            }
+            BaseType::Float64 => {
+                // float32 -> f32 tensor
+                let tensor = Tensor::<f32>::zeros(self.env.metal_device(), shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(tensor))
             }
             _ => Err(RuntimeError::NotImplemented(format!(
                 "Base type {:?} not yet supported",
@@ -724,7 +776,7 @@ impl Interpreter {
             }
             EntityType::Tensor(tensor_type) => {
                 match value {
-                    Value::Tensor(t) => {
+                    Value::TensorF16(t) => {
                         // Note: TensorLogic uses f16 internally for all tensors
                         // Base type checking is skipped (all tensors are f16)
                         // Focus on shape validation
@@ -858,7 +910,7 @@ impl Interpreter {
                 let result = scores.apply_attention_mask(mask)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(result))
+                Ok(Value::TensorF16(result))
             }
 
             "causal_mask" => {
@@ -880,7 +932,7 @@ impl Interpreter {
                 let mask = Tensor::<half::f16>::causal_mask(seq_len)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(mask))
+                Ok(Value::TensorF16(mask))
             }
 
             "batch_norm" => {
@@ -901,7 +953,7 @@ impl Interpreter {
                 let result = x.batch_norm(gamma, beta, eps)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(result))
+                Ok(Value::TensorF16(result))
             }
 
             "dropout" => {
@@ -919,7 +971,7 @@ impl Interpreter {
                 let result = x.dropout(p, training)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(result))
+                Ok(Value::TensorF16(result))
             }
 
             "argmax" => {
@@ -968,7 +1020,7 @@ impl Interpreter {
                 let result = tensor.argmax(dim, keepdim)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(result))
+                Ok(Value::TensorF16(result))
             }
 
             "argmin" => {
@@ -1017,7 +1069,7 @@ impl Interpreter {
                 let result = tensor.argmin(dim, keepdim)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(result))
+                Ok(Value::TensorF16(result))
             }
 
             "unsqueeze" => {
@@ -1042,7 +1094,7 @@ impl Interpreter {
                 let result = tensor.unsqueeze(dim)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(result))
+                Ok(Value::TensorF16(result))
             }
 
             "squeeze" => {
@@ -1071,7 +1123,7 @@ impl Interpreter {
                 let result = tensor.squeeze(dim)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(result))
+                Ok(Value::TensorF16(result))
             }
 
             "split" => {
@@ -1111,7 +1163,7 @@ impl Interpreter {
                     ));
                 }
 
-                Ok(Value::Tensor(splits[0].clone()))
+                Ok(Value::TensorF16(splits[0].clone()))
             }
 
             "chunk" => {
@@ -1151,7 +1203,7 @@ impl Interpreter {
                     ));
                 }
 
-                Ok(Value::Tensor(chunks_result[0].clone()))
+                Ok(Value::TensorF16(chunks_result[0].clone()))
             }
 
             "load_model" => {
@@ -1235,7 +1287,7 @@ impl Interpreter {
                         format!("Tensor '{}' not found in model", tensor_name)
                     ))?;
 
-                Ok(Value::Tensor(tensor.clone()))
+                Ok(Value::TensorF16(tensor.clone()))
             }
 
             "tokenize" => {
@@ -1340,7 +1392,7 @@ impl Interpreter {
                         embedding_table.embedding(&token_ids_tensor)
                             .map_err(|e| RuntimeError::TensorError(e))?
                     }
-                    Value::Tensor(t) => {
+                    Value::TensorF16(t) => {
                         embedding_table.embedding(&t)
                             .map_err(|e| RuntimeError::TensorError(e))?
                     }
@@ -1349,7 +1401,7 @@ impl Interpreter {
                     )),
                 };
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "positional_encoding" => {
@@ -1405,7 +1457,7 @@ impl Interpreter {
                     vec![seq_len, d_model]
                 ).map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "top_k" => {
@@ -1474,7 +1526,7 @@ impl Interpreter {
                     dims.to_vec()
                 ).map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "top_p" => {
@@ -1563,7 +1615,7 @@ impl Interpreter {
                     dims.to_vec()
                 ).map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "temperature" => {
@@ -1607,7 +1659,7 @@ impl Interpreter {
                     logits.shape().dims().to_vec()
                 ).map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "softmax" => {
@@ -1665,7 +1717,7 @@ impl Interpreter {
                     dims.to_vec()
                 ).map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "sample" => {
@@ -1958,7 +2010,7 @@ impl Interpreter {
                 let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
                 let output = tensor.relu().map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "matmul" => {
@@ -1977,7 +2029,7 @@ impl Interpreter {
                 // Use einsum for matrix multiplication
                 let output = a.matmul(&b).map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "layer_norm" => {
@@ -2016,7 +2068,7 @@ impl Interpreter {
                 let output = tensor.layer_norm(normalized_shape, None, None, eps)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "rms_norm" => {
@@ -2047,7 +2099,7 @@ impl Interpreter {
                 let output = tensor.rms_norm(normalized_shape, &weight, eps)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "concat" => {
@@ -2075,7 +2127,7 @@ impl Interpreter {
                 let output = crate::tensor::Tensor::concat(&tensors, dim)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "sigmoid" => {
@@ -2090,7 +2142,7 @@ impl Interpreter {
                 let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
                 let output = tensor.sigmoid().map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "sum" => {
@@ -2127,7 +2179,7 @@ impl Interpreter {
                     let output = tensor.sum_dim(dim, keepdim)
                         .map_err(|e| RuntimeError::TensorError(e))?;
 
-                    Ok(Value::Tensor(output))
+                    Ok(Value::TensorF16(output))
                 }
             }
 
@@ -2165,7 +2217,7 @@ impl Interpreter {
                     let output = tensor.mean_dim(dim, keepdim)
                         .map_err(|e| RuntimeError::TensorError(e))?;
 
-                    Ok(Value::Tensor(output))
+                    Ok(Value::TensorF16(output))
                 }
             }
 
@@ -2181,7 +2233,7 @@ impl Interpreter {
                 // Evaluate the shape argument (array literal becomes a 1D tensor)
                 let shape_value = self.eval_expr(&args[0])?;
                 let shape = match shape_value {
-                    Value::Tensor(t) => {
+                    Value::TensorF16(t) => {
                         // Convert tensor data to Vec<usize>
                         t.to_vec_f32().iter().map(|&v| v as usize).collect()
                     }
@@ -2193,7 +2245,7 @@ impl Interpreter {
                 let tensor = Tensor::zeros(&device, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(tensor))
+                Ok(Value::TensorF16(tensor))
             }
 
             "ones" => {
@@ -2206,7 +2258,7 @@ impl Interpreter {
 
                 let shape_value = self.eval_expr(&args[0])?;
                 let shape = match shape_value {
-                    Value::Tensor(t) => {
+                    Value::TensorF16(t) => {
                         t.to_vec_f32().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
@@ -2218,7 +2270,7 @@ impl Interpreter {
                 let tensor = Tensor::ones(device, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(tensor))
+                Ok(Value::TensorF16(tensor))
             }
 
             // Tensor shape functions
@@ -2233,7 +2285,7 @@ impl Interpreter {
                 let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
                 let shape_value = self.eval_expr(&args[1])?;
                 let new_shape = match shape_value {
-                    Value::Tensor(t) => {
+                    Value::TensorF16(t) => {
                         t.to_vec_f32().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
@@ -2244,7 +2296,7 @@ impl Interpreter {
                 let output = tensor.reshape(new_shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "flatten" => {
@@ -2259,7 +2311,7 @@ impl Interpreter {
                 let output = tensor.flatten()
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "shape" => {
@@ -2279,7 +2331,7 @@ impl Interpreter {
                 let shape_tensor = Tensor::from_vec_metal(&device, shape_vec, vec![dims.len()])
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(shape_tensor))
+                Ok(Value::TensorF16(shape_tensor))
             }
 
             "broadcast_to" => {
@@ -2294,7 +2346,7 @@ impl Interpreter {
                 let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
                 let shape_value = self.eval_expr(&args[1])?;
                 let target_shape = match shape_value {
-                    Value::Tensor(t) => {
+                    Value::TensorF16(t) => {
                         t.to_vec_f32().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
@@ -2306,7 +2358,7 @@ impl Interpreter {
                 let output = tensor.broadcast_to(&target_tensor_shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "transpose" => {
@@ -2321,7 +2373,7 @@ impl Interpreter {
                 let output = tensor.transpose()
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "permute" => {
@@ -2335,7 +2387,7 @@ impl Interpreter {
                 let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
                 let dims_value = self.eval_expr(&args[1])?;
                 let dims = match dims_value {
-                    Value::Tensor(t) => {
+                    Value::TensorF16(t) => {
                         t.to_vec_f32().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
@@ -2346,7 +2398,7 @@ impl Interpreter {
                 let output = tensor.permute(dims)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             // Indexing functions
@@ -2371,7 +2423,7 @@ impl Interpreter {
                 let output = tensor.gather(dim, &indices)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "scatter" => {
@@ -2396,7 +2448,7 @@ impl Interpreter {
                 let output = tensor.scatter(dim, &indices, &src)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             // Reduction functions (max, min)
@@ -2454,7 +2506,7 @@ impl Interpreter {
                 let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
                 let output = tensor.gelu().map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "tanh" => {
@@ -2468,7 +2520,7 @@ impl Interpreter {
                 let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
                 let output = tensor.tanh().map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             // Math functions
@@ -2483,7 +2535,7 @@ impl Interpreter {
                 let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
                 let output = tensor.exp().map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "log" => {
@@ -2497,7 +2549,7 @@ impl Interpreter {
                 let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
                 let output = tensor.log().map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "sqrt" => {
@@ -2511,7 +2563,7 @@ impl Interpreter {
                 let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
                 let output = tensor.sqrt().map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "pow" => {
@@ -2533,7 +2585,7 @@ impl Interpreter {
 
                 let output = tensor.pow(exponent).map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "sin" => {
@@ -2547,7 +2599,7 @@ impl Interpreter {
                 let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
                 let output = tensor.sin().map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "cos" => {
@@ -2561,7 +2613,7 @@ impl Interpreter {
                 let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
                 let output = tensor.cos().map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "tan" => {
@@ -2575,7 +2627,7 @@ impl Interpreter {
                 let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
                 let output = tensor.tan().map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             // Masking operations
@@ -2593,7 +2645,7 @@ impl Interpreter {
                 let output = tensor.apply_attention_mask(&mask)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "padding_mask" => {
@@ -2607,7 +2659,7 @@ impl Interpreter {
                 // Parse lengths array
                 let lengths_value = self.eval_expr(&args[0])?;
                 let lengths: Vec<usize> = match lengths_value {
-                    Value::Tensor(t) => {
+                    Value::TensorF16(t) => {
                         t.to_vec_f32().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
@@ -2626,7 +2678,7 @@ impl Interpreter {
                 let output = crate::tensor::Tensor::<half::f16>::padding_mask(&lengths, max_len)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "combine_masks" => {
@@ -2643,7 +2695,7 @@ impl Interpreter {
                 let output = mask1.combine_masks(&mask2)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             // Broadcast operation
@@ -2658,7 +2710,7 @@ impl Interpreter {
                 let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
                 let shape_value = self.eval_expr(&args[1])?;
                 let target_shape = match shape_value {
-                    Value::Tensor(t) => {
+                    Value::TensorF16(t) => {
                         t.to_vec_f32().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
@@ -2671,7 +2723,7 @@ impl Interpreter {
                 let output = tensor.broadcast_to(&target_tensor_shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             // Fused operations
@@ -2689,7 +2741,7 @@ impl Interpreter {
                 let output = tensor.fused_add_relu(&other)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "fused_mul_relu" => {
@@ -2706,7 +2758,7 @@ impl Interpreter {
                 let output = tensor.fused_mul_relu(&other)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "fused_affine" => {
@@ -2724,7 +2776,7 @@ impl Interpreter {
                 let output = tensor.fused_affine(&scale, &bias)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "fused_gelu_linear" => {
@@ -2742,7 +2794,7 @@ impl Interpreter {
                 let output = tensor.fused_gelu_linear(&weight, &bias)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(output))
+                Ok(Value::TensorF16(output))
             }
 
             "generate" => {
@@ -2874,7 +2926,7 @@ impl Interpreter {
                 let tensor = Tensor::from_vec_metal(self.env.metal_device(), f16_vec, vec![dim])
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::Tensor(tensor))
+                Ok(Value::TensorF16(tensor))
             }
 
             "entity_dim" => {
@@ -2960,7 +3012,7 @@ impl Interpreter {
                     )),
                 };
 
-                Ok(Value::Tensor(score))
+                Ok(Value::TensorF16(score))
             }
 
             "distmult_score" => {
@@ -2988,7 +3040,7 @@ impl Interpreter {
                 let device = self.env.metal_device();
                 let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
 
-                Ok(Value::Tensor(score_tensor))
+                Ok(Value::TensorF16(score_tensor))
             }
 
             "complex_score" => {
@@ -3051,7 +3103,7 @@ impl Interpreter {
                 // Subtract fourth term
                 let score = sum123.sub(&term4_tensor)?;
 
-                Ok(Value::Tensor(score))
+                Ok(Value::TensorF16(score))
             }
 
             "margin_ranking_loss" => {
@@ -3090,7 +3142,7 @@ impl Interpreter {
                 // Apply max(0, x) = ReLU
                 let loss = diff_plus_margin.relu()?;
 
-                Ok(Value::Tensor(loss))
+                Ok(Value::TensorF16(loss))
             }
 
             "binary_cross_entropy" => {
@@ -3138,7 +3190,7 @@ impl Interpreter {
                 // Create scalar tensor
                 let loss_tensor = Tensor::from_vec_metal(device, vec![bce_f16], vec![1])?;
 
-                Ok(Value::Tensor(loss_tensor))
+                Ok(Value::TensorF16(loss_tensor))
             }
 
             "predict_tail_transe" => {
@@ -3188,7 +3240,7 @@ impl Interpreter {
                     ));
                 };
 
-                Ok(Value::Tensor(score))
+                Ok(Value::TensorF16(score))
             }
 
             "predict_head_transe" => {
@@ -3232,7 +3284,7 @@ impl Interpreter {
                     ));
                 };
 
-                Ok(Value::Tensor(score))
+                Ok(Value::TensorF16(score))
             }
 
             "predict_tail_distmult" => {
@@ -3256,7 +3308,7 @@ impl Interpreter {
                 let score_f16 = product.sum()?;
 
                 let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
-                Ok(Value::Tensor(score_tensor))
+                Ok(Value::TensorF16(score_tensor))
             }
 
             "predict_head_distmult" => {
@@ -3280,7 +3332,7 @@ impl Interpreter {
                 let score_f16 = product.sum()?;
 
                 let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
-                Ok(Value::Tensor(score_tensor))
+                Ok(Value::TensorF16(score_tensor))
             }
 
             "predict_tail_complex" => {
@@ -3332,7 +3384,7 @@ impl Interpreter {
                 let sum123 = sum12.add(&term3_tensor)?;
                 let score = sum123.sub(&term4_tensor)?;
 
-                Ok(Value::Tensor(score))
+                Ok(Value::TensorF16(score))
             }
 
             "predict_head_complex" => {
@@ -3384,7 +3436,7 @@ impl Interpreter {
                 let sum123 = sum12.add(&term3_tensor)?;
                 let score = sum123.sub(&term4_tensor)?;
 
-                Ok(Value::Tensor(score))
+                Ok(Value::TensorF16(score))
             }
 
             "compute_rank" => {
@@ -3544,10 +3596,10 @@ impl Interpreter {
                     let scale_f16 = half::f16::from_f32(scale);
                     let scale_tensor = Tensor::from_vec_metal(device, vec![scale_f16], vec![1])?;
                     let aggregated = node_features.mul(&scale_tensor)?;
-                    Ok(Value::Tensor(aggregated))
+                    Ok(Value::TensorF16(aggregated))
                 } else {
                     // Sum aggregation (or no neighbors)
-                    Ok(Value::Tensor(node_features))
+                    Ok(Value::TensorF16(node_features))
                 }
             }
 
@@ -3574,7 +3626,7 @@ impl Interpreter {
                 // Combine with node's own embedding
                 let combined = node_emb.add(&message)?;
 
-                Ok(Value::Tensor(combined))
+                Ok(Value::TensorF16(combined))
             }
 
             "graph_attention" => {
@@ -3609,7 +3661,7 @@ impl Interpreter {
                 // Simplified: return weighted value (scalar multiplication)
                 let attended_value = value.mul(&weight_tensor)?;
 
-                Ok(Value::Tensor(attended_value))
+                Ok(Value::TensorF16(attended_value))
             }
 
             "normalize_features" => {
@@ -3644,14 +3696,14 @@ impl Interpreter {
                         let inv_norm_f16 = half::f16::from_f32(1.0 / norm_f32);
                         let inv_norm_tensor = Tensor::from_vec_metal(device, vec![inv_norm_f16], vec![1])?;
                         let normalized = features.mul(&inv_norm_tensor)?;
-                        Ok(Value::Tensor(normalized))
+                        Ok(Value::TensorF16(normalized))
                     } else {
                         // Avoid division by zero
-                        Ok(Value::Tensor(features))
+                        Ok(Value::TensorF16(features))
                     }
                 } else {
                     // For other normalization types, just return features for now
-                    Ok(Value::Tensor(features))
+                    Ok(Value::TensorF16(features))
                 }
             }
 
@@ -3668,7 +3720,8 @@ impl Interpreter {
                         Value::Integer(i) => print!("{}", i),
                         Value::Float(f) => print!("{}", f),
                         Value::Boolean(b) => print!("{}", b),
-                        Value::Tensor(t) => print!("{:?}", t),
+                        Value::TensorF16(t) => print!("{:?}", t),
+                        Value::TensorF32(t) => print!("{:?}", t),
                         Value::Model(m) => print!("Model({:?})", m.metadata.format),
                         Value::Tokenizer(t) => print!("{:?}", t),
                         Value::TokenIds(ids) => print!("{:?}", ids),
@@ -3985,18 +4038,33 @@ impl Interpreter {
         }
 
         // Collect learnable parameters BEFORE executing statements
-        // This ensures only explicitly declared 'learnable' tensors are optimized,
-        // not intermediate variables computed in the learn block
+        // Only collect tensors that were explicitly declared with 'learnable' keyword
+        // This prevents intermediate variables (like loss) from being treated as parameters
         let mut learnable_params = Vec::new();
         let mut learnable_param_names = Vec::new(); // Store names for later rebuilding
-        for (name, value) in &self.env.variables {
-            if let Value::Tensor(tensor) = value {
-                if tensor.requires_grad() {
-                    learnable_params.push((name.clone(), tensor.clone()));
-                    learnable_param_names.push(name.clone());
-                    println!("\nLearnable parameter: {}", name);
-                    println!("  Shape: {:?}", tensor.shape().dims());
-                    println!("  Initial values: {:?}", &tensor.to_vec()[..std::cmp::min(5, tensor.shape().dims()[0])].iter().map(|v| v.to_f32()).collect::<Vec<_>>());
+        let mut learnable_param_node_ids = Vec::new(); // Store node IDs for gradient retrieval
+        for name in &self.learnable_params {
+            if let Ok(value) = self.env.get_variable(name) {
+                match value {
+                    Value::TensorF16(tensor) => {
+                        let node_id = tensor.grad_node().ok_or_else(|| {
+                            RuntimeError::InvalidOperation(format!(
+                                "Learnable parameter '{}' does not have a computation graph node", name
+                            ))
+                        })?;
+                        learnable_params.push((name.clone(), tensor.clone()));
+                        learnable_param_names.push(name.clone());
+                        learnable_param_node_ids.push(node_id);
+                        println!("\nLearnable parameter: {}", name);
+                        println!("  Shape: {:?}", tensor.shape().dims());
+                        println!("  Initial values: {:?}", &tensor.to_vec()[..std::cmp::min(5, tensor.shape().dims()[0])].iter().map(|v| v.to_f32()).collect::<Vec<_>>());
+                    }
+                    Value::TensorF32(_) => {
+                        return Err(RuntimeError::InvalidOperation(
+                            format!("Learnable parameter '{}' is float32, but autograd currently only supports float16. Please use 'float16' type for learnable tensors.", name)
+                        ));
+                    }
+                    _ => {}
                 }
             }
         }
@@ -4088,6 +4156,27 @@ impl Interpreter {
                 opt.zero_grad();
             }
 
+            // Update node_ids from optimizer parameters (they may change after step())
+            // Also update environment with latest parameter values
+            learnable_param_node_ids.clear();
+            let current_params = opt.params();
+            for (idx, param) in current_params.iter().enumerate() {
+                if let Some(node_id) = param.grad_node() {
+                    learnable_param_node_ids.push(node_id);
+                }
+                // Update environment with current parameter
+                if idx < learnable_param_names.len() {
+                    let name = &learnable_param_names[idx];
+                    let mut param_clone = param.clone();
+                    param_clone.requires_grad = true;
+                    if let Some(node_id) = param.grad_node() {
+                        use crate::tensor::TensorAutograd;
+                        param_clone.set_grad_node(node_id);
+                    }
+                    self.env.variables.insert(name.clone(), Value::TensorF16(param_clone));
+                }
+            }
+
             // Re-execute statements for each epoch (recompute intermediate variables)
             for stmt in &spec.statements {
                 self.execute_statement(stmt)?;
@@ -4114,9 +4203,11 @@ impl Interpreter {
             match loss_tensor_mut.backward() {
                 Ok(_) => {
                     // 2. Collect gradients from all learnable parameters and compute norm
+                    // Get gradients from TENSOR_REGISTRY using node IDs
+                    use crate::autograd::AutogradContext;
                     let mut grad_norm_squared = 0.0f32;
-                    for (name, _) in &learnable_params {
-                        if let Ok(Value::Tensor(param_tensor)) = self.env.get_variable(name) {
+                    for node_id in learnable_param_node_ids.iter() {
+                        if let Some(param_tensor) = AutogradContext::get_tensor_generic::<half::f16>(*node_id) {
                             if let Some(grad) = param_tensor.grad() {
                                 // Calculate gradient norm contribution
                                 let grad_data = grad.to_vec();
@@ -4137,24 +4228,24 @@ impl Interpreter {
                             // 4. Update environment with optimized parameters
                             // The optimizer has updated the parameters internally
                             // We need to sync them back to the environment
-                            // IMPORTANT: Ensure requires_grad is maintained
+                            // IMPORTANT: Preserve the original node_id to maintain gradient information
                             let updated_params = opt.params();
-                            for ((name, _), new_tensor) in learnable_params.iter().zip(updated_params.iter()) {
+                            for (((name, _), new_tensor), node_id) in learnable_params.iter()
+                                .zip(updated_params.iter())
+                                .zip(learnable_param_node_ids.iter()) {
                                 let mut param_with_grad = new_tensor.clone();
-                                param_with_grad.set_requires_grad(true);
+                                // Manually set requires_grad without allocating a new node
+                                use crate::tensor::TensorAutograd;
+                                param_with_grad.requires_grad = true;
+                                // Restore the original node_id to maintain gradient connection
+                                param_with_grad.set_grad_node(*node_id);
                                 // Learning context - update parameter
-                                self.env.variables.insert(name.clone(), Value::Tensor(param_with_grad));
+                                self.env.variables.insert(name.clone(), Value::TensorF16(param_with_grad));
                             }
 
-                            // 5. Rebuild learnable_params vector to point to updated tensors
-                            // This ensures the next epoch's backward pass can find the parameters
-                            // Only rebuild from the original learnable parameter names (not local variables)
-                            learnable_params.clear();
-                            for name in &learnable_param_names {
-                                if let Ok(Value::Tensor(tensor)) = self.env.get_variable(name) {
-                                    learnable_params.push((name.clone(), tensor.clone()));
-                                }
-                            }
+                            // Note: We don't rebuild learnable_params from the environment
+                            // The optimizer maintains the authoritative parameter state
+                            // and we sync to the environment above
                         }
                         Err(e) => {
                             print!(" [Optimizer error: {}]", e);
@@ -4170,7 +4261,7 @@ impl Interpreter {
             // Display parameter values for first parameter (if verbose)
             if epoch % EPOCH_REPORT_INTERVAL == 0 || epoch == spec.epochs - 1 {
                 if let Some((name, _)) = learnable_params.first() {
-                    if let Ok(Value::Tensor(t)) = self.env.get_variable(name) {
+                    if let Ok(Value::TensorF16(t)) = self.env.get_variable(name) {
                         let vals: Vec<f32> = t.to_vec()[..std::cmp::min(3, t.to_vec().len())]
                             .iter()
                             .map(|v| v.to_f32())
@@ -4198,7 +4289,7 @@ impl Interpreter {
         // Display final parameter values
         println!("\nFinal Parameter Values:");
         for (name, _) in &learnable_params {
-            if let Ok(Value::Tensor(t)) = self.env.get_variable(name) {
+            if let Ok(Value::TensorF16(t)) = self.env.get_variable(name) {
                 let vals: Vec<f32> = t.to_vec()[..std::cmp::min(5, t.to_vec().len())]
                     .iter()
                     .map(|v| v.to_f32())

@@ -83,6 +83,7 @@ impl ComputationGraph {
                             .or_insert_with(|| input_grad.clone());
                     }
                 }
+            } else {
             }
         }
 
@@ -139,6 +140,7 @@ impl ComputationGraph {
         order: &mut Vec<NodeId>,
     ) -> TensorResult<()> {
         if visited.contains(&node_id) {
+
             return Ok(());
         }
 

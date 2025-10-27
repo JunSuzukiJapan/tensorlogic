@@ -10,52 +10,49 @@ main {
     // Test 1: unsqueeze on 1D tensor
     print("Test 1: unsqueeze on 1D tensor")
     print("Original tensor a:", a)
-    let a_unsqueeze_0 = unsqueeze(a, 0)
+    let a_unsqueeze_0 = a.unsqueeze(0)
     print("unsqueeze(a, 0) shape should be [1, 3]:", a_unsqueeze_0)
 
-    let a_unsqueeze_1 = unsqueeze(a, 1)
+    let a_unsqueeze_1 = a.unsqueeze(1)
     print("unsqueeze(a, 1) shape should be [3, 1]:", a_unsqueeze_1)
     print()
 
     // Test 2: unsqueeze on 2D tensor
     print("Test 2: unsqueeze on 2D tensor")
     print("Original tensor b shape [2, 3]:", b)
-    let b_unsqueeze_0 = unsqueeze(b, 0)
+    let b_unsqueeze_0 = b.unsqueeze(0)
     print("unsqueeze(b, 0) shape should be [1, 2, 3]:", b_unsqueeze_0)
 
-    let b_unsqueeze_1 = unsqueeze(b, 1)
+    let b_unsqueeze_1 = b.unsqueeze(1)
     print("unsqueeze(b, 1) shape should be [2, 1, 3]:", b_unsqueeze_1)
 
-    let b_unsqueeze_2 = unsqueeze(b, 2)
+    let b_unsqueeze_2 = b.unsqueeze(2)
     print("unsqueeze(b, 2) shape should be [2, 3, 1]:", b_unsqueeze_2)
     print()
 
-    // Test 3: squeeze all dimensions
+    // Test 3: squeeze all dimensions - with method chaining!
     print("Test 3: squeeze all dimensions of size 1")
-    let c = unsqueeze(a, 0)
-    let c_unsqueeze = unsqueeze(c, 2)
+    let c_unsqueeze = a.unsqueeze(0).unsqueeze(2)
     print("Tensor with shape [1, 3, 1]:", c_unsqueeze)
 
-    let c_squeezed = squeeze(c_unsqueeze)
+    let c_squeezed = c_unsqueeze.squeeze()
     print("squeeze(c_unsqueeze) should be [3]:", c_squeezed)
     print()
 
     // Test 4: squeeze specific dimension
     print("Test 4: squeeze specific dimension")
-    let d_squeezed = squeeze(c_unsqueeze, 0)
+    let d_squeezed = c_unsqueeze.squeeze(0)
     print("squeeze(c_unsqueeze, 0) should be [3, 1]:", d_squeezed)
 
-    let d_squeezed_2 = squeeze(c_unsqueeze, 2)
+    let d_squeezed_2 = c_unsqueeze.squeeze(2)
     print("squeeze(c_unsqueeze, 2) should be [1, 3]:", d_squeezed_2)
     print()
 
-    // Test 5: round-trip (unsqueeze then squeeze)
+    // Test 5: round-trip (unsqueeze then squeeze) - with method chaining!
     print("Test 5: round-trip test")
     print("Original a:", a)
-    let e = unsqueeze(a, 0)
-    print("After unsqueeze(0):", e)
-    let f = squeeze(e, 0)
-    print("After squeeze(0):", f)
+    let f = a.unsqueeze(0).squeeze(0)
+    print("After unsqueeze(0).squeeze(0):", f)
     print("Should match original!")
     print()
 

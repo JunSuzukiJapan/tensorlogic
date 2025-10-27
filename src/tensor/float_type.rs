@@ -185,7 +185,9 @@ mod tests {
     fn test_f16_float_type() {
         assert_eq!(f16::zero().to_f32(), 0.0);
         assert_eq!(f16::one().to_f32(), 1.0);
-        assert_eq!(f16::from_f32(3.14).to_f32(), 3.14);
+        // f16 has limited precision: 3.14 -> 3.140625
+        let f16_val = f16::from_f32(3.14).to_f32();
+        assert!((f16_val - 3.14).abs() < 0.01, "f16 precision: {} vs 3.14", f16_val);
         assert_eq!(f16::metal_type_name(), "half");
         assert!(f16::is_f16());
         assert!(!f16::is_f32());

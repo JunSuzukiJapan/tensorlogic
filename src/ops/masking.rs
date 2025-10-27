@@ -84,7 +84,7 @@ impl<T: FloatType> Tensor<T> {
     /// ```
     /// use tensorlogic::prelude::*;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let mask = Tensor::causal_mask(3)?;
+    /// let mask = Tensor::<f16>::causal_mask(3)?;
     /// // [[1, 0, 0],
     /// //  [1, 1, 0],
     /// //  [1, 1, 1]]
@@ -125,7 +125,7 @@ impl<T: FloatType> Tensor<T> {
     /// ```
     /// use tensorlogic::prelude::*;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let mask = Tensor::padding_mask(&[2, 3], 4)?;
+    /// let mask = Tensor::<f16>::padding_mask(&[2, 3], 4)?;
     /// // [[1, 1, 0, 0],  // first sequence has length 2
     /// //  [1, 1, 1, 0]]  // second sequence has length 3
     /// # Ok(())
@@ -156,7 +156,7 @@ impl<T: FloatType> Tensor<T> {
     /// ```
     /// use tensorlogic::prelude::*;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let causal = Tensor::causal_mask(4)?;
+    /// let causal = Tensor::<f16>::causal_mask(4)?;
     /// // Create matching 4x4 padding mask (not 2x4)
     /// let padding_data = vec![f16::ONE; 16];  // All ones for simplicity
     /// let padding = Tensor::from_vec(padding_data, vec![4, 4])?;
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn test_causal_mask() {
-        let mask = Tensor::causal_mask(3).unwrap();
+        let mask = Tensor::<f16>::causal_mask(3).unwrap();
         let data = mask.to_vec();
 
         // Expected: [[1, 0, 0],
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn test_padding_mask() {
-        let mask = Tensor::padding_mask(&[2, 3], 4).unwrap();
+        let mask = Tensor::<f16>::padding_mask(&[2, 3], 4).unwrap();
         let data = mask.to_vec();
 
         // Expected: [[1, 1, 0, 0],
