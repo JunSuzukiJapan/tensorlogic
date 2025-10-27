@@ -2597,13 +2597,15 @@ impl Interpreter {
 
             "scatter" => {
                 // scatter(tensor, dim, indices, src)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 4 {
                     return Err(RuntimeError::TypeError(
                         format!("scatter() expects 4 arguments (tensor, dim, indices, src), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
                 let dim = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
                     Value::Float(f) => f as usize,
@@ -2611,13 +2613,25 @@ impl Interpreter {
                         format!("scatter() dim must be a number, got {:?}", v)
                     )),
                 };
-                let indices = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
-                let src = self.eval_expr(&args[3])?.as_tensor_f16()?.clone();
+                let indices_val = self.eval_expr(&args[2])?;
+                let src_val = self.eval_expr(&args[3])?;
 
-                let output = tensor.scatter(dim, &indices, &src)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor_val, indices_val, src_val) {
+                    (Value::TensorF16(tensor), Value::TensorF16(indices), Value::TensorF16(src)) => {
+                        let output = tensor.scatter(dim, &indices, &src)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    (Value::TensorF32(_), Value::TensorF32(_), Value::TensorF32(_)) => {
+                        // scatter() for f32 tensors is not yet implemented due to API constraints
+                        Err(RuntimeError::TypeError(
+                            "scatter() for f32 tensors is not yet implemented. Please use f16 tensors for scatter operations.".to_string()
+                        ))
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "scatter() requires all tensors (tensor, indices, src) to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             // Reduction functions (max, min)
@@ -4133,8 +4147,14 @@ impl Interpreter {
                     ));
                 }
 
-                let target_score = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let target_score_f32 = target_score.to_vec()[0].to_f32();
+                let target_score_val = self.eval_expr(&args[0])?;
+                let target_score_f32 = match target_score_val {
+                    Value::TensorF16(ref t) => t.to_vec()[0].to_f32(),
+                    Value::TensorF32(ref t) => t.to_vec()[0],
+                    _ => return Err(RuntimeError::TypeError(
+                        "compute_rank() target_score must be a tensor (f16 or f32)".to_string()
+                    ))
+                };
 
                 // For simplicity, second arg is the count of candidates with higher scores
                 let num_higher = match self.eval_expr(&args[1])? {
@@ -4246,14 +4266,16 @@ impl Interpreter {
                 // aggregate_neighbors(node_features, neighbor_indices, aggregation: "mean"|"sum")
                 // Aggregates features from neighboring nodes
                 // This is a simplified version for demonstration
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 2 {
                     return Err(RuntimeError::TypeError(
                         format!("aggregate_neighbors() expects at least 2 arguments (node_features, num_neighbors), got {}", args.len())
                     ));
                 }
 
-                let node_features = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                
+                let node_features_val = self.eval_expr(&args[0])?;
+
                 let num_neighbors = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
                     _ => return Err(RuntimeError::TypeError(
@@ -4273,17 +4295,36 @@ impl Interpreter {
                 // For demonstration: return the node features
                 // In a full implementation, this would aggregate from actual neighbor tensors
                 let device = self.env.metal_device();
-                
-                if aggregation == "mean" && num_neighbors > 0 {
-                    // Divide by number of neighbors for mean aggregation
-                    let scale = 1.0 / (num_neighbors as f32);
-                    let scale_f16 = half::f16::from_f32(scale);
-                    let scale_tensor = Tensor::from_vec_metal(device, vec![scale_f16], vec![1])?;
-                    let aggregated = node_features.mul(&scale_tensor)?;
-                    Ok(Value::TensorF16(aggregated))
-                } else {
-                    // Sum aggregation (or no neighbors)
-                    Ok(Value::TensorF16(node_features))
+
+                match node_features_val {
+                    Value::TensorF16(node_features) => {
+                        if aggregation == "mean" && num_neighbors > 0 {
+                            // Divide by number of neighbors for mean aggregation
+                            let scale = 1.0 / (num_neighbors as f32);
+                            let scale_f16 = half::f16::from_f32(scale);
+                            let scale_tensor = Tensor::from_vec_metal(device, vec![scale_f16], vec![1])?;
+                            let aggregated = node_features.mul(&scale_tensor)?;
+                            Ok(aggregated.to_value())
+                        } else {
+                            // Sum aggregation (or no neighbors)
+                            Ok(node_features.to_value())
+                        }
+                    }
+                    Value::TensorF32(node_features) => {
+                        if aggregation == "mean" && num_neighbors > 0 {
+                            // Divide by number of neighbors for mean aggregation
+                            let scale = 1.0 / (num_neighbors as f32);
+                            let scale_tensor = Tensor::from_vec_metal(device, vec![scale], vec![1])?;
+                            let aggregated = node_features.mul(&scale_tensor)?;
+                            Ok(aggregated.to_value())
+                        } else {
+                            // Sum aggregation (or no neighbors)
+                            Ok(node_features.to_value())
+                        }
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "aggregate_neighbors() expects node_features to be a tensor (f16 or f32)".to_string()
+                    ))
                 }
             }
 
@@ -4291,73 +4332,118 @@ impl Interpreter {
                 // relational_aggregate(node_emb, relation_emb, neighbor_emb, relation_weight)
                 // R-GCN style aggregation: considers relation types
                 // Formula: h_i^(l+1) = σ(Σ_r Σ_{j∈N_r(i)} (1/c_{i,r}) W_r h_j^(l))
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 3 {
                     return Err(RuntimeError::TypeError(
                         format!("relational_aggregate() expects at least 3 arguments (node_emb, relation_emb, neighbor_emb), got {}", args.len())
                     ));
                 }
 
-                let node_emb = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let relation_emb = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
-                let neighbor_emb = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
+                let node_emb_val = self.eval_expr(&args[0])?;
+                let relation_emb_val = self.eval_expr(&args[1])?;
+                let neighbor_emb_val = self.eval_expr(&args[2])?;
 
-                let device = self.env.metal_device();
+                match (node_emb_val, relation_emb_val, neighbor_emb_val) {
+                    (Value::TensorF16(node_emb), Value::TensorF16(relation_emb), Value::TensorF16(neighbor_emb)) => {
+                        // Simplified R-GCN: relation-specific transformation
+                        // message = relation_emb * neighbor_emb (element-wise)
+                        let message = relation_emb.mul(&neighbor_emb)?;
 
-                // Simplified R-GCN: relation-specific transformation
-                // message = relation_emb * neighbor_emb (element-wise)
-                let message = relation_emb.mul(&neighbor_emb)?;
+                        // Combine with node's own embedding
+                        let combined = node_emb.add(&message)?;
 
-                // Combine with node's own embedding
-                let combined = node_emb.add(&message)?;
+                        Ok(combined.to_value())
+                    }
+                    (Value::TensorF32(node_emb), Value::TensorF32(relation_emb), Value::TensorF32(neighbor_emb)) => {
+                        // Simplified R-GCN: relation-specific transformation
+                        // message = relation_emb * neighbor_emb (element-wise)
+                        let message = relation_emb.mul(&neighbor_emb)?;
 
-                Ok(Value::TensorF16(combined))
+                        // Combine with node's own embedding
+                        let combined = node_emb.add(&message)?;
+
+                        Ok(combined.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "relational_aggregate() requires all 3 tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "graph_attention" => {
                 // graph_attention(query, key, value, num_neighbors)
                 // GAT-style attention mechanism for graph
                 // Simplified version: computes attention-weighted aggregation
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 3 {
                     return Err(RuntimeError::TypeError(
                         format!("graph_attention() expects at least 3 arguments (query, key, value), got {}", args.len())
                     ));
                 }
 
-                let query = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let key = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
-                let value = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
+                let query_val = self.eval_expr(&args[0])?;
+                let key_val = self.eval_expr(&args[1])?;
+                let value_val = self.eval_expr(&args[2])?;
 
                 let device = self.env.metal_device();
 
-                // Compute attention score: dot product of query and key
-                let qk = query.mul(&key)?;
-                let attention_score = qk.sum()?;
+                match (query_val, key_val, value_val) {
+                    (Value::TensorF16(query), Value::TensorF16(key), Value::TensorF16(value)) => {
+                        // Compute attention score: dot product of query and key
+                        let qk = query.mul(&key)?;
+                        let attention_score = qk.sum()?;
 
-                // Apply softmax (simplified: just use sigmoid for single neighbor)
-                let score_f32 = attention_score.to_f32();
-                let sigmoid_val = 1.0 / (1.0 + (-score_f32).exp());
-                
-                // For simplicity, just scale the value by the attention weight
-                // In a full implementation, this would use proper broadcasting
-                let weight_f16 = half::f16::from_f32(sigmoid_val);
-                let weight_tensor = Tensor::from_vec_metal(device, vec![weight_f16], vec![1])?;
-                
-                // Simplified: return weighted value (scalar multiplication)
-                let attended_value = value.mul(&weight_tensor)?;
+                        // Apply softmax (simplified: just use sigmoid for single neighbor)
+                        let score_f32 = attention_score.to_f32();
+                        let sigmoid_val = 1.0 / (1.0 + (-score_f32).exp());
 
-                Ok(Value::TensorF16(attended_value))
+                        // For simplicity, just scale the value by the attention weight
+                        // In a full implementation, this would use proper broadcasting
+                        let weight_f16 = half::f16::from_f32(sigmoid_val);
+                        let weight_tensor = Tensor::from_vec_metal(device, vec![weight_f16], vec![1])?;
+
+                        // Simplified: return weighted value (scalar multiplication)
+                        let attended_value = value.mul(&weight_tensor)?;
+
+                        Ok(attended_value.to_value())
+                    }
+                    (Value::TensorF32(query), Value::TensorF32(key), Value::TensorF32(value)) => {
+                        // Compute attention score: dot product of query and key
+                        let qk = query.mul(&key)?;
+                        let score_f32: f32 = qk.sum()?.into();  // Convert f16 to f32
+
+                        // Apply softmax (simplified: just use sigmoid for single neighbor)
+                        let sigmoid_val = 1.0 / (1.0 + (-score_f32).exp());
+
+                        // For simplicity, just scale the value by the attention weight
+                        // In a full implementation, this would use proper broadcasting
+                        let weight_tensor = Tensor::from_vec_metal(device, vec![sigmoid_val], vec![1])?;
+
+                        // Simplified: return weighted value (scalar multiplication)
+                        let attended_value = value.mul(&weight_tensor)?;
+
+                        Ok(attended_value.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "graph_attention() requires all 3 tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "normalize_features" => {
                 // normalize_features(features, norm_type: "l2"|"layer")
                 // Normalizes node features
+                use crate::interpreter::value::ToValue;
+
                 if args.is_empty() {
                     return Err(RuntimeError::TypeError(
                         "normalize_features() expects at least 1 argument (features)".to_string()
                     ));
                 }
 
-                let features = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let features_val = self.eval_expr(&args[0])?;
 
                 let norm_type = if args.len() > 1 {
                     match self.eval_expr(&args[1])? {
@@ -4370,24 +4456,52 @@ impl Interpreter {
 
                 let device = self.env.metal_device();
 
-                if norm_type == "l2" {
-                    // L2 normalization: x / ||x||_2
-                    let squared = features.mul(&features)?;
-                    let sum_squared_f16 = squared.sum()?;
-                    let norm_f32 = sum_squared_f16.to_f32().sqrt();
-                    
-                    if norm_f32 > 1e-8 {
-                        let inv_norm_f16 = half::f16::from_f32(1.0 / norm_f32);
-                        let inv_norm_tensor = Tensor::from_vec_metal(device, vec![inv_norm_f16], vec![1])?;
-                        let normalized = features.mul(&inv_norm_tensor)?;
-                        Ok(Value::TensorF16(normalized))
-                    } else {
-                        // Avoid division by zero
-                        Ok(Value::TensorF16(features))
+                match features_val {
+                    Value::TensorF16(features) => {
+                        if norm_type == "l2" {
+                            // L2 normalization: x / ||x||_2
+                            let squared = features.mul(&features)?;
+                            let sum_squared_f16 = squared.sum()?;
+                            let norm_f32 = sum_squared_f16.to_f32().sqrt();
+
+                            if norm_f32 > 1e-8 {
+                                let inv_norm_f16 = half::f16::from_f32(1.0 / norm_f32);
+                                let inv_norm_tensor = Tensor::from_vec_metal(device, vec![inv_norm_f16], vec![1])?;
+                                let normalized = features.mul(&inv_norm_tensor)?;
+                                Ok(normalized.to_value())
+                            } else {
+                                // Avoid division by zero
+                                Ok(features.to_value())
+                            }
+                        } else {
+                            // For other normalization types, just return features for now
+                            Ok(features.to_value())
+                        }
                     }
-                } else {
-                    // For other normalization types, just return features for now
-                    Ok(Value::TensorF16(features))
+                    Value::TensorF32(features) => {
+                        if norm_type == "l2" {
+                            // L2 normalization: x / ||x||_2
+                            let squared = features.mul(&features)?;
+                            let sum_squared_f32: f32 = squared.sum()?.into();  // Convert f16 to f32
+                            let norm_f32 = sum_squared_f32.sqrt();
+
+                            if norm_f32 > 1e-8 {
+                                let inv_norm = 1.0 / norm_f32;
+                                let inv_norm_tensor = Tensor::from_vec_metal(device, vec![inv_norm], vec![1])?;
+                                let normalized = features.mul(&inv_norm_tensor)?;
+                                Ok(normalized.to_value())
+                            } else {
+                                // Avoid division by zero
+                                Ok(features.to_value())
+                            }
+                        } else {
+                            // For other normalization types, just return features for now
+                            Ok(features.to_value())
+                        }
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "normalize_features() expects features to be a tensor (f16 or f32)".to_string()
+                    ))
                 }
             }
 
@@ -4585,10 +4699,14 @@ impl Interpreter {
             Constraint::Shape { tensor, shape } => {
                 // Get tensor value
                 let tensor_val = self.eval_expr(tensor)?;
-                let tensor_obj = tensor_val.as_tensor_f16()?;
 
-                // Compare actual shape with expected dimensions
-                let actual_shape = tensor_obj.shape().dims();
+                let actual_shape = match tensor_val {
+                    Value::TensorF16(ref t) => t.shape().dims(),
+                    Value::TensorF32(ref t) => t.shape().dims(),
+                    _ => return Err(RuntimeError::TypeError(
+                        "Shape constraint requires a tensor (f16 or f32)".to_string()
+                    ))
+                };
 
                 if actual_shape.len() != shape.len() {
                     return Ok(false);
@@ -4614,28 +4732,45 @@ impl Interpreter {
             Constraint::Rank { tensor, rank } => {
                 // Get tensor value
                 let tensor_val = self.eval_expr(tensor)?;
-                let tensor = tensor_val.as_tensor_f16()?;
 
-                // Compare ranks
-                let actual_rank = tensor.rank();
+                let actual_rank = match tensor_val {
+                    Value::TensorF16(ref t) => t.rank(),
+                    Value::TensorF32(ref t) => t.rank(),
+                    _ => return Err(RuntimeError::TypeError(
+                        "Rank constraint requires a tensor (f16 or f32)".to_string()
+                    ))
+                };
+
                 Ok(actual_rank == *rank)
             }
 
             Constraint::Norm { tensor, op, value } => {
                 // Get tensor value
                 let tensor_val = self.eval_expr(tensor)?;
-                let tensor = tensor_val.as_tensor_f16()?;
 
-                // Calculate L2 norm
-                let data = tensor.to_vec();
-                let norm: f32 = data
-                    .iter()
-                    .map(|x| {
-                        let val = x.to_f32();
-                        val * val
-                    })
-                    .sum::<f32>()
-                    .sqrt();
+                // Calculate L2 norm based on tensor type
+                let norm: f32 = match tensor_val {
+                    Value::TensorF16(ref t) => {
+                        let data = t.to_vec();
+                        data.iter()
+                            .map(|x| {
+                                let val = x.to_f32();
+                                val * val
+                            })
+                            .sum::<f32>()
+                            .sqrt()
+                    }
+                    Value::TensorF32(ref t) => {
+                        let data = t.to_vec();
+                        data.iter()
+                            .map(|&x| x * x)
+                            .sum::<f32>()
+                            .sqrt()
+                    }
+                    _ => return Err(RuntimeError::TypeError(
+                        "Norm constraint requires a tensor (f16 or f32)".to_string()
+                    ))
+                };
 
                 // Compare using the comparison operator
                 let result = match op {
@@ -4869,14 +5004,34 @@ impl Interpreter {
 
             // Compute loss
             let loss_val = self.eval_expr(&spec.objective)?;
-            let loss_tensor = loss_val.as_tensor_f16()?;
 
-            // Calculate loss value
-            let loss_data = loss_tensor.to_vec();
-            let loss_scalar = if loss_data.is_empty() {
-                0.0
-            } else {
-                loss_data[0].to_f32()
+            // Calculate loss value and get loss tensor (support both f16 and f32)
+            let (loss_scalar, loss_tensor) = match loss_val {
+                Value::TensorF16(ref t) => {
+                    let loss_data = t.to_vec();
+                    let scalar = if loss_data.is_empty() {
+                        0.0
+                    } else {
+                        loss_data[0].to_f32()
+                    };
+                    (scalar, t.clone())
+                }
+                Value::TensorF32(ref t) => {
+                    let loss_data = t.to_vec();
+                    let scalar = if loss_data.is_empty() {
+                        0.0
+                    } else {
+                        loss_data[0]
+                    };
+                    // For now, training only supports f16 tensors for backward pass
+                    // Convert f32 loss to f16 for gradient computation
+                    return Err(RuntimeError::TypeError(
+                        "Training currently only supports f16 tensors. Please use f16 for trainable parameters and loss.".to_string()
+                    ));
+                }
+                _ => return Err(RuntimeError::TypeError(
+                    "Loss must be a tensor (f16 or f32)".to_string()
+                ))
             };
 
             // Display epoch progress

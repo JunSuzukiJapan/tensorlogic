@@ -133,7 +133,7 @@ mod tests {
             quantization: None,
         };
 
-        let model = Model::new(metadata);
+        let model: Model<half::f16> = Model::new(metadata);
         assert_eq!(model.num_tensors(), 0);
     }
 
@@ -147,7 +147,7 @@ mod tests {
             quantization: None,
         };
 
-        let mut model = Model::new(metadata);
+        let mut model: Model<half::f16> = Model::new(metadata);
         let device = MetalDevice::new().unwrap();
         let tensor = Tensor::from_vec_metal(&device, vec![half::f16::from_f32(1.0); 6], vec![2, 3]).unwrap();
 
