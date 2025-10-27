@@ -303,44 +303,39 @@ impl Interpreter {
             return Ok(Value::TokenIdArray(result));
         }
 
-        // Handle Tensor concatenation
-        let tensor1 = match val1 {
-            Value::TensorF16(ref t) => t,
-            _ => return Err(RuntimeError::TypeError(
-                format!("concat() expects first argument to be a tensor or token array, got {:?}", val1)
-            )),
-        };
+        // Handle Tensor concatenation - support both f16 and f32
+        use crate::interpreter::value::ToValue;
 
-        let tensor2 = match val2 {
-            Value::TensorF16(ref t) => t,
-            _ => return Err(RuntimeError::TypeError(
-                format!("concat() expects second argument to be a tensor or token array, got {:?}", val2)
-            )),
-        };
-
-        // Evaluate dim argument - accept both Float and Tensor
+        // Evaluate dim argument first
         let dim_val = self.eval_expr(&args[2])?;
         let dim = match dim_val {
             Value::Float(f) => f as usize,
-            Value::TensorF16(ref t) => {
-                if t.numel() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        format!("concat() expects dim as scalar, got tensor with {} elements", t.numel())
-                    ));
-                }
-                t.to_vec_f32()[0] as usize
-            }
+            Value::Integer(i) => i as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF32(ref t) if t.numel() == 1 => t.to_vec()[0] as usize,
             _ => return Err(RuntimeError::TypeError(
-                format!("concat() expects dim as scalar (float or tensor), got {:?}", dim_val)
+                format!("concat() expects dim as scalar, got {:?}", dim_val)
             )),
         };
 
-        // Call Tensor::concat with two tensors
-        let tensors = vec![tensor1, tensor2];
-        let result = Tensor::concat(&tensors, dim)
-            .map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(result))
+        // Process based on tensor types
+        match (val1, val2) {
+            (Value::TensorF16(tensor1), Value::TensorF16(tensor2)) => {
+                let tensors = vec![&tensor1, &tensor2];
+                let output = crate::tensor::Tensor::concat(&tensors[..], dim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(output.to_value())
+            }
+            (Value::TensorF32(tensor1), Value::TensorF32(tensor2)) => {
+                let tensors = vec![&tensor1, &tensor2];
+                let output = crate::tensor::Tensor::concat(&tensors[..], dim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(output.to_value())
+            }
+            _ => Err(RuntimeError::TypeError(
+                "concat() requires both tensors to be the same type (both f16 or both f32)".to_string()
+            ))
+        }
     }
 
     /// rope(tensor) -> tensor
