@@ -3842,49 +3842,89 @@ impl Interpreter {
             "predict_tail_distmult" => {
                 // predict_tail_distmult(head, relation, tail_candidate)
                 // Computes DistMult scores for tail candidates
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 3 {
                     return Err(RuntimeError::TypeError(
                         format!("predict_tail_distmult() expects 3 arguments (head, relation, tail_candidate), got {}", args.len())
                     ));
                 }
 
-                let head = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
-                let tail_candidate = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
+                let head_val = self.eval_expr(&args[0])?;
+                let relation_val = self.eval_expr(&args[1])?;
+                let tail_candidate_val = self.eval_expr(&args[2])?;
 
-                // DistMult: score = sum(h * r * t)
-                let device = self.env.metal_device();
-                
-                let h_mul_r = head.mul(&relation)?;
-                let product = h_mul_r.mul(&tail_candidate)?;
-                let score_f16 = product.sum()?;
+                match (head_val, relation_val, tail_candidate_val) {
+                    (Value::TensorF16(head), Value::TensorF16(relation), Value::TensorF16(tail_candidate)) => {
+                        // DistMult: score = sum(h * r * t)
+                        let device = self.env.metal_device();
 
-                let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
-                Ok(Value::TensorF16(score_tensor))
+                        let h_mul_r = head.mul(&relation)?;
+                        let product = h_mul_r.mul(&tail_candidate)?;
+                        let score_f16 = product.sum()?;
+
+                        let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
+                        Ok(score_tensor.to_value())
+                    }
+                    (Value::TensorF32(head), Value::TensorF32(relation), Value::TensorF32(tail_candidate)) => {
+                        // DistMult: score = sum(h * r * t)
+                        let device = self.env.metal_device();
+
+                        let h_mul_r = head.mul(&relation)?;
+                        let product = h_mul_r.mul(&tail_candidate)?;
+                        let score = product.sum()?;
+
+                        let score_tensor = Tensor::from_vec_metal(device, vec![score], vec![1])?;
+                        Ok(score_tensor.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "predict_tail_distmult() requires all tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "predict_head_distmult" => {
                 // predict_head_distmult(head_candidate, relation, tail)
                 // Computes DistMult scores for head candidates
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 3 {
                     return Err(RuntimeError::TypeError(
                         format!("predict_head_distmult() expects 3 arguments (head_candidate, relation, tail), got {}", args.len())
                     ));
                 }
 
-                let head_candidate = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
-                let tail = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
+                let head_candidate_val = self.eval_expr(&args[0])?;
+                let relation_val = self.eval_expr(&args[1])?;
+                let tail_val = self.eval_expr(&args[2])?;
 
-                // DistMult: score = sum(h * r * t)
-                let device = self.env.metal_device();
+                match (head_candidate_val, relation_val, tail_val) {
+                    (Value::TensorF16(head_candidate), Value::TensorF16(relation), Value::TensorF16(tail)) => {
+                        // DistMult: score = sum(h * r * t)
+                        let device = self.env.metal_device();
 
-                let h_mul_r = head_candidate.mul(&relation)?;
-                let product = h_mul_r.mul(&tail)?;
-                let score_f16 = product.sum()?;
+                        let h_mul_r = head_candidate.mul(&relation)?;
+                        let product = h_mul_r.mul(&tail)?;
+                        let score_f16 = product.sum()?;
 
-                let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
-                Ok(Value::TensorF16(score_tensor))
+                        let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
+                        Ok(score_tensor.to_value())
+                    }
+                    (Value::TensorF32(head_candidate), Value::TensorF32(relation), Value::TensorF32(tail)) => {
+                        // DistMult: score = sum(h * r * t)
+                        let device = self.env.metal_device();
+
+                        let h_mul_r = head_candidate.mul(&relation)?;
+                        let product = h_mul_r.mul(&tail)?;
+                        let score = product.sum()?;
+
+                        let score_tensor = Tensor::from_vec_metal(device, vec![score], vec![1])?;
+                        Ok(score_tensor.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "predict_head_distmult() requires all tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "predict_tail_complex" => {
