@@ -1739,35 +1739,57 @@ impl Interpreter {
             "relu" => {
                 // relu(tensor) -> Tensor
                 // Apply ReLU activation: max(0, x)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("relu() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let output = tensor.relu().map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.relu().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.relu().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("relu() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "matmul" => {
                 // matmul(a, b) -> Tensor
                 // Matrix multiplication: a @ b
                 // Supports batch matrix multiplication
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("matmul() expects 2 arguments (a, b), got {}", args.len())
                     ));
                 }
 
-                let a = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let b = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let a_val = self.eval_expr(&args[0])?;
+                let b_val = self.eval_expr(&args[1])?;
 
-                // Use einsum for matrix multiplication
-                let output = a.matmul(&b).map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (a_val, b_val) {
+                    (Value::TensorF16(a), Value::TensorF16(b)) => {
+                        let output = a.matmul(&b).map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    (Value::TensorF32(a), Value::TensorF32(b)) => {
+                        let output = a.matmul(&b).map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "matmul() requires both tensors to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "layer_norm" => {
@@ -1921,18 +1943,29 @@ impl Interpreter {
             "sum" => {
                 // sum(tensor, dim, keepdim) -> Tensor or Float
                 // Sum along dimension, or sum all elements
+                use crate::interpreter::value::ToValue;
+
                 if args.is_empty() || args.len() > 3 {
                     return Err(RuntimeError::TypeError(
                         format!("sum() expects 1-3 arguments (tensor, optional dim, optional keepdim), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
 
                 if args.len() == 1 {
                     // Sum all elements
-                    let result = tensor.sum().map_err(|e| RuntimeError::TensorError(e))?;
-                    Ok(Value::Float(result.to_f32() as f64))
+                    match tensor_val {
+                        Value::TensorF16(tensor) => {
+                            let result = tensor.sum().map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(Value::Float(result.to_f32() as f64))
+                        }
+                        Value::TensorF32(tensor) => {
+                            let result = tensor.sum().map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(Value::Float(result.to_f32() as f64))
+                        }
+                        _ => Err(RuntimeError::TypeError("sum() expects tensor (f16 or f32)".to_string()))
+                    }
                 } else {
                     // Sum along dimension
                     let dim = match self.eval_expr(&args[1])? {
@@ -1949,10 +1982,19 @@ impl Interpreter {
                         false
                     };
 
-                    let output = tensor.sum_dim(dim, keepdim)
-                        .map_err(|e| RuntimeError::TensorError(e))?;
-
-                    Ok(Value::TensorF16(output))
+                    match tensor_val {
+                        Value::TensorF16(tensor) => {
+                            let output = tensor.sum_dim(dim, keepdim)
+                                .map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(output.to_value())
+                        }
+                        Value::TensorF32(tensor) => {
+                            let output = tensor.sum_dim(dim, keepdim)
+                                .map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(output.to_value())
+                        }
+                        _ => Err(RuntimeError::TypeError("sum() expects tensor (f16 or f32)".to_string()))
+                    }
                 }
             }
 
@@ -2310,30 +2352,52 @@ impl Interpreter {
             // Activation functions
             "gelu" => {
                 // gelu(tensor)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("gelu() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let output = tensor.gelu().map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.gelu().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.gelu().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("gelu() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "tanh" => {
                 // tanh(tensor)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("tanh() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let output = tensor.tanh().map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.tanh().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.tanh().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("tanh() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             // Math functions
