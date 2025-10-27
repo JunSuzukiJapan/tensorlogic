@@ -426,7 +426,7 @@ impl Interpreter {
 
         // Evaluate tensor argument
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?;
+        let tensor = tensor_val.as_tensor_f16()?;
 
         // Check tensor is 2D
         let dims = tensor.dims();
@@ -570,7 +570,7 @@ impl Interpreter {
         }
 
         // Handle Tensor (1D)
-        let tensor = array_val.as_tensor()?;
+        let tensor = array_val.as_tensor_f16()?;
         let dims = tensor.dims();
 
         if dims.len() != 1 {

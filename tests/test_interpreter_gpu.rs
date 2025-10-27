@@ -22,7 +22,7 @@ fn test_interpreter_uses_metal_gpu() {
 
     // Get the result tensor
     let result = interpreter.get_variable("result").unwrap();
-    let tensor = result.as_tensor().unwrap();
+    let tensor = result.as_tensor_f16().unwrap();
 
     // Verify the tensor is on Metal device
     println!("Tensor device: {:?}", tensor.device());
@@ -71,7 +71,7 @@ fn test_matrix_multiply_uses_metal_gpu() {
 
     // Get the result tensor
     let result = interpreter.get_variable("result").unwrap();
-    let tensor = result.as_tensor().unwrap();
+    let tensor = result.as_tensor_f16().unwrap();
 
     // Verify the tensor is on Metal device
     println!("Matrix multiply result device: {:?}", tensor.device());
@@ -111,7 +111,7 @@ fn test_learnable_tensor_uses_metal_gpu() {
 
     // Get the learnable tensor
     let w = interpreter.get_variable("w").unwrap();
-    let tensor = w.as_tensor().unwrap();
+    let tensor = w.as_tensor_f16().unwrap();
 
     // Verify the tensor is on Metal device
     println!("Learnable tensor device: {:?}", tensor.device());

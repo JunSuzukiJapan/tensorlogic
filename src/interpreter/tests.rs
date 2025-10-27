@@ -398,7 +398,7 @@ fn test_value_as_tensor() {
     let tensor = Tensor::zeros(&device, vec![2, 3]).unwrap();
     let value = Value::TensorF16(tensor);
 
-    assert!(value.as_tensor().is_ok());
+    assert!(value.as_tensor_f16().is_ok());
 }
 
 #[test]

@@ -985,11 +985,11 @@ impl Interpreter {
                     ));
                 }
 
-                let x = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let x = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let gamma_val = self.eval_expr(&args[1])?;
-                let gamma = gamma_val.as_tensor()?;
+                let gamma = gamma_val.as_tensor_f16()?;
                 let beta_val = self.eval_expr(&args[2])?;
-                let beta = beta_val.as_tensor()?;
+                let beta = beta_val.as_tensor_f16()?;
                 let eps = self.eval_expr(&args[3])?.as_float()? as f32;
 
                 let result = x.batch_norm(gamma, beta, eps)
@@ -1006,7 +1006,7 @@ impl Interpreter {
                     ));
                 }
 
-                let x = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let x = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let p = self.eval_expr(&args[1])?.as_float()? as f32;
                 let training = self.eval_expr(&args[2])?.as_bool()?;
 
@@ -1024,7 +1024,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
 
                 let dim = if args.len() >= 2 {
                     let dim_val = self.eval_expr(&args[1])?;
@@ -1073,7 +1073,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
 
                 let dim = if args.len() >= 2 {
                     let dim_val = self.eval_expr(&args[1])?;
@@ -1115,431 +1115,36 @@ impl Interpreter {
             }
 
             "unsqueeze" => {
-                // unsqueeze(tensor, dim: int)
+                // unsqueeze(tensor, dim)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("unsqueeze() expects 2 arguments (tensor, dim), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let dim_val = self.eval_expr(&args[1])?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                let dim = match dim_val {
+                let dim = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
                     Value::Float(f) => f as usize,
-                    _ => return Err(RuntimeError::TypeError(
-                        "unsqueeze() dim must be a number".to_string()
-                    )),
+                    _ => return Err(RuntimeError::TypeError("unsqueeze() dim must be integer".to_string())),
                 };
 
-                let result = tensor.unsqueeze(dim)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(result))
-            }
-
-            "squeeze" => {
-                // squeeze(tensor, dim: Optional[int] = None)
-                if args.is_empty() || args.len() > 2 {
-                    return Err(RuntimeError::TypeError(
-                        format!("squeeze() expects 1-2 arguments (tensor, optional dim), got {}", args.len())
-                    ));
-                }
-
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-
-                let dim = if args.len() >= 2 {
-                    let dim_val = self.eval_expr(&args[1])?;
-                    match dim_val {
-                        Value::Integer(i) => Some(i as usize),
-                        Value::Float(f) => Some(f as usize),
-                        _ => return Err(RuntimeError::TypeError(
-                            "squeeze() dim must be a number".to_string()
-                        )),
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.unsqueeze(dim)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
                     }
-                } else {
-                    None  // Default: squeeze all dims of size 1
-                };
-
-                let result = tensor.squeeze(dim)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(result))
-            }
-
-            "split" => {
-                // split(tensor, split_size: int, dim: int) -> returns first split only (simplified)
-                if args.len() != 3 {
-                    return Err(RuntimeError::TypeError(
-                        format!("split() expects 3 arguments (tensor, split_size, dim), got {}", args.len())
-                    ));
-                }
-
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-
-                let split_size = match self.eval_expr(&args[1])? {
-                    Value::Integer(i) => i as usize,
-                    Value::Float(f) => f as usize,
-                    _ => return Err(RuntimeError::TypeError(
-                        "split() split_size must be a number".to_string()
-                    )),
-                };
-
-                let dim = match self.eval_expr(&args[2])? {
-                    Value::Integer(i) => i as usize,
-                    Value::Float(f) => f as usize,
-                    _ => return Err(RuntimeError::TypeError(
-                        "split() dim must be a number".to_string()
-                    )),
-                };
-
-                let splits = tensor.split(split_size, dim)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                // For simplicity, return first split only
-                // TODO: Add list type to return all splits
-                if splits.is_empty() {
-                    return Err(RuntimeError::InvalidOperation(
-                        "split() produced no results".to_string()
-                    ));
-                }
-
-                Ok(Value::TensorF16(splits[0].clone()))
-            }
-
-            "chunk" => {
-                // chunk(tensor, chunks: int, dim: int) -> returns first chunk only (simplified)
-                if args.len() != 3 {
-                    return Err(RuntimeError::TypeError(
-                        format!("chunk() expects 3 arguments (tensor, chunks, dim), got {}", args.len())
-                    ));
-                }
-
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-
-                let chunks = match self.eval_expr(&args[1])? {
-                    Value::Integer(i) => i as usize,
-                    Value::Float(f) => f as usize,
-                    _ => return Err(RuntimeError::TypeError(
-                        "chunk() chunks must be a number".to_string()
-                    )),
-                };
-
-                let dim = match self.eval_expr(&args[2])? {
-                    Value::Integer(i) => i as usize,
-                    Value::Float(f) => f as usize,
-                    _ => return Err(RuntimeError::TypeError(
-                        "chunk() dim must be a number".to_string()
-                    )),
-                };
-
-                let chunks_result = tensor.chunk(chunks, dim)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                // For simplicity, return first chunk only
-                // TODO: Add list type to return all chunks
-                if chunks_result.is_empty() {
-                    return Err(RuntimeError::InvalidOperation(
-                        "chunk() produced no results".to_string()
-                    ));
-                }
-
-                Ok(Value::TensorF16(chunks_result[0].clone()))
-            }
-
-            "load_model" => {
-                // load_model("path/to/model.gguf")
-                if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        format!("load_model() expects 1 argument (path), got {}", args.len())
-                    ));
-                }
-
-                let path_val = self.eval_expr(&args[0])?;
-                let path = match path_val {
-                    Value::String(s) => s,
-                    _ => return Err(RuntimeError::TypeError(
-                        "load_model() argument must be a string (path)".to_string()
-                    )),
-                };
-
-                let model = Model::<half::f16>::load(&path, self.env.metal_device())
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                println!("Loaded model from: {} (format: {:?})", path, model.metadata.format);
-                Ok(Value::ModelF16(model))
-            }
-
-            "load_tokenizer" => {
-                // load_tokenizer("path/to/tokenizer.json" or "model_name")
-                if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        format!("load_tokenizer() expects 1 argument (path or model name), got {}", args.len())
-                    ));
-                }
-
-                let path_val = self.eval_expr(&args[0])?;
-                let path_or_name = match path_val {
-                    Value::String(s) => s,
-                    _ => return Err(RuntimeError::TypeError(
-                        "load_tokenizer() argument must be a string".to_string()
-                    )),
-                };
-
-                // Try loading from file first, then from pretrained
-                let tokenizer = if std::path::Path::new(&path_or_name).exists() {
-                    crate::tokenizer::Tokenizer::from_file(&path_or_name)
-                        .map_err(|e| RuntimeError::TensorError(e))?
-                } else {
-                    crate::tokenizer::Tokenizer::from_pretrained(&path_or_name)
-                        .map_err(|e| RuntimeError::TensorError(e))?
-                };
-
-                println!("Loaded tokenizer: {}", path_or_name);
-                Ok(Value::Tokenizer(std::sync::Arc::new(tokenizer)))
-            }
-
-            "get_tensor" => {
-                // get_tensor(model, "tensor_name")
-                if args.len() != 2 {
-                    return Err(RuntimeError::TypeError(
-                        format!("get_tensor() expects 2 arguments (model, tensor_name), got {}", args.len())
-                    ));
-                }
-
-                let model_val = self.eval_expr(&args[0])?;
-
-                let name_val = self.eval_expr(&args[1])?;
-                let tensor_name = match name_val {
-                    Value::String(s) => s,
-                    _ => return Err(RuntimeError::TypeError(
-                        "get_tensor() second argument must be a string (tensor name)".to_string()
-                    )),
-                };
-
-                match model_val {
-                    Value::ModelF16(model) => {
-                        let tensor = model.get_tensor(&tensor_name)
-                            .ok_or_else(|| RuntimeError::InvalidOperation(
-                                format!("Tensor '{}' not found in model", tensor_name)
-                            ))?;
-                        Ok(Value::TensorF16(tensor.clone()))
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.unsqueeze(dim)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
                     }
-                    Value::ModelF32(model) => {
-                        let tensor = model.get_tensor(&tensor_name)
-                            .ok_or_else(|| RuntimeError::InvalidOperation(
-                                format!("Tensor '{}' not found in model", tensor_name)
-                            ))?;
-                        Ok(Value::TensorF32(tensor.clone()))
-                    }
-                    _ => Err(RuntimeError::TypeError(
-                        "get_tensor() first argument must be a Model".to_string()
-                    )),
+                    _ => Err(RuntimeError::TypeError("unsqueeze() expects tensor".to_string()))
                 }
-            }
-
-            "tokenize" => {
-                // tokenize(tokenizer, text, add_special_tokens=true)
-                if args.len() < 2 || args.len() > 3 {
-                    return Err(RuntimeError::TypeError(
-                        format!("tokenize() expects 2-3 arguments (tokenizer, text, optional add_special_tokens), got {}", args.len())
-                    ));
-                }
-
-                let tokenizer = match self.eval_expr(&args[0])? {
-                    Value::Tokenizer(t) => t.clone(),
-                    _ => return Err(RuntimeError::TypeError(
-                        "tokenize() first argument must be a tokenizer".to_string()
-                    )),
-                };
-
-                let text = match self.eval_expr(&args[1])? {
-                    Value::String(s) => s,
-                    _ => return Err(RuntimeError::TypeError(
-                        "tokenize() second argument must be a string".to_string()
-                    )),
-                };
-
-                let add_special_tokens = if args.len() >= 3 {
-                    self.eval_expr(&args[2])?.as_bool()?
-                } else {
-                    true
-                };
-
-                let token_ids = tokenizer.encode(&text, add_special_tokens)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TokenIds(token_ids))
-            }
-
-            "detokenize" => {
-                // detokenize(tokenizer, token_ids, skip_special_tokens=true)
-                if args.len() < 2 || args.len() > 3 {
-                    return Err(RuntimeError::TypeError(
-                        format!("detokenize() expects 2-3 arguments (tokenizer, token_ids, optional skip_special_tokens), got {}", args.len())
-                    ));
-                }
-
-                let tokenizer = match self.eval_expr(&args[0])? {
-                    Value::Tokenizer(t) => t.clone(),
-                    _ => return Err(RuntimeError::TypeError(
-                        "detokenize() first argument must be a tokenizer".to_string()
-                    )),
-                };
-
-                let token_ids = match self.eval_expr(&args[1])? {
-                    Value::TokenIds(ids) => ids,
-                    _ => return Err(RuntimeError::TypeError(
-                        "detokenize() second argument must be TokenIds".to_string()
-                    )),
-                };
-
-                let skip_special_tokens = if args.len() >= 3 {
-                    self.eval_expr(&args[2])?.as_bool()?
-                } else {
-                    true
-                };
-
-                let text = tokenizer.decode(&token_ids, skip_special_tokens)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::String(text))
-            }
-
-            "embedding" => {
-                // embedding(embedding_table, token_ids) -> Tensor
-                // embedding_table: [d_model, vocab_size] (GGUF format)
-                // token_ids: TokenIds, TokenIdArray, or Tensor with shape [seq_len] or [batch, seq_len]
-                // output: [seq_len, d_model] or [batch, seq_len, d_model]
-                // Returns same type as embedding_table (f16 or f32)
-                if args.len() != 2 {
-                    return Err(RuntimeError::TypeError(
-                        format!("embedding() expects 2 arguments (embedding_table, token_ids), got {}", args.len())
-                    ));
-                }
-
-                let embedding_table_val = self.eval_expr(&args[0])?;
-                let token_ids_val = self.eval_expr(&args[1])?;
-
-                // Process based on embedding_table type
-                match embedding_table_val {
-                    Value::TensorF16(embedding_table) => {
-                        let output = match token_ids_val {
-                            Value::TokenIdArray(ref arr) => {
-                                embedding_table.embedding_from_token_ids(arr)
-                                    .map_err(|e| RuntimeError::TensorError(e))?
-                            }
-                            Value::TokenIds(ids) => {
-                                let token_data: Vec<half::f16> = ids.iter()
-                                    .map(|&id| half::f16::from_f32(id as f32))
-                                    .collect();
-                                let token_ids_tensor = crate::tensor::Tensor::from_vec_metal(
-                                    self.env.metal_device(),
-                                    token_data,
-                                    vec![ids.len()]
-                                ).map_err(|e| RuntimeError::TensorError(e))?;
-                                embedding_table.embedding(&token_ids_tensor)
-                                    .map_err(|e| RuntimeError::TensorError(e))?
-                            }
-                            Value::TensorF16(t) => {
-                                embedding_table.embedding(&t)
-                                    .map_err(|e| RuntimeError::TensorError(e))?
-                            }
-                            _ => return Err(RuntimeError::TypeError(
-                                "embedding() second argument must be TokenIdArray, TokenIds, or TensorF16".to_string()
-                            )),
-                        };
-                        Ok(Value::TensorF16(output))
-                    }
-                    Value::TensorF32(embedding_table) => {
-                        let output = match token_ids_val {
-                            Value::TokenIdArray(ref arr) => {
-                                embedding_table.embedding_from_token_ids(arr)
-                                    .map_err(|e| RuntimeError::TensorError(e))?
-                            }
-                            Value::TokenIds(ids) => {
-                                let token_data: Vec<f32> = ids.iter()
-                                    .map(|&id| id as f32)
-                                    .collect();
-                                let token_ids_tensor = crate::tensor::Tensor::from_vec_metal(
-                                    self.env.metal_device(),
-                                    token_data,
-                                    vec![ids.len()]
-                                ).map_err(|e| RuntimeError::TensorError(e))?;
-                                embedding_table.embedding(&token_ids_tensor)
-                                    .map_err(|e| RuntimeError::TensorError(e))?
-                            }
-                            Value::TensorF32(t) => {
-                                embedding_table.embedding(&t)
-                                    .map_err(|e| RuntimeError::TensorError(e))?
-                            }
-                            _ => return Err(RuntimeError::TypeError(
-                                "embedding() second argument must be TokenIdArray, TokenIds, or TensorF32".to_string()
-                            )),
-                        };
-                        Ok(Value::TensorF32(output))
-                    }
-                    _ => Err(RuntimeError::TypeError(
-                        "embedding() first argument must be a Tensor (f16 or f32)".to_string()
-                    )),
-                }
-            }
-
-            "positional_encoding" => {
-                // positional_encoding(seq_len, d_model) -> Tensor
-                // Generates sinusoidal positional encoding
-                // output: [seq_len, d_model]
-                if args.len() != 2 {
-                    return Err(RuntimeError::TypeError(
-                        format!("positional_encoding() expects 2 arguments (seq_len, d_model), got {}", args.len())
-                    ));
-                }
-
-                let seq_len = match self.eval_expr(&args[0])? {
-                    Value::Integer(i) => i as usize,
-                    Value::Float(f) => f as usize,
-                    v => return Err(RuntimeError::TypeError(
-                        format!("positional_encoding() first argument must be a number (seq_len), got {:?}", v)
-                    )),
-                };
-
-                let d_model = match self.eval_expr(&args[1])? {
-                    Value::Integer(i) => i as usize,
-                    Value::Float(f) => f as usize,
-                    v => return Err(RuntimeError::TypeError(
-                        format!("positional_encoding() second argument must be a number (d_model), got {:?}", v)
-                    )),
-                };
-
-                // Generate sinusoidal positional encoding
-                // PE(pos, 2i) = sin(pos / 10000^(2i/d_model))
-                // PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
-                let mut pe_data = Vec::with_capacity(seq_len * d_model);
-
-                for pos in 0..seq_len {
-                    for i in 0..d_model {
-                        let div_term = (i as f32 / d_model as f32) * 10000_f32.ln();
-                        let angle = pos as f32 / div_term.exp();
-
-                        let value = if i % 2 == 0 {
-                            angle.sin()
-                        } else {
-                            angle.cos()
-                        };
-
-                        pe_data.push(half::f16::from_f32(value));
-                    }
-                }
-
-                // Create output tensor
-                let output = crate::tensor::Tensor::from_vec_metal(
-                    self.env.metal_device(),
-                    pe_data,
-                    vec![seq_len, d_model]
-                ).map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
             }
 
             "top_k" => {
@@ -1553,7 +1158,7 @@ impl Interpreter {
                     ));
                 }
 
-                let logits = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let logits = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let k = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
                     Value::Float(f) => f as usize,
@@ -1622,7 +1227,7 @@ impl Interpreter {
                     ));
                 }
 
-                let logits = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let logits = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let p = match self.eval_expr(&args[1])? {
                     Value::Float(f) => f as f32,
                     Value::Integer(i) => i as f32,
@@ -1710,7 +1315,7 @@ impl Interpreter {
                     ));
                 }
 
-                let logits = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let logits = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let temp = match self.eval_expr(&args[1])? {
                     Value::Float(f) => f as f32,
                     Value::Integer(i) => i as f32,
@@ -1864,7 +1469,7 @@ impl Interpreter {
                     ));
                 }
 
-                let probs_tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let probs_tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let shape = probs_tensor.shape();
                 let dims = shape.dims();
 
@@ -1921,7 +1526,7 @@ impl Interpreter {
                     ));
                 }
 
-                let logits_tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let logits_tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let temperature = match self.eval_expr(&args[1])? {
                     Value::Float(f) => f as f32,
                     Value::Integer(i) => i as f32,
@@ -1995,7 +1600,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let k = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
                     _ => return Err(RuntimeError::TypeError(
@@ -2044,7 +1649,7 @@ impl Interpreter {
                     ));
                 }
 
-                let logits_tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let logits_tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let p = match self.eval_expr(&args[1])? {
                     Value::Float(f) => f as f32,
                     Value::Integer(i) => i as f32,
@@ -2140,7 +1745,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let output = tensor.relu().map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::TensorF16(output))
@@ -2156,8 +1761,8 @@ impl Interpreter {
                     ));
                 }
 
-                let a = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let b = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let a = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let b = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
 
                 // Use einsum for matrix multiplication
                 let output = a.matmul(&b).map_err(|e| RuntimeError::TensorError(e))?;
@@ -2174,7 +1779,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
 
                 // Default: normalize over last dimension
                 let shape = tensor.shape();
@@ -2207,17 +1812,16 @@ impl Interpreter {
             "rms_norm" => {
                 // rms_norm(tensor, weight, eps=1e-6) -> Tensor
                 // RMS normalization (used in LLaMA, TinyLlama)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 2 || args.len() > 3 {
                     return Err(RuntimeError::TypeError(
                         format!("rms_norm() expects 2-3 arguments (tensor, weight, optional eps), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let weight = self.eval_expr(&args[1])?.as_tensor()?.clone();
-
-                // Infer normalized_shape from weight shape
-                let normalized_shape = weight.shape().dims().to_vec();
+                let tensor_val = self.eval_expr(&args[0])?;
+                let weight_val = self.eval_expr(&args[1])?;
 
                 let eps = if args.len() >= 3 {
                     match self.eval_expr(&args[2])? {
@@ -2229,10 +1833,23 @@ impl Interpreter {
                     1e-6_f32
                 };
 
-                let output = tensor.rms_norm(normalized_shape, &weight, eps)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor_val, weight_val) {
+                    (Value::TensorF16(tensor), Value::TensorF16(weight)) => {
+                        let normalized_shape = weight.shape().dims().to_vec();
+                        let output = tensor.rms_norm(normalized_shape, &weight, eps)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    (Value::TensorF32(tensor), Value::TensorF32(weight)) => {
+                        let normalized_shape = weight.shape().dims().to_vec();
+                        let output = tensor.rms_norm(normalized_shape, &weight, eps)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "rms_norm() requires tensor and weight to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "concat" => {
@@ -2310,7 +1927,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
 
                 if args.len() == 1 {
                     // Sum all elements
@@ -2348,7 +1965,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
 
                 if args.len() == 1 {
                     // Mean of all elements
@@ -2432,42 +2049,70 @@ impl Interpreter {
             // Tensor shape functions
             "reshape" => {
                 // reshape(tensor, [new_shape])
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("reshape() expects 2 arguments (tensor, new_shape), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
                 let shape_value = self.eval_expr(&args[1])?;
+
+                // Extract new_shape from TensorF16 or TensorF32
                 let new_shape = match shape_value {
                     Value::TensorF16(t) => {
                         t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                    }
+                    Value::TensorF32(t) => {
+                        t.to_vec().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
                         "reshape() new_shape must be an array".to_string()
                     )),
                 };
 
-                let output = tensor.reshape(new_shape)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.reshape(new_shape)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.reshape(new_shape)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("reshape() expects tensor".to_string()))
+                }
             }
 
             "flatten" => {
                 // flatten(tensor)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("flatten() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let output = tensor.flatten()
-                    .map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.flatten()
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.flatten()
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("flatten() expects tensor".to_string()))
+                }
             }
 
             "shape" => {
@@ -2478,7 +2123,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let dims = tensor.dims();
 
                 // Convert shape dimensions to a 1D tensor
@@ -2499,7 +2144,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let shape_value = self.eval_expr(&args[1])?;
                 let target_shape = match shape_value {
                     Value::TensorF16(t) => {
@@ -2519,17 +2164,29 @@ impl Interpreter {
 
             "transpose" => {
                 // transpose(tensor)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("transpose() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let output = tensor.transpose()
-                    .map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.transpose()
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.transpose()
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("transpose() expects tensor".to_string()))
+                }
             }
 
             "permute" => {
@@ -2540,7 +2197,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let dims_value = self.eval_expr(&args[1])?;
                 let dims = match dims_value {
                     Value::TensorF16(t) => {
@@ -2566,7 +2223,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let dim = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
                     Value::Float(f) => f as usize,
@@ -2574,7 +2231,7 @@ impl Interpreter {
                         format!("gather() dim must be a number, got {:?}", v)
                     )),
                 };
-                let indices = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let indices = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
 
                 let output = tensor.gather(dim, &indices)
                     .map_err(|e| RuntimeError::TensorError(e))?;
@@ -2590,7 +2247,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let dim = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
                     Value::Float(f) => f as usize,
@@ -2598,8 +2255,8 @@ impl Interpreter {
                         format!("scatter() dim must be a number, got {:?}", v)
                     )),
                 };
-                let indices = self.eval_expr(&args[2])?.as_tensor()?.clone();
-                let src = self.eval_expr(&args[3])?.as_tensor()?.clone();
+                let indices = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
+                let src = self.eval_expr(&args[3])?.as_tensor_f16()?.clone();
 
                 let output = tensor.scatter(dim, &indices, &src)
                     .map_err(|e| RuntimeError::TensorError(e))?;
@@ -2616,7 +2273,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
 
                 if args.len() == 1 {
                     // max(tensor) -> scalar
@@ -2637,7 +2294,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
 
                 if args.len() == 1 {
                     // min(tensor) -> scalar
@@ -2659,7 +2316,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let output = tensor.gelu().map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::TensorF16(output))
@@ -2673,7 +2330,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let output = tensor.tanh().map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::TensorF16(output))
@@ -2688,7 +2345,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let output = tensor.exp().map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::TensorF16(output))
@@ -2702,7 +2359,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let output = tensor.log().map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::TensorF16(output))
@@ -2716,7 +2373,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let output = tensor.sqrt().map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::TensorF16(output))
@@ -2730,7 +2387,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let exponent = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as f32,
                     Value::Float(f) => f as f32,
@@ -2752,7 +2409,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let output = tensor.sin().map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::TensorF16(output))
@@ -2766,7 +2423,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let output = tensor.cos().map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::TensorF16(output))
@@ -2780,7 +2437,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let output = tensor.tan().map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::TensorF16(output))
@@ -2795,8 +2452,8 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let mask = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let mask = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
 
                 let output = tensor.apply_attention_mask(&mask)
                     .map_err(|e| RuntimeError::TensorError(e))?;
@@ -2845,8 +2502,8 @@ impl Interpreter {
                     ));
                 }
 
-                let mask1 = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let mask2 = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let mask1 = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let mask2 = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
 
                 let output = mask1.combine_masks(&mask2)
                     .map_err(|e| RuntimeError::TensorError(e))?;
@@ -2863,7 +2520,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let shape_value = self.eval_expr(&args[1])?;
                 let target_shape = match shape_value {
                     Value::TensorF16(t) => {
@@ -2891,8 +2548,8 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let other = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let other = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
 
                 let output = tensor.fused_add_relu(&other)
                     .map_err(|e| RuntimeError::TensorError(e))?;
@@ -2908,8 +2565,8 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let other = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let other = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
 
                 let output = tensor.fused_mul_relu(&other)
                     .map_err(|e| RuntimeError::TensorError(e))?;
@@ -2925,9 +2582,9 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let scale = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let bias = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let scale = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let bias = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
 
                 let output = tensor.fused_affine(&scale, &bias)
                     .map_err(|e| RuntimeError::TensorError(e))?;
@@ -2943,9 +2600,9 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let weight = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let bias = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let weight = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let bias = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
 
                 let output = tensor.fused_gelu_linear(&weight, &bias)
                     .map_err(|e| RuntimeError::TensorError(e))?;
@@ -3119,9 +2776,9 @@ impl Interpreter {
                 }
 
                 // Evaluate arguments
-                let head = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let tail = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let head = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let relation = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let tail = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
 
                 // Parse norm type (default: L2)
                 let norm_type = if args.len() == 4 {
@@ -3178,9 +2835,9 @@ impl Interpreter {
                 }
 
                 // Evaluate arguments
-                let head = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let tail = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let head = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let relation = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let tail = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
 
                 // Compute element-wise product: h * r * t
                 let h_mul_r = head.mul(&relation)?;
@@ -3211,12 +2868,12 @@ impl Interpreter {
                 }
 
                 // Evaluate arguments
-                let h_re = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let h_im = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let r_re = self.eval_expr(&args[2])?.as_tensor()?.clone();
-                let r_im = self.eval_expr(&args[3])?.as_tensor()?.clone();
-                let t_re = self.eval_expr(&args[4])?.as_tensor()?.clone();
-                let t_im = self.eval_expr(&args[5])?.as_tensor()?.clone();
+                let h_re = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let h_im = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let r_re = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
+                let r_im = self.eval_expr(&args[3])?.as_tensor_f16()?.clone();
+                let t_re = self.eval_expr(&args[4])?.as_tensor_f16()?.clone();
+                let t_im = self.eval_expr(&args[5])?.as_tensor_f16()?.clone();
 
                 // Compute the four trilinear products
 
@@ -3270,8 +2927,8 @@ impl Interpreter {
                 }
 
                 // Evaluate arguments
-                let pos_score = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let neg_score = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let pos_score = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let neg_score = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
                 let margin_val = self.eval_expr(&args[2])?;
 
                 // Parse margin
@@ -3309,7 +2966,7 @@ impl Interpreter {
                 }
 
                 // Evaluate arguments
-                let score = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let score = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let target_val = self.eval_expr(&args[1])?;
 
                 // Parse target (0 or 1)
@@ -3356,9 +3013,9 @@ impl Interpreter {
                     ));
                 }
 
-                let head = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let tail_candidate = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let head = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let relation = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let tail_candidate = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
 
                 let model = if args.len() > 3 {
                     match self.eval_expr(&args[3])? {
@@ -3405,9 +3062,9 @@ impl Interpreter {
                     ));
                 }
 
-                let head_candidate = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let tail = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let head_candidate = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let relation = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let tail = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
 
                 let model = if args.len() > 3 {
                     match self.eval_expr(&args[3])? {
@@ -3449,9 +3106,9 @@ impl Interpreter {
                     ));
                 }
 
-                let head = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let tail_candidate = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let head = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let relation = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let tail_candidate = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
 
                 // DistMult: score = sum(h * r * t)
                 let device = self.env.metal_device();
@@ -3473,9 +3130,9 @@ impl Interpreter {
                     ));
                 }
 
-                let head_candidate = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let tail = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let head_candidate = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let relation = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let tail = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
 
                 // DistMult: score = sum(h * r * t)
                 let device = self.env.metal_device();
@@ -3498,12 +3155,12 @@ impl Interpreter {
                     ));
                 }
 
-                let h_re = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let h_im = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let r_re = self.eval_expr(&args[2])?.as_tensor()?.clone();
-                let r_im = self.eval_expr(&args[3])?.as_tensor()?.clone();
-                let t_candidate_re = self.eval_expr(&args[4])?.as_tensor()?.clone();
-                let t_candidate_im = self.eval_expr(&args[5])?.as_tensor()?.clone();
+                let h_re = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let h_im = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let r_re = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
+                let r_im = self.eval_expr(&args[3])?.as_tensor_f16()?.clone();
+                let t_candidate_re = self.eval_expr(&args[4])?.as_tensor_f16()?.clone();
+                let t_candidate_im = self.eval_expr(&args[5])?.as_tensor_f16()?.clone();
 
                 // Compute ComplEx score using the formula
                 // Term 1: h_re * r_re * t_re
@@ -3550,12 +3207,12 @@ impl Interpreter {
                     ));
                 }
 
-                let h_candidate_re = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let h_candidate_im = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let r_re = self.eval_expr(&args[2])?.as_tensor()?.clone();
-                let r_im = self.eval_expr(&args[3])?.as_tensor()?.clone();
-                let t_re = self.eval_expr(&args[4])?.as_tensor()?.clone();
-                let t_im = self.eval_expr(&args[5])?.as_tensor()?.clone();
+                let h_candidate_re = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let h_candidate_im = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let r_re = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
+                let r_im = self.eval_expr(&args[3])?.as_tensor_f16()?.clone();
+                let t_re = self.eval_expr(&args[4])?.as_tensor_f16()?.clone();
+                let t_im = self.eval_expr(&args[5])?.as_tensor_f16()?.clone();
 
                 // Compute ComplEx score using the formula
                 // Term 1: h_re * r_re * t_re
@@ -3602,7 +3259,7 @@ impl Interpreter {
                     ));
                 }
 
-                let target_score = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let target_score = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 let target_score_f32 = target_score.to_vec()[0].to_f32();
 
                 // For simplicity, second arg is the count of candidates with higher scores
@@ -3721,7 +3378,7 @@ impl Interpreter {
                     ));
                 }
 
-                let node_features = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let node_features = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
                 
                 let num_neighbors = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
@@ -3766,9 +3423,9 @@ impl Interpreter {
                     ));
                 }
 
-                let node_emb = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let relation_emb = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let neighbor_emb = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let node_emb = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let relation_emb = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let neighbor_emb = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
 
                 let device = self.env.metal_device();
 
@@ -3792,9 +3449,9 @@ impl Interpreter {
                     ));
                 }
 
-                let query = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let key = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let value = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let query = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let key = self.eval_expr(&args[1])?.as_tensor_f16()?.clone();
+                let value = self.eval_expr(&args[2])?.as_tensor_f16()?.clone();
 
                 let device = self.env.metal_device();
 
@@ -3826,7 +3483,7 @@ impl Interpreter {
                     ));
                 }
 
-                let features = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let features = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
 
                 let norm_type = if args.len() > 1 {
                     match self.eval_expr(&args[1])? {
@@ -4054,7 +3711,7 @@ impl Interpreter {
             Constraint::Shape { tensor, shape } => {
                 // Get tensor value
                 let tensor_val = self.eval_expr(tensor)?;
-                let tensor_obj = tensor_val.as_tensor()?;
+                let tensor_obj = tensor_val.as_tensor_f16()?;
 
                 // Compare actual shape with expected dimensions
                 let actual_shape = tensor_obj.shape().dims();
@@ -4083,7 +3740,7 @@ impl Interpreter {
             Constraint::Rank { tensor, rank } => {
                 // Get tensor value
                 let tensor_val = self.eval_expr(tensor)?;
-                let tensor = tensor_val.as_tensor()?;
+                let tensor = tensor_val.as_tensor_f16()?;
 
                 // Compare ranks
                 let actual_rank = tensor.rank();
@@ -4093,7 +3750,7 @@ impl Interpreter {
             Constraint::Norm { tensor, op, value } => {
                 // Get tensor value
                 let tensor_val = self.eval_expr(tensor)?;
-                let tensor = tensor_val.as_tensor()?;
+                let tensor = tensor_val.as_tensor_f16()?;
 
                 // Calculate L2 norm
                 let data = tensor.to_vec();
@@ -4338,7 +3995,7 @@ impl Interpreter {
 
             // Compute loss
             let loss_val = self.eval_expr(&spec.objective)?;
-            let loss_tensor = loss_val.as_tensor()?;
+            let loss_tensor = loss_val.as_tensor_f16()?;
 
             // Calculate loss value
             let loss_data = loss_tensor.to_vec();
