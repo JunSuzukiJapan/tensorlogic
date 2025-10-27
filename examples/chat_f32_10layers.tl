@@ -82,8 +82,9 @@ main {
     print("=== TinyLlama 10-Layer Chat with float32 (No Scaling) ===\n")
 
     print("[1/4] Loading model and tokenizer...")
-    let model_path = "~/.llm/models/tinyllama-1.1b-chat-q4_0.gguf"
-    let tokenizer_path = "~/.llm/tokenizers/tinyllama-tokenizer.json"
+    let home = env("HOME")
+    let model_path = home + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf"
+    let tokenizer_path = home + "/.llm/tokenizers/tinyllama-tokenizer.json"
     let model = load_model(model_path)
     let tokenizer = load_tokenizer(tokenizer_path)
     print("      ✓ Model loaded: TinyLlama 1.1B Chat\n")
@@ -199,17 +200,17 @@ main {
     print("      ✓ All 10 layers loaded\n")
 
     print("[3/4] Preparing chat...")
-    let user_msg = " Hello "
-    let chat_fmt = format_chat(user_msg)
-    let tokens = encode(tokenizer, chat_fmt)
+    let user_msg = "Hello!"
+    let chat_template = "<|system|>\nYou are a helpful assistant.</s>\n<|user|>\n"
+    let chat_prompt = chat_template + user_msg + "</s>\n<|assistant|>\n"
+    let tokens = tokenize(tokenizer, chat_prompt, true)
     print("      User: \"", user_msg, "\"")
-    print("      Tokens: ", tokens, "\n")
+    print("      ✓ Tokenized\n")
 
     print("[4/4] Generating response...")
     print("      (Using 10 Transformer layers + Temperature=0.8)\n")
 
-    let seq_len = token_count(tokens)
-    let x = token_embedding(tok_embd, tokens)
+    let x = embedding(tok_embd, tokens)
 
     // Build KV caches for all 10 layers
     let K0 = linear(x, layer_0_k)
@@ -248,16 +249,23 @@ main {
     let final_norm = rms_norm(h9, output_norm)
     let logits = linear(final_norm, output)
 
-    // Generate 5 tokens
+    // Generate 10 tokens with decoding
     let temperature = 0.8
+    print("      Assistant: ", "")
 
-    for i in range(5) {
-        print("      [", i + 1, "/5] Generating...")
-        let next_token = temperature_sample(logits, temperature)
-        print("            Token: ", next_token)
+    // Initialize with first token
+    let token_id = temperature_sample(logits, temperature)
+    let text = detokenize_single(tokenizer, token_id, false)
+    print(text, "")
+
+    // Generate remaining 9 tokens
+    for i in range(9) {
+        token_id = temperature_sample(logits, temperature)
+        text = detokenize_single(tokenizer, token_id, false)
+        print(text, "")
     }
 
-    print("\n=== Generation Complete ===\n")
-    print("float32 precision allows for higher numerical stability.\n")
-    print("Expected: Consistent logit values without scaling.\n")
+    print("\n\n=== Generation Complete ===\n")
+    print("10 tokens generated with 10-layer Transformer.\n")
+    print("Note: KV cache not updated - all tokens see same context.\n")
 }
