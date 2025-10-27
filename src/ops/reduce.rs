@@ -8,22 +8,15 @@ use crate::tensor::{Tensor, TensorShape};
 use half::f16;
 
 impl<T: FloatType> Tensor<T> {
-    /// Sum all elements in the tensor
-    pub fn sum(&self) -> TensorResult<f16> {
+    /// Sum all elements in the tensor, returns value of type T
+    pub fn sum(&self) -> TensorResult<T> {
         match self.device() {
             Device::Metal(_) => self.sum_metal(),
             Device::CPU | Device::NeuralEngine => self.sum_cpu(),
         }
     }
 
-    fn sum_metal(&self) -> TensorResult<f16> {
-        // Currently only f16 is supported for Metal operations
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
+    fn sum_metal(&self) -> TensorResult<T> {
         let input_buf = self.buffer().as_metal()?;
         let count = self.numel();
 
@@ -43,10 +36,22 @@ impl<T: FloatType> Tensor<T> {
         let num_blocks = (count + threadgroup_size - 1) / threadgroup_size;
 
         // Stage 1: Reduce to blocks
-        let stage1_buf = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), num_blocks)?;
+        let stage1_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), num_blocks)?;
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
-        let pipeline = executor.get_or_compile_pipeline("sum_global_f16")?;
+
+        // Select kernel based on type
+        let kernel_name = if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f16>() {
+            "sum_global_f16"
+        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
+            "sum_global_f32"
+        } else {
+            return Err(TensorError::InvalidOperation(
+                format!("sum() not implemented for type {:?}", std::any::type_name::<T>())
+            ));
+        };
+
+        let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
 
         let command_buffer = device.command_queue().new_command_buffer();
         let encoder = command_buffer.new_compute_command_encoder();
@@ -58,7 +63,7 @@ impl<T: FloatType> Tensor<T> {
 
         let grid_size = metal::MTLSize::new(count as u64, 1, 1);
         let tg_size = metal::MTLSize::new(threadgroup_size as u64, 1, 1);
-        let shared_mem_size = threadgroup_size * std::mem::size_of::<f16>();
+        let shared_mem_size = threadgroup_size * std::mem::size_of::<T>();
 
         encoder.set_threadgroup_memory_length(0, shared_mem_size as u64);
         encoder.dispatch_threads(grid_size, tg_size);
@@ -70,27 +75,19 @@ impl<T: FloatType> Tensor<T> {
         // Note: For small num_blocks (<256), CPU reduction is faster than launching
         // another GPU kernel due to ~0.15-0.20ms kernel launch overhead
         let stage1_data = stage1_buf.to_vec();
-        let mut final_sum = f16::ZERO;
+        let mut final_sum = T::zero();
         for &val in &stage1_data {
-            final_sum += val;
+            final_sum = final_sum + val;
         }
 
         Ok(final_sum)
     }
 
-    fn sum_cpu(&self) -> TensorResult<f16> {
-        // Currently only f16 is supported
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "CPU operations currently only support f16".to_string()
-            ));
-        }
-
+    fn sum_cpu(&self) -> TensorResult<T> {
         let data = self.to_vec();
-        let data_f16: Vec<f16> = unsafe { std::mem::transmute(data) };
-        let mut sum = f16::ZERO;
-        for &val in &data_f16 {
-            sum += val;
+        let mut sum = T::zero();
+        for &val in &data {
+            sum = sum + val;
         }
         Ok(sum)
     }

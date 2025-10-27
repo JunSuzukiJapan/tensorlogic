@@ -3,7 +3,7 @@
 #include <metal_stdlib>
 using namespace metal;
 
-// Global reduction: sum all elements
+// Global reduction: sum all elements (f16)
 // Uses two-stage reduction: local (threadgroup) then global
 kernel void sum_global_f16(
     device const half* input [[buffer(0)]],
@@ -16,6 +16,39 @@ kernel void sum_global_f16(
 ) {
     // Each thread loads one element
     half local_sum = (gid < count) ? input[gid] : half(0.0);
+
+    // Store in shared memory
+    shared[tid] = local_sum;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // Parallel reduction within threadgroup
+    for (uint stride = tg_size / 2; stride > 0; stride >>= 1) {
+        if (tid < stride && (gid + stride) < count) {
+            shared[tid] += shared[tid + stride];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    // First thread in each threadgroup writes result
+    if (tid == 0) {
+        uint block_id = gid / tg_size;
+        output[block_id] = shared[0];
+    }
+}
+
+// Global reduction: sum all elements (f32)
+// Uses two-stage reduction: local (threadgroup) then global
+kernel void sum_global_f32(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    constant uint& count [[buffer(2)]],
+    uint gid [[thread_position_in_grid]],
+    uint tid [[thread_index_in_threadgroup]],
+    uint tg_size [[threads_per_threadgroup]],
+    threadgroup float* shared [[threadgroup(0)]]
+) {
+    // Each thread loads one element
+    float local_sum = (gid < count) ? input[gid] : 0.0f;
 
     // Store in shared memory
     shared[tid] = local_sum;
@@ -234,38 +267,6 @@ kernel void mean_dim_f16(
     }
 
     output[gid] = sum / half(reduce_size);
-}
-
-// F32 version
-kernel void sum_global_f32(
-    device const float* input [[buffer(0)]],
-    device float* output [[buffer(1)]],
-    constant uint& count [[buffer(2)]],
-    uint gid [[thread_position_in_grid]],
-    uint tid [[thread_index_in_threadgroup]],
-    uint tg_size [[threads_per_threadgroup]],
-    threadgroup half* shared [[threadgroup(0)]]
-) {
-    // Each thread loads one element
-    float local_sum = (gid < count) ? input[gid] : float(0.0);
-
-    // Store in shared memory
-    shared[tid] = local_sum;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // Parallel reduction within threadgroup
-    for (uint stride = tg_size / 2; stride > 0; stride >>= 1) {
-        if (tid < stride && (gid + stride) < count) {
-            shared[tid] += shared[tid + stride];
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-
-    // First thread in each threadgroup writes result
-    if (tid == 0) {
-        uint block_id = gid / tg_size;
-        output[block_id] = shared[0];
-    }
 }
 
 // F32 version
