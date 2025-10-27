@@ -1605,22 +1605,38 @@ impl Interpreter {
                     ));
                 }
 
-                let probs_tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
-                let shape = probs_tensor.shape();
-                let dims = shape.dims();
+                let probs_val = self.eval_expr(&args[0])?;
 
-                // For now, only support 1D probability distributions
-                if dims.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        format!("sample() currently only supports 1D probability distributions, got shape {:?}", dims)
-                    ));
-                }
+                let probs_f32: Vec<f32> = match probs_val {
+                    Value::TensorF16(probs_tensor) => {
+                        let shape = probs_tensor.shape();
+                        let dims = shape.dims();
 
-                let vocab_size = dims[0];
-                let probs = probs_tensor.to_vec();
+                        // For now, only support 1D probability distributions
+                        if dims.len() != 1 {
+                            return Err(RuntimeError::TypeError(
+                                format!("sample() currently only supports 1D probability distributions, got shape {:?}", dims)
+                            ));
+                        }
 
-                // Convert to f32 probabilities
-                let probs_f32: Vec<f32> = probs.iter().map(|v| v.to_f32()).collect();
+                        let probs = probs_tensor.to_vec();
+                        probs.iter().map(|v| v.to_f32()).collect()
+                    }
+                    Value::TensorF32(probs_tensor) => {
+                        let shape = probs_tensor.shape();
+                        let dims = shape.dims();
+
+                        // For now, only support 1D probability distributions
+                        if dims.len() != 1 {
+                            return Err(RuntimeError::TypeError(
+                                format!("sample() currently only supports 1D probability distributions, got shape {:?}", dims)
+                            ));
+                        }
+
+                        probs_tensor.to_vec()
+                    }
+                    _ => return Err(RuntimeError::TypeError("sample() expects tensor (f16 or f32)".to_string()))
+                };
 
                 // Verify it's a valid probability distribution
                 let sum: f32 = probs_f32.iter().sum();
@@ -1755,7 +1771,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
                 let k = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
                     _ => return Err(RuntimeError::TypeError(
@@ -1763,19 +1779,40 @@ impl Interpreter {
                     )),
                 };
 
-                let dims = tensor.shape().dims();
-                let logits_f32: Vec<f32> = if dims.len() == 1 {
-                    tensor.to_vec().iter().map(|v| v.to_f32()).collect()
-                } else if dims.len() == 2 {
-                    let seq_len = dims[0];
-                    let vocab_size = dims[1];
-                    let logits = tensor.to_vec();
-                    let start_idx = (seq_len - 1) * vocab_size;
-                    logits[start_idx..].iter().map(|v| v.to_f32()).collect()
-                } else {
-                    return Err(RuntimeError::TypeError(
-                        format!("print_top_k() expects 1D or 2D tensor, got shape {:?}", dims)
-                    ));
+                let logits_f32: Vec<f32> = match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let dims = tensor.shape().dims();
+                        if dims.len() == 1 {
+                            tensor.to_vec().iter().map(|v| v.to_f32()).collect()
+                        } else if dims.len() == 2 {
+                            let seq_len = dims[0];
+                            let vocab_size = dims[1];
+                            let logits = tensor.to_vec();
+                            let start_idx = (seq_len - 1) * vocab_size;
+                            logits[start_idx..].iter().map(|v| v.to_f32()).collect()
+                        } else {
+                            return Err(RuntimeError::TypeError(
+                                format!("print_top_k() expects 1D or 2D tensor, got shape {:?}", dims)
+                            ));
+                        }
+                    }
+                    Value::TensorF32(tensor) => {
+                        let dims = tensor.shape().dims();
+                        if dims.len() == 1 {
+                            tensor.to_vec()
+                        } else if dims.len() == 2 {
+                            let seq_len = dims[0];
+                            let vocab_size = dims[1];
+                            let logits = tensor.to_vec();
+                            let start_idx = (seq_len - 1) * vocab_size;
+                            logits[start_idx..].to_vec()
+                        } else {
+                            return Err(RuntimeError::TypeError(
+                                format!("print_top_k() expects 1D or 2D tensor, got shape {:?}", dims)
+                            ));
+                        }
+                    }
+                    _ => return Err(RuntimeError::TypeError("print_top_k() expects tensor (f16 or f32)".to_string()))
                 };
 
                 // Get top k indices
@@ -1804,7 +1841,7 @@ impl Interpreter {
                     ));
                 }
 
-                let logits_tensor = self.eval_expr(&args[0])?.as_tensor_f16()?.clone();
+                let logits_val = self.eval_expr(&args[0])?;
                 let p = match self.eval_expr(&args[1])? {
                     Value::Float(f) => f as f32,
                     Value::Integer(i) => i as f32,
@@ -1819,26 +1856,49 @@ impl Interpreter {
                     ));
                 }
 
-                let shape = logits_tensor.shape();
-                let dims = shape.dims();
-
                 // Support both 1D and 2D tensors
                 // For 2D [seq_len, vocab_size], use the last row (last token's logits)
-                let logits_f32: Vec<f32> = if dims.len() == 1 {
-                    // 1D: [vocab_size]
-                    let logits = logits_tensor.to_vec();
-                    logits.iter().map(|v| v.to_f32()).collect()
-                } else if dims.len() == 2 {
-                    // 2D: [seq_len, vocab_size] - extract last row
-                    let seq_len = dims[0];
-                    let vocab_size = dims[1];
-                    let logits = logits_tensor.to_vec();
-                    let start_idx = (seq_len - 1) * vocab_size;
-                    logits[start_idx..].iter().map(|v| v.to_f32()).collect()
-                } else {
-                    return Err(RuntimeError::TypeError(
-                        format!("top_p_sample() expects 1D or 2D logits, got shape {:?}", dims)
-                    ));
+                let logits_f32: Vec<f32> = match logits_val {
+                    Value::TensorF16(logits_tensor) => {
+                        let shape = logits_tensor.shape();
+                        let dims = shape.dims();
+
+                        if dims.len() == 1 {
+                            // 1D: [vocab_size]
+                            let logits = logits_tensor.to_vec();
+                            logits.iter().map(|v| v.to_f32()).collect()
+                        } else if dims.len() == 2 {
+                            // 2D: [seq_len, vocab_size] - extract last row
+                            let seq_len = dims[0];
+                            let vocab_size = dims[1];
+                            let logits = logits_tensor.to_vec();
+                            let start_idx = (seq_len - 1) * vocab_size;
+                            logits[start_idx..].iter().map(|v| v.to_f32()).collect()
+                        } else {
+                            return Err(RuntimeError::TypeError(
+                                format!("top_p_sample() expects 1D or 2D logits, got shape {:?}", dims)
+                            ));
+                        }
+                    }
+                    Value::TensorF32(logits_tensor) => {
+                        let shape = logits_tensor.shape();
+                        let dims = shape.dims();
+
+                        if dims.len() == 1 {
+                            logits_tensor.to_vec()
+                        } else if dims.len() == 2 {
+                            let seq_len = dims[0];
+                            let vocab_size = dims[1];
+                            let logits = logits_tensor.to_vec();
+                            let start_idx = (seq_len - 1) * vocab_size;
+                            logits[start_idx..].to_vec()
+                        } else {
+                            return Err(RuntimeError::TypeError(
+                                format!("top_p_sample() expects 1D or 2D logits, got shape {:?}", dims)
+                            ));
+                        }
+                    }
+                    _ => return Err(RuntimeError::TypeError("top_p_sample() expects tensor (f16 or f32)".to_string()))
                 };
 
                 // Compute softmax
