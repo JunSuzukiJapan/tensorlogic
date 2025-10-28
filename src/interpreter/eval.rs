@@ -229,6 +229,9 @@ impl Interpreter {
                     // Execute body for each item
                     let loop_var_name = variable.as_str().to_string();
 
+                    // Save original value if loop variable shadows an outer variable
+                    let original_loop_var = self.env.variables.get(&loop_var_name).cloned();
+
                     for item in items {
                         // Set loop variable
                         self.env.variables.insert(loop_var_name.clone(), item);
@@ -252,8 +255,17 @@ impl Interpreter {
                         }
                     }
 
-                    // Clean up loop variable
-                    self.env.variables.remove(&loop_var_name);
+                    // Restore original loop variable value or remove it
+                    match original_loop_var {
+                        Some(val) => {
+                            // Loop variable shadowed an outer variable - restore it
+                            self.env.variables.insert(loop_var_name, val);
+                        }
+                        None => {
+                            // Loop variable didn't exist before - remove it
+                            self.env.variables.remove(&loop_var_name);
+                        }
+                    }
 
                     Ok(())
                 }
@@ -797,23 +809,36 @@ impl Interpreter {
     /// - statements: The statements to execute
     /// - allow_break: Whether break statements are allowed (true for loops)
     fn execute_block(&mut self, statements: &[Statement], allow_break: bool) -> RuntimeResult<()> {
-        // Track variables before executing block
+        // Save current variable state (for shadowing support)
+        // Map: variable name -> Option<Value> (None if didn't exist before)
+        let mut shadowed_vars: HashMap<String, Option<Value>> = HashMap::new();
+
+        // Track which variables existed before the block
         let vars_before: HashSet<String> = self.env.variables.keys().cloned().collect();
 
         // Execute all statements in the block
         for stmt in statements {
+            // If this is a let statement, track shadowing
+            if let Statement::Let { target, .. } = stmt {
+                let var_name = target.as_str().to_string();
+                if !shadowed_vars.contains_key(&var_name) {
+                    // Save the old value if it exists (for restoration)
+                    shadowed_vars.insert(
+                        var_name.clone(),
+                        self.env.variables.get(&var_name).cloned()
+                    );
+                }
+            }
+
             let result = self.execute_statement(stmt);
             match result {
                 Err(RuntimeError::BreakOutsideLoop) if allow_break => {
-                    // Clean up block variables before breaking
-                    let vars_after: HashSet<String> = self.env.variables.keys().cloned().collect();
-                    for var in vars_after.difference(&vars_before) {
-                        self.env.variables.remove(var);
-                    }
+                    // Restore shadowed variables before breaking
+                    self.restore_shadowed_variables(&shadowed_vars, &vars_before);
                     return Err(RuntimeError::BreakOutsideLoop);
                 }
                 Err(RuntimeError::ReturnValue(_)) => {
-                    // Propagate return upward (clean up will happen in caller)
+                    // Propagate return upward (caller will handle cleanup)
                     return result;
                 }
                 Err(e) => return Err(e),
@@ -821,13 +846,41 @@ impl Interpreter {
             }
         }
 
-        // Clean up variables declared in the block
-        let vars_after: HashSet<String> = self.env.variables.keys().cloned().collect();
-        for var in vars_after.difference(&vars_before) {
-            self.env.variables.remove(var);
-        }
+        // Restore shadowed variables and clean up block-local variables
+        self.restore_shadowed_variables(&shadowed_vars, &vars_before);
 
         Ok(())
+    }
+
+    /// Restore shadowed variables and clean up block-local variables
+    fn restore_shadowed_variables(
+        &mut self,
+        shadowed_vars: &HashMap<String, Option<Value>>,
+        vars_before: &HashSet<String>
+    ) {
+        // Get current variables after block execution
+        let vars_after: HashSet<String> = self.env.variables.keys().cloned().collect();
+
+        // Restore shadowed variables
+        for (var_name, old_value) in shadowed_vars {
+            match old_value {
+                Some(val) => {
+                    // Variable existed before - restore old value
+                    self.env.variables.insert(var_name.clone(), val.clone());
+                }
+                None => {
+                    // Variable didn't exist before - remove it
+                    self.env.variables.remove(var_name);
+                }
+            }
+        }
+
+        // Clean up any other block-local variables (not shadowed)
+        for var in vars_after.difference(vars_before) {
+            if !shadowed_vars.contains_key(var) {
+                self.env.variables.remove(var);
+            }
+        }
     }
 
     pub(super) fn eval_expr(&mut self, expr: &TensorExpr) -> RuntimeResult<Value> {

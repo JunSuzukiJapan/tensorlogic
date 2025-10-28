@@ -45,13 +45,10 @@ impl RuntimeEnvironment {
         self.variables.contains_key(name)
     }
 
-    /// Declare a new variable (error if already exists)
+    /// Declare a new variable (allows shadowing of existing variables)
     pub fn declare_variable(&mut self, name: String, value: Value) -> RuntimeResult<()> {
-        if self.variables.contains_key(&name) {
-            return Err(RuntimeError::InvalidOperation(
-                format!("Variable '{}' is already defined. Use assignment without 'let' to update existing variables.", name)
-            ));
-        }
+        // Allow shadowing - just insert/overwrite the variable
+        // The execute_block() function will handle restoration of shadowed values
         self.variables.insert(name, value);
         Ok(())
     }
