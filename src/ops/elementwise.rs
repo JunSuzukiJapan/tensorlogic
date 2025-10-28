@@ -91,7 +91,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Load shaders if not already loaded
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/elementwise.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -126,6 +126,7 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU fallback for addition
     fn add_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        panic!("src/ops/elementwise.rs:128:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -190,7 +191,7 @@ impl<T: FloatType> Tensor<T> {
         };
 
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/elementwise.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -208,6 +209,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sub_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        panic!("src/ops/elementwise.rs:210:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -271,7 +273,7 @@ impl<T: FloatType> Tensor<T> {
         };
 
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/elementwise.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -297,6 +299,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn mul_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        panic!("src/ops/elementwise.rs:299:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -360,7 +363,7 @@ impl<T: FloatType> Tensor<T> {
         };
 
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/elementwise.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -386,6 +389,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn div_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        panic!("src/ops/elementwise.rs:388:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -429,6 +433,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn exp_cpu(&self) -> TensorResult<Self> {
+        panic!("src/ops/elementwise.rs:431:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -460,6 +465,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn log_cpu(&self) -> TensorResult<Self> {
+        panic!("src/ops/elementwise.rs:462:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -491,6 +497,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sqrt_cpu(&self) -> TensorResult<Self> {
+        panic!("src/ops/elementwise.rs:493:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -527,6 +534,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn pow_cpu(&self, exponent: f32) -> TensorResult<Self> {
+        panic!("src/ops/elementwise.rs:529:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -558,6 +566,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sin_cpu(&self) -> TensorResult<Self> {
+        panic!("src/ops/elementwise.rs:560:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -589,6 +598,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn cos_cpu(&self) -> TensorResult<Self> {
+        panic!("src/ops/elementwise.rs:591:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -620,6 +630,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn tan_cpu(&self) -> TensorResult<Self> {
+        panic!("src/ops/elementwise.rs:622:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -640,16 +651,51 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn add_scalar_metal(&self, scalar: T) -> TensorResult<Self> {
-        let data = self.to_vec();
-        let result: Vec<T> = data.iter().map(|&x| x + scalar).collect();
+        use crate::device::{MetalBuffer, KernelExecutor};
+        use crate::tensor::BufferHandle;
 
-        match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        let device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        let mut device_mut = device.clone();
+        if device_mut.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device_mut.load_library(shader_source)?;
         }
+
+        let input_buf = self.buffer().as_metal()?;
+        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), self.numel())?;
+        let scalar_buf = device.metal_device().new_buffer_with_data(
+            &scalar as *const T as *const _,
+            std::mem::size_of::<T>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        let kernel_name = if std::mem::size_of::<T>() == 2 { "add_scalar_f16" } else { "add_scalar_f32" };
+        let mut executor = KernelExecutor::new(device_mut);
+        let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&scalar_buf), 0);
+        encoder.set_buffer(2, Some(&output_buf.buffer), 0);
+
+        let grid_size = metal::MTLSize::new(self.numel() as u64, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(256.min(self.numel() as u64), 1, 1);
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        Tensor::new(BufferHandle::Metal(output_buf), self.shape().clone(), Device::Metal(device))
     }
 
     fn add_scalar_cpu(&self, scalar: T) -> TensorResult<Self> {
+        panic!("src/ops/elementwise.rs:652:5");
         let data = self.to_vec();
         let result: Vec<T> = data.iter().map(|&x| x + scalar).collect();
 
@@ -669,16 +715,51 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sub_scalar_metal(&self, scalar: T) -> TensorResult<Self> {
-        let data = self.to_vec();
-        let result: Vec<T> = data.iter().map(|&x| x - scalar).collect();
+        use crate::device::{MetalBuffer, KernelExecutor};
+        use crate::tensor::BufferHandle;
 
-        match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        let device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        let mut device_mut = device.clone();
+        if device_mut.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device_mut.load_library(shader_source)?;
         }
+
+        let input_buf = self.buffer().as_metal()?;
+        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), self.numel())?;
+        let scalar_buf = device.metal_device().new_buffer_with_data(
+            &scalar as *const T as *const _,
+            std::mem::size_of::<T>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        let kernel_name = if std::mem::size_of::<T>() == 2 { "sub_scalar_f16" } else { "sub_scalar_f32" };
+        let mut executor = KernelExecutor::new(device_mut);
+        let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&scalar_buf), 0);
+        encoder.set_buffer(2, Some(&output_buf.buffer), 0);
+
+        let grid_size = metal::MTLSize::new(self.numel() as u64, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(256.min(self.numel() as u64), 1, 1);
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        Tensor::new(BufferHandle::Metal(output_buf), self.shape().clone(), Device::Metal(device))
     }
 
     fn sub_scalar_cpu(&self, scalar: T) -> TensorResult<Self> {
+        panic!("src/ops/elementwise.rs:681:5");
         let data = self.to_vec();
         let result: Vec<T> = data.iter().map(|&x| x - scalar).collect();
 
@@ -698,16 +779,61 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn mul_scalar_metal(&self, scalar: T) -> TensorResult<Self> {
-        let data = self.to_vec();
-        let result: Vec<T> = data.iter().map(|&x| x * scalar).collect();
+        use crate::device::{MetalBuffer, KernelExecutor};
+        use crate::tensor::BufferHandle;
 
-        match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        let device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        let mut device_mut = device.clone();
+        if device_mut.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device_mut.load_library(shader_source)?;
         }
+
+        let input_buf = self.buffer().as_metal()?;
+        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), self.numel())?;
+
+        let scalar_buf = device.metal_device().new_buffer_with_data(
+            &scalar as *const T as *const _,
+            std::mem::size_of::<T>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        let kernel_name = if std::mem::size_of::<T>() == 2 {
+            "mul_scalar_f16"
+        } else {
+            "mul_scalar_f32"
+        };
+
+        let mut executor = KernelExecutor::new(device_mut);
+        let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&scalar_buf), 0);
+        encoder.set_buffer(2, Some(&output_buf.buffer), 0);
+
+        let grid_size = metal::MTLSize::new(self.numel() as u64, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(256.min(self.numel() as u64), 1, 1);
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        Tensor::new(
+            BufferHandle::Metal(output_buf),
+            self.shape().clone(),
+            Device::Metal(device),
+        )
     }
 
     fn mul_scalar_cpu(&self, scalar: T) -> TensorResult<Self> {
+        panic!("src/ops/elementwise.rs:710:5");
         let data = self.to_vec();
         let result: Vec<T> = data.iter().map(|&x| x * scalar).collect();
 
@@ -727,16 +853,51 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn div_scalar_metal(&self, scalar: T) -> TensorResult<Self> {
-        let data = self.to_vec();
-        let result: Vec<T> = data.iter().map(|&x| x / scalar).collect();
+        use crate::device::{MetalBuffer, KernelExecutor};
+        use crate::tensor::BufferHandle;
 
-        match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
-            _ => Tensor::from_vec(result, self.dims().to_vec()),
+        let device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        let mut device_mut = device.clone();
+        if device_mut.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device_mut.load_library(shader_source)?;
         }
+
+        let input_buf = self.buffer().as_metal()?;
+        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), self.numel())?;
+        let scalar_buf = device.metal_device().new_buffer_with_data(
+            &scalar as *const T as *const _,
+            std::mem::size_of::<T>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        let kernel_name = if std::mem::size_of::<T>() == 2 { "div_scalar_f16" } else { "div_scalar_f32" };
+        let mut executor = KernelExecutor::new(device_mut);
+        let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&scalar_buf), 0);
+        encoder.set_buffer(2, Some(&output_buf.buffer), 0);
+
+        let grid_size = metal::MTLSize::new(self.numel() as u64, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(256.min(self.numel() as u64), 1, 1);
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        Tensor::new(BufferHandle::Metal(output_buf), self.shape().clone(), Device::Metal(device))
     }
 
     fn div_scalar_cpu(&self, scalar: T) -> TensorResult<Self> {
+        panic!("src/ops/elementwise.rs:739:5");
         let data = self.to_vec();
         let result: Vec<T> = data.iter().map(|&x| x / scalar).collect();
 

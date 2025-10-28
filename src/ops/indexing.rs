@@ -216,7 +216,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Load shader if not already loaded
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/indexing.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -455,7 +455,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Load shader if not already loaded
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/indexing.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 

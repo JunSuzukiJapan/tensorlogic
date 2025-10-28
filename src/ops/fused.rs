@@ -57,7 +57,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Load shaders if not already loaded
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/fused_ops.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -93,6 +93,7 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of fused add + relu
     fn fused_add_relu_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        panic!("src/ops/fused.rs:95:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -152,7 +153,7 @@ impl<T: FloatType> Tensor<T> {
         };
 
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/fused_ops.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -186,6 +187,7 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of fused mul + relu
     fn fused_mul_relu_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        panic!("src/ops/fused.rs:188:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -282,8 +284,8 @@ impl<T: FloatType> Tensor<T> {
 
         // Load shaders (both fused_ops and tiled matmul)
         if device.library().is_none() {
-            let fused_source = include_str!("../../shaders/fused_ops.metal");
-            let tiled_source = include_str!("../../shaders/matmul_tiled.metal");
+            let fused_source = include_str!("../../shaders/unified.metal");
+            let tiled_source = include_str!("../../shaders/unified.metal");
             let combined_source = format!("{}\n\n{}", fused_source, tiled_source);
             device.load_library(&combined_source)?;
         }
@@ -386,7 +388,7 @@ impl<T: FloatType> Tensor<T> {
         };
 
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/fused_ops.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -421,6 +423,7 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of fused affine
     fn fused_affine_cpu(&self, scale: &Tensor, bias: &Tensor<T>) -> TensorResult<Self> {
+        panic!("src/ops/fused.rs:423:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(

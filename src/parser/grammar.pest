@@ -295,7 +295,10 @@ statement = {
     | learning_call
     | with_block
     | control_flow
+    | block_statement
 }
+
+block_statement = { "{" ~ statement* ~ "}" }
 
 break_statement = { "break" }
 

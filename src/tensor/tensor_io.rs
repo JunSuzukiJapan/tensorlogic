@@ -59,6 +59,7 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
     }
 
     fn to_vec(&self) -> Vec<T> {
+        panic!("src/tensor/tensor_io.rs:61:9: to_vec() called - GPU->CPU transfer detected!");
         self.buffer.to_cpu_vec()
     }
 

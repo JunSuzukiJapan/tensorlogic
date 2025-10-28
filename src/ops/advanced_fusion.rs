@@ -112,7 +112,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Load shader
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/advanced_fusion.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -177,6 +177,7 @@ impl<T: FloatType> Tensor<T> {
     where
         Tensor<T>: TensorAutograd<T>,
     {
+        panic!("src/ops/advanced_fusion.rs:168:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -257,7 +258,7 @@ impl<T: FloatType> Tensor<T> {
         };
 
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/advanced_fusion.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -320,6 +321,7 @@ impl<T: FloatType> Tensor<T> {
     where
         Tensor<T>: TensorAutograd<T>,
     {
+        panic!("src/ops/advanced_fusion.rs:312:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(

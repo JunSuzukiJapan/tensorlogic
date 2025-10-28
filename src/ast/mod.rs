@@ -535,6 +535,10 @@ pub enum Statement {
     Learning(LearningSpec),
     /// Control flow
     ControlFlow(ControlFlow),
+    /// Block statement: { statements }
+    Block {
+        statements: Vec<Statement>,
+    },
     /// Break statement
     Break,
     /// Return statement: return [expr]

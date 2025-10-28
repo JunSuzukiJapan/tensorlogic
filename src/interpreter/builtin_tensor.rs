@@ -7,15 +7,29 @@ use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO, Tensor
 use crate::error::TensorError;
 use half::f16;
 
-/// Helper macro for extracting shape from tensor value
+/// Helper macro for extracting shape from tensor value using GPU
 macro_rules! extract_shape {
-    ($value:expr) => {
+    ($self:expr, $value:expr) => {
         match $value {
             Value::TensorF32(ref t) => {
-                t.to_vec().iter().map(|&v| v as usize).collect::<Vec<_>>()
+                // Read each element from GPU
+                let numel = t.numel();
+                let mut shape = Vec::with_capacity(numel);
+                for i in 0..numel {
+                    let val = $self.read_element_f32(t, i)?;
+                    shape.push(val as usize);
+                }
+                shape
             }
             Value::TensorF16(ref t) => {
-                t.to_vec_f32().iter().map(|&v| v as usize).collect::<Vec<_>>()
+                // Read each element from GPU
+                let numel = t.numel();
+                let mut shape = Vec::with_capacity(numel);
+                for i in 0..numel {
+                    let val = $self.read_element_f16(t, i)?;
+                    shape.push(val as usize);
+                }
+                shape
             }
             _ => return Err(RuntimeError::TypeError(
                 format!("Expected shape as tensor array")
@@ -37,7 +51,7 @@ macro_rules! impl_tensor_fill {
 
             let shape_val = self.eval_expr(&args[0])?;
             let device = self.env.metal_device();
-            let shape = extract_shape!(shape_val);
+            let shape = extract_shape!(self, shape_val);
 
             let numel: usize = shape.iter().product();
             let data = vec![$fill_value; numel];
@@ -61,8 +75,8 @@ macro_rules! impl_arange {
                     let end = match end_val {
                         Value::Float(f) => f as i32,
                         Value::Integer(i) => i as i32,
-                        Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as i32,
-                        Value::TensorF32(ref t) if t.numel() == 1 => t.to_vec()[0] as i32,
+                        Value::TensorF16(ref t) if t.numel() == 1 => self.tensor_f16_to_scalar(t)? as i32,
+                        Value::TensorF32(ref t) if t.numel() == 1 => self.tensor_f32_to_scalar(t)? as i32,
                         _ => return Err(RuntimeError::TypeError(
                             "arange() expects scalar end value".to_string()
                         )),
@@ -77,8 +91,8 @@ macro_rules! impl_arange {
                     let start = match start_val {
                         Value::Float(f) => f as i32,
                         Value::Integer(i) => i as i32,
-                        Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as i32,
-                        Value::TensorF32(ref t) if t.numel() == 1 => t.to_vec()[0] as i32,
+                        Value::TensorF16(ref t) if t.numel() == 1 => self.tensor_f16_to_scalar(t)? as i32,
+                        Value::TensorF32(ref t) if t.numel() == 1 => self.tensor_f32_to_scalar(t)? as i32,
                         _ => return Err(RuntimeError::TypeError(
                             "arange() expects scalar start value".to_string()
                         )),
@@ -87,8 +101,8 @@ macro_rules! impl_arange {
                     let end = match end_val {
                         Value::Float(f) => f as i32,
                         Value::Integer(i) => i as i32,
-                        Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as i32,
-                        Value::TensorF32(ref t) if t.numel() == 1 => t.to_vec()[0] as i32,
+                        Value::TensorF16(ref t) if t.numel() == 1 => self.tensor_f16_to_scalar(t)? as i32,
+                        Value::TensorF32(ref t) if t.numel() == 1 => self.tensor_f32_to_scalar(t)? as i32,
                         _ => return Err(RuntimeError::TypeError(
                             "arange() expects scalar end value".to_string()
                         )),
@@ -277,7 +291,7 @@ impl Interpreter {
 
         let tensor_val = self.eval_expr(&args[0])?;
         let shape_val = self.eval_expr(&args[1])?;
-        let new_shape = extract_shape!(shape_val);
+        let new_shape = extract_shape!(self, shape_val);
 
         Ok(match tensor_val {
             Value::TensorF16(tensor) => {
@@ -416,8 +430,8 @@ impl Interpreter {
         let dim = match dim_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
-            Value::TensorF32(ref t) if t.numel() == 1 => t.to_vec()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.tensor_f16_to_scalar(t)? as usize,
+            Value::TensorF32(ref t) if t.numel() == 1 => self.tensor_f32_to_scalar(t)? as usize,
             _ => return Err(RuntimeError::TypeError(
                 format!("concat() expects dim as scalar, got {:?}", dim_val)
             )),
@@ -1511,5 +1525,25 @@ impl Interpreter {
                 "split() expects a tensor".to_string()
             ))
         }
+    }
+
+    /// Helper: Extract scalar f32 value from 1-element f32 tensor using GPU
+    pub(super) fn tensor_f32_to_scalar(&self, tensor: &Tensor<f32>) -> RuntimeResult<f32> {
+        if tensor.numel() != 1 {
+            return Err(RuntimeError::InvalidOperation(
+                format!("Expected 1-element tensor, got {} elements", tensor.numel())
+            ));
+        }
+        self.read_element_f32(tensor, 0)
+    }
+
+    /// Helper: Extract scalar f32 value from 1-element f16 tensor using GPU
+    pub(super) fn tensor_f16_to_scalar(&self, tensor: &Tensor<half::f16>) -> RuntimeResult<f32> {
+        if tensor.numel() != 1 {
+            return Err(RuntimeError::InvalidOperation(
+                format!("Expected 1-element tensor, got {} elements", tensor.numel())
+            ));
+        }
+        self.read_element_f16(tensor, 0)
     }
 }

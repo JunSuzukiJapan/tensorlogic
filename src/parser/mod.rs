@@ -1449,6 +1449,15 @@ impl TensorLogicParser {
             Rule::control_flow => {
                 Self::parse_control_flow(inner).map(Statement::ControlFlow)
             }
+            Rule::block_statement => {
+                let statements: Result<Vec<_>, _> = inner
+                    .into_inner()
+                    .map(Self::parse_statement)
+                    .collect();
+                Ok(Statement::Block {
+                    statements: statements?,
+                })
+            }
             _ => Err(ParseError::UnexpectedRule {
                 expected: "statement type".to_string(),
                 found: format!("{:?}", inner.as_rule()),

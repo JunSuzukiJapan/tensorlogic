@@ -77,6 +77,7 @@ impl<T: FloatType> Tensor<T> {
         batch_size: usize,
         feature_size: usize,
     ) -> TensorResult<Tensor> {
+        panic!("src/ops/batch_norm.rs:72:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(

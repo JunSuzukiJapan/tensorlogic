@@ -66,14 +66,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn concat_metal(tensors: &[&Tensor<T>], dim: usize, output_shape: Vec<usize>) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        let device = match tensors[0].device() {
+        let mut device = match tensors[0].device() {
             Device::Metal(dev) => dev.clone(),
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
@@ -81,18 +74,16 @@ impl<T: FloatType> Tensor<T> {
         // Calculate total number of elements
         let total_elements: usize = output_shape.iter().product();
 
-        // For now, use CPU approach with GPU memory
-        // This copies data to CPU, concatenates, then copies back
-        // TODO: Implement proper Metal kernel for concat
-        let mut result_data = Vec::with_capacity(total_elements);
-
-        // Calculate stride for each dimension
-        let mut strides = vec![1; output_shape.len()];
-        for i in (0..output_shape.len() - 1).rev() {
-            strides[i] = strides[i + 1] * output_shape[i + 1];
+        // Load shader library
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device.load_library(shader_source)?;
         }
 
-        // Concatenate along the specified dimension
+        // Create output buffer
+        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), total_elements)?;
+
+        // Calculate concat parameters
         let chunk_size: usize = if dim + 1 < output_shape.len() {
             output_shape[dim + 1..].iter().product()
         } else {
@@ -103,33 +94,78 @@ impl<T: FloatType> Tensor<T> {
         } else {
             1
         };
+        let output_dim_size = output_shape[dim];
 
-        // Pre-fetch all tensor data to avoid repeated GPU-CPU transfers
-        let tensor_data: Vec<Vec<T>> = tensors.iter().map(|t| t.to_vec()).collect();
+        // Select kernel based on type
+        let kernel_name = format!("concat{}", T::kernel_suffix());
+        let mut executor = crate::device::KernelExecutor::new(device.clone());
+        let pipeline = executor.get_or_compile_pipeline(&kernel_name)?;
 
-        for chunk_idx in 0..num_chunks {
-            for (tensor, data) in tensors.iter().zip(tensor_data.iter()) {
-                let tensor_dim_size = tensor.dims()[dim];
+        // Process each input tensor
+        let mut dim_offset: u32 = 0;
+        for tensor in tensors {
+            let input_buf = tensor.buffer().as_metal()?;
+            let input_dim_size = tensor.dims()[dim] as u32;
 
-                for i in 0..tensor_dim_size {
-                    let start = (chunk_idx * tensor_dim_size + i) * chunk_size;
-                    let end = start + chunk_size;
-                    result_data.extend_from_slice(&data[start..end]);
-                }
-            }
+            let dim_offset_buf = device.metal_device().new_buffer_with_data(
+                &dim_offset as *const u32 as *const _,
+                std::mem::size_of::<u32>() as u64,
+                metal::MTLResourceOptions::StorageModeShared,
+            );
+            let input_dim_size_buf = device.metal_device().new_buffer_with_data(
+                &input_dim_size as *const u32 as *const _,
+                std::mem::size_of::<u32>() as u64,
+                metal::MTLResourceOptions::StorageModeShared,
+            );
+            let output_dim_size_buf = device.metal_device().new_buffer_with_data(
+                &(output_dim_size as u32) as *const u32 as *const _,
+                std::mem::size_of::<u32>() as u64,
+                metal::MTLResourceOptions::StorageModeShared,
+            );
+            let chunk_size_buf = device.metal_device().new_buffer_with_data(
+                &(chunk_size as u32) as *const u32 as *const _,
+                std::mem::size_of::<u32>() as u64,
+                metal::MTLResourceOptions::StorageModeShared,
+            );
+            let num_chunks_buf = device.metal_device().new_buffer_with_data(
+                &(num_chunks as u32) as *const u32 as *const _,
+                std::mem::size_of::<u32>() as u64,
+                metal::MTLResourceOptions::StorageModeShared,
+            );
+
+            let command_buffer = device.command_queue().new_command_buffer();
+            let encoder = command_buffer.new_compute_command_encoder();
+
+            encoder.set_compute_pipeline_state(&pipeline);
+            encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+            encoder.set_buffer(1, Some(&output_buf.buffer), 0);
+            encoder.set_buffer(2, Some(&dim_offset_buf), 0);
+            encoder.set_buffer(3, Some(&input_dim_size_buf), 0);
+            encoder.set_buffer(4, Some(&output_dim_size_buf), 0);
+            encoder.set_buffer(5, Some(&chunk_size_buf), 0);
+            encoder.set_buffer(6, Some(&num_chunks_buf), 0);
+
+            let total_input_elements = (num_chunks * input_dim_size as usize * chunk_size) as u64;
+            let grid_size = metal::MTLSize::new(total_input_elements, 1, 1);
+            let threadgroup_size = metal::MTLSize::new(256.min(total_input_elements), 1, 1);
+
+            encoder.dispatch_threads(grid_size, threadgroup_size);
+            encoder.end_encoding();
+            command_buffer.commit();
+            command_buffer.wait_until_completed();
+
+            dim_offset += input_dim_size;
         }
 
-        // Write data to Metal buffer
-        let metal_buf = MetalBuffer::from_slice(device.metal_device(), &result_data)?;
-
         Tensor::new(
-            BufferHandle::Metal(metal_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(output_buf) }),
             output_shape.into(),
             Device::Metal(device),
         )
     }
 
     fn concat_cpu(tensors: &[&Tensor<T>], dim: usize, output_shape: Vec<usize>) -> TensorResult<Self> {
+        panic!("src/ops/tensor_ops.rs:132:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -214,19 +250,88 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn permute_metal(&self, dims: &[usize]) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
+        let input_buf = self.buffer().as_metal()?;
+        let input_shape = self.dims();
+
+        // Calculate output shape
+        let output_shape: Vec<usize> = dims.iter().map(|&i| input_shape[i]).collect();
+        let total_elements: usize = output_shape.iter().product();
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        // Load shader library
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device.load_library(shader_source)?;
         }
 
-        // For now, use CPU implementation with GPU memory
-        // TODO: Implement proper Metal kernel for permute
-        self.permute_cpu(dims)
+        // Create output buffer
+        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), total_elements)?;
+
+        // Select kernel based on type
+        let kernel_name = format!("permute{}", T::kernel_suffix());
+
+        let mut executor = crate::device::KernelExecutor::new(device.clone());
+        let pipeline = executor.get_or_compile_pipeline(&kernel_name)?;
+
+        // Prepare shape and permutation buffers
+        let input_shape_u32: Vec<u32> = input_shape.iter().map(|&x| x as u32).collect();
+        let output_shape_u32: Vec<u32> = output_shape.iter().map(|&x| x as u32).collect();
+        let perm_u32: Vec<u32> = dims.iter().map(|&x| x as u32).collect();
+        let ndim_u32 = input_shape.len() as u32;
+
+        let input_shape_buf = device.metal_device().new_buffer_with_data(
+            input_shape_u32.as_ptr() as *const _,
+            (input_shape_u32.len() * std::mem::size_of::<u32>()) as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+        let output_shape_buf = device.metal_device().new_buffer_with_data(
+            output_shape_u32.as_ptr() as *const _,
+            (output_shape_u32.len() * std::mem::size_of::<u32>()) as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+        let perm_buf = device.metal_device().new_buffer_with_data(
+            perm_u32.as_ptr() as *const _,
+            (perm_u32.len() * std::mem::size_of::<u32>()) as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+        let ndim_buf = device.metal_device().new_buffer_with_data(
+            &ndim_u32 as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&output_buf.buffer), 0);
+        encoder.set_buffer(2, Some(&input_shape_buf), 0);
+        encoder.set_buffer(3, Some(&output_shape_buf), 0);
+        encoder.set_buffer(4, Some(&perm_buf), 0);
+        encoder.set_buffer(5, Some(&ndim_buf), 0);
+
+        let grid_size = metal::MTLSize::new(total_elements as u64, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(256.min(total_elements as u64), 1, 1);
+
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        Tensor::new(
+            BufferHandle::Metal(unsafe { std::mem::transmute(output_buf) }),
+            output_shape.into(),
+            self.device().clone(),
+        )
     }
 
     fn permute_cpu(&self, dims: &[usize]) -> TensorResult<Self> {
+        panic!("src/ops/tensor_ops.rs:229:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(

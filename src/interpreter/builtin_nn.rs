@@ -547,26 +547,25 @@ impl Interpreter {
                     }
                 }
 
-                // Get table data
-                let table_data = table.to_vec();
-
-                // Build output: [seq_len, emb_dim]
                 let seq_len = token_data.len();
-                let mut output_data = Vec::with_capacity(seq_len * emb_dim);
 
-                for &token_id in &token_data {
-                    let row_start = (token_id as usize) * emb_dim;
-                    let row_end = row_start + emb_dim;
-                    output_data.extend_from_slice(&table_data[row_start..row_end]);
-                }
-
-                // Create result tensor on same device as table
+                // Check if on Metal device - use GPU implementation if available
                 let result = match table.device() {
                     crate::device::Device::Metal(metal_device) => {
-                        Tensor::from_vec_metal(metal_device, output_data, vec![seq_len, emb_dim])
-                            .map_err(|e| RuntimeError::TensorError(e))?
+                        // GPU implementation
+                        self.embedding_lookup_metal_f32(&table, &token_data, metal_device, vocab_size, emb_dim, seq_len)?
                     }
                     _ => {
+                        // CPU fallback
+                        let table_data = table.to_vec();
+                        let mut output_data = Vec::with_capacity(seq_len * emb_dim);
+
+                        for &token_id in &token_data {
+                            let row_start = (token_id as usize) * emb_dim;
+                            let row_end = row_start + emb_dim;
+                            output_data.extend_from_slice(&table_data[row_start..row_end]);
+                        }
+
                         Tensor::from_vec(output_data, vec![seq_len, emb_dim])
                             .map_err(|e| RuntimeError::TensorError(e))?
                     }
@@ -578,5 +577,82 @@ impl Interpreter {
                 "embedding() first argument must be tensor (f16 or f32)".to_string()
             ))
         }
+    }
+
+    /// Metal GPU implementation of embedding lookup (f32)
+    fn embedding_lookup_metal_f32(
+        &mut self,
+        table: &crate::tensor::Tensor<f32>,
+        token_ids: &[i64],
+        metal_device: &crate::device::MetalDevice,
+        vocab_size: usize,
+        emb_dim: usize,
+        seq_len: usize,
+    ) -> RuntimeResult<crate::tensor::Tensor<f32>> {
+        use crate::device::MetalBuffer;
+        use crate::tensor::{BufferHandle, TensorCreation};
+
+        let mut device = metal_device.clone();
+
+        // Load unified shader library with all kernels
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device.load_library(shader_source)
+                .map_err(|e| RuntimeError::TensorError(e))?;
+        }
+
+        // Get table buffer
+        let table_buf = table.buffer().as_metal()
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        // Create token IDs buffer (convert i64 to i32 for Metal)
+        let token_ids_i32: Vec<i32> = token_ids.iter().map(|&x| x as i32).collect();
+        let token_ids_buf = device.metal_device().new_buffer_with_data(
+            token_ids_i32.as_ptr() as *const _,
+            (token_ids_i32.len() * std::mem::size_of::<i32>()) as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        // Create output buffer
+        let output_numel = seq_len * emb_dim;
+        let output_buf = MetalBuffer::<f32>::new_uninit(device.metal_device(), output_numel)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        // Create embedding_dim buffer
+        let emb_dim_u32 = emb_dim as u32;
+        let emb_dim_buf = device.metal_device().new_buffer_with_data(
+            &emb_dim_u32 as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        // Execute kernel
+        let mut executor = crate::device::KernelExecutor::new(device.clone());
+        let pipeline = executor.get_or_compile_pipeline("embedding_lookup_f32")
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&table_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&token_ids_buf), 0);
+        encoder.set_buffer(2, Some(&output_buf.buffer), 0);
+        encoder.set_buffer(3, Some(&emb_dim_buf), 0);
+
+        let grid_size = metal::MTLSize::new(output_numel as u64, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(256.min(output_numel as u64), 1, 1);
+
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        // Create result tensor
+        crate::tensor::Tensor::new(
+            BufferHandle::Metal(unsafe { std::mem::transmute(output_buf) }),
+            vec![seq_len, emb_dim].into(),
+            crate::device::Device::Metal(device),
+        ).map_err(|e| RuntimeError::TensorError(e))
     }
 }

@@ -109,8 +109,8 @@ impl<T: FloatType> Tensor<T> {
         // Load shaders if not already loaded
         if device.library().is_none() {
             // Load both elementwise and tiled matmul shaders
-            let elementwise_source = include_str!("../../shaders/elementwise.metal");
-            let tiled_source = include_str!("../../shaders/matmul_tiled.metal");
+            let elementwise_source = include_str!("../../shaders/unified.metal");
+            let tiled_source = include_str!("../../shaders/unified.metal");
 
             // Combine shader sources
             let combined_source = format!("{}\n\n{}", elementwise_source, tiled_source);
@@ -192,6 +192,7 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU fallback for matmul
     fn matmul_cpu(&self, other: &Tensor<T>, m: usize, k: usize, n: usize) -> TensorResult<Self> {
+        panic!("src/ops/matmul.rs:194:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(

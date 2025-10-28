@@ -115,7 +115,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Load shader if not already loaded
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/normalization.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -201,6 +201,7 @@ impl<T: FloatType> Tensor<T> {
         weight: &Tensor<T>,
         eps: f32,
     ) -> TensorResult<Self> {
+        panic!("src/ops/normalization.rs:198:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -354,7 +355,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Load shader if not already loaded
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/normalization.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -460,6 +461,7 @@ impl<T: FloatType> Tensor<T> {
         bias: Option<&Tensor>,
         eps: f32,
     ) -> TensorResult<Self> {
+        panic!("src/ops/normalization.rs:456:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(

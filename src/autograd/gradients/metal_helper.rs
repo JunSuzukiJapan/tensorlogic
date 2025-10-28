@@ -32,7 +32,7 @@ pub fn execute_simple_metal_gradient(
 
     // シェーダーライブラリをロード
     if device.library().is_none() {
-        let shader_source = include_str!("../../../shaders/gradients.metal");
+        let shader_source = include_str!("../../../shaders/unified.metal");
         device.load_library(shader_source)?;
     }
 
@@ -114,7 +114,7 @@ pub fn execute_parametric_metal_gradient(
 
     // シェーダーライブラリをロード
     if device.library().is_none() {
-        let shader_source = include_str!("../../../shaders/gradients.metal");
+        let shader_source = include_str!("../../../shaders/unified.metal");
         device.load_library(shader_source)?;
     }
 

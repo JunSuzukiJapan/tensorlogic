@@ -364,6 +364,12 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
             // No sub-expressions to visit
             Ok(())
         }
+        Statement::Block { statements } => {
+            for stmt in statements {
+                visitor.visit_statement(stmt)?;
+            }
+            Ok(())
+        }
         Statement::Break => {
             // No sub-expressions to visit
             Ok(())

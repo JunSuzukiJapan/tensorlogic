@@ -37,7 +37,7 @@ pub(crate) fn execute_unary_metal_op<T: FloatType>(
 
     // Load shader library if not already loaded
     if device.library().is_none() {
-        let shader_source = include_str!("../../shaders/elementwise.metal");
+        let shader_source = include_str!("../../shaders/unified.metal");
         device.load_library(shader_source)?;
     }
 
@@ -121,7 +121,7 @@ pub(crate) fn execute_binary_metal_op<T: FloatType>(
 
     // Load shader library if not already loaded
     if device.library().is_none() {
-        let shader_source = include_str!("../../shaders/elementwise.metal");
+        let shader_source = include_str!("../../shaders/unified.metal");
         device.load_library(shader_source)?;
     }
 

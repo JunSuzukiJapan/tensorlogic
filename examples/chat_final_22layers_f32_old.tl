@@ -93,33 +93,33 @@ main {
     let tokenizer = load_tokenizer(home + "/.llm/tokenizers/tinyllama-tokenizer.json")
 
     // Load embeddings
-    let tok_embd = model.token_embd.weight
-    let output_norm = model.output_norm.weight
-    let output = model.output.weight
+    let tok_embd = get_tensor(model, "token_embd.weight")
+    let output_norm = get_tensor(model, "output_norm.weight")
+    let output = get_tensor(model, "output.weight")
 
     print("      Loading 22 layers...")
 
     // Layer 0
-    let layer_0_attn_norm = model.blk[0].attn_norm.weight
-    let layer_0_q = model.blk[0].attn_q.weight
-    let layer_0_k = model.blk[0].attn_k.weight
-    let layer_0_v = model.blk[0].attn_v.weight
-    let layer_0_o = model.blk[0].attn_output.weight
-    let layer_0_ffn_norm = model.blk[0].ffn_norm.weight
-    let layer_0_gate = model.blk[0].ffn_gate.weight
-    let layer_0_up = model.blk[0].ffn_up.weight
-    let layer_0_down = model.blk[0].ffn_down.weight
+    let layer_0_attn_norm = get_tensor(model, "blk.0.attn_norm.weight")
+    let layer_0_q = get_tensor(model, "blk.0.attn_q.weight")
+    let layer_0_k = get_tensor(model, "blk.0.attn_k.weight")
+    let layer_0_v = get_tensor(model, "blk.0.attn_v.weight")
+    let layer_0_o = get_tensor(model, "blk.0.attn_output.weight")
+    let layer_0_ffn_norm = get_tensor(model, "blk.0.ffn_norm.weight")
+    let layer_0_gate = get_tensor(model, "blk.0.ffn_gate.weight")
+    let layer_0_up = get_tensor(model, "blk.0.ffn_up.weight")
+    let layer_0_down = get_tensor(model, "blk.0.ffn_down.weight")
 
     // Layer 1
-    let layer_1_attn_norm = model.blk[1].attn_norm.weight
-    let layer_1_q = model.blk[1].attn_q.weight
-    let layer_1_k = model.blk[1].attn_k.weight
-    let layer_1_v = model.blk[1].attn_v.weight
-    let layer_1_o = model.blk[1].attn_output.weight
-    let layer_1_ffn_norm = model.blk[1].ffn_norm.weight
-    let layer_1_gate = model.blk[1].ffn_gate.weight
-    let layer_1_up = model.blk[1].ffn_up.weight
-    let layer_1_down = model.blk[1].ffn_down.weight
+    let layer_1_attn_norm = get_tensor(model, "blk.1.attn_norm.weight")
+    let layer_1_q = get_tensor(model, "blk.1.attn_q.weight")
+    let layer_1_k = get_tensor(model, "blk.1.attn_k.weight")
+    let layer_1_v = get_tensor(model, "blk.1.attn_v.weight")
+    let layer_1_o = get_tensor(model, "blk.1.attn_output.weight")
+    let layer_1_ffn_norm = get_tensor(model, "blk.1.ffn_norm.weight")
+    let layer_1_gate = get_tensor(model, "blk.1.ffn_gate.weight")
+    let layer_1_up = get_tensor(model, "blk.1.ffn_up.weight")
+    let layer_1_down = get_tensor(model, "blk.1.ffn_down.weight")
 
     print("      ✓ Loaded 2/22 layers...")
     print("      (Loading remaining 20 layers would make file very long)")

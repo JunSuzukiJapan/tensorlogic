@@ -152,7 +152,7 @@ fn init_kernel_executor() -> Mutex<Option<KernelExecutor>> {
         let mut device = MetalDevice::new()?;
 
         // Load built-in kernels
-        let shader_source = include_str!("../../shaders/elementwise.metal");
+        let shader_source = include_str!("../../shaders/unified.metal");
         device.load_library(shader_source)?;
 
         Ok(KernelExecutor::new(device))
@@ -184,7 +184,7 @@ mod tests {
     fn test_kernel_executor_creation() {
         let mut device = MetalDevice::new().unwrap();
 
-        let shader_source = include_str!("../../shaders/elementwise.metal");
+        let shader_source = include_str!("../../shaders/unified.metal");
         device.load_library(shader_source).unwrap();
 
         let _executor = KernelExecutor::new(device);

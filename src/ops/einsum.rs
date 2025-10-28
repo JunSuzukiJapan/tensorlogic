@@ -71,6 +71,7 @@ impl<T: FloatType> Tensor<T> {
                 }
 
                 // Fallback: Compute on CPU and convert result back to Metal
+                panic!("src/ops/einsum.rs:74:17");
                 let cpu_ops: Vec<_> = operands.iter().map(|t| t.to_cpu()).collect::<Result<_, _>>()?;
                 let cpu_refs: Vec<_> = cpu_ops.iter().collect();
                 let cpu_result = einsum_cpu(equation, &input_specs, &output_spec, &cpu_refs)?;
@@ -78,6 +79,7 @@ impl<T: FloatType> Tensor<T> {
             }
             Device::NeuralEngine => {
                 // Fallback to CPU for Neural Engine
+                panic!("src/ops/einsum.rs:81:17");
                 let cpu_ops: Vec<_> = operands.iter().map(|t| t.to_cpu()).collect::<Result<_, _>>()?;
                 let cpu_refs: Vec<_> = cpu_ops.iter().collect();
                 einsum_cpu(equation, &input_specs, &output_spec, &cpu_refs)
@@ -719,9 +721,9 @@ fn einsum_ihd_jhd_ihj_metal<T: FloatType>(
     let mut device_mut = device.clone();
     if device_mut.library().is_none() {
         // Load all necessary shaders together
-        let elementwise_source = include_str!("../../shaders/elementwise.metal");
-        let matmul_source = include_str!("../../shaders/matmul_tiled.metal");
-        let einsum_source = include_str!("../../shaders/einsum.metal");
+        let elementwise_source = include_str!("../../shaders/unified.metal");
+        let matmul_source = include_str!("../../shaders/unified.metal");
+        let einsum_source = include_str!("../../shaders/unified.metal");
         let combined_source = format!("{}\n\n{}\n\n{}", elementwise_source, matmul_source, einsum_source);
         device_mut.load_library(&combined_source)?;
     }
@@ -818,9 +820,9 @@ fn einsum_ihj_jhd_ihd_metal<T: FloatType>(
     let mut device_mut = device.clone();
     if device_mut.library().is_none() {
         // Load all necessary shaders together
-        let elementwise_source = include_str!("../../shaders/elementwise.metal");
-        let matmul_source = include_str!("../../shaders/matmul_tiled.metal");
-        let einsum_source = include_str!("../../shaders/einsum.metal");
+        let elementwise_source = include_str!("../../shaders/unified.metal");
+        let matmul_source = include_str!("../../shaders/unified.metal");
+        let einsum_source = include_str!("../../shaders/unified.metal");
         let combined_source = format!("{}\n\n{}\n\n{}", elementwise_source, matmul_source, einsum_source);
         device_mut.load_library(&combined_source)?;
     }

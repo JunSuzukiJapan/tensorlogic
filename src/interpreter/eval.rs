@@ -157,34 +157,11 @@ impl Interpreter {
                         }
                     };
 
-                    // Track variables before executing block
-                    let vars_before: HashSet<String> = self.env.variables.keys().cloned().collect();
-
-                    // Execute appropriate block
+                    // Execute appropriate block using centralized function
                     if condition_result {
-                        for stmt in then_block {
-                            // Propagate return statements upward
-                            let result = self.execute_statement(stmt);
-                            if let Err(RuntimeError::ReturnValue(_)) = result {
-                                return result;
-                            }
-                            result?;
-                        }
+                        self.execute_block(then_block, false)?;
                     } else if let Some(else_stmts) = else_block {
-                        for stmt in else_stmts {
-                            // Propagate return statements upward
-                            let result = self.execute_statement(stmt);
-                            if let Err(RuntimeError::ReturnValue(_)) = result {
-                                return result;
-                            }
-                            result?;
-                        }
-                    }
-
-                    // Clean up variables declared in the if/else block
-                    let vars_after: HashSet<String> = self.env.variables.keys().cloned().collect();
-                    for var in vars_after.difference(&vars_before) {
-                        self.env.variables.remove(var);
+                        self.execute_block(else_stmts, false)?;
                     }
 
                     Ok(())
@@ -250,54 +227,33 @@ impl Interpreter {
                     };
 
                     // Execute body for each item
-                    let mut should_break = false;
-                    let mut iteration_vars: HashSet<String> = HashSet::new();
+                    let loop_var_name = variable.as_str().to_string();
 
                     for item in items {
-                        // Clear variables from previous iteration (except loop variable)
-                        for var_name in &iteration_vars {
-                            if var_name != variable.as_str() {
-                                self.env.variables.remove(var_name);
-                            }
-                        }
-                        iteration_vars.clear();
-
                         // Set loop variable
-                        self.env.variables.insert(variable.as_str().to_string(), item);
-                        iteration_vars.insert(variable.as_str().to_string());
+                        self.env.variables.insert(loop_var_name.clone(), item);
 
-                        // Track variables before executing body
+                        // Track variables before body (including loop variable)
                         let vars_before: HashSet<String> = self.env.variables.keys().cloned().collect();
 
-                        for stmt in body {
-                            let result = self.execute_statement(stmt);
-                            match result {
-                                Err(RuntimeError::BreakOutsideLoop) => {
-                                    should_break = true;
-                                    break;
-                                }
-                                Err(RuntimeError::ReturnValue(_)) => {
-                                    return result;
-                                }
-                                Err(e) => return Err(e),
-                                Ok(_) => {}
-                            }
-                        }
+                        // Execute body using centralized function (allows break)
+                        let result = self.execute_block(body, true);
 
-                        // Track new variables declared in this iteration
+                        // Clean up iteration variables (excluding loop variable)
                         let vars_after: HashSet<String> = self.env.variables.keys().cloned().collect();
                         for var in vars_after.difference(&vars_before) {
-                            iteration_vars.insert(var.clone());
+                            self.env.variables.remove(var);
                         }
-                        if should_break {
-                            break;
+
+                        match result {
+                            Err(RuntimeError::BreakOutsideLoop) => break,
+                            Err(e) => return Err(e),
+                            Ok(_) => {}
                         }
                     }
 
-                    // Clean up all variables declared in the loop (including loop variable)
-                    for var_name in &iteration_vars {
-                        self.env.variables.remove(var_name);
-                    }
+                    // Clean up loop variable
+                    self.env.variables.remove(&loop_var_name);
 
                     Ok(())
                 }
@@ -305,9 +261,6 @@ impl Interpreter {
                     condition,
                     body,
                 } => {
-                    // Execute while condition is true
-                    let mut iteration_vars: HashSet<String> = HashSet::new();
-
                     loop {
                         let condition_result = match condition {
                             Condition::Constraint(c) => self.eval_constraint(c)?,
@@ -321,94 +274,24 @@ impl Interpreter {
                             break;
                         }
 
-                        // Clear variables from previous iteration
-                        for var_name in &iteration_vars {
-                            self.env.variables.remove(var_name);
+                        // Execute body using centralized function (allows break)
+                        match self.execute_block(body, true) {
+                            Err(RuntimeError::BreakOutsideLoop) => break,
+                            Err(e) => return Err(e),
+                            Ok(_) => {}
                         }
-                        iteration_vars.clear();
-
-                        // Track variables before executing body
-                        let vars_before: HashSet<String> = self.env.variables.keys().cloned().collect();
-
-                        let mut should_break = false;
-                        for stmt in body {
-                            let result = self.execute_statement(stmt);
-                            match result {
-                                Err(RuntimeError::BreakOutsideLoop) => {
-                                    should_break = true;
-                                    break;
-                                }
-                                Err(RuntimeError::ReturnValue(_)) => {
-                                    // Propagate return upward
-                                    return result;
-                                }
-                                Err(e) => return Err(e),
-                                Ok(_) => {}
-                            }
-                        }
-
-                        // Track new variables declared in this iteration
-                        let vars_after: HashSet<String> = self.env.variables.keys().cloned().collect();
-                        for var in vars_after.difference(&vars_before) {
-                            iteration_vars.insert(var.clone());
-                        }
-
-                        if should_break {
-                            break;
-                        }
-                    }
-
-                    // Clean up all variables declared in the loop
-                    for var_name in &iteration_vars {
-                        self.env.variables.remove(var_name);
                     }
 
                     Ok(())
                 }
                 ControlFlow::Loop { body } => {
-                    let mut iteration_vars: HashSet<String> = HashSet::new();
-
                     loop {
-                        // Clear variables from previous iteration
-                        for var_name in &iteration_vars {
-                            self.env.variables.remove(var_name);
+                        // Execute body using centralized function (allows break)
+                        match self.execute_block(body, true) {
+                            Err(RuntimeError::BreakOutsideLoop) => break,
+                            Err(e) => return Err(e),
+                            Ok(_) => {}
                         }
-                        iteration_vars.clear();
-
-                        // Track variables before executing body
-                        let vars_before: HashSet<String> = self.env.variables.keys().cloned().collect();
-
-                        let mut should_break = false;
-                        for stmt in body {
-                            let result = self.execute_statement(stmt);
-                            match result {
-                                Err(RuntimeError::BreakOutsideLoop) => {
-                                    should_break = true;
-                                    break;
-                                }
-                                Err(RuntimeError::ReturnValue(_)) => {
-                                    // Propagate return upward
-                                    return result;
-                                }
-                                Err(e) => return Err(e),
-                                Ok(_) => {}
-                            }
-                        }
-
-                        // Track new variables declared in this iteration
-                        let vars_after: HashSet<String> = self.env.variables.keys().cloned().collect();
-                        for var in vars_after.difference(&vars_before) {
-                            iteration_vars.insert(var.clone());
-                        }
-
-                        if should_break {
-                            break;
-                        }
-                    }
-
-                    // Clean up all variables declared in the loop
-                    for var_name in &iteration_vars {
-                        self.env.variables.remove(var_name);
                     }
 
                     Ok(())
@@ -584,6 +467,9 @@ impl Interpreter {
             Statement::Learning(spec) => {
                 // Learning execution with detailed progress display
                 self.execute_learning(spec)
+            }
+            Statement::Block { statements } => {
+                self.execute_block(statements, false)
             }
             Statement::Break => {
                 Err(RuntimeError::BreakOutsideLoop)
@@ -902,6 +788,48 @@ impl Interpreter {
 
 
     /// Evaluate an expression
+    /// Execute a block of statements with automatic variable cleanup
+    ///
+    /// This is the common function used by all control structures (IF, WHILE, LOOP, FOR, Block)
+    /// to ensure consistent scoping behavior.
+    ///
+    /// Parameters:
+    /// - statements: The statements to execute
+    /// - allow_break: Whether break statements are allowed (true for loops)
+    fn execute_block(&mut self, statements: &[Statement], allow_break: bool) -> RuntimeResult<()> {
+        // Track variables before executing block
+        let vars_before: HashSet<String> = self.env.variables.keys().cloned().collect();
+
+        // Execute all statements in the block
+        for stmt in statements {
+            let result = self.execute_statement(stmt);
+            match result {
+                Err(RuntimeError::BreakOutsideLoop) if allow_break => {
+                    // Clean up block variables before breaking
+                    let vars_after: HashSet<String> = self.env.variables.keys().cloned().collect();
+                    for var in vars_after.difference(&vars_before) {
+                        self.env.variables.remove(var);
+                    }
+                    return Err(RuntimeError::BreakOutsideLoop);
+                }
+                Err(RuntimeError::ReturnValue(_)) => {
+                    // Propagate return upward (clean up will happen in caller)
+                    return result;
+                }
+                Err(e) => return Err(e),
+                Ok(_) => {}
+            }
+        }
+
+        // Clean up variables declared in the block
+        let vars_after: HashSet<String> = self.env.variables.keys().cloned().collect();
+        for var in vars_after.difference(&vars_before) {
+            self.env.variables.remove(var);
+        }
+
+        Ok(())
+    }
+
     pub(super) fn eval_expr(&mut self, expr: &TensorExpr) -> RuntimeResult<Value> {
         match expr {
             TensorExpr::Variable(id) => {

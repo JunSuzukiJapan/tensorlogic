@@ -72,7 +72,7 @@ impl<T: FloatType> Tensor<T> {
         };
 
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/elementwise.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -91,6 +91,7 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU fallback for ReLU
     fn relu_cpu(&self) -> TensorResult<Self> {
+        panic!("src/ops/activations.rs:93:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -145,7 +146,7 @@ impl<T: FloatType> Tensor<T> {
         };
 
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/elementwise.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -164,6 +165,7 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU fallback for GELU
     fn gelu_cpu(&self) -> TensorResult<Self> {
+        panic!("src/ops/activations.rs:166:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -251,7 +253,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Load shader if not already loaded
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/softmax.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -327,6 +329,7 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of softmax
     fn softmax_cpu(&self) -> TensorResult<Self> {
+        panic!("src/ops/activations.rs:329:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -419,6 +422,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sigmoid_cpu(&self) -> TensorResult<Self> {
+        panic!("src/ops/activations.rs:421:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -450,6 +454,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn tanh_cpu(&self) -> TensorResult<Self> {
+        panic!("src/ops/activations.rs:452:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(

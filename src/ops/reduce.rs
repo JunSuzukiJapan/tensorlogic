@@ -27,7 +27,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Load reduction shaders
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/reductions.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -84,6 +84,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sum_cpu(&self) -> TensorResult<T> {
+        panic!("src/ops/reduce.rs:86:5");
         let data = self.to_vec();
         let mut sum = T::zero();
         for &val in &data {
@@ -100,7 +101,10 @@ impl<T: FloatType> Tensor<T> {
 
         match self.device() {
             Device::Metal(_) => self.sum_dim_metal(dim, keepdim),
-            Device::NeuralEngine => self.to_cpu()?.sum_dim_cpu(dim, keepdim),
+            Device::NeuralEngine => {
+                panic!("src/ops/reduce.rs:103:13");
+                self.to_cpu()?.sum_dim_cpu(dim, keepdim)
+            },
             Device::CPU => self.sum_dim_cpu(dim, keepdim),
         }
     }
@@ -123,7 +127,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Load reduction shaders
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/reductions.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -180,6 +184,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sum_dim_cpu(&self, dim: usize, keepdim: bool) -> TensorResult<Self> {
+        panic!("src/ops/reduce.rs:185:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -270,7 +275,10 @@ impl<T: FloatType> Tensor<T> {
 
         match self.device() {
             Device::Metal(_) => self.mean_dim_metal(dim, keepdim),
-            Device::NeuralEngine => self.to_cpu()?.mean_dim_cpu(dim, keepdim),
+            Device::NeuralEngine => {
+                panic!("src/ops/reduce.rs:273:13");
+                self.to_cpu()?.mean_dim_cpu(dim, keepdim)
+            },
             Device::CPU => self.mean_dim_cpu(dim, keepdim),
         }
     }
@@ -293,7 +301,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Load reduction shaders
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/reductions.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -349,6 +357,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn mean_dim_cpu(&self, dim: usize, keepdim: bool) -> TensorResult<Self> {
+        panic!("src/ops/reduce.rs:359:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -375,7 +384,10 @@ impl<T: FloatType> Tensor<T> {
     pub fn max(&self) -> TensorResult<T> {
         match self.device() {
             Device::Metal(_) => self.max_metal(),
-            Device::NeuralEngine => self.to_cpu()?.max_cpu(),
+            Device::NeuralEngine => {
+                panic!("src/ops/reduce.rs:378:13");
+                self.to_cpu()?.max_cpu()
+            },
             Device::CPU => self.max_cpu(),
         }
     }
@@ -404,7 +416,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Load reduction shaders
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/reductions.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -449,6 +461,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn max_cpu(&self) -> TensorResult<T> {
+        panic!("src/ops/reduce.rs:462:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -476,7 +489,10 @@ impl<T: FloatType> Tensor<T> {
     pub fn min(&self) -> TensorResult<T> {
         match self.device() {
             Device::Metal(_) => self.min_metal(),
-            Device::NeuralEngine => self.to_cpu()?.min_cpu(),
+            Device::NeuralEngine => {
+                panic!("src/ops/reduce.rs:479:13");
+                self.to_cpu()?.min_cpu()
+            },
             Device::CPU => self.min_cpu(),
         }
     }
@@ -505,7 +521,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Load reduction shaders
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/reductions.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
@@ -550,6 +566,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn min_cpu(&self) -> TensorResult<T> {
+        panic!("src/ops/reduce.rs:566:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
