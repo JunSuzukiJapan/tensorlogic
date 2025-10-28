@@ -32,7 +32,6 @@ fn attention_with_cache(
 
     let K_heads = reshape(K_cache, [cache_len_f, 4.0, 64.0])
     let K_rope = rope(K_heads)
-    let K_rope = rope(K_heads)
     let V_heads = reshape(V_cache, [cache_len_f, 4.0, 64.0])
 
     let K_exp = reshape(K_rope, [cache_len_f, 4.0, 1.0, 64.0])

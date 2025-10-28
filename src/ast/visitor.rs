@@ -199,7 +199,7 @@ pub fn walk_tensor_expr<V: Visitor>(visitor: &mut V, expr: &TensorExpr) -> Resul
             }
             Ok(())
         }
-        TensorExpr::FunctionCall { name, args } => {
+        TensorExpr::FunctionCall { type_namespace, name, args } => {
             visitor.visit_identifier(name)?;
             for arg in args {
                 visitor.visit_tensor_expr(arg)?;

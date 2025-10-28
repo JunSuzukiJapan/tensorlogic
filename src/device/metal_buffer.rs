@@ -156,13 +156,8 @@ impl<T: FloatType> MetalBuffer<T> {
     }
 }
 
-// Backward compatibility and pool methods for f16
+// Pool methods for f16 only
 impl MetalBuffer<f16> {
-    /// Create a new Metal buffer from f16 slice (backward compatibility)
-    pub fn from_f16_slice(device: &MTLDevice, data: &[f16]) -> TensorResult<Self> {
-        Self::from_slice(device, data)
-    }
-
     /// Create a new uninitialized Metal buffer from pool (f16 only)
     pub fn new_uninit_pooled(pool: &BufferPool, length: usize) -> TensorResult<Self> {
         pool.allocate(length)
@@ -200,7 +195,7 @@ mod tests {
         let device = get_test_device();
         let data = vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)];
 
-        let buffer = MetalBuffer::<f16>::from_f16_slice(&device, &data).unwrap();
+        let buffer = MetalBuffer::<f16>::from_slice(&device, &data).unwrap();
         assert_eq!(buffer.len(), 3);
 
         let read_data = buffer.to_vec();
@@ -256,7 +251,7 @@ mod tests {
         let shape = vec![2, 2];
 
         // Create Metal buffer
-        let metal_buffer = MetalBuffer::<f16>::from_f16_slice(&device, &data).unwrap();
+        let metal_buffer = MetalBuffer::<f16>::from_slice(&device, &data).unwrap();
 
         // Convert to Neural Engine
         let ne_buffer = metal_buffer.to_neural_engine(&shape).unwrap();
@@ -282,7 +277,7 @@ mod tests {
         let shape = vec![3];
 
         // Metal -> Neural Engine -> Metal
-        let metal1 = MetalBuffer::<f16>::from_f16_slice(&device, &original_data).unwrap();
+        let metal1 = MetalBuffer::<f16>::from_slice(&device, &original_data).unwrap();
         let ne_buffer = metal1.to_neural_engine(&shape).unwrap();
         let metal2 = ne_buffer.to_metal_buffer(&device).unwrap();
 

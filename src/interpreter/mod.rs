@@ -726,7 +726,7 @@ impl Interpreter {
             }
             Statement::FunctionCall { name, args } => {
                 // Function call result can be implicitly returned
-                let value = self.eval_function_call(name, args)?;
+                let value = self.eval_function_call(None, name, args)?;
                 Ok(Some(value))
             }
             // All other statement types: execute and return None
@@ -891,9 +891,72 @@ impl Interpreter {
         Ok(())
     }
 
+    /// Evaluate typed function call (e.g., f32::zeros, f16::ones)
+    fn eval_typed_function_call(&mut self, type_namespace: &str, name: &str, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+        use half::f16;
+
+        match type_namespace {
+            "f32" => {
+                // f32-specific function calls
+                match name {
+                    "zeros" => self.eval_zeros_f32(args),
+                    "ones" => self.eval_ones_f32(args),
+                    "arange" => self.eval_range_f32(args),
+                    // Most tensor operations already support both f16/f32, so we can call them directly
+                    _ => {
+                        // Try calling the function normally - it should handle f32 tensors
+                        if let Some(result) = self.eval_tensor_function(name, args) {
+                            result
+                        } else if let Some(result) = self.eval_math_function(name, args) {
+                            result
+                        } else if let Some(result) = self.eval_nn_function(name, args) {
+                            result
+                        } else {
+                            Err(RuntimeError::TypeError(
+                                format!("f32::{} is not implemented", name)
+                            ))
+                        }
+                    }
+                }
+            }
+            "f16" => {
+                // f16-specific function calls
+                match name {
+                    "zeros" => self.eval_zeros_f16(args),
+                    "ones" => self.eval_ones_f16(args),
+                    "arange" => self.eval_range_f16(args),
+                    // Most tensor operations already support both f16/f32, so we can call them directly
+                    _ => {
+                        // Try calling the function normally - it should handle f16 tensors
+                        if let Some(result) = self.eval_tensor_function(name, args) {
+                            result
+                        } else if let Some(result) = self.eval_math_function(name, args) {
+                            result
+                        } else if let Some(result) = self.eval_nn_function(name, args) {
+                            result
+                        } else {
+                            Err(RuntimeError::TypeError(
+                                format!("f16::{} is not implemented", name)
+                            ))
+                        }
+                    }
+                }
+            }
+            _ => Err(RuntimeError::TypeError(
+                format!("Unknown type namespace: {}", type_namespace)
+            ))
+        }
+    }
+
     /// Execute a statement
-    fn eval_function_call(&mut self, name: &Identifier, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    fn eval_function_call(&mut self, type_namespace: Option<&str>, name: &Identifier, args: &[TensorExpr]) -> RuntimeResult<Value> {
         let name_str = name.as_str();
+
+        // If type namespace is specified (e.g., f32::zeros), handle typed function call
+        if let Some(type_ns) = type_namespace {
+            return self.eval_typed_function_call(type_ns, name_str, args);
+        }
 
         // Try dispatching to category-specific builtin modules
         // Each returns Option<RuntimeResult<Value>>: Some if handled, None if not in that category

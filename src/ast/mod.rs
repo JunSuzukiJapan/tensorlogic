@@ -305,6 +305,7 @@ pub enum TensorExpr {
     },
     /// Function call
     FunctionCall {
+        type_namespace: Option<String>,
         name: Identifier,
         args: Vec<TensorExpr>,
     },

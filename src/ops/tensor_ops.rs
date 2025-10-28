@@ -93,12 +93,22 @@ impl<T: FloatType> Tensor<T> {
         }
 
         // Concatenate along the specified dimension
-        let chunk_size: usize = output_shape[dim + 1..].iter().product();
-        let num_chunks: usize = output_shape[..dim].iter().product();
+        let chunk_size: usize = if dim + 1 < output_shape.len() {
+            output_shape[dim + 1..].iter().product()
+        } else {
+            1
+        };
+        let num_chunks: usize = if dim > 0 {
+            output_shape[..dim].iter().product()
+        } else {
+            1
+        };
+
+        // Pre-fetch all tensor data to avoid repeated GPU-CPU transfers
+        let tensor_data: Vec<Vec<T>> = tensors.iter().map(|t| t.to_vec()).collect();
 
         for chunk_idx in 0..num_chunks {
-            for tensor in tensors {
-                let data = tensor.to_vec();
+            for (tensor, data) in tensors.iter().zip(tensor_data.iter()) {
                 let tensor_dim_size = tensor.dims()[dim];
 
                 for i in 0..tensor_dim_size {

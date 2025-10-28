@@ -92,7 +92,7 @@ main {
     let home = env("HOME")
     let model_path = home + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf"
     let tokenizer_path = home + "/.llm/tokenizers/tinyllama-tokenizer.json"
-    let model = load_model(model_path)
+    let model = load_model_f32(model_path)
     let tokenizer = load_tokenizer(tokenizer_path)
     print("      ✓ Model and tokenizer loaded")
     print("")

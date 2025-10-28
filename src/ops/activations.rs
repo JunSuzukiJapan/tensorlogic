@@ -257,6 +257,12 @@ impl<T: FloatType> Tensor<T> {
 
         // Choose kernel based on last_dim size and type
         let suffix = T::kernel_suffix();
+
+        // DEBUG: Panic if f16 kernel selected
+        if suffix == "_f16" {
+            panic!("src/ops/activations.rs:263: f16 kernel selected for softmax");
+        }
+
         let kernel_name = if last_dim <= 256 {
             format!("softmax_simple{}", suffix)
         } else {

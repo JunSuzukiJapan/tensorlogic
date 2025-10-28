@@ -7,6 +7,120 @@ use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO, Tensor
 use crate::error::TensorError;
 use half::f16;
 
+/// Helper macro for extracting shape from tensor value
+macro_rules! extract_shape {
+    ($value:expr) => {
+        match $value {
+            Value::TensorF32(ref t) => {
+                t.to_vec().iter().map(|&v| v as usize).collect::<Vec<_>>()
+            }
+            Value::TensorF16(ref t) => {
+                t.to_vec_f32().iter().map(|&v| v as usize).collect::<Vec<_>>()
+            }
+            _ => return Err(RuntimeError::TypeError(
+                format!("Expected shape as tensor array")
+            ))
+        }
+    };
+}
+
+/// Helper macro for creating typed zeros/ones tensors
+macro_rules! impl_tensor_fill {
+    ($fn_name:ident, $type:ty, $value_variant:ident, $fill_value:expr, $op_name:expr) => {
+        pub(super) fn $fn_name(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value>
+        {
+            if args.len() != 1 {
+                return Err(RuntimeError::TypeError(
+                    format!("{}() expects 1 argument (shape array), got {}", $op_name, args.len())
+                ));
+            }
+
+            let shape_val = self.eval_expr(&args[0])?;
+            let device = self.env.metal_device();
+            let shape = extract_shape!(shape_val);
+
+            let numel: usize = shape.iter().product();
+            let data = vec![$fill_value; numel];
+            let tensor = Tensor::<$type>::from_vec_metal(device, data, shape)
+                .map_err(|e| RuntimeError::TensorError(e))?;
+
+            Ok(Value::$value_variant(tensor))
+        }
+    };
+}
+
+/// Helper macro for creating typed arange tensors
+macro_rules! impl_arange {
+    ($fn_name:ident, $type:ty, $value_variant:ident, $convert_fn:expr) => {
+        pub(super) fn $fn_name(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value>
+        {
+            let (start, end) = match args.len() {
+                1 => {
+                    // arange(n) form
+                    let end_val = self.eval_expr(&args[0])?;
+                    let end = match end_val {
+                        Value::Float(f) => f as i32,
+                        Value::Integer(i) => i as i32,
+                        Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as i32,
+                        Value::TensorF32(ref t) if t.numel() == 1 => t.to_vec()[0] as i32,
+                        _ => return Err(RuntimeError::TypeError(
+                            "arange() expects scalar end value".to_string()
+                        )),
+                    };
+                    (0, end)
+                }
+                2 => {
+                    // arange(start, end) form
+                    let start_val = self.eval_expr(&args[0])?;
+                    let end_val = self.eval_expr(&args[1])?;
+
+                    let start = match start_val {
+                        Value::Float(f) => f as i32,
+                        Value::Integer(i) => i as i32,
+                        Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as i32,
+                        Value::TensorF32(ref t) if t.numel() == 1 => t.to_vec()[0] as i32,
+                        _ => return Err(RuntimeError::TypeError(
+                            "arange() expects scalar start value".to_string()
+                        )),
+                    };
+
+                    let end = match end_val {
+                        Value::Float(f) => f as i32,
+                        Value::Integer(i) => i as i32,
+                        Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as i32,
+                        Value::TensorF32(ref t) if t.numel() == 1 => t.to_vec()[0] as i32,
+                        _ => return Err(RuntimeError::TypeError(
+                            "arange() expects scalar end value".to_string()
+                        )),
+                    };
+
+                    (start, end)
+                }
+                _ => return Err(RuntimeError::TypeError(
+                    format!("arange() expects 1 or 2 arguments, got {}", args.len())
+                )),
+            };
+
+            if end <= start {
+                return Err(RuntimeError::TypeError(
+                    format!("arange() requires end ({}) > start ({})", end, start)
+                ));
+            }
+
+            // Create sequence [start, start+1, ..., end-1]
+            let count = (end - start) as usize;
+            let data: Vec<$type> = (start..end).map(|i| $convert_fn(i)).collect();
+
+            // Create 1D tensor on Metal device
+            let device = self.env.metal_device();
+            let tensor = Tensor::<$type>::from_vec_metal(device, data, vec![count])
+                .map_err(|e| RuntimeError::TensorError(e))?;
+
+            Ok(Value::$value_variant(tensor))
+        }
+    };
+}
+
 impl Interpreter {
     pub(super) fn eval_tensor_function(&mut self, name: &str, args: &[TensorExpr]) -> Option<RuntimeResult<Value>> {
         match name {
@@ -36,6 +150,7 @@ impl Interpreter {
 
             // Tensor shape operations
             "zeros" => Some(self.eval_zeros(args)),
+            "arange" => Some(self.eval_range(args)),
             "flatten" => Some(self.eval_flatten(args)),
             "squeeze" => Some(self.eval_squeeze(args)),
             "unsqueeze" => Some(self.eval_unsqueeze(args)),
@@ -109,6 +224,7 @@ impl Interpreter {
 
     /// ones(shape) -> tensor
     /// Creates a tensor filled with ones
+    /// Returns f32 tensor if shape is f32 array, f16 tensor if shape is f16 array
     fn eval_ones(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
@@ -119,30 +235,33 @@ impl Interpreter {
         // Evaluate shape argument - should be an array literal like [4, 2048]
         let shape_val = self.eval_expr(&args[0])?;
 
-        // Extract shape from array literal
-        let shape = match shape_val {
-            Value::TensorF16(ref t) => {
-                // Extract the values and convert to usize
-                let data = t.to_vec_f32();
-                data.iter().map(|&v| v as usize).collect::<Vec<_>>()
-            }
-            _ => return Err(RuntimeError::TypeError(
-                format!("ones() expects shape as array, got {:?}", shape_val)
-            )),
-        };
-
-        // Calculate total number of elements
-        let numel: usize = shape.iter().product();
-
-        // Create vector filled with ones
-        let data = vec![f16::ONE; numel];
-
-        // Create tensor on Metal device
+        // Extract shape and determine precision from array literal
         let device = self.env.metal_device();
-        let tensor = Tensor::from_vec_metal(device, data, shape)
-            .map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(tensor))
+        match shape_val {
+            Value::TensorF32(ref t) => {
+                // f32 shape array -> create f32 ones tensor
+                let data = t.to_vec();
+                let shape = data.iter().map(|&v| v as usize).collect::<Vec<_>>();
+                let numel: usize = shape.iter().product();
+                let ones_data = vec![1.0f32; numel];
+                let tensor = Tensor::from_vec_metal(device, ones_data, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(tensor))
+            }
+            Value::TensorF16(ref t) => {
+                // f16 shape array -> create f16 ones tensor
+                let data = t.to_vec_f32();
+                let shape = data.iter().map(|&v| v as usize).collect::<Vec<_>>();
+                let numel: usize = shape.iter().product();
+                let ones_data = vec![f16::ONE; numel];
+                let tensor = Tensor::from_vec_metal(device, ones_data, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(tensor))
+            }
+            _ => Err(RuntimeError::TypeError(
+                format!("ones() expects shape as array, got {:?}", shape_val)
+            ))
+        }
     }
 
     /// reshape(tensor, new_shape) -> tensor
@@ -158,21 +277,7 @@ impl Interpreter {
 
         let tensor_val = self.eval_expr(&args[0])?;
         let shape_val = self.eval_expr(&args[1])?;
-
-        // Extract new_shape from shape_val
-        let new_shape = match shape_val {
-            Value::TensorF16(ref t) => {
-                let data = t.to_vec_f32();
-                data.iter().map(|&v| v as usize).collect::<Vec<_>>()
-            }
-            Value::TensorF32(ref t) => {
-                let data = t.to_vec_f32();
-                data.iter().map(|&v| v as usize).collect::<Vec<_>>()
-            }
-            _ => return Err(RuntimeError::TypeError(
-                format!("reshape() expects new_shape as tensor, got {:?}", shape_val)
-            )),
-        };
+        let new_shape = extract_shape!(shape_val);
 
         Ok(match tensor_val {
             Value::TensorF16(tensor) => {
@@ -786,6 +891,7 @@ impl Interpreter {
 
     /// zeros(shape) -> tensor
     /// Creates a tensor filled with zeros
+    /// Returns f32 tensor if shape is f32 array, f16 tensor if shape is f16 array
     fn eval_zeros(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
@@ -796,29 +902,48 @@ impl Interpreter {
         // Evaluate shape argument
         let shape_val = self.eval_expr(&args[0])?;
 
-        // Extract shape from array literal
-        let shape = match shape_val {
-            Value::TensorF16(ref t) => {
-                let data = t.to_vec_f32();
-                data.iter().map(|&v| v as usize).collect::<Vec<_>>()
-            }
-            _ => return Err(RuntimeError::TypeError(
-                format!("zeros() expects shape as array, got {:?}", shape_val)
-            )),
-        };
-
-        // Calculate total number of elements
-        let numel: usize = shape.iter().product();
-
-        // Create vector filled with zeros
-        let data = vec![f16::ZERO; numel];
-
-        // Create tensor on Metal device
+        // Extract shape and determine precision from array literal
         let device = self.env.metal_device();
-        let tensor = Tensor::from_vec_metal(device, data, shape)
-            .map_err(|e| RuntimeError::TensorError(e))?;
+        match shape_val {
+            Value::TensorF32(ref t) => {
+                // f32 shape array -> create f32 zeros tensor
+                let data = t.to_vec();
+                let shape = data.iter().map(|&v| v as usize).collect::<Vec<_>>();
+                let numel: usize = shape.iter().product();
+                let zeros_data = vec![0.0f32; numel];
+                let tensor = Tensor::from_vec_metal(device, zeros_data, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(tensor))
+            }
+            Value::TensorF16(ref t) => {
+                // f16 shape array -> create f16 zeros tensor
+                let data = t.to_vec_f32();
+                let shape = data.iter().map(|&v| v as usize).collect::<Vec<_>>();
+                let numel: usize = shape.iter().product();
+                let zeros_data = vec![f16::ZERO; numel];
+                let tensor = Tensor::from_vec_metal(device, zeros_data, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(tensor))
+            }
+            _ => Err(RuntimeError::TypeError(
+                format!("zeros() expects shape as array, got {:?}", shape_val)
+            ))
+        }
+    }
 
-        Ok(Value::TensorF16(tensor))
+    // Use macro to implement zeros/ones for f32 and f16
+    impl_tensor_fill!(eval_zeros_f32, f32, TensorF32, 0.0f32, "f32::zeros");
+    impl_tensor_fill!(eval_zeros_f16, f16, TensorF16, f16::ZERO, "f16::zeros");
+    impl_tensor_fill!(eval_ones_f32, f32, TensorF32, 1.0f32, "f32::ones");
+    impl_tensor_fill!(eval_ones_f16, f16, TensorF16, f16::ONE, "f16::ones");
+
+    // Use macro to implement arange for f32 and f16
+    impl_arange!(eval_range_f32, f32, TensorF32, |i: i32| i as f32);
+    impl_arange!(eval_range_f16, f16, TensorF16, |i: i32| f16::from_f32(i as f32));
+
+    /// Legacy arange function (calls f32 version for backward compatibility)
+    pub(super) fn eval_range(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        self.eval_range_f32(args)
     }
 
     /// flatten(tensor) -> tensor
@@ -1205,13 +1330,23 @@ impl Interpreter {
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF16(result))
             }
+            (Value::TensorF16(tensor), Value::TensorF32(index)) => {
+                let result = tensor.gather(dim, &index)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(tensor), Value::TensorF16(index)) => {
+                let result = tensor.gather(dim, &index)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
             (Value::TensorF32(tensor), Value::TensorF32(index)) => {
                 let result = tensor.gather(dim, &index)
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF32(result))
             }
             _ => Err(RuntimeError::TypeError(
-                "gather() requires tensor and index of the same type".to_string()
+                "gather() requires tensor and index as tensors (f16 or f32)".to_string()
             ))
         }
     }
@@ -1239,34 +1374,30 @@ impl Interpreter {
             )),
         };
 
-        // Note: scatter expects indices as &Tensor<f16> regardless of the main tensor type
-        match (val, src_val) {
-            (Value::TensorF16(tensor), Value::TensorF16(src)) => {
-                // Extract index as f16 tensor
-                let index = match index_val {
-                    Value::TensorF16(idx) => idx,
-                    _ => return Err(RuntimeError::TypeError(
-                        "scatter() requires index as f16 tensor".to_string()
-                    )),
-                };
+        // scatter now supports both f16 and f32 indices
+        match (val, src_val, index_val) {
+            (Value::TensorF16(tensor), Value::TensorF16(src), Value::TensorF16(index)) => {
                 let result = tensor.scatter(dim, &index, &src)
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF16(result))
             }
-            (Value::TensorF32(tensor), Value::TensorF32(src)) => {
-                // Extract index as f16 tensor (indices are always f16)
-                let index = match index_val {
-                    Value::TensorF16(idx) => idx,
-                    _ => return Err(RuntimeError::TypeError(
-                        "scatter() requires index as f16 tensor".to_string()
-                    )),
-                };
+            (Value::TensorF16(tensor), Value::TensorF16(src), Value::TensorF32(index)) => {
+                let result = tensor.scatter(dim, &index, &src)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(tensor), Value::TensorF32(src), Value::TensorF16(index)) => {
+                let result = tensor.scatter(dim, &index, &src)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            (Value::TensorF32(tensor), Value::TensorF32(src), Value::TensorF32(index)) => {
                 let result = tensor.scatter(dim, &index, &src)
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF32(result))
             }
             _ => Err(RuntimeError::TypeError(
-                "scatter() requires tensor and src of the same type".to_string()
+                "scatter() requires tensor, src, and index all as tensors (f16 or f32)".to_string()
             ))
         }
     }

@@ -127,14 +127,20 @@ impl<T: FloatType> Tensor<T> {
         let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         // Create buffers for scalar parameters
-        let normalized_size_buf = MetalBuffer::from_f16_slice(
+        let normalized_size_buf = MetalBuffer::<f16>::from_slice(
             device.metal_device(),
             &[f16::from_f32(normalized_size as f32)],
         )?;
-        let eps_buf = MetalBuffer::from_f16_slice(device.metal_device(), &[f16::from_f32(eps)])?;
+        let eps_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &[f16::from_f32(eps)])?;
 
         // Get pipeline - select kernel based on size and type
         let suffix = T::kernel_suffix();
+
+        // DEBUG: Panic if f16 kernel selected
+        if suffix == "_f16" {
+            panic!("src/ops/normalization.rs:140: f16 kernel selected for rms_norm");
+        }
+
         let kernel_name = if normalized_size <= 256 {
             format!("rms_norm_simple{}", suffix)
         } else {
@@ -360,7 +366,7 @@ impl<T: FloatType> Tensor<T> {
         let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         // Get weight and bias buffers (or create dummy buffers)
-        let dummy_buf = MetalBuffer::from_f16_slice(device.metal_device(), &[f16::ZERO])?;
+        let dummy_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &[f16::ZERO])?;
         let weight_buf = if let Some(w) = weight {
             w.buffer().as_metal()?
         } else {
@@ -373,16 +379,16 @@ impl<T: FloatType> Tensor<T> {
         };
 
         // Create buffers for scalar parameters (using f16 buffers)
-        let normalized_size_buf = MetalBuffer::from_f16_slice(
+        let normalized_size_buf = MetalBuffer::<f16>::from_slice(
             device.metal_device(),
             &[f16::from_f32(normalized_size as f32)],
         )?;
-        let eps_buf = MetalBuffer::from_f16_slice(device.metal_device(), &[f16::from_f32(eps)])?;
-        let has_weight_buf = MetalBuffer::from_f16_slice(
+        let eps_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &[f16::from_f32(eps)])?;
+        let has_weight_buf = MetalBuffer::<f16>::from_slice(
             device.metal_device(),
             &[f16::from_f32(if weight.is_some() { 1.0 } else { 0.0 })],
         )?;
-        let has_bias_buf = MetalBuffer::from_f16_slice(
+        let has_bias_buf = MetalBuffer::<f16>::from_slice(
             device.metal_device(),
             &[f16::from_f32(if bias.is_some() { 1.0 } else { 0.0 })],
         )?;

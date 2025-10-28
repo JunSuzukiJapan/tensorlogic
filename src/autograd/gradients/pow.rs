@@ -40,7 +40,7 @@ impl PowBackward {
             )),
         };
 
-        let exponent_buf = MetalBuffer::from_f16_slice(
+        let exponent_buf = MetalBuffer::<half::f16>::from_slice(
             device.metal_device(),
             &[half::f16::from_f32(self.exponent)],
         )?;

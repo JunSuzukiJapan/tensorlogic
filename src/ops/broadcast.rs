@@ -101,15 +101,13 @@ impl<T: FloatType> Tensor<T> {
         };
 
         let result_vec = cpu_result.to_vec();
-        let result_f16: Vec<f16> = unsafe { std::mem::transmute(result_vec) };
-        let metal_buf = MetalBuffer::from_f16_slice(
+        let metal_buf = MetalBuffer::from_slice(
             device.metal_device(),
-            &result_f16,
+            &result_vec,
         )?;
 
-        let metal_buf_t: MetalBuffer<T> = unsafe { std::mem::transmute(metal_buf) };
         Tensor::new(
-            BufferHandle::Metal(metal_buf_t),
+            BufferHandle::Metal(metal_buf),
             target_shape.clone(),
             Device::Metal(device),
         )

@@ -405,7 +405,7 @@ impl TypeChecker {
                 self.infer_unary_op_type(op, &operand_type)
             }
 
-            TensorExpr::FunctionCall { name, args } => {
+            TensorExpr::FunctionCall { type_namespace, name, args } => {
                 let (param_types, return_type) = self.env.get_function(name.as_str())?;
 
                 // Check argument count

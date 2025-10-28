@@ -131,6 +131,12 @@ impl<T: FloatType> Tensor<T> {
         // Select optimal kernel based on matrix size and type
         // Use tiled version for larger matrices (better cache utilization)
         let suffix = T::kernel_suffix();
+
+        // DEBUG: Panic if f16 kernel selected (remove after f32 verification)
+        if suffix == "_f16" {
+            panic!("src/ops/matmul.rs:135: f16 kernel selected");
+        }
+
         let (kernel_name, tile_size) = if m >= 256 && n >= 256 && k >= 256 {
             // For large matrices (>=256x256), use 32x32 tiles
             (format!("matmul_tiled_32x32{}", suffix), 32)

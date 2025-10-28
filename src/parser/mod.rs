@@ -1032,9 +1032,32 @@ impl TensorLogicParser {
 
     fn parse_function_call(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
         let mut inner_pairs = pair.into_inner();
-        let name = Self::parse_identifier(inner_pairs.next().ok_or_else(|| {
-            ParseError::MissingField("function name".to_string())
-        })?)?;
+
+        // First pair can be type_namespace or identifier
+        let first_pair = inner_pairs.next().ok_or_else(|| {
+            ParseError::MissingField("function name or type namespace".to_string())
+        })?;
+
+        let (type_namespace, name) = match first_pair.as_rule() {
+            Rule::type_namespace => {
+                // type_namespace::function_name format
+                let type_ns = first_pair.as_str().to_string();
+                let name_pair = inner_pairs.next().ok_or_else(|| {
+                    ParseError::MissingField("function name after type namespace".to_string())
+                })?;
+                let name = Self::parse_identifier(name_pair)?;
+                (Some(type_ns), name)
+            }
+            Rule::identifier => {
+                // function_name only
+                let name = Self::parse_identifier(first_pair)?;
+                (None, name)
+            }
+            _ => return Err(ParseError::UnexpectedRule {
+                expected: "type_namespace or identifier".to_string(),
+                found: format!("{:?}", first_pair.as_rule()),
+            })
+        };
 
         let args = if let Some(tensor_list) = inner_pairs.next() {
             Self::parse_tensor_list(tensor_list)?
@@ -1042,7 +1065,7 @@ impl TensorLogicParser {
             Vec::new()
         };
 
-        Ok(TensorExpr::FunctionCall { name, args })
+        Ok(TensorExpr::FunctionCall { type_namespace, name, args })
     }
 
     fn parse_tensor_list(pair: pest::iterators::Pair<Rule>) -> Result<Vec<TensorExpr>, ParseError> {

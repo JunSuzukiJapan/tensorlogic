@@ -180,7 +180,7 @@ impl<T: FloatType> Tensor<T> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn gather(&self, dim: usize, indices: &Tensor<T>) -> TensorResult<Self> {
+    pub fn gather<I: FloatType>(&self, dim: usize, indices: &Tensor<I>) -> TensorResult<Self> {
         if dim >= self.dims().len() {
             return Err(TensorError::InvalidDimension { dim });
         }
@@ -194,7 +194,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     /// Metal GPU implementation of gather
-    fn gather_metal(&self, dim: usize, indices: &Tensor<T>) -> TensorResult<Self> {
+    fn gather_metal<I: FloatType>(&self, dim: usize, indices: &Tensor<I>) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
         if false {
             return Err(TensorError::InvalidOperation(
@@ -223,15 +223,17 @@ impl<T: FloatType> Tensor<T> {
         let self_dims = self.dims();
         let indices_dims = indices.dims();
         let ndim = self_dims.len();
+        let indices_ndim = indices_dims.len();
 
-        // Calculate strides
+        // Calculate strides for input
         let mut input_strides = vec![1usize; ndim];
         for i in (0..ndim - 1).rev() {
             input_strides[i] = input_strides[i + 1] * self_dims[i + 1];
         }
 
-        let mut output_strides = vec![1usize; ndim];
-        for i in (0..ndim - 1).rev() {
+        // Calculate strides for output (based on indices dimensions)
+        let mut output_strides = vec![1usize; indices_ndim];
+        for i in (0..indices_ndim - 1).rev() {
             output_strides[i] = output_strides[i + 1] * indices_dims[i + 1];
         }
 
@@ -245,12 +247,12 @@ impl<T: FloatType> Tensor<T> {
         let input_dims_f16: Vec<f16> = self_dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
         let output_dims_f16: Vec<f16> = indices_dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
 
-        let input_strides_buf = MetalBuffer::from_f16_slice(device.metal_device(), &input_strides_f16)?;
-        let output_strides_buf = MetalBuffer::from_f16_slice(device.metal_device(), &output_strides_f16)?;
-        let input_dims_buf = MetalBuffer::from_f16_slice(device.metal_device(), &input_dims_f16)?;
-        let output_dims_buf = MetalBuffer::from_f16_slice(device.metal_device(), &output_dims_f16)?;
-        let dim_buf = MetalBuffer::from_f16_slice(device.metal_device(), &[f16::from_f32(dim as f32)])?;
-        let ndim_buf = MetalBuffer::from_f16_slice(device.metal_device(), &[f16::from_f32(ndim as f32)])?;
+        let input_strides_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &input_strides_f16)?;
+        let output_strides_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &output_strides_f16)?;
+        let input_dims_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &input_dims_f16)?;
+        let output_dims_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &output_dims_f16)?;
+        let dim_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &[f16::from_f32(dim as f32)])?;
+        let ndim_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &[f16::from_f32(ndim as f32)])?;
 
         // Get pipeline
         let library_ref = device.library();
@@ -302,7 +304,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     /// CPU implementation of gather
-    fn gather_cpu(&self, dim: usize, indices: &Tensor<T>) -> TensorResult<Self> {
+    fn gather_cpu<I: FloatType>(&self, dim: usize, indices: &Tensor<I>) -> TensorResult<Self> {
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -423,7 +425,7 @@ impl<T: FloatType> Tensor<T> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn scatter(&self, dim: usize, indices: &Tensor, src: &Tensor<T>) -> TensorResult<Self> {
+    pub fn scatter<I: FloatType>(&self, dim: usize, indices: &Tensor<I>, src: &Tensor<T>) -> TensorResult<Self> {
         if dim >= self.dims().len() {
             return Err(TensorError::InvalidDimension { dim });
         }
@@ -437,7 +439,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     /// Metal GPU implementation of scatter
-    fn scatter_metal(&self, dim: usize, indices: &Tensor, src: &Tensor<T>) -> TensorResult<Self> {
+    fn scatter_metal<I: FloatType>(&self, dim: usize, indices: &Tensor<I>, src: &Tensor<T>) -> TensorResult<Self> {
         let input_buf = self.buffer().as_metal()?;
         let indices_buf = indices.buffer().as_metal()?;
         let src_buf = src.buffer().as_metal()?;
@@ -494,12 +496,12 @@ impl<T: FloatType> Tensor<T> {
                 let input_dims_data: Vec<f16> = self_dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
                 let src_dims_data: Vec<f16> = src_dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
 
-                let buf1 = MetalBuffer::from_f16_slice(device.metal_device(), &input_strides_data)?;
-                let buf2 = MetalBuffer::from_f16_slice(device.metal_device(), &src_strides_data)?;
-                let buf3 = MetalBuffer::from_f16_slice(device.metal_device(), &input_dims_data)?;
-                let buf4 = MetalBuffer::from_f16_slice(device.metal_device(), &src_dims_data)?;
-                let buf5 = MetalBuffer::from_f16_slice(device.metal_device(), &[f16::from_f32(dim as f32)])?;
-                let buf6 = MetalBuffer::from_f16_slice(device.metal_device(), &[f16::from_f32(ndim as f32)])?;
+                let buf1 = MetalBuffer::<f16>::from_slice(device.metal_device(), &input_strides_data)?;
+                let buf2 = MetalBuffer::<f16>::from_slice(device.metal_device(), &src_strides_data)?;
+                let buf3 = MetalBuffer::<f16>::from_slice(device.metal_device(), &input_dims_data)?;
+                let buf4 = MetalBuffer::<f16>::from_slice(device.metal_device(), &src_dims_data)?;
+                let buf5 = MetalBuffer::<f16>::from_slice(device.metal_device(), &[f16::from_f32(dim as f32)])?;
+                let buf6 = MetalBuffer::<f16>::from_slice(device.metal_device(), &[f16::from_f32(ndim as f32)])?;
 
                 // Transmute to generic type
                 unsafe { (
@@ -579,7 +581,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     /// CPU implementation of scatter
-    fn scatter_cpu(&self, dim: usize, indices: &Tensor, src: &Tensor<T>) -> TensorResult<Self> {
+    fn scatter_cpu<I: FloatType>(&self, dim: usize, indices: &Tensor<I>, src: &Tensor<T>) -> TensorResult<Self> {
         let self_data = self.to_vec();
         let indices_data = indices.to_vec();
         let src_data = src.to_vec();

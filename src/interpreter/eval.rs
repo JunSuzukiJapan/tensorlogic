@@ -6,6 +6,7 @@ use super::*;
 use crate::ast::*;
 use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO};
 use crate::tensor::Tensor;
+use std::collections::HashSet;
 
 impl Interpreter {
     pub(super) fn execute_statement(&mut self, stmt: &Statement) -> RuntimeResult<()> {
@@ -137,7 +138,7 @@ impl Interpreter {
                     Ok(())
                 } else {
                     // Other function calls - evaluate and discard result
-                    self.eval_function_call(name, args)?;
+                    self.eval_function_call(None, name, args)?;
                     Ok(())
                 }
             }
@@ -240,9 +241,24 @@ impl Interpreter {
 
                     // Execute body for each item
                     let mut should_break = false;
+                    let mut iteration_vars: HashSet<String> = HashSet::new();
+
                     for item in items {
-                        // For loop variable - directly set without checking
+                        // Clear variables from previous iteration (except loop variable)
+                        for var_name in &iteration_vars {
+                            if var_name != variable.as_str() {
+                                self.env.variables.remove(var_name);
+                            }
+                        }
+                        iteration_vars.clear();
+
+                        // Set loop variable
                         self.env.variables.insert(variable.as_str().to_string(), item);
+                        iteration_vars.insert(variable.as_str().to_string());
+
+                        // Track variables before executing body
+                        let vars_before: HashSet<String> = self.env.variables.keys().cloned().collect();
+
                         for stmt in body {
                             let result = self.execute_statement(stmt);
                             match result {
@@ -251,16 +267,26 @@ impl Interpreter {
                                     break;
                                 }
                                 Err(RuntimeError::ReturnValue(_)) => {
-                                    // Propagate return upward
                                     return result;
                                 }
                                 Err(e) => return Err(e),
                                 Ok(_) => {}
                             }
                         }
+
+                        // Track new variables declared in this iteration
+                        let vars_after: HashSet<String> = self.env.variables.keys().cloned().collect();
+                        for var in vars_after.difference(&vars_before) {
+                            iteration_vars.insert(var.clone());
+                        }
                         if should_break {
                             break;
                         }
+                    }
+
+                    // Clean up all variables declared in the loop (including loop variable)
+                    for var_name in &iteration_vars {
+                        self.env.variables.remove(var_name);
                     }
 
                     Ok(())
@@ -634,8 +660,8 @@ impl Interpreter {
                 self.eval_unary_op(op, operand_val)
             }
 
-            TensorExpr::FunctionCall { name, args } => {
-                self.eval_function_call(name, args)
+            TensorExpr::FunctionCall { type_namespace, name, args } => {
+                self.eval_function_call(type_namespace.as_deref(), name, args)
             }
 
             TensorExpr::TensorIndex { tensor, indices } => {
@@ -802,7 +828,7 @@ impl Interpreter {
                         let mut final_args = vec![(**object).clone()];
                         final_args.extend_from_slice(args);
 
-                        self.eval_function_call(&Identifier::new(method.as_str()), &final_args)
+                        self.eval_function_call(None, &Identifier::new(method.as_str()), &final_args)
                     }
                 }
             }
@@ -844,12 +870,41 @@ impl Interpreter {
         // Determine shape
         let shape = self.infer_shape(elements)?;
 
-        // Always create Tensor for array literals (not TokenIdArray)
-        // Convert f32 to f16 for all values
-        let f16_values: Vec<f16> = values.into_iter().map(f16::from_f32).collect();
-        let tensor = Tensor::from_vec_metal(self.env.metal_device(), f16_values, shape)
-            .map_err(|e| RuntimeError::TensorError(e))?;
-        Ok(Value::TensorF16(tensor))
+        // Determine if array contains float literals (f32) or only integers (f16)
+        let has_float_literal = self.has_float_literal(elements);
+
+        if has_float_literal {
+            // Array contains float literals -> create f32 tensor
+            let tensor = Tensor::from_vec_metal(self.env.metal_device(), values, shape)
+                .map_err(|e| RuntimeError::TensorError(e))?;
+            Ok(Value::TensorF32(tensor))
+        } else {
+            // Array contains only integers -> create f16 tensor (backward compatibility)
+            let f16_values: Vec<f16> = values.into_iter().map(f16::from_f32).collect();
+            let tensor = Tensor::from_vec_metal(self.env.metal_device(), f16_values, shape)
+                .map_err(|e| RuntimeError::TensorError(e))?;
+            Ok(Value::TensorF16(tensor))
+        }
+    }
+
+    /// Check if array elements contain float literals (for f32 vs f16 detection)
+    fn has_float_literal(&self, elements: &[ArrayElement]) -> bool {
+        use crate::ast::{ArrayElement, TensorLiteral, ScalarLiteral};
+
+        for elem in elements {
+            match elem {
+                ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Float(_))) => {
+                    return true;
+                }
+                ArrayElement::Literal(TensorLiteral::Array(nested)) => {
+                    if self.has_float_literal(nested) {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
     }
 
     /// Collect all scalar values from nested arrays
