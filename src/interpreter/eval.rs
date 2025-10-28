@@ -157,6 +157,9 @@ impl Interpreter {
                         }
                     };
 
+                    // Track variables before executing block
+                    let vars_before: HashSet<String> = self.env.variables.keys().cloned().collect();
+
                     // Execute appropriate block
                     if condition_result {
                         for stmt in then_block {
@@ -177,6 +180,13 @@ impl Interpreter {
                             result?;
                         }
                     }
+
+                    // Clean up variables declared in the if/else block
+                    let vars_after: HashSet<String> = self.env.variables.keys().cloned().collect();
+                    for var in vars_after.difference(&vars_before) {
+                        self.env.variables.remove(var);
+                    }
+
                     Ok(())
                 }
                 ControlFlow::For {
@@ -296,6 +306,8 @@ impl Interpreter {
                     body,
                 } => {
                     // Execute while condition is true
+                    let mut iteration_vars: HashSet<String> = HashSet::new();
+
                     loop {
                         let condition_result = match condition {
                             Condition::Constraint(c) => self.eval_constraint(c)?,
@@ -309,6 +321,15 @@ impl Interpreter {
                             break;
                         }
 
+                        // Clear variables from previous iteration
+                        for var_name in &iteration_vars {
+                            self.env.variables.remove(var_name);
+                        }
+                        iteration_vars.clear();
+
+                        // Track variables before executing body
+                        let vars_before: HashSet<String> = self.env.variables.keys().cloned().collect();
+
                         let mut should_break = false;
                         for stmt in body {
                             let result = self.execute_statement(stmt);
@@ -325,15 +346,38 @@ impl Interpreter {
                                 Ok(_) => {}
                             }
                         }
+
+                        // Track new variables declared in this iteration
+                        let vars_after: HashSet<String> = self.env.variables.keys().cloned().collect();
+                        for var in vars_after.difference(&vars_before) {
+                            iteration_vars.insert(var.clone());
+                        }
+
                         if should_break {
                             break;
                         }
                     }
 
+                    // Clean up all variables declared in the loop
+                    for var_name in &iteration_vars {
+                        self.env.variables.remove(var_name);
+                    }
+
                     Ok(())
                 }
                 ControlFlow::Loop { body } => {
+                    let mut iteration_vars: HashSet<String> = HashSet::new();
+
                     loop {
+                        // Clear variables from previous iteration
+                        for var_name in &iteration_vars {
+                            self.env.variables.remove(var_name);
+                        }
+                        iteration_vars.clear();
+
+                        // Track variables before executing body
+                        let vars_before: HashSet<String> = self.env.variables.keys().cloned().collect();
+
                         let mut should_break = false;
                         for stmt in body {
                             let result = self.execute_statement(stmt);
@@ -350,10 +394,23 @@ impl Interpreter {
                                 Ok(_) => {}
                             }
                         }
+
+                        // Track new variables declared in this iteration
+                        let vars_after: HashSet<String> = self.env.variables.keys().cloned().collect();
+                        for var in vars_after.difference(&vars_before) {
+                            iteration_vars.insert(var.clone());
+                        }
+
                         if should_break {
                             break;
                         }
                     }
+
+                    // Clean up all variables declared in the loop
+                    for var_name in &iteration_vars {
+                        self.env.variables.remove(var_name);
+                    }
+
                     Ok(())
                 }
             },
@@ -628,6 +685,221 @@ impl Interpreter {
             }
         }
     }
+    /// Build a dotted property path for nested property access
+    /// Recursively extracts the full path from PropertyAccess and TensorIndex chains
+    /// Examples:
+    ///   model.blk[0].attn_norm.weight -> "blk.0.attn_norm.weight"
+    ///   model.output_norm -> "output_norm"
+    fn build_property_path(&self, object: &TensorExpr, final_property: &Identifier) -> RuntimeResult<String> {
+        match object {
+            TensorExpr::Variable(_) => {
+                Ok(final_property.as_str().to_string())
+            }
+            TensorExpr::PropertyAccess { object: inner_object, property: inner_property } => {
+                let parent_path = self.build_property_path(inner_object, inner_property)?;
+                Ok(format!("{}.{}", parent_path, final_property.as_str()))
+            }
+            TensorExpr::TensorIndex { tensor, indices } => {
+                let base_path = match tensor.as_ref() {
+                    TensorExpr::PropertyAccess { object: inner_obj, property: inner_prop } => {
+                        self.build_property_path(inner_obj, inner_prop)?
+                    }
+                    TensorExpr::Variable(_) => String::new(),
+                    _ => return Err(RuntimeError::TypeError(
+                        "Array indexing in property path must be on a property".to_string()
+                    )),
+                };
+                if indices.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        "Property path array access must have exactly one index".to_string()
+                    ));
+                }
+                let index_str = match &indices[0] {
+                    IndexExpr::Int(n) => n.to_string(),
+                    IndexExpr::Var(id) => {
+                        if let Some(val) = self.get_variable(id.as_str()) {
+                            match val {
+                                Value::Integer(n) => n.to_string(),
+                                Value::TensorF32(ref t) => (self.read_element_f32(t, 0)? as i64).to_string(),
+                                Value::TensorF16(ref t) => (self.read_element_f16(t, 0)? as i64).to_string(),
+                                _ => return Err(RuntimeError::TypeError("Index must be number".to_string())),
+                            }
+                        } else {
+                            return Err(RuntimeError::UndefinedVariable(id.as_str().to_string()));
+                        }
+                    }
+                    IndexExpr::Slice => return Err(RuntimeError::TypeError("Slice not supported".to_string())),
+                };
+                if base_path.is_empty() {
+                    Ok(format!("{}.{}", index_str, final_property.as_str()))
+                } else {
+                    Ok(format!("{}.{}.{}", base_path, index_str, final_property.as_str()))
+                }
+            }
+            _ => Err(RuntimeError::TypeError("Invalid property path".to_string())),
+        }
+    }
+
+    /// Check if an expression is part of a model property chain
+    fn is_model_property_chain(&self, expr: &TensorExpr) -> bool {
+        match expr {
+            TensorExpr::Variable(id) => {
+                if let Some(val) = self.get_variable(id.as_str()) {
+                    matches!(val, Value::ModelF16(_) | Value::ModelF32(_))
+                } else {
+                    false
+                }
+            }
+            TensorExpr::PropertyAccess { object, .. } | TensorExpr::TensorIndex { tensor: object, .. } => {
+                self.is_model_property_chain(object)
+            }
+            _ => false,
+        }
+    }
+
+    /// Get the root model from a property chain
+    fn get_root_model(&self, expr: &TensorExpr) -> RuntimeResult<Value> {
+        match expr {
+            TensorExpr::Variable(id) => {
+                if let Some(val) = self.get_variable(id.as_str()) {
+                    if matches!(val, Value::ModelF16(_) | Value::ModelF32(_)) {
+                        Ok(val.clone())
+                    } else {
+                        Err(RuntimeError::TypeError("Not a model".to_string()))
+                    }
+                } else {
+                    Err(RuntimeError::UndefinedVariable(id.as_str().to_string()))
+                }
+            }
+            TensorExpr::PropertyAccess { object, .. } | TensorExpr::TensorIndex { tensor: object, .. } => {
+                self.get_root_model(object)
+            }
+            _ => Err(RuntimeError::TypeError("Invalid model property chain".to_string())),
+        }
+    }
+
+    /// Read a single element from f16 tensor at linear index using GPU
+    pub(super) fn read_element_f16(&self, tensor: &crate::tensor::Tensor<half::f16>, linear_idx: usize) -> RuntimeResult<f32> {
+        use crate::device::{MetalBuffer, KernelExecutor};
+        use crate::tensor::BufferHandle;
+        use half::f16;
+
+        if linear_idx >= tensor.numel() {
+            return Err(RuntimeError::InvalidOperation(
+                format!("Index {} out of bounds for tensor with {} elements", linear_idx, tensor.numel())
+            ));
+        }
+
+        let device = match tensor.device() {
+            crate::device::Device::Metal(dev) => dev.clone(),
+            _ => return Err(RuntimeError::InvalidOperation("read_element_f16 requires Metal device".to_string())),
+        };
+
+        let mut device_mut = device.clone();
+        if device_mut.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device_mut.load_library(shader_source)
+                .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to load shader: {}", e)))?;
+        }
+
+        let input_buf = tensor.buffer().as_metal()
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to get Metal buffer: {}", e)))?;
+        let output_buf = MetalBuffer::<f16>::new_uninit(device.metal_device(), 1)
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to create output buffer: {}", e)))?;
+
+        let index_data = [linear_idx as u32];
+        let index_buf = device.metal_device().new_buffer_with_data(
+            index_data.as_ptr() as *const _,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        let mut executor = KernelExecutor::new(device_mut);
+        let pipeline = executor.get_or_compile_pipeline("read_element_f16")
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to compile kernel: {}", e)))?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&output_buf.buffer), 0);
+        encoder.set_buffer(2, Some(&index_buf), 0);
+
+        let grid_size = metal::MTLSize::new(1, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(1, 1, 1);
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        // Read result from GPU
+        let result_slice = unsafe {
+            std::slice::from_raw_parts(output_buf.buffer.contents() as *const f16, 1)
+        };
+        Ok(result_slice[0].to_f32())
+    }
+
+    /// Read a single element from f32 tensor at linear index using GPU
+    pub(super) fn read_element_f32(&self, tensor: &crate::tensor::Tensor<f32>, linear_idx: usize) -> RuntimeResult<f32> {
+        use crate::device::{MetalBuffer, KernelExecutor};
+        use crate::tensor::BufferHandle;
+
+        if linear_idx >= tensor.numel() {
+            return Err(RuntimeError::InvalidOperation(
+                format!("Index {} out of bounds for tensor with {} elements", linear_idx, tensor.numel())
+            ));
+        }
+
+        let device = match tensor.device() {
+            crate::device::Device::Metal(dev) => dev.clone(),
+            _ => return Err(RuntimeError::InvalidOperation("read_element_f32 requires Metal device".to_string())),
+        };
+
+        let mut device_mut = device.clone();
+        if device_mut.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device_mut.load_library(shader_source)
+                .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to load shader: {}", e)))?;
+        }
+
+        let input_buf = tensor.buffer().as_metal()
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to get Metal buffer: {}", e)))?;
+        let output_buf = MetalBuffer::<f32>::new_uninit(device.metal_device(), 1)
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to create output buffer: {}", e)))?;
+
+        let index_data = [linear_idx as u32];
+        let index_buf = device.metal_device().new_buffer_with_data(
+            index_data.as_ptr() as *const _,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        let mut executor = KernelExecutor::new(device_mut);
+        let pipeline = executor.get_or_compile_pipeline("read_element_f32")
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to compile kernel: {}", e)))?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&output_buf.buffer), 0);
+        encoder.set_buffer(2, Some(&index_buf), 0);
+
+        let grid_size = metal::MTLSize::new(1, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(1, 1, 1);
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        // Read result from GPU
+        let result_slice = unsafe {
+            std::slice::from_raw_parts(output_buf.buffer.contents() as *const f32, 1)
+        };
+        Ok(result_slice[0])
+    }
+
+
 
     /// Evaluate an expression
     pub(super) fn eval_expr(&mut self, expr: &TensorExpr) -> RuntimeResult<Value> {
@@ -752,41 +1024,56 @@ impl Interpreter {
             }
 
             TensorExpr::PropertyAccess { object, property } => {
-                // Evaluate the object expression
-                let obj_value = self.eval_expr(object)?;
-
-                // Access the property based on object type
-                match obj_value {
-                    Value::ModelF16(ref model) => {
-                        // Access model tensors by name
-                        // Common property names: tok_embeddings, output, norm, etc.
-                        let tensor_name = property.as_str();
-
-                        if let Some(tensor) = model.get_tensor(tensor_name) {
-                            Ok(Value::TensorF16(tensor.clone()))
+                // Check if this is part of a model property path (model.blk[0].attn_norm.weight)
+                let is_model_path = match object.as_ref() {
+                    TensorExpr::Variable(id) => {
+                        if let Some(val) = self.get_variable(id.as_str()) {
+                            matches!(val, Value::ModelF16(_) | Value::ModelF32(_))
                         } else {
-                            Err(RuntimeError::InvalidOperation(
-                                format!("Model does not have tensor '{}'", tensor_name)
-                            ))
+                            false
                         }
                     }
-                    Value::ModelF32(ref model) => {
-                        // Access model tensors by name
-                        let tensor_name = property.as_str();
-
-                        if let Some(tensor) = model.get_tensor(tensor_name) {
-                            Ok(Value::TensorF32(tensor.clone()))
-                        } else {
-                            Err(RuntimeError::InvalidOperation(
-                                format!("Model does not have tensor '{}'", tensor_name)
-                            ))
-                        }
+                    TensorExpr::PropertyAccess { .. } | TensorExpr::TensorIndex { .. } => {
+                        self.is_model_property_chain(object)
                     }
-                    _ => Err(RuntimeError::TypeError(
-                        format!("Cannot access property '{}' on {:?}", property.as_str(), obj_value)
+                    _ => false,
+                };
+
+                if is_model_path {
+                    // Build the full tensor path and get the model
+                    let tensor_name = self.build_property_path(object, property)?;
+                    let model_value = self.get_root_model(object)?;
+
+                    match model_value {
+                        Value::ModelF16(ref model) => {
+                            if let Some(tensor) = model.get_tensor(&tensor_name) {
+                                Ok(Value::TensorF16(tensor.clone()))
+                            } else {
+                                Err(RuntimeError::InvalidOperation(
+                                    format!("Model does not have tensor '{}'", tensor_name)
+                                ))
+                            }
+                        }
+                        Value::ModelF32(ref model) => {
+                            if let Some(tensor) = model.get_tensor(&tensor_name) {
+                                Ok(Value::TensorF32(tensor.clone()))
+                            } else {
+                                Err(RuntimeError::InvalidOperation(
+                                    format!("Model does not have tensor '{}'", tensor_name)
+                                ))
+                            }
+                        }
+                        _ => unreachable!("get_root_model should return Model"),
+                    }
+                } else {
+                    // Regular property access (not on a model)
+                    let obj_value = self.eval_expr(object)?;
+                    Err(RuntimeError::TypeError(
+                        format!("Property access only supported on Model types, got {:?}", std::mem::discriminant(&obj_value))
                     ))
                 }
             }
+
 
             TensorExpr::MethodCall { object, method, args } => {
                 // Evaluate the object expression
@@ -1488,12 +1775,11 @@ impl Interpreter {
                     stride *= dims[i];
                 }
 
-                // Get the value at the index
-                let data = tensor.to_vec();
-                let value = data[linear_idx];
+                // Read the value using GPU kernel
+                let value = self.read_element_f16(&tensor, linear_idx)?;
 
                 // Return as a scalar float
-                Ok(Value::Float(value.to_f32() as f64))
+                Ok(Value::Float(value as f64))
             }
             Value::TensorF32(tensor) => {
                 // Calculate linear index
@@ -1520,9 +1806,8 @@ impl Interpreter {
                     stride *= dims[i];
                 }
 
-                // Get the value at the index
-                let data = tensor.to_vec();
-                let value = data[linear_idx];
+                // Read the value using GPU kernel
+                let value = self.read_element_f32(&tensor, linear_idx)?;
 
                 // Return as a scalar float
                 Ok(Value::Float(value as f64))

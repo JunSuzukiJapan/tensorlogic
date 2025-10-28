@@ -10,7 +10,7 @@ impl Interpreter {
             "load" => Some(self.eval_load(args)),
             "load_model" => Some(self.eval_load_model(args)),
             "load_model_f32" => Some(self.eval_load_model_f32(args)),
-            "get_tensor" => Some(self.eval_get_tensor(args)),
+            
             "print" => Some(self.eval_print(args)),
             "load_tokenizer" => Some(self.eval_load_tokenizer(args)),
             "tokenize" => Some(self.eval_tokenize(args)),
@@ -145,48 +145,7 @@ impl Interpreter {
         Ok(Value::ModelF32(model))
     }
 
-    /// get_tensor(model, "tensor_name")
-    /// Extract a tensor from a model by name
-    fn eval_get_tensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
-        if args.len() != 2 {
-            return Err(RuntimeError::TypeError(
-                format!("get_tensor() expects 2 arguments (model, tensor_name), got {}", args.len())
-            ));
-        }
-
-        // Evaluate model argument
-        let model_val = self.eval_expr(&args[0])?;
-
-        // Evaluate tensor name argument
-        let name_val = self.eval_expr(&args[1])?;
-        let tensor_name = match name_val {
-            Value::String(s) => s,
-            _ => return Err(RuntimeError::TypeError(
-                "get_tensor() second argument must be a string (tensor name)".to_string()
-            )),
-        };
-
-        // Get tensor from model (f16 or f32)
-        match model_val {
-            Value::ModelF16(model) => {
-                let tensor = model.get_tensor(&tensor_name)
-                    .ok_or_else(|| RuntimeError::InvalidOperation(
-                        format!("Tensor '{}' not found in model", tensor_name)
-                    ))?;
-                Ok(Value::TensorF16(tensor.clone()))
-            }
-            Value::ModelF32(model) => {
-                let tensor = model.get_tensor(&tensor_name)
-                    .ok_or_else(|| RuntimeError::InvalidOperation(
-                        format!("Tensor '{}' not found in model", tensor_name)
-                    ))?;
-                Ok(Value::TensorF32(tensor.clone()))
-            }
-            _ => Err(RuntimeError::TypeError(
-                "get_tensor() first argument must be a Model".to_string()
-            )),
-        }
-    }
+    
 
     /// print(args...)
     /// Print values to stdout
