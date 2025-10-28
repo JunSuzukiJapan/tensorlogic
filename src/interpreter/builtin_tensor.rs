@@ -254,8 +254,13 @@ impl Interpreter {
         match shape_val {
             Value::TensorF32(ref t) => {
                 // f32 shape array -> create f32 ones tensor
-                let data = t.to_vec();
-                let shape = data.iter().map(|&v| v as usize).collect::<Vec<_>>();
+                // Read shape values using read_element instead of to_vec()
+                let num_dims = t.dims()[0];
+                let mut shape = Vec::with_capacity(num_dims);
+                for i in 0..num_dims {
+                    let val = self.read_element_f32(t, i)?;
+                    shape.push(val as usize);
+                }
                 let numel: usize = shape.iter().product();
                 let ones_data = vec![1.0f32; numel];
                 let tensor = Tensor::from_vec_metal(device, ones_data, shape)
@@ -264,8 +269,13 @@ impl Interpreter {
             }
             Value::TensorF16(ref t) => {
                 // f16 shape array -> create f16 ones tensor
-                let data = t.to_vec_f32();
-                let shape = data.iter().map(|&v| v as usize).collect::<Vec<_>>();
+                // Read shape values using read_element instead of to_vec()
+                let num_dims = t.dims()[0];
+                let mut shape = Vec::with_capacity(num_dims);
+                for i in 0..num_dims {
+                    let val = self.read_element_f16(t, i)?;
+                    shape.push(val as usize);
+                }
                 let numel: usize = shape.iter().product();
                 let ones_data = vec![f16::ONE; numel];
                 let tensor = Tensor::from_vec_metal(device, ones_data, shape)
