@@ -17,7 +17,11 @@ impl Interpreter {
             "tokenize" => Some(self.eval_tokenize(args)),
             "detokenize" => Some(self.eval_detokenize(args)),
             "detokenize_single" => Some(self.eval_detokenize_single(args)),
+            "detokenize_incremental" => Some(self.eval_detokenize_incremental(args)),
             "int_to_tokenids" => Some(self.eval_int_to_tokenids(args)),
+            "append_token" => Some(self.eval_append_token(args)),
+            "string_length" => Some(self.eval_string_length(args)),
+            "string_substring" => Some(self.eval_string_substring(args)),
             "generate" | "print_top_k" => {
                 Some(Err(RuntimeError::NotImplemented(
                     format!("Model/IO function '{}' migration in progress", name)
@@ -354,6 +358,41 @@ impl Interpreter {
         Ok(Value::String(text))
     }
 
+    /// detokenize_incremental(tokenizer, token_ids_array)
+    /// Detokenize all tokens and return only the new text since last call
+    /// This handles multi-byte UTF-8 characters correctly by decoding all tokens together
+    fn eval_detokenize_incremental(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("detokenize_incremental() expects 2 arguments (tokenizer, token_ids), got {}", args.len())
+            ));
+        }
+
+        // Get tokenizer
+        let tokenizer_val = self.eval_expr(&args[0])?;
+        let tokenizer = match tokenizer_val {
+            Value::Tokenizer(t) => t,
+            _ => return Err(RuntimeError::TypeError(
+                "detokenize_incremental() first argument must be a Tokenizer".to_string()
+            )),
+        };
+
+        // Get token IDs array
+        let token_ids_val = self.eval_expr(&args[1])?;
+        let token_ids = match token_ids_val {
+            Value::TokenIds(ids) => ids,
+            _ => return Err(RuntimeError::TypeError(
+                "detokenize_incremental() second argument must be TokenIds array".to_string()
+            )),
+        };
+
+        // Decode all tokens
+        let full_text = tokenizer.decode(&token_ids, false)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(Value::String(full_text))
+    }
+
     /// int_to_tokenids(token_id)
     /// Convert a single token ID (Integer) to TokenIds array
     fn eval_int_to_tokenids(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
@@ -419,5 +458,95 @@ impl Interpreter {
                 "get_tensor() first argument must be a Model".to_string()
             )),
         }
+    }
+
+    /// append_token(token_ids, token_id)
+    /// Append a token ID to TokenIds array (returns new array)
+    fn eval_append_token(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("append_token() expects 2 arguments (token_ids, token_id), got {}", args.len())
+            ));
+        }
+
+        // Get existing token IDs array
+        let token_ids_val = self.eval_expr(&args[0])?;
+        let mut token_ids = match token_ids_val {
+            Value::TokenIds(ids) => ids,
+            _ => return Err(RuntimeError::TypeError(
+                "append_token() first argument must be TokenIds array".to_string()
+            )),
+        };
+
+        // Get new token ID to append
+        let token_id_val = self.eval_expr(&args[1])?;
+        let new_token_id = match token_id_val {
+            Value::Integer(id) => id as u32,
+            _ => return Err(RuntimeError::TypeError(
+                "append_token() second argument must be an Integer (token ID)".to_string()
+            )),
+        };
+
+        // Append new token
+        token_ids.push(new_token_id);
+
+        Ok(Value::TokenIds(token_ids))
+    }
+
+    /// string_length(text)
+    /// Get the length of a string
+    fn eval_string_length(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("string_length() expects 1 argument (text), got {}", args.len())
+            ));
+        }
+
+        let text_val = self.eval_expr(&args[0])?;
+        let text = match text_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "string_length() argument must be a String".to_string()
+            )),
+        };
+
+        Ok(Value::Integer(text.len() as i64))
+    }
+
+    /// string_substring(text, start, length)
+    /// Get a substring from a string
+    fn eval_string_substring(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 3 {
+            return Err(RuntimeError::TypeError(
+                format!("string_substring() expects 3 arguments (text, start, length), got {}", args.len())
+            ));
+        }
+
+        let text_val = self.eval_expr(&args[0])?;
+        let text = match text_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "string_substring() first argument must be a String".to_string()
+            )),
+        };
+
+        let start_val = self.eval_expr(&args[1])?;
+        let start = match start_val {
+            Value::Integer(i) => i as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "string_substring() second argument must be an Integer (start)".to_string()
+            )),
+        };
+
+        let length_val = self.eval_expr(&args[2])?;
+        let length = match length_val {
+            Value::Integer(i) => i as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "string_substring() third argument must be an Integer (length)".to_string()
+            )),
+        };
+
+        let substring = text.chars().skip(start).take(length).collect::<String>();
+        Ok(Value::String(substring))
     }
 }
