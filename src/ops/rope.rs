@@ -2,7 +2,7 @@
 
 use crate::device::Device;
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::{TensorAccessors, TensorCreation};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::Tensor;
 use crate::device::MetalBuffer;

@@ -27,16 +27,16 @@ fn main() {
 
     println!("\n=== Dumping blk.0.attn_q.weight ===\n");
 
-    let W_q = model.get_tensor("blk.0.attn_q.weight").unwrap_or_else(|| {
+    let w_q = model.get_tensor("blk.0.attn_q.weight").unwrap_or_else(|| {
         eprintln!("Tensor not found: blk.0.attn_q.weight");
         std::process::exit(1);
     });
 
-    println!("Shape: {:?}", W_q.shape().dims());
+    println!("Shape: {:?}", w_q.shape().dims());
 
     // Get raw data as f16 values
-    let data = W_q.to_vec();
-    let dims = W_q.shape().dims();
+    let data = w_q.to_vec();
+    let dims = w_q.shape().dims();
 
     if dims.len() != 2 {
         eprintln!("Expected 2D tensor, got {}D", dims.len());

@@ -15,7 +15,7 @@ impl Interpreter {
                 // Handle tensor declaration in main block
                 if let Some(init_expr) = &decl.init_expr {
                     let value = self.eval_expr(init_expr)?;
-                    self.env
+                    let _ = self.env
                         .set_variable(decl.name.as_str().to_string(), value);
                 } else {
                     // No initializer - create uninitialized tensor (would need default value)
@@ -587,7 +587,7 @@ impl Interpreter {
     /// Read a single element from f16 tensor at linear index using GPU
     pub(super) fn read_element_f16(&self, tensor: &crate::tensor::Tensor<half::f16>, linear_idx: usize) -> RuntimeResult<f32> {
         use crate::device::{MetalBuffer, KernelExecutor};
-        use crate::tensor::BufferHandle;
+        
         use half::f16;
 
         if linear_idx >= tensor.numel() {
@@ -648,7 +648,7 @@ impl Interpreter {
     /// Read a single element from f32 tensor at linear index using GPU
     pub(super) fn read_element_f32(&self, tensor: &crate::tensor::Tensor<f32>, linear_idx: usize) -> RuntimeResult<f32> {
         use crate::device::{MetalBuffer, KernelExecutor};
-        use crate::tensor::BufferHandle;
+        
 
         if linear_idx >= tensor.numel() {
             return Err(RuntimeError::InvalidOperation(
@@ -1064,7 +1064,7 @@ impl Interpreter {
     pub(super) fn eval_array_literal(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Value> {
         // Support empty arrays - return empty Tensor
         if elements.is_empty() {
-            use half::f16;
+            
             let tensor = Tensor::from_vec_metal(self.env.metal_device(), vec![], vec![0])
                 .map_err(|e| RuntimeError::TensorError(e))?;
             return Ok(Value::TensorF16(tensor));

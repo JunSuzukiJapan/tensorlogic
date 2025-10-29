@@ -2,10 +2,9 @@
 
 use crate::device::{Device, MetalBuffer};
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor, TensorShape};
-use half::f16;
 
 impl<T: FloatType> Tensor<T> {
     /// Broadcast this tensor to a target shape

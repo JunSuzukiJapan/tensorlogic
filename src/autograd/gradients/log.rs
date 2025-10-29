@@ -1,6 +1,4 @@
-use crate::tensor::FloatType;
 use crate::autograd::GradientFunction;
-use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::Device;
 use crate::error::TensorResult;

@@ -4,7 +4,6 @@ use std::marker::PhantomData;
 use super::prelude::*;
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
-use half::f16;
 
 /// Softmax演算の勾配関数
 ///

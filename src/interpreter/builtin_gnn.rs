@@ -1,7 +1,6 @@
 //! Graph Neural Network operations for TensorLogic interpreter
 
 use super::*;
-use crate::tensor::Tensor;
 
 impl Interpreter {
     pub(super) fn eval_gnn_function(&mut self, name: &str, args: &[TensorExpr]) -> Option<RuntimeResult<Value>> {

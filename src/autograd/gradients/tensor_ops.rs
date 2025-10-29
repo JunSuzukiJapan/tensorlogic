@@ -1,11 +1,8 @@
-use crate::tensor::FloatType;
 use crate::autograd::GradientFunction;
-use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::Device;
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
-use half::f16;
 
 /// Backward for concatenation - splits gradient to match input shapes
 pub struct ConcatBackward {

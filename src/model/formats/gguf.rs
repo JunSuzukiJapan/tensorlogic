@@ -8,7 +8,7 @@ use crate::error::TensorError;
 use crate::model::{Model, ModelMetadata, ModelFormat, QuantizationType};
 use crate::model::convert::f32_to_f16;
 use gguf_rs_lib::prelude::*;
-use gguf_rs_lib::tensor::quantization::blocks::{Q4_0Block, Q6_KBlock, Q8_0Block};
+use gguf_rs_lib::tensor::quantization::blocks::{Q4_0Block, Q8_0Block};
 use std::collections::HashMap;
 use std::path::Path;
 use std::fs::File;

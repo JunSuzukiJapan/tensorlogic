@@ -119,7 +119,7 @@ impl Interpreter {
     /// load_model_f32("path/to/model.gguf")
     /// Load a GGUF model as f32 (no f16 conversion)
     fn eval_load_model_f32(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
-        use crate::model::Model;
+        
         use crate::model::formats::GGUFLoader;
 
         if args.len() != 1 {

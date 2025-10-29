@@ -1,11 +1,9 @@
 use crate::tensor::FloatType;
 use crate::autograd::GradientFunction;
-use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::{Device, MetalBuffer};
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
-use half::f16;
 
 pub struct PowBackward {
     input: Tensor<half::f16>,

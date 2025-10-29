@@ -10,12 +10,12 @@
 
 use crate::device::{Device, MetalDevice, MetalBuffer};
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorAutograd, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::{TensorAccessors, TensorAutograd, TensorCreation, TensorIO};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{Tensor, TensorShape, BufferHandle};
 use half::f16;
 use std::collections::{HashMap, HashSet};
-use metal::{MTLResourceOptions, MTLSize};
+use metal::MTLSize;
 
 /// Parse einsum notation and execute the operation
 impl<T: FloatType> Tensor<T> {

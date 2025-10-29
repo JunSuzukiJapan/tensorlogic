@@ -2,7 +2,6 @@
 
 use super::*;
 use crate::tensor::TensorIO;
-use crate::tensor::Tensor;
 use rand::Rng;
 
 impl Interpreter {
@@ -64,8 +63,8 @@ impl Interpreter {
     ///
     /// For 2D logits [seq_len, vocab_size], uses only the last sequence position
     fn eval_temperature_sample(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
-        use crate::device::{Device, MetalBuffer};
-        use crate::tensor::{TensorAccessors, FloatType};
+        
+        
 
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
@@ -102,7 +101,7 @@ impl Interpreter {
 
     /// GPU-accelerated temperature sampling implementation
     fn temperature_sample_gpu<T: FloatType>(&self, logits: &crate::tensor::Tensor<T>, temperature: f32) -> RuntimeResult<Value> {
-        use crate::device::{Device, MetalBuffer};
+        use crate::device::Device;
         use crate::tensor::TensorAccessors;
 
         let dims = logits.dims();
@@ -142,7 +141,7 @@ impl Interpreter {
         let logits_data: Vec<f32> = logits.to_vec().iter().map(|&x| x.to_f32()).collect();
 
         // Apply temperature scaling
-        let mut scaled: Vec<f32> = logits_data.iter().map(|&x| x / temperature).collect();
+        let scaled: Vec<f32> = logits_data.iter().map(|&x| x / temperature).collect();
 
         // Compute softmax
         let max_logit = scaled.iter().copied().fold(f32::NEG_INFINITY, f32::max);
@@ -186,7 +185,7 @@ impl Interpreter {
     /// Metal GPU implementation
     fn temperature_sample_metal<T: FloatType>(&self, logits: &crate::tensor::Tensor<T>, temperature: f32, vocab_size: usize) -> RuntimeResult<Value> {
         use crate::device::{Device, MetalBuffer};
-        use crate::tensor::{BufferHandle, TensorAccessors};
+        use crate::tensor::TensorAccessors;
         use rand::Rng;
 
         let mut device = match logits.device() {

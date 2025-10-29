@@ -49,12 +49,11 @@ use std::fs;
 use crate::ast::*;
 use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO, TensorTransform, TensorAutograd};
 use crate::tensor::{Tensor, TensorShape};
-use crate::device::{Device, MetalDevice};
+use crate::device::MetalDevice;
 use crate::entity_registry::EntityRegistry;
 use crate::relation_registry::RelationRegistry;
 use crate::error::TensorError;
 use crate::logic::LogicEngine;
-use crate::model::Model;
 use half::f16;
 
 /// Epsilon for floating-point comparisons
@@ -214,7 +213,7 @@ impl Interpreter {
             frame.local_vars.insert(name, value);
         } else {
             // Global scope
-            self.env.set_variable(name, value);
+            let _ = self.env.set_variable(name, value);
         }
     }
 
@@ -893,8 +892,8 @@ impl Interpreter {
 
     /// Evaluate typed function call (e.g., f32::zeros, f16::ones)
     fn eval_typed_function_call(&mut self, type_namespace: &str, name: &str, args: &[TensorExpr]) -> RuntimeResult<Value> {
-        use crate::interpreter::value::ToValue;
-        use half::f16;
+        
+        
 
         match type_namespace {
             "f32" => {

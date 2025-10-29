@@ -5,7 +5,6 @@ use super::prelude::*;
 use crate::device::{Device, MetalBuffer};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
-use half::f16;
 
 /// GELU演算の勾配関数
 ///

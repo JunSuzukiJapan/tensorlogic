@@ -5,7 +5,7 @@
 
 use crate::device::{Device, MetalBuffer, NeuralEngineOps};
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform, TensorAutograd};
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorAutograd};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;

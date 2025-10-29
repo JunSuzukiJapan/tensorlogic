@@ -1,10 +1,9 @@
 //! Base optimizer trait and common data structures
 
 use crate::error::TensorResult;
-use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO, TensorAutograd};
+use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO};
 use crate::tensor::Tensor;
 use crate::autograd::AutogradContext;
-use half::f16;
 use std::collections::HashMap;
 
 /// Parameter group with learning rate and regularization settings

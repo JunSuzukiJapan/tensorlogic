@@ -1569,7 +1569,7 @@ impl TensorLogicParser {
     }
 
     fn parse_learning_spec(pair: pest::iterators::Pair<Rule>) -> Result<LearningSpec, ParseError> {
-        let mut inner = pair.into_inner();
+        let inner = pair.into_inner();
 
         // Parse optional statements
         let mut statements = Vec::new();

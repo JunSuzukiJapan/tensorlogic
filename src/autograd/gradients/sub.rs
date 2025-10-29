@@ -5,7 +5,6 @@ use super::prelude::*;
 use crate::autograd::GradientFunctionGeneric;
 use crate::error::TensorResult;
 use crate::tensor::{Tensor, TensorShape};
-use half::f16;
 
 /// Sub演算の勾配関数
 ///

@@ -13,7 +13,9 @@ fn swiglu_ffn(
 ) -> float32[?, ?] {
     let gate = linear(x, W_gate)
     let up = linear(x, W_up)
-    result := linear(silu(gate) * up, W_down)
+    let silu_result = silu(gate)
+    let mul_result = silu_result * up
+    result := linear(mul_result, W_down)
 }
 
 fn attention_with_cache(
@@ -69,7 +71,6 @@ fn transformer_layer(
     let Q = linear(normed, W_q)
     let attn_out = attention_with_cache(Q, K_cache, V_cache, W_o)
     let after_attn = x + attn_out
-
     let normed2 = rms_norm(after_attn, W_ffn_norm)
     let ffn_out = swiglu_ffn(normed2, W_gate, W_up, W_down)
     result := after_attn + ffn_out

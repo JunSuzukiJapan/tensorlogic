@@ -3,7 +3,6 @@
 use crate::device::{MetalBuffer, NeuralEngineBuffer};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::FloatType;
-use half::f16;
 
 /// Handle to tensor data on different devices
 #[derive(Debug, Clone)]

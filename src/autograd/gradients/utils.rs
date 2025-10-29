@@ -1,7 +1,6 @@
 use crate::error::TensorResult;
 use super::prelude::*;
 use crate::tensor::{FloatType, Tensor, TensorShape};
-use half::f16;
 
 /// ブロードキャストされた勾配を元の形状に縮約
 ///

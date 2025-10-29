@@ -2,7 +2,7 @@
 
 use crate::tensor::Tensor;
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO};
 use crate::TensorResult;
 use crate::error::TensorError;
 use half::f16;

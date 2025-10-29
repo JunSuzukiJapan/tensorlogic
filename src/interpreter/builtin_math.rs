@@ -1,7 +1,6 @@
 //! Math operations for TensorLogic interpreter
 
 use super::*;
-use crate::tensor::Tensor;
 
 impl Interpreter {
     pub(super) fn eval_math_function(&mut self, name: &str, args: &[TensorExpr]) -> Option<RuntimeResult<Value>> {

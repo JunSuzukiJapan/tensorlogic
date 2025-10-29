@@ -5,7 +5,7 @@ use std::env;
 use half::f16;
 use tensorlogic::device::MetalDevice;
 use tensorlogic::error::TensorResult;
-use tensorlogic::tensor::{Tensor, TensorCreation, TensorAccessors};
+use tensorlogic::tensor::{Tensor, TensorCreation};
 
 fn main() -> TensorResult<()> {
     let args: Vec<String> = env::args().collect();

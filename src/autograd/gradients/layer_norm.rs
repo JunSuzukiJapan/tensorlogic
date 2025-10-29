@@ -1,11 +1,9 @@
 use crate::tensor::FloatType;
 use crate::autograd::GradientFunction;
-use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::Device;
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
-use half::f16;
 
 /// Backward for layer normalization
 /// Returns gradients for [input, weight, bias] (weight and bias can be None)

@@ -1,6 +1,6 @@
 //! Runtime value types for TensorLogic interpreter
 
-use crate::tensor::{Tensor, TokenIdArray, TensorIO, TensorAccessors};
+use crate::tensor::{Tensor, TokenIdArray, TensorAccessors};
 use crate::model::Model;
 use half::f16;
 use super::{RuntimeError, RuntimeResult, DISPLAY_LIMIT};

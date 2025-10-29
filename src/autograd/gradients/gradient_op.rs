@@ -3,8 +3,6 @@
 //! This module implements GradientBackward which computes gradients
 //! of gradients (second-order derivatives, Hessian).
 
-use crate::tensor::FloatType;
-use std::marker::PhantomData;
 use super::prelude::*;
 
 use crate::autograd::{GradientFunction, Operation};

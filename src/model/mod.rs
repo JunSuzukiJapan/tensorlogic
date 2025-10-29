@@ -10,8 +10,8 @@ pub mod convert;
 pub mod formats;
 
 use crate::tensor::Tensor;
-use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO};
-use crate::device::{Device, MetalDevice};
+use crate::tensor::{FloatType, TensorCreation, TensorIO};
+use crate::device::MetalDevice;
 use crate::error::TensorError;
 use std::collections::HashMap;
 use std::path::Path;
@@ -77,7 +77,7 @@ impl<T: FloatType> Model<T> {
     /// Returns ModelLayerCollection containing parsed layer structure
     pub fn build_layer_collection(&self, collection_name: &str) -> Option<crate::interpreter::ModelLayerCollection<T>> {
         use std::collections::HashMap;
-        use crate::interpreter::{ModelLayerCollection, ModelLayer, ModelFeature};
+        use crate::interpreter::ModelLayerCollection;
         
         let prefix = format!("{}.", collection_name);
         let mut layers: HashMap<usize, HashMap<String, Tensor<T>>> = HashMap::new();

@@ -3,6 +3,13 @@
 //! This library implements the TensorLogic language with f16-only operations,
 //! leveraging Metal GPU and Neural Engine for maximum performance.
 
+// Allow common warnings throughout the codebase
+#![allow(unused_variables)]
+#![allow(unused_imports)]
+#![allow(unreachable_code)]
+#![allow(unreachable_patterns)]
+#![allow(dead_code)]
+#![allow(deprecated)]
 pub mod ast;
 pub mod autograd;
 pub mod coreml;
