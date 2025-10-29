@@ -24,11 +24,29 @@ pub struct Program {
     pub declarations: Vec<Declaration>,
     /// Optional main block
     pub main_block: Option<MainBlock>,
+    /// Test blocks
+    pub test_blocks: Vec<TestBlock>,
+    /// Benchmark blocks
+    pub bench_blocks: Vec<BenchBlock>,
 }
 
 /// Main execution block
 #[derive(Debug, Clone, PartialEq)]
 pub struct MainBlock {
+    pub statements: Vec<Statement>,
+}
+
+/// Test block
+#[derive(Debug, Clone, PartialEq)]
+pub struct TestBlock {
+    pub name: Identifier,
+    pub statements: Vec<Statement>,
+}
+
+/// Benchmark block
+#[derive(Debug, Clone, PartialEq)]
+pub struct BenchBlock {
+    pub name: Identifier,
     pub statements: Vec<Statement>,
 }
 
@@ -544,6 +562,11 @@ pub enum Statement {
     /// Return statement: return [expr]
     Return {
         value: Option<TensorExpr>,
+    },
+    /// Panic statement: panic("format", args...)
+    Panic {
+        format: String,
+        args: Vec<TensorExpr>,
     },
     /// Python import: python import module [as alias]
     PythonImport {

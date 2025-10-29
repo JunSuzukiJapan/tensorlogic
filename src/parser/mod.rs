@@ -56,6 +56,8 @@ impl TensorLogicParser {
 
         let mut declarations = Vec::new();
         let mut main_block = None;
+        let mut test_blocks = Vec::new();
+        let mut bench_blocks = Vec::new();
 
         for pair in pairs {
             match pair.as_rule() {
@@ -68,10 +70,16 @@ impl TensorLogicParser {
                             Rule::main_block => {
                                 main_block = Some(Self::parse_main_block(inner)?);
                             }
+                            Rule::test_block => {
+                                test_blocks.push(Self::parse_test_block(inner)?);
+                            }
+                            Rule::bench_block => {
+                                bench_blocks.push(Self::parse_bench_block(inner)?);
+                            }
                             Rule::EOI => {}
                             _ => {
                                 return Err(ParseError::UnexpectedRule {
-                                    expected: "declaration or main_block".to_string(),
+                                    expected: "declaration, main_block, test_block, or bench_block".to_string(),
                                     found: format!("{:?}", inner.as_rule()),
                                 });
                             }
@@ -85,6 +93,8 @@ impl TensorLogicParser {
         Ok(Program {
             declarations,
             main_block,
+            test_blocks,
+            bench_blocks,
         })
     }
 
@@ -98,6 +108,56 @@ impl TensorLogicParser {
         }
 
         Ok(MainBlock { statements })
+    }
+
+    fn parse_test_block(pair: pest::iterators::Pair<Rule>) -> Result<TestBlock, ParseError> {
+        let mut name = None;
+        let mut statements = Vec::new();
+
+        for inner in pair.into_inner() {
+            match inner.as_rule() {
+                Rule::identifier => {
+                    name = Some(Identifier(inner.as_str().to_string()));
+                }
+                Rule::statement => {
+                    statements.push(Self::parse_statement(inner)?);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(TestBlock {
+            name: name.ok_or_else(|| ParseError::UnexpectedRule {
+                expected: "test name".to_string(),
+                found: "none".to_string(),
+            })?,
+            statements,
+        })
+    }
+
+    fn parse_bench_block(pair: pest::iterators::Pair<Rule>) -> Result<BenchBlock, ParseError> {
+        let mut name = None;
+        let mut statements = Vec::new();
+
+        for inner in pair.into_inner() {
+            match inner.as_rule() {
+                Rule::identifier => {
+                    name = Some(Identifier(inner.as_str().to_string()));
+                }
+                Rule::statement => {
+                    statements.push(Self::parse_statement(inner)?);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(BenchBlock {
+            name: name.ok_or_else(|| ParseError::UnexpectedRule {
+                expected: "bench name".to_string(),
+                found: "none".to_string(),
+            })?,
+            statements,
+        })
     }
 
     fn parse_declaration(pair: pest::iterators::Pair<Rule>) -> Result<Declaration, ParseError> {
@@ -1397,6 +1457,28 @@ impl TensorLogicParser {
                     None
                 };
                 Ok(Statement::Return { value })
+            }
+            Rule::panic_statement => {
+                let format_args = inner.into_inner().next().ok_or_else(|| {
+                    ParseError::MissingField("panic format args".to_string())
+                })?;
+
+                let mut format = String::new();
+                let mut args = Vec::new();
+
+                for arg_pair in format_args.into_inner() {
+                    match arg_pair.as_rule() {
+                        Rule::string_literal => {
+                            format = Self::parse_string_literal(arg_pair)?;
+                        }
+                        Rule::tensor_expr => {
+                            args.push(Self::parse_tensor_expr(arg_pair)?);
+                        }
+                        _ => {}
+                    }
+                }
+
+                Ok(Statement::Panic { format, args })
             }
             Rule::tensor_decl => {
                 Ok(Statement::TensorDecl(Self::parse_tensor_decl(inner)?))

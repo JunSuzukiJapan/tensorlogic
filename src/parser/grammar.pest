@@ -8,7 +8,7 @@ COMMENT = _{ "//" ~ (!"\n" ~ ANY)* ~ "\n" | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 // Program Structure
 // ============================================================================
 
-program = { SOI ~ declaration* ~ main_block? ~ EOI }
+program = { SOI ~ declaration* ~ main_block? ~ test_block* ~ bench_block* ~ EOI }
 
 declaration = {
     import_decl
@@ -22,6 +22,10 @@ declaration = {
 }
 
 main_block = { "main" ~ "{" ~ statement* ~ "}" }
+
+test_block = { "test" ~ identifier ~ "{" ~ statement* ~ "}" }
+
+bench_block = { "bench" ~ identifier ~ "{" ~ statement* ~ "}" }
 
 // ============================================================================
 // Import Declarations
@@ -284,6 +288,7 @@ statement = {
     let_statement
     | break_statement
     | return_statement
+    | panic_statement
     | tensor_decl
     | assignment
     | query              // Try query before fact_assertion (query is more specific with ? suffix)
@@ -303,6 +308,10 @@ block_statement = { "{" ~ statement* ~ "}" }
 break_statement = { "break" }
 
 return_statement = { "return" ~ tensor_expr? }
+
+panic_statement = { "panic" ~ "(" ~ format_args ~ ")" }
+
+format_args = { string_literal ~ ("," ~ tensor_expr)* }
 
 let_statement = { "let" ~ identifier ~ "=" ~ tensor_expr }
 

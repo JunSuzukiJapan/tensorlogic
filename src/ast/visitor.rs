@@ -381,6 +381,13 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
             }
             Ok(())
         }
+        Statement::Panic { format: _, args } => {
+            // Visit panic arguments
+            for arg in args {
+                visitor.visit_tensor_expr(arg)?;
+            }
+            Ok(())
+        }
     }
 }
 

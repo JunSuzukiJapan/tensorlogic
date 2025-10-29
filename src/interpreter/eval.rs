@@ -495,6 +495,19 @@ impl Interpreter {
                 };
                 Err(RuntimeError::ReturnValue(return_val))
             }
+            Statement::Panic { format, args } => {
+                // Evaluate arguments
+                let mut arg_values = Vec::new();
+                for arg in args {
+                    arg_values.push(self.eval_expr(arg)?);
+                }
+
+                // Format the panic message
+                let msg = self.format_string(format, &arg_values)?;
+
+                // Panic with the formatted message
+                panic!("{}", msg);
+            }
             Statement::PythonImport { module, alias } => {
                 #[cfg(any(feature = "python", feature = "python-extension"))]
                 {
@@ -1928,5 +1941,68 @@ impl Interpreter {
 
             Ok(result.to_value())
         }
+    }
+
+    /// Format a string with arguments (like Rust's println!)
+    pub(crate) fn format_string(&self, format: &str, args: &[Value]) -> RuntimeResult<String> {
+        let mut result = String::new();
+        let mut arg_idx = 0;
+        let mut chars = format.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            if ch == '{' {
+                if chars.peek() == Some(&'}') {
+                    chars.next(); // consume '}'
+                    if arg_idx < args.len() {
+                        result.push_str(&Self::value_to_string(&args[arg_idx])?);
+                        arg_idx += 1;
+                    } else {
+                        return Err(RuntimeError::TypeError(
+                            "Not enough arguments for format string".to_string()
+                        ));
+                    }
+                } else {
+                    result.push(ch);
+                }
+            } else if ch == '\\' {
+                // Handle escape sequences
+                if let Some(&next_ch) = chars.peek() {
+                    chars.next();
+                    match next_ch {
+                        'n' => result.push('\n'),
+                        't' => result.push('\t'),
+                        'r' => result.push('\r'),
+                        '\\' => result.push('\\'),
+                        _ => {
+                            result.push('\\');
+                            result.push(next_ch);
+                        }
+                    }
+                } else {
+                    result.push(ch);
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Convert Value to string for display
+    fn value_to_string(value: &Value) -> RuntimeResult<String> {
+        Ok(match value {
+            Value::TensorF16(t) => {
+                let data = t.to_vec();
+                format!("{:?}", data)
+            }
+            Value::TensorF32(t) => {
+                let data = t.to_vec();
+                format!("{:?}", data)
+            }
+            Value::String(s) => s.clone(),
+            Value::Void => "void".to_string(),
+            _ => format!("{:?}", value),
+        })
     }
 }
