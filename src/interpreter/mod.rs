@@ -961,36 +961,87 @@ impl Interpreter {
     fn eval_function_call(&mut self, type_namespace: Option<&str>, name: &Identifier, args: &[TensorExpr]) -> RuntimeResult<Value> {
         let name_str = name.as_str();
 
+        // Profiling: check if TL_PROFILE is set
+        let profile_enabled = std::env::var("TL_PROFILE").is_ok();
+        let start_time = if profile_enabled {
+            let full_name = if let Some(ns) = type_namespace {
+                format!("{}::{}", ns, name_str)
+            } else {
+                name_str.to_string()
+            };
+            eprintln!("[PROFILE] → {}", full_name);
+            Some((full_name, std::time::Instant::now()))
+        } else {
+            None
+        };
+
         // If type namespace is specified (e.g., f32::zeros), handle typed function call
         if let Some(type_ns) = type_namespace {
-            return self.eval_typed_function_call(type_ns, name_str, args);
+            let result = self.eval_typed_function_call(type_ns, name_str, args);
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
+            return result;
         }
 
         // Try dispatching to category-specific builtin modules
         // Each returns Option<RuntimeResult<Value>>: Some if handled, None if not in that category
 
         if let Some(result) = self.eval_tensor_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
             return result;
         }
         if let Some(result) = self.eval_math_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
             return result;
         }
         if let Some(result) = self.eval_nn_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
             return result;
         }
         if let Some(result) = self.eval_kg_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
             return result;
         }
         if let Some(result) = self.eval_gnn_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
             return result;
         }
         if let Some(result) = self.eval_model_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
             return result;
         }
         if let Some(result) = self.eval_sampling_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
             return result;
         }
         if let Some(result) = self.eval_util_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
             return result;
         }
 

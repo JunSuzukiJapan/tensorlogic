@@ -49,7 +49,9 @@
       "Bash(./target/release/tl run:*)",
       "Bash(sort:*)",
       "Bash(git restore:*)",
-      "Read(//Users/suzukijun/.claude/**)"
+      "Read(//Users/suzukijun/.claude/**)",
+      "Bash(TL_PROFILE=1 ./target/release/tl run:*)",
+      "Bash(TL_PROFILE=1 timeout 45 ./target/release/tl run:*)"
     ],
     "deny": [],
     "ask": []
