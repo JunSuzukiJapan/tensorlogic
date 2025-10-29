@@ -191,6 +191,93 @@ impl Interpreter {
         Ok(())
     }
 
+    /// Execute test blocks
+    pub fn execute_tests(&mut self, program: &Program) -> RuntimeResult<()> {
+        // Execute all declarations first
+        for decl in &program.declarations {
+            self.execute_declaration(decl)?;
+        }
+
+        if program.test_blocks.is_empty() {
+            println!("No test blocks found");
+            return Ok(());
+        }
+
+        let mut passed = 0;
+        let mut failed = 0;
+
+        for test_block in &program.test_blocks {
+            print!("test {} ... ", test_block.name.as_str());
+            std::io::Write::flush(&mut std::io::stdout()).unwrap();
+
+            match self.execute_test_block(test_block) {
+                Ok(_) => {
+                    println!("✓ ok");
+                    passed += 1;
+                }
+                Err(e) => {
+                    println!("✗ FAILED");
+                    eprintln!("  Error: {}", e);
+                    failed += 1;
+                }
+            }
+        }
+
+        println!("\ntest result: {}. {} passed; {} failed",
+            if failed == 0 { "ok" } else { "FAILED" },
+            passed,
+            failed
+        );
+
+        if failed > 0 {
+            std::process::exit(1);
+        }
+
+        Ok(())
+    }
+
+    /// Execute benchmark blocks with timing
+    pub fn execute_benchmarks(&mut self, program: &Program) -> RuntimeResult<()> {
+        // Execute all declarations first
+        for decl in &program.declarations {
+            self.execute_declaration(decl)?;
+        }
+
+        if program.bench_blocks.is_empty() {
+            println!("No benchmark blocks found");
+            return Ok(());
+        }
+
+        // Enable profiling for benchmarks
+        std::env::set_var("TL_PROFILE", "1");
+
+        for bench_block in &program.bench_blocks {
+            println!("bench {} ...", bench_block.name.as_str());
+
+            let start = std::time::Instant::now();
+            self.execute_bench_block(bench_block)?;
+            let duration = start.elapsed();
+
+            println!("  Total time: {:.3}ms\n", duration.as_secs_f64() * 1000.0);
+        }
+
+        Ok(())
+    }
+
+    fn execute_test_block(&mut self, test_block: &TestBlock) -> RuntimeResult<()> {
+        for stmt in &test_block.statements {
+            self.execute_statement(stmt)?;
+        }
+        Ok(())
+    }
+
+    fn execute_bench_block(&mut self, bench_block: &BenchBlock) -> RuntimeResult<()> {
+        for stmt in &bench_block.statements {
+            self.execute_statement(stmt)?;
+        }
+        Ok(())
+    }
+
     /// Get a variable from the interpreter's environment
     /// Checks local scope (call_stack) first, then global environment
     pub fn get_variable(&self, name: &str) -> Option<Value> {

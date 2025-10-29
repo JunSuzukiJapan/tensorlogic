@@ -25,15 +25,19 @@ fn main() {
     // Check for debug flag
     let debug_mode = args.contains(&"--debug".to_string()) || args.contains(&"-d".to_string());
 
+    // Check for test/bench flags
+    let test_mode = args.contains(&"--test".to_string());
+    let bench_mode = args.contains(&"--bench".to_string());
+
     match command.as_str() {
         "run" => {
             if args.len() < 3 {
                 eprintln!("Error: Missing file path");
-                eprintln!("Usage: {} run <file.tl> [--debug]", args[0]);
+                eprintln!("Usage: {} run <file.tl> [--debug] [--test] [--bench]", args[0]);
                 std::process::exit(1);
             }
             let file_path = &args[2];
-            if let Err(e) = run_file(file_path, debug_mode) {
+            if let Err(e) = run_file(file_path, debug_mode, test_mode, bench_mode) {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
             }
@@ -72,14 +76,18 @@ fn print_usage(program_name: &str) {
     println!();
     println!("OPTIONS:");
     println!("    --debug, -d   Enable debug mode with detailed error information");
+    println!("    --test        Run test blocks instead of main block");
+    println!("    --bench       Run benchmark blocks with timing");
     println!();
     println!("EXAMPLES:");
     println!("    {} run examples/linear_regression.tl", program_name);
     println!("    {} run examples/test.tl --debug", program_name);
+    println!("    {} run examples/test.tl --test", program_name);
+    println!("    {} run examples/benchmark.tl --bench", program_name);
     println!("    {} repl --debug", program_name);
 }
 
-fn run_file(file_path: &str, debug_mode: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn run_file(file_path: &str, debug_mode: bool, test_mode: bool, bench_mode: bool) -> Result<(), Box<dyn std::error::Error>> {
     // Check if file exists
     let path = Path::new(file_path);
     if !path.exists() {
@@ -121,6 +129,8 @@ fn run_file(file_path: &str, debug_mode: bool) -> Result<(), Box<dyn std::error:
         if program.main_block.is_some() {
             println!("[DEBUG] Found main block");
         }
+        println!("[DEBUG] Found {} test blocks", program.test_blocks.len());
+        println!("[DEBUG] Found {} bench blocks", program.bench_blocks.len());
     } else {
         println!("Parsed {} declarations", program.declarations.len());
         if program.main_block.is_some() {
@@ -129,13 +139,27 @@ fn run_file(file_path: &str, debug_mode: bool) -> Result<(), Box<dyn std::error:
     }
 
     // Execute program
-    println!("\nExecuting...\n");
     let mut interpreter = Interpreter::new();
 
     // Set current file path for import resolution
     interpreter.set_current_file(path.canonicalize()?);
 
-    if let Err(e) = interpreter.execute(&program) {
+    // Determine which blocks to execute
+    let result = if test_mode {
+        // Run test blocks
+        println!("\n=== Running Tests ===\n");
+        interpreter.execute_tests(&program)
+    } else if bench_mode {
+        // Run benchmark blocks
+        println!("\n=== Running Benchmarks ===\n");
+        interpreter.execute_benchmarks(&program)
+    } else {
+        // Run main block (default)
+        println!("\nExecuting...\n");
+        interpreter.execute(&program)
+    };
+
+    if let Err(e) = result {
         // Build stack trace from error context
         let mut stack_trace = StackTrace::new();
 
