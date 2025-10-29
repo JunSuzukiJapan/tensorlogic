@@ -154,46 +154,59 @@ impl Interpreter {
     /// print(args...)
     /// Print values to stdout
     fn eval_print(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
-        let mut output = String::new();
+        // print(value1, value2, ...) - simple mode
+        // print("format {}", arg1, arg2, ...) - format string mode
 
-        for (i, arg) in args.iter().enumerate() {
-            if i > 0 {
-                output.push(' ');
-            }
-
-            let val = self.eval_expr(arg)?;
-            match val {
-                Value::String(s) => output.push_str(&s),
-                Value::Integer(n) => output.push_str(&n.to_string()),
-                Value::Float(f) => output.push_str(&f.to_string()),
-                Value::Boolean(b) => output.push_str(&b.to_string()),
-                Value::TensorF16(ref t) => {
-                    output.push_str(&format!("Tensor(shape={:?})", t.dims()));
-                }
-                Value::TensorF32(ref t) => {
-                    output.push_str(&format!("Tensor(shape={:?})", t.dims()));
-                }
-                Value::ModelF16(_) => output.push_str("Model<f16>(...)"),
-                Value::ModelF32(_) => output.push_str("Model<f32>(...)"),
-                Value::ModelLayerCollectionF16(ref c) => output.push_str(&format!("ModelLayerCollection<f16>(layers={})", c.layers.len())),
-                Value::ModelLayerCollectionF32(ref c) => output.push_str(&format!("ModelLayerCollection<f32>(layers={})", c.layers.len())),
-                Value::ModelLayerF16(ref l) => output.push_str(&format!("ModelLayer<f16>[{}]", l.index)),
-                Value::ModelLayerF32(ref l) => output.push_str(&format!("ModelLayer<f32>[{}]", l.index)),
-                Value::ModelFeatureF16(ref f) => output.push_str(&format!("ModelFeature<f16>({})", f.name)),
-                Value::ModelFeatureF32(ref f) => output.push_str(&format!("ModelFeature<f32>({})", f.name)),
-                Value::Tokenizer(_) => output.push_str("Tokenizer(...)"),
-                Value::TokenIds(ref ids) => {
-                    output.push_str(&format!("TokenIds(len={})", ids.len()));
-                }
-                Value::TokenIdArray(ref arr) => {
-                    output.push_str(&format!("{}", arr.data().iter().map(|&id| id.to_string()).collect::<Vec<_>>().join(", ")));
-                }
-                Value::Type(ref ty) => output.push_str(&format!("Type({})", ty)),
-                Value::Void => output.push_str("void"),
-            }
+        if args.is_empty() {
+            println!();
+            return Ok(Value::Void);
         }
 
-        println!("{}", output);
+        // Check if first argument is a string literal (format string mode)
+        let first_val = self.eval_expr(&args[0])?;
+
+        if let Value::String(ref format_str) = first_val {
+            // Check if this is format string mode (contains {}) or simple mode
+            if format_str.contains("{}") {
+                // Format string mode: print("Hello {}", name)
+                if args.len() > 1 {
+                    // Evaluate remaining arguments
+                    let mut format_args = Vec::new();
+                    for arg in &args[1..] {
+                        format_args.push(self.eval_expr(arg)?);
+                    }
+
+                    // Use format_string helper from eval.rs
+                    let formatted = self.format_string(&format_str, &format_args)?;
+                    println!("{}", formatted);
+                } else {
+                    // Just a string, print it
+                    println!("{}", format_str);
+                }
+            } else if args.len() == 1 {
+                // Just a single string, print it
+                println!("{}", format_str);
+            } else {
+                // Simple mode with multiple arguments: print("A", "B", "C")
+                print!("{}", self.value_to_display(&first_val));
+                for arg in &args[1..] {
+                    print!(" ");
+                    let val = self.eval_expr(arg)?;
+                    print!("{}", self.value_to_display(&val));
+                }
+                println!();
+            }
+        } else {
+            // Simple mode: print(value1, value2, ...)
+            print!("{}", self.value_to_display(&first_val));
+            for arg in &args[1..] {
+                print!(" ");
+                let val = self.eval_expr(arg)?;
+                print!("{}", self.value_to_display(&val));
+            }
+            println!();
+        }
+
         Ok(Value::Void)
     }
 

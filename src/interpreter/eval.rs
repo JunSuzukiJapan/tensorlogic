@@ -126,15 +126,56 @@ impl Interpreter {
             Statement::FunctionCall { name, args } => {
                 // Handle function calls as statements (e.g., print)
                 if name.as_str() == "print" {
-                    // Special handling for print
-                    for (i, arg) in args.iter().enumerate() {
-                        if i > 0 {
-                            print!(" ");
-                        }
-                        let val = self.eval_expr(arg)?;
-                        print!("{}", val);
+                    // Special handling for print with format string support
+                    if args.is_empty() {
+                        println!();
+                        return Ok(());
                     }
-                    println!();
+
+                    // Check if first argument is a string literal (format string mode)
+                    let first_val = self.eval_expr(&args[0])?;
+
+                    if let Value::String(ref format_str) = first_val {
+                        // Check if this is format string mode (contains {}) or simple mode
+                        if format_str.contains("{}") {
+                            // Format string mode: print("Hello {}", name)
+                            if args.len() > 1 {
+                                // Evaluate remaining arguments
+                                let mut format_args = Vec::new();
+                                for arg in &args[1..] {
+                                    format_args.push(self.eval_expr(arg)?);
+                                }
+
+                                // Use format_string helper
+                                let formatted = self.format_string(&format_str, &format_args)?;
+                                println!("{}", formatted);
+                            } else {
+                                // Just a string, print it
+                                println!("{}", format_str);
+                            }
+                        } else if args.len() == 1 {
+                            // Just a single string, print it
+                            println!("{}", format_str);
+                        } else {
+                            // Simple mode with multiple arguments: print("A", "B", "C")
+                            print!("{}", self.value_to_display(&first_val));
+                            for arg in &args[1..] {
+                                print!(" ");
+                                let val = self.eval_expr(arg)?;
+                                print!("{}", self.value_to_display(&val));
+                            }
+                            println!();
+                        }
+                    } else {
+                        // Simple mode: print(value1, value2, ...)
+                        print!("{}", self.value_to_display(&first_val));
+                        for arg in &args[1..] {
+                            print!(" ");
+                            let val = self.eval_expr(arg)?;
+                            print!("{}", self.value_to_display(&val));
+                        }
+                        println!();
+                    }
                     Ok(())
                 } else {
                     // Other function calls - evaluate and discard result
@@ -315,17 +356,57 @@ impl Interpreter {
                 let predicate_name = atom.predicate.as_str();
 
                 if predicate_name == "print" {
-                    // Handle as print function
-                    for (i, term) in atom.terms.iter().enumerate() {
-                        if i > 0 {
-                            print!(" ");
-                        }
-                        // Convert term to expression and evaluate
-                        let expr = self.term_to_expr(term);
-                        let val = self.eval_expr(&expr)?;
-                        print!("{}", val);
+                    // Handle as print function with format string support
+                    if atom.terms.is_empty() {
+                        println!();
+                        return Ok(());
                     }
-                    println!();
+
+                    // Convert first term to expression and evaluate
+                    let first_term = &atom.terms[0];
+                    let first_expr = self.term_to_expr(first_term);
+                    let first_val = self.eval_expr(&first_expr)?;
+
+                    if let Value::String(ref format_str) = first_val {
+                        // Check if this is format string mode (contains {}) or simple mode
+                        if format_str.contains("{}") {
+                            // Format string mode
+                            if atom.terms.len() > 1 {
+                                let mut format_args = Vec::new();
+                                for term in &atom.terms[1..] {
+                                    let expr = self.term_to_expr(term);
+                                    format_args.push(self.eval_expr(&expr)?);
+                                }
+                                let formatted = self.format_string(&format_str, &format_args)?;
+                                println!("{}", formatted);
+                            } else {
+                                println!("{}", format_str);
+                            }
+                        } else if atom.terms.len() == 1 {
+                            // Just a single string, print it
+                            println!("{}", format_str);
+                        } else {
+                            // Simple mode with multiple arguments: print("A", "B", "C")
+                            print!("{}", self.value_to_display(&first_val));
+                            for term in &atom.terms[1..] {
+                                print!(" ");
+                                let expr = self.term_to_expr(term);
+                                let val = self.eval_expr(&expr)?;
+                                print!("{}", self.value_to_display(&val));
+                            }
+                            println!();
+                        }
+                    } else {
+                        // Simple mode
+                        print!("{}", self.value_to_display(&first_val));
+                        for term in &atom.terms[1..] {
+                            print!(" ");
+                            let expr = self.term_to_expr(term);
+                            let val = self.eval_expr(&expr)?;
+                            print!("{}", self.value_to_display(&val));
+                        }
+                        println!();
+                    }
                     return Ok(());
                 }
 
@@ -2004,5 +2085,34 @@ impl Interpreter {
             Value::Void => "void".to_string(),
             _ => format!("{:?}", value),
         })
+    }
+
+    /// Convert Value to display string for simple print mode
+    pub(crate) fn value_to_display(&self, value: &Value) -> String {
+        match value {
+            Value::TensorF16(t) => {
+                format!("Tensor<f16>(shape={:?})", t.dims())
+            }
+            Value::TensorF32(t) => {
+                format!("Tensor<f32>(shape={:?})", t.dims())
+            }
+            Value::Boolean(b) => b.to_string(),
+            Value::Integer(i) => i.to_string(),
+            Value::Float(f) => f.to_string(),
+            Value::String(s) => s.clone(),
+            Value::Void => "void".to_string(),
+            Value::ModelF16(_) => "<ModelF16>".to_string(),
+            Value::ModelF32(_) => "<ModelF32>".to_string(),
+            Value::ModelLayerCollectionF16(_) => "<ModelLayerCollectionF16>".to_string(),
+            Value::ModelLayerCollectionF32(_) => "<ModelLayerCollectionF32>".to_string(),
+            Value::ModelLayerF16(_) => "<ModelLayerF16>".to_string(),
+            Value::ModelLayerF32(_) => "<ModelLayerF32>".to_string(),
+            Value::ModelFeatureF16(_) => "<ModelFeatureF16>".to_string(),
+            Value::ModelFeatureF32(_) => "<ModelFeatureF32>".to_string(),
+            Value::Tokenizer(_) => "<Tokenizer>".to_string(),
+            Value::TokenIds(ids) => format!("{:?}", ids),
+            Value::TokenIdArray(arr) => format!("{:?}", arr.data()),
+            Value::Type(t) => format!("<Type: {}>", t),
+        }
     }
 }

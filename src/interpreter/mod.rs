@@ -4715,36 +4715,44 @@ impl Interpreter {
             }
 
             "print" => {
-                // print(value1, value2, ..., end: "\n", flush: false)
-                // For now, simple implementation
-                for (i, arg) in args.iter().enumerate() {
-                    if i > 0 {
-                        print!(" ");
-                    }
-                    let val = self.eval_expr(arg)?;
-                    match val {
-                        Value::String(s) => print!("{}", s),
-                        Value::Integer(i) => print!("{}", i),
-                        Value::Float(f) => print!("{}", f),
-                        Value::Boolean(b) => print!("{}", b),
-                        Value::TensorF16(t) => print!("{:?}", t),
-                        Value::TensorF32(t) => print!("{:?}", t),
-                        Value::ModelF16(m) => print!("Model<f16>({:?})", m.metadata.format),
-                        Value::ModelF32(m) => print!("Model<f32>({:?})", m.metadata.format),
-                        Value::ModelLayerCollectionF16(ref c) => print!("ModelLayerCollection<f16>(layers={})", c.layers.len()),
-                        Value::ModelLayerCollectionF32(ref c) => print!("ModelLayerCollection<f32>(layers={})", c.layers.len()),
-                        Value::ModelLayerF16(ref l) => print!("ModelLayer<f16>[{}]", l.index),
-                        Value::ModelLayerF32(ref l) => print!("ModelLayer<f32>[{}]", l.index),
-                        Value::ModelFeatureF16(ref f) => print!("ModelFeature<f16>({})", f.name),
-                        Value::ModelFeatureF32(ref f) => print!("ModelFeature<f32>({})", f.name),
-                        Value::Tokenizer(t) => print!("{:?}", t),
-                        Value::TokenIds(ids) => print!("{:?}", ids),
-                        Value::TokenIdArray(ref arr) => print!("[{}]", arr.data().iter().map(|&id| format!("{:.4}", id as f64)).collect::<Vec<_>>().join(", ")),
-                        Value::Type(type_name) => print!("Type({})", type_name),
-                        Value::Void => print!("void"),
-                    }
+                // print(value1, value2, ...) - simple mode
+                // print("format {}", arg1, arg2, ...) - format string mode
+
+                if args.is_empty() {
+                    println!();
+                    return Ok(Value::Void);
                 }
-                println!();
+
+                // Check if first argument is a string literal (format string mode)
+                let first_val = self.eval_expr(&args[0])?;
+
+                if let Value::String(format_str) = first_val {
+                    // Format string mode: print("Hello {}", name)
+                    if args.len() > 1 {
+                        // Evaluate remaining arguments
+                        let mut format_args = Vec::new();
+                        for arg in &args[1..] {
+                            format_args.push(self.eval_expr(arg)?);
+                        }
+
+                        // Use format_string helper from eval.rs
+                        let formatted = self.format_string(&format_str, &format_args)?;
+                        println!("{}", formatted);
+                    } else {
+                        // Just a string, print it
+                        println!("{}", format_str);
+                    }
+                } else {
+                    // Simple mode: print(value1, value2, ...)
+                    print!("{}", self.value_to_display(&first_val));
+                    for arg in &args[1..] {
+                        print!(" ");
+                        let val = self.eval_expr(arg)?;
+                        print!("{}", self.value_to_display(&val));
+                    }
+                    println!();
+                }
+
                 Ok(Value::Void)
             }
 
