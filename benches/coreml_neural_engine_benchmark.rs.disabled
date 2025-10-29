@@ -1,3 +1,4 @@
+use half::f16;
 //! CoreML Neural Engine Performance Benchmark
 //!
 //! Comprehensive benchmark comparing Metal GPU and Neural Engine inference performance
@@ -134,7 +135,7 @@ fn benchmark_coreml_inference(
     BenchmarkResult {
         operation: format!(
             "CoreML Inference ({} input, {}/{} success)",
-            input.shape().dims().iter().map(|s| s.to_string()).collect::<Vec<_>>().join("×"),
+            input.dims().dims().iter().map(|s| s.to_string()).collect::<Vec<_>>().join("×"),
             success_count,
             config.iterations
         ),

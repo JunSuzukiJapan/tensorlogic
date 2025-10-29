@@ -1,3 +1,4 @@
+use half::f16;
 //! Metal GPU Performance Benchmark
 //!
 //! Comprehensive benchmark for Metal GPU operations including:

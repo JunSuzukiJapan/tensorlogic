@@ -26,7 +26,14 @@
       "Bash(then echo \"=== llama.cpp Output ===\")",
       "Bash(else echo \"llama.cpp not finished yet\")",
       "Bash(fi)",
-      "Bash(cargo fix:*)"
+      "Bash(cargo fix:*)",
+      "Bash(cargo bench:*)",
+      "Bash(for:*)",
+      "Bash(do)",
+      "Bash(if ! grep -q \"use half::f16\" \"$file\")",
+      "Bash(then)",
+      "Bash(echo:*)",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []
