@@ -583,98 +583,6 @@ impl Interpreter {
             }
         }
     }
-    /// Build a dotted property path for nested property access
-    /// Recursively extracts the full path from PropertyAccess and TensorIndex chains
-    /// Examples:
-    ///   model.blk[0].attn_norm.weight -> "blk.0.attn_norm.weight"
-    ///   model.output_norm -> "output_norm"
-    fn build_property_path(&self, object: &TensorExpr, final_property: &Identifier) -> RuntimeResult<String> {
-        match object {
-            TensorExpr::Variable(_) => {
-                Ok(final_property.as_str().to_string())
-            }
-            TensorExpr::PropertyAccess { object: inner_object, property: inner_property } => {
-                let parent_path = self.build_property_path(inner_object, inner_property)?;
-                Ok(format!("{}.{}", parent_path, final_property.as_str()))
-            }
-            TensorExpr::TensorIndex { tensor, indices } => {
-                let base_path = match tensor.as_ref() {
-                    TensorExpr::PropertyAccess { object: inner_obj, property: inner_prop } => {
-                        self.build_property_path(inner_obj, inner_prop)?
-                    }
-                    TensorExpr::Variable(_) => String::new(),
-                    _ => return Err(RuntimeError::TypeError(
-                        "Array indexing in property path must be on a property".to_string()
-                    )),
-                };
-                if indices.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        "Property path array access must have exactly one index".to_string()
-                    ));
-                }
-                let index_str = match &indices[0] {
-                    IndexExpr::Int(n) => n.to_string(),
-                    IndexExpr::Var(id) => {
-                        if let Some(val) = self.get_variable(id.as_str()) {
-                            match val {
-                                Value::Integer(n) => n.to_string(),
-                                Value::TensorF32(ref t) => (self.read_element_f32(t, 0)? as i64).to_string(),
-                                Value::TensorF16(ref t) => (self.read_element_f16(t, 0)? as i64).to_string(),
-                                _ => return Err(RuntimeError::TypeError("Index must be number".to_string())),
-                            }
-                        } else {
-                            return Err(RuntimeError::UndefinedVariable(id.as_str().to_string()));
-                        }
-                    }
-                    IndexExpr::Slice => return Err(RuntimeError::TypeError("Slice not supported".to_string())),
-                };
-                if base_path.is_empty() {
-                    Ok(format!("{}.{}", index_str, final_property.as_str()))
-                } else {
-                    Ok(format!("{}.{}.{}", base_path, index_str, final_property.as_str()))
-                }
-            }
-            _ => Err(RuntimeError::TypeError("Invalid property path".to_string())),
-        }
-    }
-
-    /// Check if an expression is part of a model property chain
-    fn is_model_property_chain(&self, expr: &TensorExpr) -> bool {
-        match expr {
-            TensorExpr::Variable(id) => {
-                if let Some(val) = self.get_variable(id.as_str()) {
-                    matches!(val, Value::ModelF16(_) | Value::ModelF32(_))
-                } else {
-                    false
-                }
-            }
-            TensorExpr::PropertyAccess { object, .. } | TensorExpr::TensorIndex { tensor: object, .. } => {
-                self.is_model_property_chain(object)
-            }
-            _ => false,
-        }
-    }
-
-    /// Get the root model from a property chain
-    fn get_root_model(&self, expr: &TensorExpr) -> RuntimeResult<Value> {
-        match expr {
-            TensorExpr::Variable(id) => {
-                if let Some(val) = self.get_variable(id.as_str()) {
-                    if matches!(val, Value::ModelF16(_) | Value::ModelF32(_)) {
-                        Ok(val.clone())
-                    } else {
-                        Err(RuntimeError::TypeError("Not a model".to_string()))
-                    }
-                } else {
-                    Err(RuntimeError::UndefinedVariable(id.as_str().to_string()))
-                }
-            }
-            TensorExpr::PropertyAccess { object, .. } | TensorExpr::TensorIndex { tensor: object, .. } => {
-                self.get_root_model(object)
-            }
-            _ => Err(RuntimeError::TypeError("Invalid model property chain".to_string())),
-        }
-    }
 
     /// Read a single element from f16 tensor at linear index using GPU
     pub(super) fn read_element_f16(&self, tensor: &crate::tensor::Tensor<half::f16>, linear_idx: usize) -> RuntimeResult<f32> {
@@ -1005,53 +913,83 @@ impl Interpreter {
             }
 
             TensorExpr::PropertyAccess { object, property } => {
-                // Check if this is part of a model property path (model.blk[0].attn_norm.weight)
-                let is_model_path = match object.as_ref() {
-                    TensorExpr::Variable(id) => {
-                        if let Some(val) = self.get_variable(id.as_str()) {
-                            matches!(val, Value::ModelF16(_) | Value::ModelF32(_))
+                // NEW: Evaluate object first, then access property on the resulting value
+                let obj_value = self.eval_expr(object)?;
+                let prop_name = property.as_str();
+                
+                // Handle property access based on object type
+                match obj_value {
+                    // Model.property -> returns ModelLayerCollection or ModelFeature
+                    Value::ModelF16(ref model) => {
+                        // Try as layer collection first (e.g., "blk")
+                        if let Some(collection) = model.build_layer_collection(prop_name) {
+                            Ok(Value::ModelLayerCollectionF16(collection))
+                        } else if let Some(feature) = model.get_property(prop_name) {
+                            Ok(Value::ModelFeatureF16(feature))
                         } else {
-                            false
+                            Err(RuntimeError::InvalidOperation(
+                                format!("Model does not have property '{}'", prop_name)
+                            ))
                         }
                     }
-                    TensorExpr::PropertyAccess { .. } | TensorExpr::TensorIndex { .. } => {
-                        self.is_model_property_chain(object)
-                    }
-                    _ => false,
-                };
-
-                if is_model_path {
-                    // Build the full tensor path and get the model
-                    let tensor_name = self.build_property_path(object, property)?;
-                    let model_value = self.get_root_model(object)?;
-
-                    match model_value {
-                        Value::ModelF16(ref model) => {
-                            if let Some(tensor) = model.get_tensor(&tensor_name) {
-                                Ok(Value::TensorF16(tensor.clone()))
-                            } else {
-                                Err(RuntimeError::InvalidOperation(
-                                    format!("Model does not have tensor '{}'", tensor_name)
-                                ))
-                            }
+                    Value::ModelF32(ref model) => {
+                        // Try as layer collection first (e.g., "blk")
+                        if let Some(collection) = model.build_layer_collection(prop_name) {
+                            Ok(Value::ModelLayerCollectionF32(collection))
+                        } else if let Some(feature) = model.get_property(prop_name) {
+                            Ok(Value::ModelFeatureF32(feature))
+                        } else {
+                            Err(RuntimeError::InvalidOperation(
+                                format!("Model does not have property '{}'", prop_name)
+                            ))
                         }
-                        Value::ModelF32(ref model) => {
-                            if let Some(tensor) = model.get_tensor(&tensor_name) {
-                                Ok(Value::TensorF32(tensor.clone()))
-                            } else {
-                                Err(RuntimeError::InvalidOperation(
-                                    format!("Model does not have tensor '{}'", tensor_name)
-                                ))
-                            }
-                        }
-                        _ => unreachable!("get_root_model should return Model"),
                     }
-                } else {
-                    // Regular property access (not on a model)
-                    let obj_value = self.eval_expr(object)?;
-                    Err(RuntimeError::TypeError(
-                        format!("Property access only supported on Model types, got {:?}", std::mem::discriminant(&obj_value))
-                    ))
+                    
+                    // ModelLayer.property -> returns ModelFeature
+                    Value::ModelLayerF16(ref layer) => {
+                        if let Some(feature) = layer.get_feature(prop_name) {
+                            Ok(Value::ModelFeatureF16(feature.clone()))
+                        } else {
+                            Err(RuntimeError::InvalidOperation(
+                                format!("Layer {} does not have feature '{}'", layer.index, prop_name)
+                            ))
+                        }
+                    }
+                    Value::ModelLayerF32(ref layer) => {
+                        if let Some(feature) = layer.get_feature(prop_name) {
+                            Ok(Value::ModelFeatureF32(feature.clone()))
+                        } else {
+                            Err(RuntimeError::InvalidOperation(
+                                format!("Layer {} does not have feature '{}'", layer.index, prop_name)
+                            ))
+                        }
+                    }
+                    
+                    // ModelFeature.property -> returns Tensor
+                    Value::ModelFeatureF16(ref feature) => {
+                        if let Some(tensor) = feature.get_property(prop_name) {
+                            Ok(Value::TensorF16(tensor.clone()))
+                        } else {
+                            Err(RuntimeError::InvalidOperation(
+                                format!("Feature '{}' does not have property '{}'", feature.name, prop_name)
+                            ))
+                        }
+                    }
+                    Value::ModelFeatureF32(ref feature) => {
+                        if let Some(tensor) = feature.get_property(prop_name) {
+                            Ok(Value::TensorF32(tensor.clone()))
+                        } else {
+                            Err(RuntimeError::InvalidOperation(
+                                format!("Feature '{}' does not have property '{}'", feature.name, prop_name)
+                            ))
+                        }
+                    }
+                    
+                    _ => {
+                        Err(RuntimeError::TypeError(
+                            format!("Property access not supported on {:?}", std::mem::discriminant(&obj_value))
+                        ))
+                    }
                 }
             }
 
@@ -1692,12 +1630,102 @@ impl Interpreter {
         Ok(Value::TensorF16(embedding_tensor))
     }
 
-    /// Evaluate tensor indexing: tensor[i, j, ...]
+    /// Evaluate tensor indexing: tensor[i, j, ...] OR collection[i]
     pub(super) fn eval_tensor_index(&mut self, tensor_expr: &TensorExpr, indices: &[IndexExpr]) -> RuntimeResult<Value> {
         use crate::ast::IndexExpr;
 
-        // Evaluate the tensor expression
-        let tensor_value = self.eval_expr(tensor_expr)?;
+        // Evaluate the tensor/collection expression
+        let value = self.eval_expr(tensor_expr)?;
+        
+        // NEW: Handle ModelLayerCollection[index] -> returns ModelLayer
+        match value {
+            Value::ModelLayerCollectionF16(ref collection) => {
+                if indices.len() != 1 {
+                    return Err(RuntimeError::InvalidOperation(
+                        format!("ModelLayerCollection indexing requires exactly 1 index, got {}", indices.len())
+                    ));
+                }
+                
+                let layer_idx = match &indices[0] {
+                    IndexExpr::Int(i) => {
+                        if *i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        *i as usize
+                    }
+                    IndexExpr::Var(var) => {
+                        let val = self.env.get_variable(var.as_str())?;
+                        let i = val.as_integer()?;
+                        if i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        i as usize
+                    }
+                    IndexExpr::Slice => {
+                        return Err(RuntimeError::NotImplemented(
+                            "Slice indexing not supported on ModelLayerCollection".to_string()
+                        ));
+                    }
+                };
+                
+                if let Some(layer) = collection.get_layer(layer_idx) {
+                    return Ok(Value::ModelLayerF16(layer));
+                } else {
+                    return Err(RuntimeError::InvalidOperation(
+                        format!("Layer index {} not found in collection", layer_idx)
+                    ));
+                }
+            }
+            Value::ModelLayerCollectionF32(ref collection) => {
+                if indices.len() != 1 {
+                    return Err(RuntimeError::InvalidOperation(
+                        format!("ModelLayerCollection indexing requires exactly 1 index, got {}", indices.len())
+                    ));
+                }
+                
+                let layer_idx = match &indices[0] {
+                    IndexExpr::Int(i) => {
+                        if *i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        *i as usize
+                    }
+                    IndexExpr::Var(var) => {
+                        let val = self.env.get_variable(var.as_str())?;
+                        let i = val.as_integer()?;
+                        if i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        i as usize
+                    }
+                    IndexExpr::Slice => {
+                        return Err(RuntimeError::NotImplemented(
+                            "Slice indexing not supported on ModelLayerCollection".to_string()
+                        ));
+                    }
+                };
+                
+                if let Some(layer) = collection.get_layer(layer_idx) {
+                    return Ok(Value::ModelLayerF32(layer));
+                } else {
+                    return Err(RuntimeError::InvalidOperation(
+                        format!("Layer index {} not found in collection", layer_idx)
+                    ));
+                }
+            }
+            _ => {}
+        }
+        
+        // Continue with original tensor indexing logic
+        let tensor_value = value;
 
         // Convert indices to usizes
         let mut idx_values = Vec::new();

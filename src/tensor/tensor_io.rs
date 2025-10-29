@@ -64,6 +64,7 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
     }
 
     fn to_vec_f32(&self) -> Vec<f32> {
+        panic!("{}:{}:{}", file!(), line!(), column!());
         self.buffer.to_cpu_vec().iter().map(|x| x.to_f32()).collect()
     }
 

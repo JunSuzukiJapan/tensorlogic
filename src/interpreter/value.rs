@@ -1,9 +1,85 @@
 //! Runtime value types for TensorLogic interpreter
 
-use crate::tensor::{Tensor, TokenIdArray, TensorIO};
+use crate::tensor::{Tensor, TokenIdArray, TensorIO, TensorAccessors};
 use crate::model::Model;
 use half::f16;
 use super::{RuntimeError, RuntimeResult, DISPLAY_LIMIT};
+
+/// Model layer collection (e.g., model.blk returns this)
+#[derive(Debug, Clone)]
+pub struct ModelLayerCollection<T: crate::tensor::FloatType> {
+    pub layers: std::collections::HashMap<usize, std::collections::HashMap<String, Tensor<T>>>,
+    pub model_metadata: crate::model::ModelMetadata,
+}
+
+impl<T: crate::tensor::FloatType> ModelLayerCollection<T> {
+    /// Get a specific layer by index
+    pub fn get_layer(&self, index: usize) -> Option<ModelLayer<T>> {
+        self.layers.get(&index).map(|features_map| {
+            // Group features by name (e.g., "attn_norm.weight" -> feature "attn_norm", property "weight")
+            let mut features: std::collections::HashMap<String, ModelFeature<T>> = std::collections::HashMap::new();
+            
+            for (full_path, tensor) in features_map {
+                let parts: Vec<&str> = full_path.split('.').collect();
+                if parts.len() >= 2 {
+                    let feature_name = parts[0].to_string();
+                    let property_name = parts[1..].join(".");
+                    
+                    features.entry(feature_name.clone())
+                        .or_insert_with(|| ModelFeature {
+                            name: feature_name,
+                            properties: std::collections::HashMap::new(),
+                        })
+                        .properties.insert(property_name, tensor.clone());
+                } else if parts.len() == 1 {
+                    // Single property without sub-path
+                    let feature_name = parts[0].to_string();
+                    features.insert(feature_name.clone(), ModelFeature {
+                        name: feature_name,
+                        properties: {
+                            let mut props = std::collections::HashMap::new();
+                            props.insert("".to_string(), tensor.clone());
+                            props
+                        },
+                    });
+                }
+            }
+            
+            ModelLayer {
+                index,
+                features,
+            }
+        })
+    }
+}
+
+/// Model layer (e.g., model.blk[0] returns this)
+#[derive(Debug, Clone)]
+pub struct ModelLayer<T: crate::tensor::FloatType> {
+    pub index: usize,
+    pub features: std::collections::HashMap<String, ModelFeature<T>>,
+}
+
+impl<T: crate::tensor::FloatType> ModelLayer<T> {
+    /// Get a specific feature by name (e.g., "attn_norm")
+    pub fn get_feature(&self, feature_name: &str) -> Option<&ModelFeature<T>> {
+        self.features.get(feature_name)
+    }
+}
+
+/// Model feature (e.g., model.blk[0].attn_norm returns this)
+#[derive(Debug, Clone)]
+pub struct ModelFeature<T: crate::tensor::FloatType> {
+    pub name: String,
+    pub properties: std::collections::HashMap<String, Tensor<T>>,
+}
+
+impl<T: crate::tensor::FloatType> ModelFeature<T> {
+    /// Get a specific property tensor (e.g., "weight", "bias")
+    pub fn get_property(&self, property_name: &str) -> Option<&Tensor<T>> {
+        self.properties.get(property_name)
+    }
+}
 
 /// Runtime value
 #[derive(Debug, Clone)]
@@ -20,6 +96,18 @@ pub enum Value {
     ModelF16(Model<f16>),
     /// Model with f32 tensors
     ModelF32(Model<f32>),
+    /// Model layer collection (f16)
+    ModelLayerCollectionF16(ModelLayerCollection<f16>),
+    /// Model layer collection (f32)
+    ModelLayerCollectionF32(ModelLayerCollection<f32>),
+    /// Model layer (f16)
+    ModelLayerF16(ModelLayer<f16>),
+    /// Model layer (f32)
+    ModelLayerF32(ModelLayer<f32>),
+    /// Model feature (f16)
+    ModelFeatureF16(ModelFeature<f16>),
+    /// Model feature (f32)
+    ModelFeatureF32(ModelFeature<f32>),
     Tokenizer(std::sync::Arc<crate::tokenizer::Tokenizer>),
     TokenIds(Vec<u32>),
     /// Token ID array with integer precision (no f16 precision loss)
@@ -122,38 +210,12 @@ impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::TensorF16(t) => {
-                // Display f16 tensor in a compact format
-                let data = t.to_vec();
-                if data.len() <= DISPLAY_LIMIT {
-                    write!(f, "[")?;
-                    for (i, val) in data.iter().enumerate() {
-                        if i > 0 {
-                            write!(f, ", ")?;
-                        }
-                        write!(f, "{:.4}", val.to_f32())?;
-                    }
-                    write!(f, "]")
-                } else {
-                    write!(f, "[{:.4}, {:.4}, ..., {:.4}] (len={})",
-                        data[0].to_f32(), data[1].to_f32(), data[data.len()-1].to_f32(), data.len())
-                }
+                // Display tensor shape only to avoid GPU->CPU transfer
+                write!(f, "Tensor<f16>(shape={:?})", t.dims())
             }
             Value::TensorF32(t) => {
-                // Display f32 tensor in a compact format
-                let data = t.to_vec();
-                if data.len() <= DISPLAY_LIMIT {
-                    write!(f, "[")?;
-                    for (i, val) in data.iter().enumerate() {
-                        if i > 0 {
-                            write!(f, ", ")?;
-                        }
-                        write!(f, "{:.4}", val)?;
-                    }
-                    write!(f, "]")
-                } else {
-                    write!(f, "[{:.4}, {:.4}, ..., {:.4}] (len={})",
-                        data[0], data[1], data[data.len()-1], data.len())
-                }
+                // Display tensor shape only to avoid GPU->CPU transfer
+                write!(f, "Tensor<f32>(shape={:?})", t.dims())
             }
             Value::Boolean(b) => write!(f, "{}", b),
             Value::Integer(i) => write!(f, "{}", i),
@@ -161,6 +223,12 @@ impl std::fmt::Display for Value {
             Value::String(s) => write!(f, "{}", s),
             Value::ModelF16(m) => write!(f, "Model<f16>({:?})", m.metadata.format),
             Value::ModelF32(m) => write!(f, "Model({:?})", m.metadata.format),
+            Value::ModelLayerCollectionF16(c) => write!(f, "ModelLayerCollection<f16>(layers={})", c.layers.len()),
+            Value::ModelLayerCollectionF32(c) => write!(f, "ModelLayerCollection<f32>(layers={})", c.layers.len()),
+            Value::ModelLayerF16(l) => write!(f, "ModelLayer<f16>[{}](features={})", l.index, l.features.len()),
+            Value::ModelLayerF32(l) => write!(f, "ModelLayer<f32>[{}](features={})", l.index, l.features.len()),
+            Value::ModelFeatureF16(feat) => write!(f, "ModelFeature<f16>({}, props={})", feat.name, feat.properties.len()),
+            Value::ModelFeatureF32(feat) => write!(f, "ModelFeature<f32>({}, props={})", feat.name, feat.properties.len()),
             Value::Tokenizer(_) => write!(f, "Tokenizer"),
             Value::TokenIds(ids) => write!(f, "TokenIds({:?})", ids),
             Value::TokenIdArray(arr) => {

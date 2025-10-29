@@ -62,7 +62,7 @@ impl<T: FloatType> MetalBuffer<T> {
         Self::from_slice(device, &ones)
     }
 
-    // Pool methods are f16-only, see impl MetalBuffer<f16> below
+    // Pool methods support both f16 and f32, see impl<T: FloatType> MetalBuffer<T> below
 
     /// Get the buffer length (number of T elements)
     pub fn len(&self) -> usize {
@@ -86,6 +86,7 @@ impl<T: FloatType> MetalBuffer<T> {
 
     /// Read data from buffer to Vec<T>
     pub fn to_vec(&self) -> Vec<T> {
+        panic!("{}:{}:{}", file!(), line!(), column!());
         let ptr = self.buffer.contents() as *const T;
         unsafe { std::slice::from_raw_parts(ptr, self.length).to_vec() }
     }
@@ -156,21 +157,21 @@ impl<T: FloatType> MetalBuffer<T> {
     }
 }
 
-// Pool methods for f16 only
-impl MetalBuffer<f16> {
-    /// Create a new uninitialized Metal buffer from pool (f16 only)
+// Pool methods supporting both f16 and f32
+impl<T: FloatType> MetalBuffer<T> {
+    /// Create a new uninitialized Metal buffer from pool
     pub fn new_uninit_pooled(pool: &BufferPool, length: usize) -> TensorResult<Self> {
-        pool.allocate(length)
+        pool.allocate::<T>(length)
     }
 
-    /// Create a new Metal buffer filled with zeros from pool (f16 only)
+    /// Create a new Metal buffer filled with zeros from pool
     pub fn zeros_pooled(pool: &BufferPool, length: usize) -> TensorResult<Self> {
-        pool.allocate_zeros(length)
+        pool.allocate_zeros::<T>(length)
     }
 
-    /// Create a new Metal buffer from slice using pool (f16 only)
-    pub fn from_vec_pooled(pool: &BufferPool, data: &[f16]) -> TensorResult<Self> {
-        let mut buffer = pool.allocate(data.len())?;
+    /// Create a new Metal buffer from slice using pool
+    pub fn from_vec_pooled(pool: &BufferPool, data: &[T]) -> TensorResult<Self> {
+        let mut buffer = pool.allocate::<T>(data.len())?;
         buffer.write_from_slice(data)?;
         Ok(buffer)
     }

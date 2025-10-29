@@ -239,7 +239,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Create output buffer
         let output_numel: usize = indices_dims.iter().product();
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), output_numel)?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), output_numel)?;
 
         // Create parameter buffers
         let input_strides_f16: Vec<f16> = input_strides.iter().map(|&s| f16::from_f32(s as f32)).collect();

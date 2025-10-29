@@ -172,6 +172,12 @@ impl Interpreter {
                 }
                 Value::ModelF16(_) => output.push_str("Model<f16>(...)"),
                 Value::ModelF32(_) => output.push_str("Model<f32>(...)"),
+                Value::ModelLayerCollectionF16(ref c) => output.push_str(&format!("ModelLayerCollection<f16>(layers={})", c.layers.len())),
+                Value::ModelLayerCollectionF32(ref c) => output.push_str(&format!("ModelLayerCollection<f32>(layers={})", c.layers.len())),
+                Value::ModelLayerF16(ref l) => output.push_str(&format!("ModelLayer<f16>[{}]", l.index)),
+                Value::ModelLayerF32(ref l) => output.push_str(&format!("ModelLayer<f32>[{}]", l.index)),
+                Value::ModelFeatureF16(ref f) => output.push_str(&format!("ModelFeature<f16>({})", f.name)),
+                Value::ModelFeatureF32(ref f) => output.push_str(&format!("ModelFeature<f32>({})", f.name)),
                 Value::Tokenizer(_) => output.push_str("Tokenizer(...)"),
                 Value::TokenIds(ref ids) => {
                     output.push_str(&format!("TokenIds(len={})", ids.len()));

@@ -375,12 +375,18 @@ impl Interpreter {
         // Extract target_dims from shape_val
         let target_dims = match shape_val {
             Value::TensorF16(ref t) => {
-                let data = t.to_vec_f32();
-                data.iter().map(|&v| v as usize).collect::<Vec<_>>()
+                let mut dims = Vec::with_capacity(t.dims()[0]);
+                for i in 0..t.dims()[0] {
+                    dims.push(self.read_element_f16(t, i)? as usize);
+                }
+                dims
             }
             Value::TensorF32(ref t) => {
-                let data = t.to_vec_f32();
-                data.iter().map(|&v| v as usize).collect::<Vec<_>>()
+                let mut dims = Vec::with_capacity(t.dims()[0]);
+                for i in 0..t.dims()[0] {
+                    dims.push(self.read_element_f32(t, i)? as usize);
+                }
+                dims
             }
             _ => return Err(RuntimeError::TypeError(
                 format!("broadcast_to() expects target_shape as tensor, got {:?}", shape_val)
@@ -502,8 +508,8 @@ impl Interpreter {
             match offset_val {
                 Value::Float(f) => f as usize,
                 Value::Integer(i) => i as usize,
-                Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
-                Value::TensorF32(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+                Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
+                Value::TensorF32(ref t) if t.numel() == 1 => self.read_element_f32(t, 0)? as usize,
                 Value::TokenIdArray(ref arr) if arr.len() == 1 => arr.get(0).unwrap() as usize,
                 _ => return Err(RuntimeError::TypeError(
                     "rope() position_offset must be a scalar integer".to_string()
@@ -578,7 +584,7 @@ impl Interpreter {
                         format!("slice() expects row as scalar, got tensor with {} elements", t.numel())
                     ));
                 }
-                t.to_vec_f32()[0] as usize
+                self.read_element_f16(t, 0)? as usize
             }
             _ => return Err(RuntimeError::TypeError(
                 format!("slice() expects row as scalar, got {:?}", row_val)
@@ -595,7 +601,7 @@ impl Interpreter {
                         format!("slice() expects col_start as scalar, got tensor with {} elements", t.numel())
                     ));
                 }
-                t.to_vec_f32()[0] as usize
+                self.read_element_f16(t, 0)? as usize
             }
             _ => return Err(RuntimeError::TypeError(
                 format!("slice() expects col_start as scalar, got {:?}", col_start_val)
@@ -612,7 +618,7 @@ impl Interpreter {
                         format!("slice() expects col_end as scalar, got tensor with {} elements", t.numel())
                     ));
                 }
-                t.to_vec_f32()[0] as usize
+                self.read_element_f16(t, 0)? as usize
             }
             _ => return Err(RuntimeError::TypeError(
                 format!("slice() expects col_end as scalar, got {:?}", col_end_val)
@@ -672,7 +678,7 @@ impl Interpreter {
         let start = match start_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             Value::TokenIdArray(ref arr) if arr.len() == 1 => arr.get(0).unwrap() as usize,
             _ => return Err(RuntimeError::TypeError(
                 format!("slice() start index must be scalar, got {:?}", start_val)
@@ -684,7 +690,7 @@ impl Interpreter {
         let end = match end_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             Value::TokenIdArray(ref arr) if arr.len() == 1 => arr.get(0).unwrap() as usize,
             _ => return Err(RuntimeError::TypeError(
                 format!("slice() end index must be scalar, got {:?}", end_val)
@@ -1054,7 +1060,7 @@ impl Interpreter {
         let dim = match dim_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             _ => return Err(RuntimeError::TypeError(
                 "unsqueeze() dim must be a scalar".to_string()
             )),
@@ -1342,7 +1348,7 @@ impl Interpreter {
         let dim = match dim_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             _ => return Err(RuntimeError::TypeError(
                 "gather() dim must be a scalar".to_string()
             )),
@@ -1392,7 +1398,7 @@ impl Interpreter {
         let dim = match dim_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             _ => return Err(RuntimeError::TypeError(
                 "scatter() dim must be a scalar".to_string()
             )),
@@ -1442,7 +1448,7 @@ impl Interpreter {
         let chunks = match chunks_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             _ => return Err(RuntimeError::TypeError(
                 "chunk() chunks must be a scalar".to_string()
             )),
@@ -1451,7 +1457,7 @@ impl Interpreter {
         let dim = match dim_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             _ => return Err(RuntimeError::TypeError(
                 "chunk() dim must be a scalar".to_string()
             )),
@@ -1499,7 +1505,7 @@ impl Interpreter {
         let split_size = match split_size_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             _ => return Err(RuntimeError::TypeError(
                 "split() split_size must be a scalar".to_string()
             )),
@@ -1508,7 +1514,7 @@ impl Interpreter {
         let dim = match dim_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             _ => return Err(RuntimeError::TypeError(
                 "split() dim must be a scalar".to_string()
             )),

@@ -32,7 +32,7 @@ pub struct PoolStats {
 /// Reduces memory allocation overhead by maintaining a pool of reusable buffers
 /// organized by size. Tracks last access time for LRU-based eviction.
 ///
-/// Currently optimized for f16 only. For f32, buffers are allocated directly without pooling.
+/// Buffer pool supporting both f16 and f32 types.
 pub struct BufferPool {
     /// Metal device for buffer creation
     device: Arc<MTLDevice>,
@@ -115,7 +115,7 @@ impl BufferPool {
     ///
     /// Uses size-class pooling to improve buffer reuse rates.
     /// The actual allocated buffer may be larger than requested.
-    pub fn allocate(&self, length: usize) -> TensorResult<MetalBuffer<half::f16>> {
+    pub fn allocate<T: FloatType>(&self, length: usize) -> TensorResult<MetalBuffer<T>> {
         let size_class = get_size_class(length);
 
         let mut pools = self.pools.lock().unwrap();
@@ -148,7 +148,7 @@ impl BufferPool {
                 // This fixes non-deterministic behavior where old computation results
                 // would leak into new tensors
                 unsafe {
-                    let ptr = buffer.contents() as *mut f16;
+                    let ptr = buffer.contents() as *mut T;
                     std::ptr::write_bytes(ptr, 0, length);
                 }
 
@@ -173,7 +173,7 @@ impl BufferPool {
         drop(stats); // Release stats lock before allocation
 
         // Allocate buffer with size_class capacity (not exact requested length)
-        let byte_length = size_class * std::mem::size_of::<f16>();
+        let byte_length = size_class * std::mem::size_of::<T>();
         let buffer = self.device.new_buffer(
             byte_length as u64,
             MTLResourceOptions::StorageModeShared,
@@ -197,12 +197,12 @@ impl BufferPool {
     }
 
     /// Allocate a MetalBuffer filled with zeros
-    pub fn allocate_zeros(&self, length: usize) -> TensorResult<MetalBuffer<half::f16>> {
-        let buffer = self.allocate(length)?;
+    pub fn allocate_zeros<T: FloatType>(&self, length: usize) -> TensorResult<MetalBuffer<T>> {
+        let buffer = self.allocate::<T>(length)?;
 
         // Zero out the buffer
         unsafe {
-            let ptr = buffer.buffer.contents() as *mut f16;
+            let ptr = buffer.buffer.contents() as *mut T;
             std::ptr::write_bytes(ptr, 0, length);
         }
 

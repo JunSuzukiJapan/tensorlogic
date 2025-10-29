@@ -179,7 +179,7 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
     fn zeros(device: &MetalDevice, shape: Vec<usize>) -> TensorResult<Self> {
         let shape = TensorShape::new(shape);
         // Use buffer pool for allocation
-        let metal_buffer = MetalBuffer::zeros_pooled(device.buffer_pool(), shape.numel())?;
+        let metal_buffer = MetalBuffer::<T>::zeros_pooled(device.buffer_pool(), shape.numel())?;
         let buffer = BufferHandle::Metal(unsafe { std::mem::transmute(metal_buffer) });
 
         Self::new_with_pool(
@@ -203,5 +203,4 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
     }
 }
 
-// Note: from_vec_metal_pooled is f16-only because MetalBuffer::from_vec_pooled requires f16
-// For f32, use from_vec_metal instead
+// Note: from_vec_metal_pooled supports both f16 and f32 through MetalBuffer::from_vec_pooled

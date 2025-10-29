@@ -73,6 +73,75 @@ impl<T: FloatType> Model<T> {
         self.tensors.len()
     }
 
+    /// Build layer collection from tensors with pattern "blk.N.feature.property"
+    /// Returns ModelLayerCollection containing parsed layer structure
+    pub fn build_layer_collection(&self, collection_name: &str) -> Option<crate::interpreter::ModelLayerCollection<T>> {
+        use std::collections::HashMap;
+        use crate::interpreter::{ModelLayerCollection, ModelLayer, ModelFeature};
+        
+        let prefix = format!("{}.", collection_name);
+        let mut layers: HashMap<usize, HashMap<String, Tensor<T>>> = HashMap::new();
+        
+        // Parse all tensors matching pattern: "blk.N.feature.property"
+        for (name, tensor) in &self.tensors {
+            if let Some(rest) = name.strip_prefix(&prefix) {
+                // Split: "0.attn_norm.weight" -> ["0", "attn_norm", "weight"]
+                let parts: Vec<&str> = rest.split('.').collect();
+                if parts.len() >= 3 {
+                    if let Ok(layer_idx) = parts[0].parse::<usize>() {
+                        let feature_path = parts[1..].join(".");
+                        layers.entry(layer_idx)
+                            .or_insert_with(HashMap::new)
+                            .insert(feature_path, tensor.clone());
+                    }
+                }
+            }
+        }
+        
+        if layers.is_empty() {
+            return None;
+        }
+        
+        Some(ModelLayerCollection {
+            layers,
+            model_metadata: self.metadata.clone(),
+        })
+    }
+
+    /// Get a specific property from a model (non-hierarchical access)
+    /// For hierarchical properties like "token_embd.weight", directly returns the tensor
+    pub fn get_property(&self, property_name: &str) -> Option<crate::interpreter::ModelFeature<T>> {
+        use std::collections::HashMap;
+        use crate::interpreter::ModelFeature;
+        
+        let prefix = format!("{}.", property_name);
+        let mut properties: HashMap<String, Tensor<T>> = HashMap::new();
+        
+        // Collect all tensors matching "property_name.X"
+        for (name, tensor) in &self.tensors {
+            if let Some(rest) = name.strip_prefix(&prefix) {
+                properties.insert(rest.to_string(), tensor.clone());
+            } else if name == property_name {
+                // Exact match - single tensor property
+                let mut props = HashMap::new();
+                props.insert("".to_string(), tensor.clone());
+                return Some(ModelFeature {
+                    name: property_name.to_string(),
+                    properties: props,
+                });
+            }
+        }
+        
+        if properties.is_empty() {
+            None
+        } else {
+            Some(ModelFeature {
+                name: property_name.to_string(),
+                properties,
+            })
+        }
+    }
+
     /// Load a model from a file (format auto-detected from extension)
     ///
     /// Supported extensions:

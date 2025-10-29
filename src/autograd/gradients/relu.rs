@@ -56,7 +56,7 @@ impl<T: FloatType> ReLUBackward<T> {
         }
 
         // Create result buffer
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), grad_output.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), grad_output.numel())?;
 
         // Execute kernel
         let mut executor = crate::device::KernelExecutor::new(device.clone());

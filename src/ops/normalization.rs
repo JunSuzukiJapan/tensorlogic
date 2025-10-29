@@ -124,7 +124,7 @@ impl<T: FloatType> Tensor<T> {
         let batch_size = self.numel() / normalized_size;
 
         // Create output buffer
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         // Create buffers for scalar parameters
         let normalized_size_buf = MetalBuffer::<f16>::from_slice(
@@ -364,7 +364,7 @@ impl<T: FloatType> Tensor<T> {
         let batch_size = self.numel() / normalized_size;
 
         // Create output buffer
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         // Get weight and bias buffers (or create dummy buffers)
         let dummy_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &[f16::ZERO])?;

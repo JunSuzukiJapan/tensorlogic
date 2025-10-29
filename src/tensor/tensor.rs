@@ -60,7 +60,7 @@ impl<T: FloatType> Drop for Tensor<T> {
         }
 
         // Only recycle Metal buffers that have a buffer pool
-        // Only f16 buffers can be recycled (BufferPool is f16-only)
+        // Both f16 and f32 buffers can be recycled (BufferPool supports both)
         if T::is_f16() {
             if let (BufferHandle::Metal(metal_buffer), Some(pool)) =
                 (&self.buffer, &self.buffer_pool)

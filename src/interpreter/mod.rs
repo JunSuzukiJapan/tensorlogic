@@ -39,7 +39,7 @@ mod builtin_sampling;  // Sampling and generation
 mod builtin_util;      // Utility functions
 
 // Re-export public types
-pub use value::Value;
+pub use value::{Value, ModelLayerCollection, ModelLayer, ModelFeature};
 pub use environment::{RuntimeEnvironment, CallFrame};
 
 use std::collections::{HashMap, HashSet};
@@ -4585,6 +4585,12 @@ impl Interpreter {
                         Value::TensorF32(t) => print!("{:?}", t),
                         Value::ModelF16(m) => print!("Model<f16>({:?})", m.metadata.format),
                         Value::ModelF32(m) => print!("Model<f32>({:?})", m.metadata.format),
+                        Value::ModelLayerCollectionF16(ref c) => print!("ModelLayerCollection<f16>(layers={})", c.layers.len()),
+                        Value::ModelLayerCollectionF32(ref c) => print!("ModelLayerCollection<f32>(layers={})", c.layers.len()),
+                        Value::ModelLayerF16(ref l) => print!("ModelLayer<f16>[{}]", l.index),
+                        Value::ModelLayerF32(ref l) => print!("ModelLayer<f32>[{}]", l.index),
+                        Value::ModelFeatureF16(ref f) => print!("ModelFeature<f16>({})", f.name),
+                        Value::ModelFeatureF32(ref f) => print!("ModelFeature<f32>({})", f.name),
                         Value::Tokenizer(t) => print!("{:?}", t),
                         Value::TokenIds(ids) => print!("{:?}", ids),
                         Value::TokenIdArray(ref arr) => print!("[{}]", arr.data().iter().map(|&id| format!("{:.4}", id as f64)).collect::<Vec<_>>().join(", ")),

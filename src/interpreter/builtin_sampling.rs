@@ -129,12 +129,16 @@ impl Interpreter {
         self.temperature_sample_metal(logits, temperature, vocab_size)
     }
 
-    /// CPU fallback implementation
+    /// CPU fallback implementation - DEPRECATED: Use GPU implementation instead
     fn temperature_sample_cpu<T: FloatType>(&self, logits: &crate::tensor::Tensor<T>, temperature: f32, vocab_size: usize) -> RuntimeResult<Value> {
+        // WARNING: This function transfers entire logits tensor (32000 elements) from GPU to CPU
+        // This is extremely slow and should be avoided. Use GPU implementation instead.
+        eprintln!("WARNING: temperature_sample_cpu called - this is slow! Use GPU implementation.");
+
         use crate::tensor::TensorIO;
         use rand::Rng;
 
-        // Get logits as f32 vector
+        // Get logits as f32 vector - THIS IS THE SLOW PART
         let logits_data: Vec<f32> = logits.to_vec().iter().map(|&x| x.to_f32()).collect();
 
         // Apply temperature scaling
