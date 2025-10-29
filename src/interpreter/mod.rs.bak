@@ -942,15 +942,6 @@ impl Interpreter {
                     }
                 }
             }
-            "Tensor" => {
-                // Tensor static methods
-                match name {
-                    "create_cache" => self.eval_create_cache_tensor(args),
-                    _ => Err(RuntimeError::TypeError(
-                        format!("Tensor::{} is not implemented", name)
-                    ))
-                }
-            }
             _ => Err(RuntimeError::TypeError(
                 format!("Unknown type namespace: {}", type_namespace)
             ))

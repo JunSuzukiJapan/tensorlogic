@@ -5,6 +5,7 @@ use crate::interpreter::value::ToValue;
 use crate::tensor::Tensor;
 use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO, TensorTransform};
 use crate::error::TensorError;
+use crate::device::Device;
 use half::f16;
 
 /// Helper macro for extracting shape from tensor value using GPU
@@ -1561,5 +1562,101 @@ impl Interpreter {
             ));
         }
         self.read_element_f16(tensor, 0)
+    }
+
+    /// create_cache_tensor(max_length, shape) -> tensor
+    /// Create pre-allocated cache tensor for efficient KV cache updates
+    ///
+    /// # Arguments
+    /// * max_length - Maximum capacity along dimension 0
+    /// * shape - Remaining dimensions as tensor [num_heads, head_dim]
+    ///
+    /// # Returns
+    /// Pre-allocated tensor with shape [0, ...shape], but buffer capacity for max_length
+    ///
+    /// # Example
+    /// ```tl
+    /// let kv_cache = create_cache_tensor(512, shape(4, 128))  # [0, 4, 128] with capacity 512
+    /// ```
+    pub(super) fn eval_create_cache_tensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("create_cache_tensor() expects 2 arguments (max_length, shape), got {}", args.len())
+            ));
+        }
+
+        // Evaluate max_length argument
+        let max_length_val = self.eval_expr(&args[0])?;
+        let max_length = match max_length_val {
+            Value::Integer(n) => n as usize,
+            Value::Float(f) => f as usize,
+            Value::TensorF32(ref t) if t.numel() == 1 => {
+                self.tensor_f32_to_scalar(t)? as usize
+            }
+            Value::TensorF16(ref t) if t.numel() == 1 => {
+                self.tensor_f16_to_scalar(t)? as usize
+            }
+            _ => return Err(RuntimeError::TypeError(
+                format!("create_cache_tensor() expects max_length as scalar, got {:?}", max_length_val.type_name())
+            ))
+        };
+
+        // Evaluate shape argument
+        let shape_val = self.eval_expr(&args[1])?;
+        let shape_rest = extract_shape!(self, shape_val);
+
+        // Get device
+        let device = Device::Metal(self.env.metal_device().clone());
+
+        // Create cache tensor (use f32 by default for now, could be parameterized)
+        let result = Tensor::<f32>::create_cache_tensor(max_length, &shape_rest, &device)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(result.to_value())
+    }
+
+    /// append_cache(cache, new_data) -> tensor
+    /// Append data to pre-allocated cache tensor (zero-copy, in-place)
+    ///
+    /// # Arguments
+    /// * cache - Pre-allocated cache tensor from create_cache_tensor
+    /// * new_data - Data to append, shape [new_len, ...same_dims]
+    ///
+    /// # Returns
+    /// New view with updated shape [current_len + new_len, ...], sharing same buffer
+    ///
+    /// # Example
+    /// ```tl
+    /// let kv_cache = create_cache_tensor(512, shape(4, 128))
+    /// let new_kv = zeros(shape(1, 4, 128))
+    /// kv_cache = append_cache(kv_cache, new_kv)  # Now [1, 4, 128]
+    /// ```
+    pub(super) fn eval_append_cache(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("append_cache() expects 2 arguments (cache, new_data), got {}", args.len())
+            ));
+        }
+
+        // Evaluate arguments
+        let cache_val = self.eval_expr(&args[0])?;
+        let new_data_val = self.eval_expr(&args[1])?;
+
+        // Type-based dispatch
+        match (cache_val, new_data_val) {
+            (Value::TensorF32(cache), Value::TensorF32(new_data)) => {
+                let result = Tensor::append_cache(&cache, &new_data)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(result.to_value())
+            }
+            (Value::TensorF16(cache), Value::TensorF16(new_data)) => {
+                let result = Tensor::append_cache(&cache, &new_data)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(result.to_value())
+            }
+            _ => Err(RuntimeError::TypeError(
+                "append_cache() requires both tensors to be the same type (both f16 or both f32)".to_string()
+            ))
+        }
     }
 }

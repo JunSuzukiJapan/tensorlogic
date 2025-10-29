@@ -45,7 +45,11 @@
       "Bash(./target/release/tl run -c 'let model = load_model_f32(env(\"\"\"\"HOME\"\"\"\") + \"\"\"\"/.llm/models/tinyllama-1.1b-chat-q4_0.gguf\"\"\"\"); let names = model_tensor_names(model); for i in 0..10 { print(names[i]) }')",
       "Bash(cargo check:*)",
       "Bash(cargo clean:*)",
-      "Bash(cargo test:*)"
+      "Bash(cargo test:*)",
+      "Bash(./target/release/tl run:*)",
+      "Bash(sort:*)",
+      "Bash(git restore:*)",
+      "Read(//Users/suzukijun/.claude/**)"
     ],
     "deny": [],
     "ask": []

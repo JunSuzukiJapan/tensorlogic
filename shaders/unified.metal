@@ -4176,3 +4176,29 @@ kernel void div_scalar_f32(
 ) {
     result[index] = a[index] / scalar[0];
 }
+
+// ============================================================================
+// Cache Append Operations (for efficient KV cache updates)
+// ============================================================================
+
+/// Append data to pre-allocated cache tensor (f16)
+/// Writes new_data to cache at offset position without copying existing data
+kernel void cache_append_f16(
+    device const half* new_data [[buffer(0)]],   // New data to append
+    device half* cache [[buffer(1)]],             // Pre-allocated cache buffer
+    constant uint& offset [[buffer(2)]],          // Offset in elements
+    uint index [[thread_position_in_grid]]
+) {
+    cache[offset + index] = new_data[index];
+}
+
+/// Append data to pre-allocated cache tensor (f32)
+/// Writes new_data to cache at offset position without copying existing data
+kernel void cache_append_f32(
+    device const float* new_data [[buffer(0)]],   // New data to append
+    device float* cache [[buffer(1)]],            // Pre-allocated cache buffer
+    constant uint& offset [[buffer(2)]],          // Offset in elements
+    uint index [[thread_position_in_grid]]
+) {
+    cache[offset + index] = new_data[index];
+}

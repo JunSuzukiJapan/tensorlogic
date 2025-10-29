@@ -220,7 +220,7 @@ tensor_list = { tensor_expr ~ ("," ~ tensor_expr)* }
 
 function_call = { (type_namespace ~ "::")? ~ identifier ~ "(" ~ tensor_list? ~ ")" }
 
-type_namespace = { "f16" | "f32" }
+type_namespace = { "Tensor" | "f16" | "f32" }
 
 // tensor_index is now handled by postfix_expr
 // tensor_index = { identifier ~ "[" ~ index_list ~ "]" }

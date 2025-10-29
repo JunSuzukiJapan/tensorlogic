@@ -1023,6 +1023,25 @@ impl Interpreter {
                                 }.map_err(|e| RuntimeError::TensorError(e))?;
                                 Ok(Value::TensorF16(shape_tensor))
                             }
+                            Value::TensorF32(ref t) => {
+                                // Create shape tensor from dimensions (f32 version)
+                                let shape_data: Vec<f32> = t.shape().dims().iter()
+                                    .map(|&d| d as f32)
+                                    .collect();
+                                let device = t.device().clone();
+                                let shape_tensor = match &device {
+                                    crate::device::Device::Metal(metal_device) => {
+                                        crate::tensor::Tensor::from_vec_metal(metal_device, shape_data, vec![t.shape().dims().len()])
+                                    }
+                                    crate::device::Device::CPU => {
+                                        crate::tensor::Tensor::from_vec(shape_data, vec![t.shape().dims().len()])
+                                    }
+                                    crate::device::Device::NeuralEngine => {
+                                        crate::tensor::Tensor::from_vec(shape_data, vec![t.shape().dims().len()])
+                                    }
+                                }.map_err(|e| RuntimeError::TensorError(e))?;
+                                Ok(Value::TensorF32(shape_tensor))
+                            }
                             _ => Err(RuntimeError::TypeError(
                                 format!("Cannot call shape() on {:?}", obj_value)
                             ))
@@ -1048,6 +1067,13 @@ impl Interpreter {
                                 let mut method_args = vec![(**object).clone()];
                                 method_args.extend_from_slice(args);
                                 self.eval_append_token(&method_args)
+                            }
+
+                            // Tensor methods
+                            (Value::TensorF32(_), "append") | (Value::TensorF16(_), "append") => {
+                                let mut method_args = vec![(**object).clone()];
+                                method_args.extend_from_slice(args);
+                                self.eval_append_cache(&method_args)
                             }
 
                             _ => Err(RuntimeError::TypeError(

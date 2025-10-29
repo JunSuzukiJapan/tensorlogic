@@ -192,9 +192,6 @@ main {
         if continue_generation {
             // Sample token
             token_id = temperature_sample(current_logits, temperature)
-            print("[Token ", "")
-            print(token_id, "")
-            print("] ", "")
 
             // Buffered decoding: append token and decode all
             generated_tokens = generated_tokens.append_token(token_id)
