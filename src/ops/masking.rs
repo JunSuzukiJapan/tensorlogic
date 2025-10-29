@@ -46,8 +46,8 @@ impl<T: FloatType> Tensor<T> {
         let mask_value = f16::from_f32(-10000.0);
 
         // For each element: if mask == 0, use mask_value, else use original value
-        let self_data = self.to_vec();
-        let mask_data = mask.to_vec();
+        let self_data = self.sync_and_read();
+        let mask_data = mask.sync_and_read();
         let self_f16: Vec<f16> = unsafe { std::mem::transmute(self_data) };
         let mask_f16: Vec<f16> = unsafe { std::mem::transmute(mask_data) };
 
@@ -172,8 +172,8 @@ impl<T: FloatType> Tensor<T> {
             });
         }
 
-        let self_data = self.to_vec();
-        let other_data = other.to_vec();
+        let self_data = self.sync_and_read();
+        let other_data = other.sync_and_read();
         let self_f16: Vec<f16> = unsafe { std::mem::transmute(self_data) };
         let other_f16: Vec<f16> = unsafe { std::mem::transmute(other_data) };
 
@@ -215,7 +215,7 @@ mod tests {
         ).unwrap();
 
         let result = scores.apply_attention_mask(&mask).unwrap();
-        let data = result.to_vec();
+        let data = result.sync_and_read();
 
         assert_eq!(data[0], f16::from_f32(1.0));
         assert_eq!(data[1], f16::from_f32(-10000.0)); // masked
@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn test_causal_mask() {
         let mask = Tensor::<f16>::causal_mask(3).unwrap();
-        let data = mask.to_vec();
+        let data = mask.sync_and_read();
 
         // Expected: [[1, 0, 0],
         //            [1, 1, 0],
@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn test_padding_mask() {
         let mask = Tensor::<f16>::padding_mask(&[2, 3], 4).unwrap();
-        let data = mask.to_vec();
+        let data = mask.sync_and_read();
 
         // Expected: [[1, 1, 0, 0],
         //            [1, 1, 1, 0]]
@@ -278,7 +278,7 @@ mod tests {
         ).unwrap();
 
         let combined = mask1.combine_masks(&mask2).unwrap();
-        let data = combined.to_vec();
+        let data = combined.sync_and_read();
 
         // Logical AND
         assert_eq!(data[0], f16::ONE);  // 1 & 1 = 1

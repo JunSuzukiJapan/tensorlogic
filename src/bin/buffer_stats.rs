@@ -1,8 +1,7 @@
+use half::f16;
 /// Buffer pool statistics utility
 /// Shows memory usage and buffer reuse statistics
-
 use std::env;
-use half::f16;
 use tensorlogic::device::MetalDevice;
 use tensorlogic::error::TensorResult;
 use tensorlogic::tensor::{Tensor, TensorCreation};
@@ -92,13 +91,15 @@ fn print_stats(device: &MetalDevice, label: &str) {
     println!("--- {} ---", label);
     println!("  Pooled buffers: {}", stats.total_pooled);
     println!("  Size classes: {}", stats.size_classes);
-    println!("  Total memory: {} bytes ({:.2} MB)",
+    println!(
+        "  Total memory: {} bytes ({:.2} MB)",
         stats.total_memory,
         stats.total_memory as f64 / 1024.0 / 1024.0
     );
     println!("  Allocations: {}", stats.allocation_count);
     println!("  Reuses: {}", stats.reuse_count);
-    println!("  Reuse rate: {:.1}%\n",
+    println!(
+        "  Reuse rate: {:.1}%\n",
         if stats.allocation_count > 0 {
             stats.reuse_count as f64 / (stats.allocation_count + stats.reuse_count) as f64 * 100.0
         } else {

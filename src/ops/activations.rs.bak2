@@ -91,7 +91,21 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU fallback for ReLU
     fn relu_cpu(&self) -> TensorResult<Self> {
-        panic!("RELU CPU FALLBACK: GPU kernel must be used - CPU implementation disabled");
+        panic!("src/ops/activations.rs:93:5");
+        // Currently only f16 is supported
+        if false {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
+        let input = self.to_vec();
+        // Safety: We checked T::is_f16() above
+        let input_f16: Vec<f16> = unsafe { std::mem::transmute(input) };
+        let output: Vec<f16> = input_f16.iter().map(|&x| x.max(f16::ZERO)).collect();
+        let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
+
+        Tensor::from_vec(output_t, self.shape().dims().to_vec())
     }
 
     /// GELU activation (approximation): f(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
@@ -151,7 +165,38 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU fallback for GELU
     fn gelu_cpu(&self) -> TensorResult<Self> {
-        panic!("GELU CPU FALLBACK: GPU kernel must be used - CPU implementation disabled");
+        panic!("src/ops/activations.rs:166:5");
+        // Currently only f16 is supported
+        if false {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
+        let input = self.to_vec();
+        let input_f16: Vec<f16> = unsafe { std::mem::transmute(input) };
+        let sqrt_2_over_pi = f16::from_f32(0.7978845608);
+        let coeff = f16::from_f32(0.044715);
+        let half = f16::from_f32(0.5);
+        let one = f16::ONE;
+
+        let output: Vec<f16> = input_f16
+            .iter()
+            .map(|&x| {
+                let x3 = x * x * x;
+                let inner = sqrt_2_over_pi * (x + coeff * x3);
+                // Note: f16 doesn't have tanh, so we approximate
+                let tanh_approx = {
+                    let e = inner.to_f32().exp();
+                    let e_neg = (-inner.to_f32()).exp();
+                    f16::from_f32((e - e_neg) / (e + e_neg))
+                };
+                half * x * (one + tanh_approx)
+            })
+            .collect();
+
+        let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
+        Tensor::from_vec(output_t, self.shape().dims().to_vec())
     }
 
     /// Softmax activation: softmax(x)_i = exp(x_i) / sum(exp(x))
@@ -256,8 +301,9 @@ impl<T: FloatType> Tensor<T> {
             })?;
 
         // Execute kernel
-        let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let command_queue = device.command_queue();
+        let command_buffer = command_queue.new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&pipeline_state);
         encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
@@ -272,8 +318,8 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_threads(grid_size, threadgroup_size);
 
         encoder.end_encoding();
-        // command_buffer.commit(); // Handled by Commands manager
-        // submit_async - not needed with Commands batching
+        command_buffer.commit();
+        crate::ops::async_exec::submit_async(&command_buffer);
 
         self.new_from_pool(
             crate::tensor::BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -283,7 +329,76 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of softmax
     fn softmax_cpu(&self) -> TensorResult<Self> {
-        panic!("SOFTMAX CPU FALLBACK: GPU kernel must be used - CPU implementation disabled");
+        panic!("src/ops/activations.rs:329:5");
+        // Currently only f16 is supported
+        if false {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
+        let input = self.to_vec();
+        let input_f16: Vec<f16> = unsafe { std::mem::transmute(input) };
+        let dims = self.shape().dims();
+
+        if dims.is_empty() {
+            return Err(TensorError::InvalidOperation(
+                "softmax requires non-empty tensor".to_string(),
+            ));
+        }
+
+        let last_dim = dims[dims.len() - 1];
+        let batch_size = self.numel() / last_dim;
+
+        let mut output = vec![f16::ZERO; self.numel()];
+
+        for batch in 0..batch_size {
+            let offset = batch * last_dim;
+
+            // Find max for numerical stability
+            // Handle NaN and Inf values and empty slices safely
+            let max_val = input_f16[offset..offset + last_dim]
+                .iter()
+                .copied()
+                .filter(|x| x.is_finite())  // Filter out NaN and Inf values
+                .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .unwrap_or(f16::ZERO);  // Default to 0 if empty or all NaN/Inf
+
+            // Compute exp and sum
+            // Replace Inf/NaN with 0 to prevent propagation
+            let mut sum = f16::ZERO;
+            for i in 0..last_dim {
+                let val = input_f16[offset + i];
+                let exp_val = if val.is_finite() {
+                    f16::from_f32((val - max_val).to_f32().exp())
+                } else {
+                    f16::ZERO  // Replace Inf/NaN with 0
+                };
+                output[offset + i] = exp_val;
+                sum += exp_val;
+            }
+
+            // Normalize
+            // If sum is 0 or invalid, output uniform distribution
+            if sum.is_finite() && sum > f16::ZERO {
+                for i in 0..last_dim {
+                    output[offset + i] /= sum;
+                }
+            } else {
+                let uniform = f16::from_f32(1.0 / last_dim as f32);
+                for i in 0..last_dim {
+                    output[offset + i] = uniform;
+                }
+            }
+        }
+
+        let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
+
+        // Create tensor on the same device as the input
+        match self.device() {
+            Device::Metal(dev) => Tensor::from_vec_metal(dev, output_t, self.shape().dims().to_vec()),
+            _ => Tensor::from_vec(output_t, self.shape().dims().to_vec()),
+        }
     }
 
     /// Sigmoid activation: σ(x) = 1 / (1 + exp(-x))
@@ -307,7 +422,15 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sigmoid_cpu(&self) -> TensorResult<Self> {
-        panic!("SIGMOID CPU FALLBACK: GPU kernel must be used - CPU implementation disabled");
+        panic!("src/ops/activations.rs:421:5");
+        // Currently only f16 is supported
+        if false {
+            return Err(TensorError::InvalidOperation(
+                "CPU operations currently only support f16".to_string()
+            ));
+        }
+
+        super::helpers::execute_unary_cpu_op(self, |x| 1.0 / (1.0 + (-x).exp()))
     }
 
     /// Hyperbolic tangent activation: tanh(x)
@@ -363,7 +486,7 @@ mod tests {
         .unwrap();
 
         let output = input.relu().unwrap();
-        let result = output.sync_and_read();
+        let result = output.to_vec();
 
         assert_eq!(result[0], f16::ZERO);
         assert_eq!(result[1], f16::ZERO);
@@ -390,7 +513,7 @@ mod tests {
         .unwrap();
 
         let output = input.relu().unwrap();
-        let result = output.sync_and_read();
+        let result = output.to_vec();
 
         assert_eq!(result[0], f16::ZERO);
         assert_eq!(result[1], f16::ZERO);
@@ -412,7 +535,7 @@ mod tests {
         .unwrap();
 
         let output = input.gelu().unwrap();
-        let result = output.sync_and_read();
+        let result = output.to_vec();
 
         // GELU(0) should be approximately 0
         assert!((result[1].to_f32()).abs() < 0.01);
@@ -437,7 +560,7 @@ mod tests {
         .unwrap();
 
         let output = input.gelu().unwrap();
-        let result = output.sync_and_read();
+        let result = output.to_vec();
 
         assert!((result[1].to_f32()).abs() < 0.01);
         assert!(result[0] < result[1]);
@@ -457,7 +580,7 @@ mod tests {
         .unwrap();
 
         let output = input.softmax().unwrap();
-        let result = output.sync_and_read();
+        let result = output.to_vec();
 
         // Check sum equals 1
         let sum: f32 = result.iter().map(|x| x.to_f32()).sum();
@@ -486,7 +609,7 @@ mod tests {
         .unwrap();
 
         let output = input.sigmoid().unwrap();
-        let result = output.sync_and_read();
+        let result = output.to_vec();
 
         // Sigmoid should be in range (0, 1)
         for val in &result {
@@ -518,7 +641,7 @@ mod tests {
         .unwrap();
 
         let output = input.tanh().unwrap();
-        let result = output.sync_and_read();
+        let result = output.to_vec();
 
         // tanh should be in range (-1, 1)
         for val in &result {

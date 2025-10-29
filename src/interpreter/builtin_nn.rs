@@ -495,7 +495,7 @@ impl Interpreter {
                 }
 
                 // Get table data
-                let table_data = table.to_vec_f32();
+                let table_data = table.sync_and_read_f32();
 
                 // Build output: [seq_len, emb_dim]
                 let seq_len = token_data.len();
@@ -557,7 +557,7 @@ impl Interpreter {
                     }
                     _ => {
                         // CPU fallback
-                        let table_data = table.to_vec();
+                        let table_data = table.sync_and_read();
                         let mut output_data = Vec::with_capacity(seq_len * emb_dim);
 
                         for &token_id in &token_data {
@@ -631,8 +631,10 @@ impl Interpreter {
         let pipeline = executor.get_or_compile_pipeline("embedding_lookup_f32")
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        let (_flushed, command_buffer) = device
+            .command_buffer()
+            .map_err(|e| RuntimeError::TensorError(e))?;
+        let encoder = command_buffer.as_ref().new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&table_buf.buffer), 0);
@@ -645,8 +647,11 @@ impl Interpreter {
 
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+        
+        // Note: wait_until_completed() is NOT called here (matches candle pattern).
+        // The result tensor points to GPU buffer, and subsequent operations
+        // will use it directly on GPU. Commands manager handles batching
+        // and will commit when batch size is exceeded or when CPU reads data.
 
         // Create result tensor
         crate::tensor::Tensor::new(

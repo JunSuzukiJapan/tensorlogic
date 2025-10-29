@@ -85,8 +85,8 @@ impl<T: FloatType> MetalBuffer<T> {
     }
 
     /// Read data from buffer to Vec<T>
+    /// Note: This should only be called after sync_all() to ensure GPU operations are complete
     pub fn to_vec(&self) -> Vec<T> {
-        panic!("{}:{}:{}", file!(), line!(), column!());
         let ptr = self.buffer.contents() as *const T;
         unsafe { std::slice::from_raw_parts(ptr, self.length).to_vec() }
     }

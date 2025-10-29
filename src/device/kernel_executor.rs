@@ -100,9 +100,9 @@ impl KernelExecutor {
         encoder.dispatch_thread_groups(threadgroups, threadgroup_size);
         encoder.end_encoding();
 
-        // Commit and wait
+        // Commit and async submit (no wait!)
         command_buffer.commit();
-        command_buffer.wait_until_completed();
+        crate::ops::async_exec::submit_async(&command_buffer);
 
         Ok(())
     }

@@ -8,6 +8,8 @@ mod neural_engine_ops;
 mod shared_buffer;
 mod buffer_pool;
 mod coreml_manager;
+mod command_buffer;
+mod commands;
 
 pub use metal_device::MetalDevice;
 pub use metal_buffer::MetalBuffer;
@@ -17,6 +19,8 @@ pub use neural_engine_ops::NeuralEngineOps;
 pub use shared_buffer::SharedBuffer;
 pub use buffer_pool::{BufferPool, PoolStats};
 pub use coreml_manager::CoreMLModelManager;
+pub use command_buffer::{CommandBuffer, CommandBufferThreadMap};
+pub use commands::Commands;
 
 use crate::error::TensorResult;
 

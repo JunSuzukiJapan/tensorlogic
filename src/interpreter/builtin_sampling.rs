@@ -118,27 +118,29 @@ impl Interpreter {
             ));
         };
 
-        // Check if on Metal device
-        if !matches!(logits.device(), Device::Metal(_)) {
-            // Fallback to CPU implementation
-            return self.temperature_sample_cpu(logits, temperature, vocab_size);
-        }
-
-        // GPU implementation via Metal kernels
-        self.temperature_sample_metal(logits, temperature, vocab_size)
+        // Use CPU sampling (like llama.cpp and candle)
+        // GPU sampling is too slow due to multiple kernel launches and sync overhead
+        self.temperature_sample_cpu(logits, temperature, vocab_size)
     }
 
-    /// CPU fallback implementation - DEPRECATED: Use GPU implementation instead
+    /// CPU sampling implementation (following llama.cpp and candle approach)
+    /// This is actually faster than GPU sampling for vocabulary-sized tensors
     fn temperature_sample_cpu<T: FloatType>(&self, logits: &crate::tensor::Tensor<T>, temperature: f32, vocab_size: usize) -> RuntimeResult<Value> {
-        // WARNING: This function transfers entire logits tensor (32000 elements) from GPU to CPU
-        // This is extremely slow and should be avoided. Use GPU implementation instead.
-        eprintln!("WARNING: temperature_sample_cpu called - this is slow! Use GPU implementation.");
-
-        use crate::tensor::TensorIO;
+        use crate::tensor::{TensorIO, TensorAccessors};
         use rand::Rng;
 
-        // Get logits as f32 vector - THIS IS THE SLOW PART
-        let logits_data: Vec<f32> = logits.to_vec().iter().map(|&x| x.to_f32()).collect();
+        // Get logits as f32 vector (sync all pending GPU ops before reading)
+        let all_logits: Vec<f32> = logits.sync_and_read_f32();
+
+        // For 2D tensors [seq_len, vocab_size], we only want the last row
+        let logits_data: Vec<f32> = if logits.dims().len() == 2 {
+            let seq_len = logits.dims()[0];
+            // Take the last vocab_size elements
+            all_logits[(seq_len - 1) * vocab_size .. seq_len * vocab_size].to_vec()
+        } else {
+            // 1D tensor - use as-is
+            all_logits
+        };
 
         // Apply temperature scaling
         let scaled: Vec<f32> = logits_data.iter().map(|&x| x / temperature).collect();
@@ -174,8 +176,6 @@ impl Interpreter {
 
         if std::env::var("TL_DEBUG_SAMPLING").is_ok() {
             eprintln!("\n=== CPU Temperature Sample ===");
-            eprintln!("  Vocab size: {}", vocab_size);
-            eprintln!("  Temperature: {}", temperature);
             eprintln!("  Sampled token: {}", sampled_idx);
         }
 
@@ -274,7 +274,7 @@ impl Interpreter {
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
         command_buffer.commit();
-        command_buffer.wait_until_completed();
+        crate::ops::async_exec::submit_async(&command_buffer); // Async!
 
         // Step 2: Find max value (for numerical stability)
         let pipeline2 = executor.get_or_compile_pipeline(&format!("find_max{}", suffix))
@@ -293,7 +293,7 @@ impl Interpreter {
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
         command_buffer.commit();
-        command_buffer.wait_until_completed();
+        crate::ops::async_exec::submit_async(&command_buffer); // Async!
 
         // Step 3: Compute exp and sum
         let pipeline3 = executor.get_or_compile_pipeline(&format!("softmax_normalize{}", suffix))
@@ -313,7 +313,7 @@ impl Interpreter {
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
         command_buffer.commit();
-        command_buffer.wait_until_completed();
+        crate::ops::async_exec::submit_async(&command_buffer); // Async!
 
         // Step 4: Normalize by sum
         let pipeline4 = executor.get_or_compile_pipeline(&format!("divide_by_sum{}", suffix))
@@ -331,7 +331,7 @@ impl Interpreter {
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
         command_buffer.commit();
-        command_buffer.wait_until_completed();
+        crate::ops::async_exec::submit_async(&command_buffer); // Async!
 
         // Step 5: Sample from distribution
         let pipeline5 = executor.get_or_compile_pipeline(&format!("cumulative_sample{}", suffix))
@@ -350,7 +350,10 @@ impl Interpreter {
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
         command_buffer.commit();
-        command_buffer.wait_until_completed();
+        crate::ops::async_exec::submit_async(&command_buffer);
+
+        // Sync all pending operations before reading result
+        crate::ops::async_exec::sync_all();
 
         // Read result (only 4 bytes!)
         let sampled_ptr = sampled_buf.contents() as *const u32;

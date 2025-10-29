@@ -1,7 +1,7 @@
-use tensorlogic::model::Model;
-use tensorlogic::device::MetalDevice;
-use tensorlogic::tensor::{TensorAccessors, TensorIO};
 use std::env;
+use tensorlogic::device::MetalDevice;
+use tensorlogic::model::Model;
+use tensorlogic::tensor::{TensorAccessors, TensorIO};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -59,7 +59,7 @@ fn main() {
     // 2. First row W_q[0, :10]
     println!("2. First row W_q[0, :10]:");
     for j in 0..10.min(cols) {
-        let idx = 0 * cols + j;  // Row-major: row * ncols + col
+        let idx = 0 * cols + j; // Row-major: row * ncols + col
         print!("{:.8} ", data[idx].to_f32());
     }
     println!("\n");
@@ -67,7 +67,7 @@ fn main() {
     // 3. First column W_q[:10, 0]
     println!("3. First column W_q[:10, 0]:");
     for i in 0..10.min(rows) {
-        let idx = i * cols + 0;  // Row-major: row * ncols + col
+        let idx = i * cols + 0; // Row-major: row * ncols + col
         print!("{:.8} ", data[idx].to_f32());
     }
     println!("\n");

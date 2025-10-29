@@ -163,9 +163,9 @@ impl<T: FloatType> Tensor<T> {
         // Get pipeline
         let pipeline = executor.get_or_compile_pipeline(&kernel_name)?;
 
-        // Create command buffer and encoder (Commands API - candle pattern)
-        let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        // Create command buffer and encoder
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(a_buf.metal_buffer()), 0);
@@ -191,8 +191,8 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_thread_groups(threadgroups, threadgroup_size);
         encoder.end_encoding();
 
-        // Note: wait_until_completed() is NOT called here (matches candle pattern).
-        // Commands manager handles batching and will commit when batch size is exceeded.
+        command_buffer.commit();
+        crate::ops::async_exec::submit_async(&command_buffer);
 
         // Create result tensor
         let result_shape = crate::tensor::TensorShape::new(vec![m, n]);
@@ -340,9 +340,8 @@ impl<T: FloatType> Tensor<T> {
 
         let pipeline = executor.get_or_compile_pipeline(&kernel_name)?;
 
-        // Commands API (candle pattern)
-        let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(a_buf.metal_buffer()), 0);
@@ -367,7 +366,8 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_thread_groups(threadgroups, threadgroup_size);
         encoder.end_encoding();
 
-        // Note: wait_until_completed() is NOT called here (matches candle pattern).
+        command_buffer.commit();
+        crate::ops::async_exec::submit_async(&command_buffer);
 
         let result_shape = crate::tensor::TensorShape::new(vec![m, n]);
         self.new_from_pool(

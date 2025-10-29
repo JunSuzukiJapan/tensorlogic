@@ -13,11 +13,20 @@ pub trait TensorIO<T: FloatType>: Sized {
     /// Transfer tensor to Metal device
     fn to_metal(&self, device: &MetalDevice) -> TensorResult<Self>;
 
-    /// Get data as Vec<T> (copies from GPU if needed)
+    /// ⚠️ DEPRECATED: Use sync_and_read() instead
+    /// Get data as Vec<T> - THIS WILL PANIC to identify call sites
     fn to_vec(&self) -> Vec<T>;
 
-    /// Get data as Vec<f32> (copies from GPU if needed)
+    /// ⚠️ DEPRECATED: Use sync_and_read_f32() instead
+    /// Get data as Vec<f32> - THIS WILL PANIC to identify call sites
     fn to_vec_f32(&self) -> Vec<f32>;
+
+    /// Sync all pending GPU operations and read data as Vec<T>
+    /// Use this when you actually need CPU data (print, final output, etc)
+    fn sync_and_read(&self) -> Vec<T>;
+
+    /// Sync all pending GPU operations and read data as Vec<f32>
+    fn sync_and_read_f32(&self) -> Vec<f32>;
 
     /// Save tensor to a binary file
     ///
@@ -59,12 +68,34 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
     }
 
     fn to_vec(&self) -> Vec<T> {
-        panic!("src/tensor/tensor_io.rs:61:9: to_vec() called - GPU->CPU transfer detected!");
-        self.buffer.to_cpu_vec()
+        panic!("⚠️ to_vec() called without sync! Use sync_and_read() instead.\n\
+                Call site: {}",
+               std::panic::Location::caller());
     }
 
     fn to_vec_f32(&self) -> Vec<f32> {
-        panic!("{}:{}:{}", file!(), line!(), column!());
+        panic!("⚠️ to_vec_f32() called without sync! Use sync_and_read_f32() instead.\n\
+                Call site: {}",
+               std::panic::Location::caller());
+    }
+
+    fn sync_and_read(&self) -> Vec<T> {
+        // Sync all pending GPU operations before reading (candle-style)
+        use crate::tensor::TensorAccessors;
+        if let crate::device::Device::Metal(ref device) = self.device() {
+            // Wait for all GPU operations to complete
+            device.wait_until_completed().ok();
+        }
+        self.buffer.to_cpu_vec()
+    }
+
+    fn sync_and_read_f32(&self) -> Vec<f32> {
+        // Sync all pending GPU operations before reading (candle-style)
+        use crate::tensor::TensorAccessors;
+        if let crate::device::Device::Metal(ref device) = self.device() {
+            // Wait for all GPU operations to complete
+            device.wait_until_completed().ok();
+        }
         self.buffer.to_cpu_vec().iter().map(|x| x.to_f32()).collect()
     }
 
@@ -95,8 +126,8 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
             format!("Failed to write type size: {}", e)
         ))?;
 
-        // Write tensor data
-        let data = self.to_vec();
+        // Write tensor data (need to sync before saving)
+        let data = self.sync_and_read();
         let bytes: Vec<u8> = unsafe {
             std::slice::from_raw_parts(
                 data.as_ptr() as *const u8,

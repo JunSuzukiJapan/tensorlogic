@@ -105,8 +105,9 @@ impl<T: FloatType> Tensor<T> {
             .map_err(|e| TensorError::MetalError(format!("Failed to create pipeline: {}", e)))?;
 
         // Execute kernel
-        let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let command_queue = device.command_queue();
+        let command_buffer = command_queue.new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
@@ -131,8 +132,8 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_thread_groups(threadgroups, threadgroup_size);
         encoder.end_encoding();
 
-        // command_buffer.commit(); // Handled by Commands manager
-        // submit_async - not needed with Commands batching
+        command_buffer.commit();
+        crate::ops::async_exec::submit_async(&command_buffer);
 
         // Return result tensor
         self.new_from_pool(

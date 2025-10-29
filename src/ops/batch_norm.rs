@@ -85,9 +85,9 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let input_data = self.to_vec();
-        let gamma_data = gamma.to_vec();
-        let beta_data = beta.to_vec();
+        let input_data = self.sync_and_read();
+        let gamma_data = gamma.sync_and_read();
+        let beta_data = beta.sync_and_read();
 
         let total_size = input_data.len();
         let mut output_data = vec![f16::ZERO; total_size];
@@ -154,7 +154,7 @@ mod tests {
         ).unwrap();
 
         let result = input.batch_norm(&gamma, &beta, 1e-5).unwrap();
-        let data = result.to_vec();
+        let data = result.sync_and_read();
 
         // For feature 0: values are [1, 4], mean=2.5, std≈1.5
         // normalized: [(1-2.5)/1.5, (4-2.5)/1.5] = [-1.0, 1.0]
@@ -187,7 +187,7 @@ mod tests {
         ).unwrap();
 
         let result = input.batch_norm(&gamma, &beta, 1e-5).unwrap();
-        let data = result.to_vec();
+        let data = result.sync_and_read();
 
         // After normalization, should be scaled by 2 and shifted by 1
         // Each feature should have different values but follow the affine transformation

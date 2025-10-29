@@ -8,9 +8,9 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-use tensorlogic::parser::TensorLogicParser;
+use tensorlogic::error_reporting::{helpers, ErrorReporter, FrameType, StackFrame, StackTrace};
 use tensorlogic::interpreter::Interpreter;
-use tensorlogic::error_reporting::{ErrorReporter, helpers, StackTrace, StackFrame, FrameType};
+use tensorlogic::parser::TensorLogicParser;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -33,7 +33,10 @@ fn main() {
         "run" => {
             if args.len() < 3 {
                 eprintln!("Error: Missing file path");
-                eprintln!("Usage: {} run <file.tl> [--debug] [--test] [--bench]", args[0]);
+                eprintln!(
+                    "Usage: {} run <file.tl> [--debug] [--test] [--bench]",
+                    args[0]
+                );
                 std::process::exit(1);
             }
             let file_path = &args[2];
@@ -87,7 +90,12 @@ fn print_usage(program_name: &str) {
     println!("    {} repl --debug", program_name);
 }
 
-fn run_file(file_path: &str, debug_mode: bool, test_mode: bool, bench_mode: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn run_file(
+    file_path: &str,
+    debug_mode: bool,
+    test_mode: bool,
+    bench_mode: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Check if file exists
     let path = Path::new(file_path);
     if !path.exists() {

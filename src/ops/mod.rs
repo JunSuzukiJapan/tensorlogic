@@ -18,6 +18,7 @@ pub mod batch_norm;
 pub mod dropout;
 pub mod rope;
 pub mod cache_ops;
+pub mod async_exec;
 
 // Re-export commonly used types
 pub use fused::Activation;

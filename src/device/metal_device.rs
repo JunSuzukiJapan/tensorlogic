@@ -1,9 +1,9 @@
 //! Metal device management
 
-use crate::device::BufferPool;
+use crate::device::{BufferPool, Commands};
 use crate::error::{TensorError, TensorResult};
 use metal::{Device as MTLDevice, CommandQueue, Library};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Metal GPU device wrapper
 #[derive(Clone)]
@@ -12,6 +12,8 @@ pub struct MetalDevice {
     command_queue: Arc<CommandQueue>,
     library: Option<Arc<Library>>,
     buffer_pool: BufferPool,
+    /// Command buffer manager for efficient batching
+    commands: Arc<Mutex<Commands>>,
 }
 
 impl std::fmt::Debug for MetalDevice {
@@ -31,28 +33,40 @@ impl MetalDevice {
             .ok_or_else(|| TensorError::MetalError("No Metal device found".to_string()))?;
 
         let command_queue = device.new_command_queue();
+        let command_queue = Arc::new(command_queue);
+
         // Increase buffer pool capacity for deep models (22+ layers)
         let buffer_pool = BufferPool::with_capacity(&device, 100);
 
+        // Create Commands manager for efficient batching
+        let commands = Commands::new(command_queue.clone())?;
+
         Ok(Self {
             device: Arc::new(device),
-            command_queue: Arc::new(command_queue),
+            command_queue,
             library: None,
             buffer_pool,
+            commands: Arc::new(Mutex::new(commands)),
         })
     }
 
     /// Create Metal device with specific device
     pub fn with_device(device: MTLDevice) -> TensorResult<Self> {
         let command_queue = device.new_command_queue();
+        let command_queue = Arc::new(command_queue);
+
         // Increase buffer pool capacity for deep models (22+ layers)
         let buffer_pool = BufferPool::with_capacity(&device, 100);
 
+        // Create Commands manager for efficient batching
+        let commands = Commands::new(command_queue.clone())?;
+
         Ok(Self {
             device: Arc::new(device),
-            command_queue: Arc::new(command_queue),
+            command_queue,
             library: None,
             buffer_pool,
+            commands: Arc::new(Mutex::new(commands)),
         })
     }
 
@@ -103,6 +117,29 @@ impl MetalDevice {
     /// Get the command queue
     pub fn command_queue(&self) -> &CommandQueue {
         &self.command_queue
+    }
+
+    /// Get the next command buffer from the batch
+    ///
+    /// This is the main entry point for GPU operations.
+    /// Returns (flushed, command_buffer) where flushed indicates if a commit happened.
+    pub fn command_buffer(&self) -> TensorResult<(bool, crate::device::CommandBuffer)> {
+        self.commands.lock()
+            .map_err(|e| TensorError::InvalidOperation(format!("Commands lock failed: {}", e)))?
+            .command_buffer()
+    }
+
+    /// Wait for all GPU operations to complete
+    ///
+    /// This should be called:
+    /// - Before reading tensor data from GPU
+    /// - At end of operation sequence
+    /// - Before deallocating buffers that might be in use
+    pub fn wait_until_completed(&self) -> TensorResult<()> {
+        // Wait for all Commands-managed buffers
+        self.commands.lock()
+            .map_err(|e| TensorError::InvalidOperation(format!("Commands lock failed: {}", e)))?
+            .wait_until_completed()
     }
 
     /// Load Metal shader library from source
