@@ -35,7 +35,8 @@
       "Bash(echo:*)",
       "Bash(done)",
       "Bash(while read file)",
-      "Bash(do mv \"$file\" \"$file.disabled\" echo \"Disabled: $file\" done)"
+      "Bash(do mv \"$file\" \"$file.disabled\" echo \"Disabled: $file\" done)",
+      "Bash(do rm \"$file\")"
     ],
     "deny": [],
     "ask": []
