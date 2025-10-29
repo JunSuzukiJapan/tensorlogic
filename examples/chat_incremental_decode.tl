@@ -123,7 +123,7 @@ main {
     let user_msg = "Hello!"
     let chat_template = "<|system|>\nYou are a helpful assistant.</s>\n<|user|>\n"
     let chat_prompt = chat_template + user_msg + "</s>\n<|assistant|>\n"
-    let tokens = tokenize(tokenizer, chat_prompt, true)
+    let tokens = tokenizer.tokenize( chat_prompt, true)
     print("      User:", user_msg)
     print("")
 
@@ -141,7 +141,7 @@ main {
     let temperature = 0.8
 
     // Initialize generated token IDs array (using tokenize with empty string)
-    let generated_tokens = tokenize(tokenizer, "", false)
+    let generated_tokens = tokenizer.tokenize( "", false)
 
     // Generate first token
     let layer_0_out = transformer_layer(x, layer_0_attn_norm, layer_0_q, layer_0_k, layer_0_v, layer_0_o, layer_0_ffn_norm, layer_0_gate, layer_0_up, layer_0_down, K0, V0)
@@ -150,7 +150,7 @@ main {
     let current_logits = linear(normed, output)
 
     let token_id = temperature_sample(current_logits, temperature)
-    generated_tokens = append_token(generated_tokens, token_id)
+    generated_tokens = generated_tokens.append_token(token_id)
 
     // Decode and print
     let text = detokenize_incremental(tokenizer, generated_tokens)
@@ -173,7 +173,7 @@ main {
         if continue_generation {
             // Sample token
             token_id = temperature_sample(current_logits, temperature)
-            generated_tokens = append_token(generated_tokens, token_id)
+            generated_tokens = generated_tokens.append_token(token_id)
 
             // Decode ALL tokens and print
             text = detokenize_incremental(tokenizer, generated_tokens)

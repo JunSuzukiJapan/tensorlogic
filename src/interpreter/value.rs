@@ -118,6 +118,31 @@ pub enum Value {
 }
 
 impl Value {
+    /// Get the type name of this value
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Value::TensorF16(_) => "TensorF16",
+            Value::TensorF32(_) => "TensorF32",
+            Value::Boolean(_) => "Boolean",
+            Value::Integer(_) => "Integer",
+            Value::Float(_) => "Float",
+            Value::String(_) => "String",
+            Value::ModelF16(_) => "ModelF16",
+            Value::ModelF32(_) => "ModelF32",
+            Value::ModelLayerCollectionF16(_) => "ModelLayerCollectionF16",
+            Value::ModelLayerCollectionF32(_) => "ModelLayerCollectionF32",
+            Value::ModelLayerF16(_) => "ModelLayerF16",
+            Value::ModelLayerF32(_) => "ModelLayerF32",
+            Value::ModelFeatureF16(_) => "ModelFeatureF16",
+            Value::ModelFeatureF32(_) => "ModelFeatureF32",
+            Value::Tokenizer(_) => "Tokenizer",
+            Value::TokenIds(_) => "TokenIds",
+            Value::TokenIdArray(_) => "TokenIdArray",
+            Value::Type(_) => "Type",
+            Value::Void => "Void",
+        }
+    }
+
     /// Convert to f16 tensor if possible
     pub fn as_tensor_f16(&self) -> RuntimeResult<&Tensor<f16>> {
         match self {

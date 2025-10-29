@@ -165,6 +165,7 @@ impl<T: FloatType> Tensor<T> {
 mod tests {
     use super::*;
     use crate::device::MetalDevice;
+    use half::f16;
 
     #[test]
     fn test_broadcast_1d_to_2d() {

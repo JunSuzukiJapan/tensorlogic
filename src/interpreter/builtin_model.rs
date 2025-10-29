@@ -14,12 +14,11 @@ impl Interpreter {
 
             "print" => Some(self.eval_print(args)),
             "load_tokenizer" => Some(self.eval_load_tokenizer(args)),
-            "tokenize" => Some(self.eval_tokenize(args)),
-            "detokenize" => Some(self.eval_detokenize(args)),
+            // tokenize, detokenize, append_token are now type methods only
+            // Use: tokenizer.tokenize() / tokenizer.detokenize() / tokens.append_token()
             "detokenize_single" => Some(self.eval_detokenize_single(args)),
             "detokenize_incremental" => Some(self.eval_detokenize_incremental(args)),
             "int_to_tokenids" => Some(self.eval_int_to_tokenids(args)),
-            "append_token" => Some(self.eval_append_token(args)),
             "string_length" => Some(self.eval_string_length(args)),
             "string_substring" => Some(self.eval_string_substring(args)),
             "generate" | "print_top_k" => {
@@ -228,7 +227,7 @@ impl Interpreter {
 
     /// tokenize(tokenizer, "text", add_special_tokens)
     /// Convert text to token IDs
-    fn eval_tokenize(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub(super) fn eval_tokenize(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 3 {
             return Err(RuntimeError::TypeError(
                 format!("tokenize() expects 3 arguments (tokenizer, text, add_special_tokens), got {}", args.len())
@@ -271,7 +270,7 @@ impl Interpreter {
 
     /// detokenize(tokenizer, token_ids, skip_special_tokens)
     /// Convert token IDs to text
-    fn eval_detokenize(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub(super) fn eval_detokenize(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 3 {
             return Err(RuntimeError::TypeError(
                 format!("detokenize() expects 3 arguments (tokenizer, token_ids, skip_special_tokens), got {}", args.len())
@@ -462,7 +461,7 @@ impl Interpreter {
 
     /// append_token(token_ids, token_id)
     /// Append a token ID to TokenIds array (returns new array)
-    fn eval_append_token(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub(super) fn eval_append_token(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("append_token() expects 2 arguments (token_ids, token_id), got {}", args.len())

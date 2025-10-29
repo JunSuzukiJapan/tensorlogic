@@ -85,9 +85,6 @@ path = "src/lib.rs"
 name = "tl"
 path = "src/main.rs"
 
-[[example]]
-name = "simple_training"
-path = "examples/simple_training.rs"
 
 [[bench]]
 name = "coreml_benchmark"

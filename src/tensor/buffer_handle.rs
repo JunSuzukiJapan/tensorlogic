@@ -140,6 +140,7 @@ impl<T: FloatType + PartialEq> PartialEq for BufferHandle<T> {
 
 #[cfg(test)]
 mod tests {
+    use half::f16;
     use super::*;
     use metal::Device as MTLDevice;
 

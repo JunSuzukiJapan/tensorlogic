@@ -124,7 +124,7 @@ main {
     let user_msg = "Hello!"
     let chat_template = "<|system|>\nYou are a helpful assistant.</s>\n<|user|>\n"
     let chat_prompt = chat_template + user_msg + "</s>\n<|assistant|>\n"
-    let tokens = tokenize(tokenizer, chat_prompt, true)
+    let tokens = tokenizer.tokenize( chat_prompt, true)
     print("      User:", user_msg)
     print("")
 

@@ -1029,12 +1029,31 @@ impl Interpreter {
                         }
                     }
                     _ => {
-                        // For other methods, try calling as a regular function with object as first argument
-                        // Build argument list by prepending the object to the method arguments
-                        let mut final_args = vec![(**object).clone()];
-                        final_args.extend_from_slice(args);
+                        // Type-based method dispatch
+                        match (&obj_value, method.as_str()) {
+                            // Tokenizer methods
+                            (Value::Tokenizer(_), "tokenize") => {
+                                let mut method_args = vec![(**object).clone()];
+                                method_args.extend_from_slice(args);
+                                self.eval_tokenize(&method_args)
+                            }
+                            (Value::Tokenizer(_), "detokenize") => {
+                                let mut method_args = vec![(**object).clone()];
+                                method_args.extend_from_slice(args);
+                                self.eval_detokenize(&method_args)
+                            }
 
-                        self.eval_function_call(None, &Identifier::new(method.as_str()), &final_args)
+                            // TokenIds methods
+                            (Value::TokenIds(_), "append_token") => {
+                                let mut method_args = vec![(**object).clone()];
+                                method_args.extend_from_slice(args);
+                                self.eval_append_token(&method_args)
+                            }
+
+                            _ => Err(RuntimeError::TypeError(
+                                format!("Type {:?} has no method '{}'", obj_value.type_name(), method)
+                            ))
+                        }
                     }
                 }
             }
