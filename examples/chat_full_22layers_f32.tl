@@ -125,7 +125,7 @@ main {
     let chat_template = "<|system|>\nYou are a helpful assistant.</s>\n<|user|>\n"
     let chat_prompt = chat_template + user_msg + "</s>\n<|assistant|>\n"
     let tokens = tokenizer.tokenize( chat_prompt, true)
-    print("      User:", user_msg)
+    print("      User: {}", user_msg)
     print("")
 
     print("[3/3] Generating response (max 50 tokens)...")
@@ -134,7 +134,9 @@ main {
 
     let x = embedding(tok_embd, tokens)
 
-    // Build initial KV caches for all 22 layers
+    // ============================================================
+    // PREFILL PHASE: Build initial KV caches for all 22 layers
+    // ============================================================
     let K0 = linear(x, L0.attn_k.weight)
     let V0 = linear(x, L0.attn_v.weight)
     let K1 = linear(x, L1.attn_k.weight)
@@ -180,7 +182,9 @@ main {
     let K21 = linear(x, L21.attn_k.weight)
     let V21 = linear(x, L21.attn_v.weight)
 
-    // Run through all 22 layers
+    // ============================================================
+    // PREFILL: Run prompt through all 22 transformer layers
+    // ============================================================
     let h0 = transformer_layer(x, L0.attn_norm.weight, L0.attn_q.weight, L0.attn_k.weight, L0.attn_v.weight, L0.attn_output.weight, L0.ffn_norm.weight, L0.ffn_gate.weight, L0.ffn_up.weight, L0.ffn_down.weight, K0, V0)
     let h1 = transformer_layer(h0, L1.attn_norm.weight, L1.attn_q.weight, L1.attn_k.weight, L1.attn_v.weight, L1.attn_output.weight, L1.ffn_norm.weight, L1.ffn_gate.weight, L1.ffn_up.weight, L1.ffn_down.weight, K1, V1)
     let h2 = transformer_layer(h1, L2.attn_norm.weight, L2.attn_q.weight, L2.attn_k.weight, L2.attn_v.weight, L2.attn_output.weight, L2.ffn_norm.weight, L2.ffn_gate.weight, L2.ffn_up.weight, L2.ffn_down.weight, K2, V2)
@@ -204,10 +208,14 @@ main {
     let h20 = transformer_layer(h19, L20.attn_norm.weight, L20.attn_q.weight, L20.attn_k.weight, L20.attn_v.weight, L20.attn_output.weight, L20.ffn_norm.weight, L20.ffn_gate.weight, L20.ffn_up.weight, L20.ffn_down.weight, K20, V20)
     let h21 = transformer_layer(h20, L21.attn_norm.weight, L21.attn_q.weight, L21.attn_k.weight, L21.attn_v.weight, L21.attn_output.weight, L21.ffn_norm.weight, L21.ffn_gate.weight, L21.ffn_up.weight, L21.ffn_down.weight, K21, V21)
 
+    // Final normalization and output projection
     let final_norm = rms_norm(h21, output_norm)
     let logits = linear(final_norm, output)
 
-    // Initialize for autoregressive loop
+    // ============================================================
+    // AUTOREGRESSIVE GENERATION LOOP
+    // ============================================================
+    // Initialize generation state
     let temperature = 0.8
     let current_logits = logits
     let continue_generation = true
@@ -259,10 +267,10 @@ main {
     let KV21 = K21
     let KV21_V = V21
 
-    // Autoregressive generation (max 50 tokens)
+    // Token-by-token generation (max 50 tokens)
     for i in range(50) {
         if continue_generation {
-            // Sample token
+            // Sample next token using temperature sampling
             let token_id = temperature_sample(current_logits, temperature)
             let text = detokenize_single(tokenizer, token_id, false)
             print(text, "")
@@ -275,7 +283,9 @@ main {
                 print(" <EOS>")
             }
 
-            // Update KV caches and run transformer for all 22 layers
+            // ========================================================
+            // DECODE STEP: Update KV caches and process new token
+            // ========================================================
             let token_ids_single = int_to_tokenids(token_id)
             let new_token_emb = embedding(tok_embd, token_ids_single)
             
@@ -441,5 +451,5 @@ main {
     print("")
     print("")
     print("=== Generation Complete ===")
-    print("Tokens generated:", token_count)
+    print("Tokens generated: {}", token_count)
 }

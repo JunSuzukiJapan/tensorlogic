@@ -2074,16 +2074,28 @@ impl Interpreter {
     fn value_to_string(value: &Value) -> RuntimeResult<String> {
         Ok(match value {
             Value::TensorF16(t) => {
-                let data = t.to_vec();
-                format!("{:?}", data)
+                format!("Tensor<f16>(shape={:?})", t.dims())
             }
             Value::TensorF32(t) => {
-                let data = t.to_vec();
-                format!("{:?}", data)
+                format!("Tensor<f32>(shape={:?})", t.dims())
             }
+            Value::Boolean(b) => b.to_string(),
+            Value::Integer(i) => i.to_string(),
+            Value::Float(f) => f.to_string(),
             Value::String(s) => s.clone(),
             Value::Void => "void".to_string(),
-            _ => format!("{:?}", value),
+            Value::ModelF16(_) => "<ModelF16>".to_string(),
+            Value::ModelF32(_) => "<ModelF32>".to_string(),
+            Value::ModelLayerCollectionF16(_) => "<ModelLayerCollectionF16>".to_string(),
+            Value::ModelLayerCollectionF32(_) => "<ModelLayerCollectionF32>".to_string(),
+            Value::ModelLayerF16(_) => "<ModelLayerF16>".to_string(),
+            Value::ModelLayerF32(_) => "<ModelLayerF32>".to_string(),
+            Value::ModelFeatureF16(_) => "<ModelFeatureF16>".to_string(),
+            Value::ModelFeatureF32(_) => "<ModelFeatureF32>".to_string(),
+            Value::Tokenizer(_) => "<Tokenizer>".to_string(),
+            Value::TokenIds(ids) => format!("{:?}", ids),
+            Value::TokenIdArray(arr) => format!("{:?}", arr.data()),
+            Value::Type(t) => format!("<Type: {}>", t),
         })
     }
 
