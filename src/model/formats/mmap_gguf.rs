@@ -421,11 +421,24 @@ impl MmapGGUFLoader {
     }
 
     /// Dequantize Q6_K to f16
-    /// Q6_K: 256 elements per block, complex k-quant format
-    /// Block structure: 16 scales (f16) + 128 scales_h (u8) + 192 bytes quantized data
+    /// Q6_K: 256 elements per block, k-quant format with 6-bit quantization
+    /// 
+    /// Block structure (210 bytes total):
+    /// - 16 scales (f16): 32 bytes
+    /// - 16 scale_h (u8): 16 bytes  
+    /// - 64 scale_mins (u8): 64 bytes
+    /// - 8 mins (f16): 16 bytes
+    /// - 256 quantized values (6-bit): 192 bytes (packed in groups)
+    /// 
+    /// Actually: scales are combined d (f16) + dmin (f16)
+    /// Real structure from llama.cpp:
+    /// - ql[128]: Lower 4 bits of quantized data
+    /// - qh[64]: Upper 2 bits of quantized data  
+    /// - scales[8]: f16 scales
+    /// - d: f16 scale
     pub fn dequantize_q6_k_to_f16(data: &[u8], num_elements: usize) -> Vec<half::f16> {
-        const QK_K: usize = 256;  // Elements per block
-        const BLOCK_SIZE: usize = 210; // Total bytes per block (16*2 + 128 + 192/4*3 = 32 + 128 + 144 = 210)
+        const QK_K: usize = 256;
+        const BLOCK_SIZE: usize = 210; // 128 + 64 + 16 + 2 = 210 bytes
         
         let num_blocks = (num_elements + QK_K - 1) / QK_K;
         let mut output = Vec::with_capacity(num_elements);
@@ -440,46 +453,55 @@ impl MmapGGUFLoader {
                 break;
             }
 
-            // Read 16 scales (f16)
-            let mut scales = [half::f16::ZERO; 16];
-            for i in 0..16 {
-                let offset = block_start + i * 2;
-                scales[i] = half::f16::from_le_bytes([data[offset], data[offset + 1]]);
-            }
+            // Q6_K block layout (210 bytes):
+            // - ql[128]: lower 4 bits (bytes 0-127)
+            // - qh[64]: upper 2 bits (bytes 128-191)
+            // - scales[8]: int8 scales (bytes 192-199)
+            // - d: f16 (bytes 200-201)
+            
+            let ql = &data[block_start..block_start + 128];
+            let qh = &data[block_start + 128..block_start + 192];
+            let scales = &data[block_start + 192..block_start + 200];
+            
+            // Read d scale (f16)
+            let d = half::f16::from_le_bytes([
+                data[block_start + 200],
+                data[block_start + 201]
+            ]);
 
-            // Read scale_h (128 bytes)
-            let scales_h_offset = block_start + 32;
-            
-            // Read quantized data (144 bytes for 256 elements at 6 bits each)
-            let quant_offset = block_start + 32 + 128;
-            
-            // Simplified dequantization: treat as 4-bit average for now
-            // Full Q6_K implementation is complex, this is a placeholder
-            for elem_idx in 0..QK_K {
+            // Dequantize 256 elements
+            for i in 0..QK_K {
                 if output.len() >= num_elements {
                     break;
                 }
-                
-                let scale_idx = elem_idx / 16;
-                let scale = scales[scale_idx];
-                
-                // Simplified: read as 4-bit nibbles (placeholder)
-                let byte_idx = elem_idx / 2;
-                let data_idx = quant_offset + byte_idx;
 
-                // Bounds check
-                if data_idx >= data.len() {
-                    output.push(half::f16::ZERO);
-                    continue;
-                }
-
-                let nibble = if elem_idx % 2 == 0 {
-                    (data[data_idx] & 0x0F) as i8 - 8
+                // Get 6-bit quantized value
+                // Lower 4 bits from ql
+                let ql_idx = i / 2;
+                let q_low = if i % 2 == 0 {
+                    ql[ql_idx] & 0x0F
                 } else {
-                    ((data[data_idx] >> 4) & 0x0F) as i8 - 8
+                    (ql[ql_idx] >> 4) & 0x0F
                 };
 
-                output.push(half::f16::from_f32(nibble as f32) * scale);
+                // Upper 2 bits from qh
+                let qh_idx = i / 4;
+                let qh_shift = (i % 4) * 2;
+                let q_high = (qh[qh_idx] >> qh_shift) & 0x03;
+
+                // Combine to 6-bit value (0-63)
+                let q = ((q_high as i32) << 4) | (q_low as i32);
+
+                // Get scale for this group of 32 elements
+                let scale_idx = i / 32;
+                let scale_i8 = scales[scale_idx] as i8;
+                let scale = half::f16::from_f32(scale_i8 as f32);
+
+                // Dequantize: (q - 32) * scale * d
+                let q_centered = q - 32;
+                let value = half::f16::from_f32(q_centered as f32) * scale * d;
+                
+                output.push(value);
             }
         }
 
@@ -542,7 +564,7 @@ impl MmapGGUFLoader {
         };
 
         // Upload to GPU and create tensor
-        Tensor::from_vec_metal(device, f16_data, info.shape.clone())
+        Tensor::from_vec_gpu(device, f16_data, info.shape.clone())
     }
 
     /// Load entire model as f16 (memory-efficient)

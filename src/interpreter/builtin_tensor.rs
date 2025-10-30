@@ -56,7 +56,7 @@ macro_rules! impl_tensor_fill {
 
             let numel: usize = shape.iter().product();
             let data = vec![$fill_value; numel];
-            let tensor = Tensor::<$type>::from_vec_metal(device, data, shape)
+            let tensor = Tensor::<$type>::from_vec_gpu(device, data, shape)
                 .map_err(|e| RuntimeError::TensorError(e))?;
 
             Ok(Value::$value_variant(tensor))
@@ -128,7 +128,7 @@ macro_rules! impl_arange {
 
             // Create 1D tensor on Metal device
             let device = self.env.metal_device();
-            let tensor = Tensor::<$type>::from_vec_metal(device, data, vec![count])
+            let tensor = Tensor::<$type>::from_vec_gpu(device, data, vec![count])
                 .map_err(|e| RuntimeError::TensorError(e))?;
 
             Ok(Value::$value_variant(tensor))
@@ -205,7 +205,7 @@ impl Interpreter {
                 let device = tensor.device().clone();
                 let shape_tensor = match &device {
                     crate::device::Device::Metal(metal_device) => {
-                        Tensor::from_vec_metal(metal_device, shape_data, vec![dims.len()])
+                        Tensor::from_vec_gpu(metal_device, shape_data, vec![dims.len()])
                     }
                     crate::device::Device::CPU => {
                         Tensor::from_vec(shape_data, vec![dims.len()])
@@ -222,7 +222,7 @@ impl Interpreter {
                 let device = tensor.device().clone();
                 let shape_tensor = match &device {
                     crate::device::Device::Metal(metal_device) => {
-                        Tensor::from_vec_metal(metal_device, shape_data, vec![dims.len()])
+                        Tensor::from_vec_gpu(metal_device, shape_data, vec![dims.len()])
                     }
                     crate::device::Device::CPU => {
                         Tensor::from_vec(shape_data, vec![dims.len()])
@@ -264,7 +264,7 @@ impl Interpreter {
                 }
                 let numel: usize = shape.iter().product();
                 let ones_data = vec![1.0f32; numel];
-                let tensor = Tensor::from_vec_metal(device, ones_data, shape)
+                let tensor = Tensor::from_vec_gpu(device, ones_data, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF32(tensor))
             }
@@ -279,7 +279,7 @@ impl Interpreter {
                 }
                 let numel: usize = shape.iter().product();
                 let ones_data = vec![f16::ONE; numel];
-                let tensor = Tensor::from_vec_metal(device, ones_data, shape)
+                let tensor = Tensor::from_vec_gpu(device, ones_data, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF16(tensor))
             }
@@ -655,7 +655,7 @@ impl Interpreter {
         let device = tensor.device().clone();
         let result_tensor = match &device {
             crate::device::Device::Metal(metal_device) => {
-                Tensor::from_vec_metal(metal_device, slice_data, vec![length])
+                Tensor::from_vec_gpu(metal_device, slice_data, vec![length])
             }
             crate::device::Device::CPU => {
                 Tensor::from_vec(slice_data, vec![length])
@@ -732,7 +732,7 @@ impl Interpreter {
         // Create result tensor on same device
         let result_tensor = match tensor.device() {
             crate::device::Device::Metal(metal_device) => {
-                Tensor::from_vec_metal(metal_device, slice_data, vec![length])
+                Tensor::from_vec_gpu(metal_device, slice_data, vec![length])
             }
             crate::device::Device::CPU => {
                 Tensor::from_vec(slice_data, vec![length])
@@ -942,7 +942,7 @@ impl Interpreter {
                 let shape = data.iter().map(|&v| v as usize).collect::<Vec<_>>();
                 let numel: usize = shape.iter().product();
                 let zeros_data = vec![0.0f32; numel];
-                let tensor = Tensor::from_vec_metal(device, zeros_data, shape)
+                let tensor = Tensor::from_vec_gpu(device, zeros_data, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF32(tensor))
             }
@@ -952,7 +952,7 @@ impl Interpreter {
                 let shape = data.iter().map(|&v| v as usize).collect::<Vec<_>>();
                 let numel: usize = shape.iter().product();
                 let zeros_data = vec![f16::ZERO; numel];
-                let tensor = Tensor::from_vec_metal(device, zeros_data, shape)
+                let tensor = Tensor::from_vec_gpu(device, zeros_data, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF16(tensor))
             }

@@ -47,7 +47,7 @@ impl MmapGGUFLoader {
 - Dequantization functions for Q4_0, Q8_0, Q6_K → f16
 - F32 → f16 conversion
 - Direct f16 passthrough (no conversion)
-- GPU upload via `Tensor::from_vec_metal()`
+- GPU upload via `Tensor::from_vec_gpu()`
 - Progress reporting during loading
 
 **Supported GGUF Types**:

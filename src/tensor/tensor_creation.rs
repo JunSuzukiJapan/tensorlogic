@@ -35,14 +35,14 @@ pub trait TensorCreation<T: FloatType>: Sized {
     fn from_vec(data: Vec<T>, shape: Vec<usize>) -> TensorResult<Self>;
 
     /// Create a tensor from vector on Metal device
-    fn from_vec_metal(
+    fn from_vec_gpu(
         device: &MetalDevice,
         data: Vec<T>,
         shape: Vec<usize>,
     ) -> TensorResult<Self>;
 
     /// Create a tensor from vector on Metal device using buffer pool
-    fn from_vec_metal_pooled(
+    fn from_vec_gpu_pooled(
         device: &MetalDevice,
         data: Vec<T>,
         shape: Vec<usize>,
@@ -130,7 +130,7 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
         Self::new(buffer, shape, Device::CPU)
     }
 
-    fn from_vec_metal(
+    fn from_vec_gpu(
         device: &MetalDevice,
         data: Vec<T>,
         shape: Vec<usize>,
@@ -150,7 +150,7 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
         Self::new(buffer, shape, Device::Metal(device.clone()))
     }
 
-    fn from_vec_metal_pooled(
+    fn from_vec_gpu_pooled(
         device: &MetalDevice,
         data: Vec<T>,
         shape: Vec<usize>,
@@ -199,8 +199,8 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
     }
 
     fn scalar(device: &MetalDevice, value: T) -> TensorResult<Self> {
-        Self::from_vec_metal(device, vec![value], vec![1])
+        Self::from_vec_gpu(device, vec![value], vec![1])
     }
 }
 
-// Note: from_vec_metal_pooled supports both f16 and f32 through MetalBuffer::from_vec_pooled
+// Note: from_vec_gpu_pooled supports both f16 and f32 through MetalBuffer::from_vec_pooled
