@@ -47,6 +47,8 @@ rand_distr = "0.5.1"
 # モデルフォーマット対応
 safetensors = "0.4"
 gguf-rs-lib = "0.2"
+memmap2 = "0.9"  # メモリマップファイル（高速ローダー用）
+rayon = "1.8"    # 並列処理（Phase 4で使用）
 
 # トークナイゼーション
 tokenizers = "0.20"

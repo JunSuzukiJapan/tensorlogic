@@ -9,6 +9,7 @@ impl Interpreter {
             "save" => Some(self.eval_save(args)),
             "load" => Some(self.eval_load(args)),
             "load_model" => Some(self.eval_load_model(args)),
+            "load_model_f16" => Some(self.eval_load_model_f16(args)),
             "load_model_f32" => Some(self.eval_load_model_f32(args)),
             "get_tensor" => Some(self.eval_get_tensor(args)),
 
@@ -116,6 +117,44 @@ impl Interpreter {
             .map_err(|e| RuntimeError::TensorError(e))?;
 
         println!("Loaded model from: {} (f16)", path);
+        Ok(Value::ModelF16(model))
+    }
+
+    /// load_model_f16("path/to/model.gguf")
+    /// Load a GGUF model using fast mmap loader with f16 support
+    /// This is significantly faster than load_model() and load_model_f32()
+    fn eval_load_model_f16(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::model::formats::MmapGGUFLoader;
+
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("load_model_f16() expects 1 argument (path), got {}", args.len())
+            ));
+        }
+
+        // Evaluate path argument
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "load_model_f16() argument must be a string (path)".to_string()
+            )),
+        };
+
+        // Create mmap loader
+        let loader = MmapGGUFLoader::new(&path)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        println!("Created mmap loader for: {}", path);
+        println!("  Tensors: {}", loader.metadata().tensor_count);
+        println!("  Version: {}", loader.metadata().version);
+
+        // Load model as f16 using Metal device
+        let device = self.env.metal_device();
+        let model = loader.load_f16_model(device)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        println!("Loaded model as f16 (mmap zero-copy)");
         Ok(Value::ModelF16(model))
     }
 
