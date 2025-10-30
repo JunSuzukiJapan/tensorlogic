@@ -26,6 +26,7 @@ use crate::tensor::{Tensor, TensorCreation};
 /// GGUF tensor type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
+#[allow(non_camel_case_types)]
 pub enum GGUFTensorType {
     F32 = 0,
     F16 = 1,

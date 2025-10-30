@@ -235,6 +235,8 @@ mod tests {
                 init_expr: Some(TensorExpr::var("x")),
             })],
             main_block: None,
+            test_blocks: vec![],
+            bench_blocks: vec![],
         };
 
         counter.visit_program(&program).unwrap();
