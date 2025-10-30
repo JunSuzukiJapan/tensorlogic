@@ -136,11 +136,6 @@ impl<T: FloatType> Tensor<T> {
         // Get pipeline - select kernel based on size and type
         let suffix = T::kernel_suffix();
 
-        // DEBUG: Panic if f16 kernel selected
-        if suffix == "_f16" {
-            panic!("src/ops/normalization.rs:140: f16 kernel selected for rms_norm");
-        }
-
         let kernel_name = if normalized_size <= 256 {
             format!("rms_norm_simple{}", suffix)
         } else {
