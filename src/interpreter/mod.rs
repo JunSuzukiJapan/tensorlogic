@@ -173,6 +173,9 @@ impl Interpreter {
 
     /// Execute a complete program
     pub fn execute(&mut self, program: &Program) -> RuntimeResult<()> {
+        // Function references are now resolved during parsing
+        // No need for separate semantic analysis pass
+
         // Execute all declarations
         for decl in &program.declarations {
             self.execute_declaration(decl)?;
@@ -810,9 +813,9 @@ impl Interpreter {
                     Ok(None)
                 }
             }
-            Statement::FunctionCall { name, args } => {
+            Statement::FunctionCall { name, args, resolved } => {
                 // Function call result can be implicitly returned
-                let value = self.eval_function_call(None, name, args)?;
+                let value = self.eval_function_call(None, name, args, resolved.as_ref())?;
                 Ok(Some(value))
             }
             // All other statement types: execute and return None
@@ -1044,8 +1047,104 @@ impl Interpreter {
         }
     }
 
+    /// Evaluate a resolved function (optimized dispatch without HashMap lookup)
+    /// This is called when semantic analysis has already resolved the function reference
+    fn eval_resolved_function(&mut self, resolved: &crate::ast::ResolvedFunction, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::ast::{BuiltinFunctionId, ResolvedFunction};
+
+        match resolved {
+            ResolvedFunction::Builtin(_id) => {
+                // TODO: Implement fast dispatch for builtin functions
+                // For now, fall back to string-based dispatch by returning NotImplemented
+                // This will trigger the fallback mechanism in eval_function_call
+                //
+                // Future optimization: Add pub(super) visibility to builtin methods
+                // and implement direct dispatch here
+                Err(RuntimeError::NotImplemented(
+                    "Fast builtin dispatch not yet fully implemented".to_string()
+                ))
+            }
+            ResolvedFunction::UserDefined(func_decl) => {
+                // Direct call to user-defined function (no HashMap lookup)
+                self.call_user_defined_function(func_decl, args)
+            }
+        }
+    }
+
+    /// Call a user-defined function directly (optimized, no HashMap lookup)
+    fn call_user_defined_function(&mut self, func_decl: &crate::ast::FunctionDecl, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        let func_name = func_decl.name.as_str();
+
+        // Check argument count
+        if args.len() != func_decl.params.len() {
+            return Err(RuntimeError::TypeError(format!(
+                "Function '{}' expects {} arguments, got {}",
+                func_name,
+                func_decl.params.len(),
+                args.len()
+            )));
+        }
+
+        // Create call frame
+        let mut frame = crate::interpreter::environment::CallFrame::new(func_name.to_string());
+
+        // Evaluate arguments and bind to parameters
+        for (param, arg) in func_decl.params.iter().zip(args.iter()) {
+            let arg_value = self.eval_expr(arg)?;
+            // Note: Type checking could be optimized here in Phase 5
+            self.check_type_match(&arg_value, &param.entity_type, param.name.as_str())?;
+            frame.local_vars.insert(param.name.as_str().to_string(), arg_value);
+        }
+
+        // Push call frame
+        self.call_stack.push(frame);
+
+        // Execute function body
+        let body_len = func_decl.body.len();
+        if body_len == 0 {
+            self.call_stack.pop();
+            return Err(RuntimeError::TypeError(format!(
+                "Function '{}' has empty body",
+                func_name
+            )));
+        }
+
+        // Execute all statements except the last
+        for stmt in &func_decl.body[..body_len - 1] {
+            match self.execute_statement(stmt) {
+                Ok(_) => {}
+                Err(RuntimeError::ReturnValue(val)) => {
+                    self.call_stack.pop();
+                    return Ok(val);
+                }
+                Err(e) => {
+                    self.call_stack.pop();
+                    return Err(e);
+                }
+            }
+        }
+
+        // Handle last statement (implicit return)
+        let return_value = match self.evaluate_last_statement(&func_decl.body[body_len - 1]) {
+            Ok(Some(val)) => val,
+            Ok(None) => Value::Void,
+            Err(RuntimeError::ReturnValue(val)) => val,
+            Err(e) => {
+                self.call_stack.pop();
+                return Err(e);
+            }
+        };
+
+        // Type check return value
+        self.check_return_type_match(&return_value, &func_decl.return_type, func_name)?;
+
+        // Pop call frame and return
+        self.call_stack.pop();
+        Ok(return_value)
+    }
+
     /// Execute a statement
-    fn eval_function_call(&mut self, type_namespace: Option<&str>, name: &Identifier, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    fn eval_function_call(&mut self, type_namespace: Option<&str>, name: &Identifier, args: &[TensorExpr], resolved: Option<&crate::ast::ResolvedFunction>) -> RuntimeResult<Value> {
         let name_str = name.as_str();
 
         // Profiling: check if TL_PROFILE is set
@@ -1061,6 +1160,32 @@ impl Interpreter {
         } else {
             None
         };
+
+        // ========================================================================
+        // OPTIMIZATION: Use resolved function reference if available
+        // This eliminates HashMap lookup and string comparison overhead (~5μs)
+        // ========================================================================
+        if let Some(resolved_func) = resolved {
+            match self.eval_resolved_function(resolved_func, args) {
+                Ok(value) => {
+                    if let Some((name, start)) = start_time {
+                        let elapsed = start.elapsed();
+                        eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+                    }
+                    return Ok(value);
+                }
+                Err(RuntimeError::NotImplemented(_)) => {
+                    // Fall through to string-based dispatch
+                }
+                Err(e) => {
+                    if let Some((name, start)) = start_time {
+                        let elapsed = start.elapsed();
+                        eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+                    }
+                    return Err(e);
+                }
+            }
+        }
 
         // If type namespace is specified (e.g., f32::zeros), handle typed function call
         if let Some(type_ns) = type_namespace {

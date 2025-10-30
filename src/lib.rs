@@ -25,6 +25,8 @@ pub mod model;
 pub mod ops;
 pub mod optim;
 pub mod parser;
+// Semantic analysis is now done during parsing
+// pub mod semantic;
 pub mod planner;
 pub mod prelude;
 pub mod tensor;

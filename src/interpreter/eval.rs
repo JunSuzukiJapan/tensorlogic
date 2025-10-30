@@ -123,7 +123,7 @@ impl Interpreter {
                     }
                 }
             }
-            Statement::FunctionCall { name, args } => {
+            Statement::FunctionCall { name, args, resolved } => {
                 // Handle function calls as statements (e.g., print)
                 if name.as_str() == "print" {
                     // Special handling for print with format string support
@@ -179,7 +179,7 @@ impl Interpreter {
                     Ok(())
                 } else {
                     // Other function calls - evaluate and discard result
-                    self.eval_function_call(None, name, args)?;
+                    self.eval_function_call(None, name, args, resolved.as_ref())?;
                     Ok(())
                 }
             }
@@ -915,8 +915,8 @@ impl Interpreter {
                 self.eval_unary_op(op, operand_val)
             }
 
-            TensorExpr::FunctionCall { type_namespace, name, args } => {
-                self.eval_function_call(type_namespace.as_deref(), name, args)
+            TensorExpr::FunctionCall { type_namespace, name, args, resolved } => {
+                self.eval_function_call(type_namespace.as_deref(), name, args, resolved.as_ref())
             }
 
             TensorExpr::TensorIndex { tensor, indices } => {

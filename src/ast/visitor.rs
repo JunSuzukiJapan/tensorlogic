@@ -199,7 +199,7 @@ pub fn walk_tensor_expr<V: Visitor>(visitor: &mut V, expr: &TensorExpr) -> Resul
             }
             Ok(())
         }
-        TensorExpr::FunctionCall { type_namespace, name, args } => {
+        TensorExpr::FunctionCall { type_namespace, name, args, .. } => {
             visitor.visit_identifier(name)?;
             for arg in args {
                 visitor.visit_tensor_expr(arg)?;
@@ -272,7 +272,7 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
             visitor.visit_tensor_expr(&eq.left)?;
             visitor.visit_tensor_expr(&eq.right)
         }
-        Statement::FunctionCall { name, args } => {
+        Statement::FunctionCall { name, args, .. } => {
             visitor.visit_identifier(name)?;
             for arg in args {
                 visitor.visit_tensor_expr(arg)?;
