@@ -959,6 +959,14 @@ impl Interpreter {
         let k_rope = k_heads.rope(0).map_err(|e| RuntimeError::TensorError(e))?;  // position_offset=0 (full cache)
         let k_flat = k_rope.reshape(vec![cache_len, k_embd]).map_err(|e| RuntimeError::TensorError(e))?;
 
+        if std::env::var("TL_DEBUG_ROPE").is_ok() {
+            eprintln!("\n=== RoPE Debug (f16) ===");
+            eprintln!("  seq_len: {}, cache_len: {}", seq_len, cache_len);
+            eprintln!("  Q position_offset: {}", cache_len - seq_len);
+            eprintln!("  K position_offset: 0");
+            eprintln!("  n_heads: {}, n_kv_heads: {}, head_dim: {}", n_heads, n_kv_heads, head_dim);
+        }
+
         let (k_expanded, v_expanded) = if k_embd != n_embd || v_embd != n_embd {
             // GQA: repeat K/V to match Q dimension
             let n_rep = n_embd / k_embd;

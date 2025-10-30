@@ -14,7 +14,10 @@
       "Bash(TL_DEBUG_F16_EMBEDDING=1 TL_DEBUG_MMAP=1 timeout:*)",
       "Bash(timeout 120 ./target/release/tl run:*)",
       "Bash(git add:*)",
-      "Bash(timeout 30 ./target/release/tl run:*)"
+      "Bash(timeout 30 ./target/release/tl run:*)",
+      "Bash(TL_DEBUG_SAMPLING=1 timeout 30 ./target/release/tl run:*)",
+      "Bash(TL_DEBUG_SAMPLING=1 timeout 60 ./target/release/tl run:*)",
+      "Bash(TL_DEBUG_ROPE=1 TL_DEBUG_SAMPLING=1 timeout 60 ./target/release/tl run:*)"
     ],
     "deny": [],
     "ask": []

@@ -176,7 +176,32 @@ impl Interpreter {
 
         if std::env::var("TL_DEBUG_SAMPLING").is_ok() {
             eprintln!("\n=== CPU Temperature Sample ===");
-            eprintln!("  Sampled token: {}", sampled_idx);
+
+            // Show top 10 logits before softmax
+            let mut indexed_logits: Vec<(usize, f32)> = logits_data.iter()
+                .enumerate()
+                .map(|(i, &v)| (i, v))
+                .collect();
+            indexed_logits.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+            eprintln!("  Top 10 logits (before softmax):");
+            for (rank, (idx, logit)) in indexed_logits.iter().take(10).enumerate() {
+                eprintln!("    {}: token {} = {:.4}", rank + 1, idx, logit);
+            }
+
+            // Show top 10 probabilities after softmax
+            let mut indexed_probs: Vec<(usize, f32)> = probs.iter()
+                .enumerate()
+                .map(|(i, &v)| (i, v))
+                .collect();
+            indexed_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+            eprintln!("  Top 10 probs (after softmax):");
+            for (rank, (idx, prob)) in indexed_probs.iter().take(10).enumerate() {
+                eprintln!("    {}: token {} = {:.6}", rank + 1, idx, prob);
+            }
+
+            eprintln!("  Sampled token: {} (temperature: {})", sampled_idx, temperature);
         }
 
         Ok(Value::Integer(sampled_idx as i64))
