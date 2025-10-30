@@ -1,18 +1,20 @@
 {
   "permissions": {
     "allow": [
-      "SlashCommand(/sc:design:*)",
-      "Bash(cargo test:*)",
-      "Bash(cargo run:*)",
-      "Bash(timeout 30 ./target/release/tl run:*)",
-      "Bash(echo:*)",
-      "Bash(timeout 60 ./target/release/tl run:*)",
-      "Bash(timeout 10 cargo run:*)",
-      "Bash(./target/release/examples/check_gguf_types:*)",
-      "Bash(git add:*)",
+      "Bash(git push)",
       "Bash(git commit:*)",
-      "Bash(git restore:*)",
-      "Bash(git reset:*)"
+      "Bash(cargo test:*)",
+      "Bash(for file in examples/*.tl)",
+      "Bash(do echo \"=== Checking $file ===\")",
+      "Bash(timeout 5 ./target/release/tl run:*)",
+      "Bash(done)",
+      "Bash(./target/release/tl run:*)",
+      "Bash(timeout 60 ./target/release/tl run:*)",
+      "Bash(cargo build:*)",
+      "Bash(TL_DEBUG_F16_EMBEDDING=1 TL_DEBUG_MMAP=1 timeout:*)",
+      "Bash(timeout 120 ./target/release/tl run:*)",
+      "Bash(git add:*)",
+      "Bash(timeout 30 ./target/release/tl run:*)"
     ],
     "deny": [],
     "ask": []

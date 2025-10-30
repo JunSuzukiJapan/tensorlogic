@@ -622,11 +622,29 @@ impl MmapGGUFLoader {
         Tensor::from_vec_gpu(device, f16_data, info.shape.clone())
     }
 
+    /// Calculate total model size in bytes
+    ///
+    /// Returns the total size of all tensors in the model after dequantization.
+    /// For f16 models, this is the size in f16 format (2 bytes per element).
+    pub fn calculate_total_f16_size(&self) -> u64 {
+        let mut total_size: u64 = 0;
+        for info in self.tensor_infos.values() {
+            let num_elements: u64 = info.shape.iter().product::<usize>() as u64;
+            // f16 = 2 bytes per element
+            total_size += num_elements * 2;
+        }
+        total_size
+    }
+
     /// Load entire model as f16 (memory-efficient)
     pub fn load_f16_model(
         &self,
         device: &crate::device::MetalDevice,
     ) -> TensorResult<crate::model::Model<half::f16>> {
+        // Check GPU memory before loading
+        let total_size = self.calculate_total_f16_size();
+        let model_name = format!("{} (f16)", self.file_path);
+        device.check_memory_available(total_size, &model_name)?;
         use crate::model::Model;
 
         let mut tensors = HashMap::new();

@@ -201,6 +201,79 @@ impl MetalDevice {
     pub fn max_buffer_length(&self) -> u64 {
         self.device.max_buffer_length()
     }
+
+    /// Get recommended maximum working set size (available GPU memory)
+    ///
+    /// This returns the recommended maximum working set size in bytes.
+    /// On Apple Silicon with unified memory, this is typically the system RAM.
+    pub fn recommended_max_working_set_size(&self) -> u64 {
+        self.device.recommended_max_working_set_size()
+    }
+
+    /// Get current allocated size (currently in use)
+    ///
+    /// This returns the current amount of GPU memory allocated in bytes.
+    pub fn current_allocated_size(&self) -> u64 {
+        self.device.current_allocated_size()
+    }
+
+    /// Check if device has unified memory architecture
+    ///
+    /// Returns true for Apple Silicon Macs where GPU and CPU share memory.
+    pub fn has_unified_memory(&self) -> bool {
+        self.device.has_unified_memory()
+    }
+
+    /// Check if model size fits in available GPU memory
+    ///
+    /// Returns Ok(()) if model fits, Err with warning message if too large.
+    ///
+    /// # Arguments
+    /// * `model_size_bytes` - Total size of model in bytes
+    /// * `model_name` - Name of model for error message
+    pub fn check_memory_available(&self, model_size_bytes: u64, model_name: &str) -> TensorResult<()> {
+        let recommended_max = self.recommended_max_working_set_size();
+        let current_allocated = self.current_allocated_size();
+        let available = recommended_max.saturating_sub(current_allocated);
+
+        // Add 20% safety margin for operations and overhead
+        let required_with_margin = (model_size_bytes as f64 * 1.2) as u64;
+
+        // Print memory info for debugging
+        eprintln!("\n=== GPU Memory Check ===");
+        eprintln!("  Model size: {:.2} GB", model_size_bytes as f64 / 1_000_000_000.0);
+        eprintln!("  Required (with 20% margin): {:.2} GB", required_with_margin as f64 / 1_000_000_000.0);
+        eprintln!("  Recommended max: {:.2} GB", recommended_max as f64 / 1_000_000_000.0);
+        eprintln!("  Current allocated: {:.2} GB", current_allocated as f64 / 1_000_000_000.0);
+        eprintln!("  Available: {:.2} GB", available as f64 / 1_000_000_000.0);
+        eprintln!("========================\n");
+
+        if required_with_margin > available {
+            let model_gb = model_size_bytes as f64 / 1_000_000_000.0;
+            let available_gb = available as f64 / 1_000_000_000.0;
+            let required_gb = required_with_margin as f64 / 1_000_000_000.0;
+
+            return Err(TensorError::InvalidOperation(
+                format!(
+                    "\n⚠️  GPU MEMORY WARNING ⚠️\n\
+                     Model '{}' requires {:.2} GB (with 20% margin: {:.2} GB)\n\
+                     Available GPU memory: {:.2} GB\n\
+                     \n\
+                     The model is too large to load safely.\n\
+                     This check prevented your PC from crashing!\n\
+                     \n\
+                     Consider using:\n\
+                     - A smaller model\n\
+                     - Lower precision (f16 instead of f32)\n\
+                     - Quantized model (Q4_0, Q6_K, etc.)\n",
+                    model_name, model_gb, required_gb, available_gb
+                )
+            ));
+        }
+
+        eprintln!("✓ Memory check passed - safe to load model\n");
+        Ok(())
+    }
 }
 
 impl PartialEq for MetalDevice {

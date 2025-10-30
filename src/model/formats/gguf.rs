@@ -472,10 +472,18 @@ impl GGUFLoader {
         let mut reader = GGUFFileReader::new(file)
             .map_err(|e| TensorError::InvalidOperation(format!("Failed to read GGUF: {}", e)))?;
 
+        // Check GPU memory before loading (f32 = 4 bytes per element)
+        let tensor_infos = reader.tensor_infos().to_vec();
+        let mut total_size: u64 = 0;
+        for info in &tensor_infos {
+            let num_elements: u64 = info.shape.dimensions.iter().map(|&d| d as u64).product();
+            total_size += num_elements * 4; // f32 = 4 bytes per element
+        }
+        let model_name = format!("{} (f32)", path.display());
+        device.check_memory_available(total_size, &model_name)?;
+
         let mut tensors = HashMap::new();
         let mut quantization_type = QuantizationType::None;
-
-        let tensor_infos = reader.tensor_infos().to_vec();
 
         for tensor_info in &tensor_infos {
             let name = tensor_info.name.clone();
