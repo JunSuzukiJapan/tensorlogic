@@ -42,29 +42,77 @@ impl<T: FloatType> Tensor<T> {
             });
         }
 
-        // Create large negative value for masked positions
-        let mask_value = f16::from_f32(-10000.0);
+        // Use GPU implementation if available, otherwise fallback to CPU
+        if self.buffer().is_metal() {
+            self.apply_attention_mask_metal(mask)
+        } else {
+            self.apply_attention_mask_cpu(mask)
+        }
+    }
 
-        // For each element: if mask == 0, use mask_value, else use original value
-        let self_data = self.sync_and_read();
-        let mask_data = mask.sync_and_read();
-        let self_f16: Vec<f16> = unsafe { std::mem::transmute(self_data) };
-        let mask_f16: Vec<f16> = unsafe { std::mem::transmute(mask_data) };
+    /// Metal GPU implementation of apply_attention_mask
+    fn apply_attention_mask_metal(&self, mask: &Tensor<T>) -> TensorResult<Self> {
+        use crate::device::{Device, KernelExecutor, MetalBuffer};
 
-        let result_data: Vec<f16> = self_f16
+        let size = self.numel();
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        // Load shader if not already loaded
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device.load_library(shader_source)?;
+        }
+
+        // Choose kernel based on type
+        let suffix = T::kernel_suffix();
+        let kernel_name = format!("apply_attention_mask{}", suffix);
+
+        // Get input buffers
+        let scores_buf = self.buffer().as_metal()?;
+        let mask_buf = mask.buffer().as_metal()?;
+
+        // Create output buffer
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), size)?;
+
+        // Execute kernel using KernelExecutor
+        let scores_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(scores_buf) };
+        let mask_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(mask_buf) };
+        let result_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(&result_buf) };
+
+        let mut executor = KernelExecutor::new(device);
+        executor.execute_binary_op(&kernel_name, scores_buf_f16, mask_buf_f16, result_buf_f16)?;
+
+        // Create result tensor
+        self.new_from_pool(
+            crate::tensor::BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
+            self.shape().clone(),
+        )
+    }
+
+    /// CPU fallback for apply_attention_mask
+    fn apply_attention_mask_cpu(&self, mask: &Tensor<T>) -> TensorResult<Self> {
+        // For CPU, we need to implement the logic
+        let self_data = self.to_vec();
+        let mask_data = mask.to_vec();
+
+        let result_data: Vec<T> = self_data
             .iter()
-            .zip(mask_f16.iter())
+            .zip(mask_data.iter())
             .map(|(&val, &mask_val)| {
-                if mask_val == f16::ZERO {
-                    mask_value
+                // mask_val: 1=keep, 0=mask
+                if T::to_f32(mask_val) == 0.0 {
+                    T::from_f32(-10000.0) // Large negative value for masked positions
                 } else {
                     val
                 }
             })
             .collect();
 
-        let result_t: Vec<T> = unsafe { std::mem::transmute(result_data) };
-        Tensor::from_vec(result_t, self.dims().to_vec())
+        Tensor::from_vec(result_data, self.dims().to_vec())
     }
 
     /// Create a causal mask for autoregressive attention

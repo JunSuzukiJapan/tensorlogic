@@ -856,7 +856,11 @@ impl Interpreter {
         let seq_len = q_dims[0];
         let n_embd = q_dims[1];
         let cache_len = k_dims[0];
-        let head_dim = n_embd; // Assuming single head for simplicity
+
+        // FIX: head_dim should be 64 (n_embd=2048 / n_heads=32 = 64) for TinyLlama
+        // Using full n_embd causes incorrect attention scaling
+        let n_heads = 32;
+        let head_dim = n_embd / n_heads;
 
         // Handle Grouped Query Attention (GQA): K/V may have fewer dimensions than Q
         // If k_dims[1] < n_embd, we need to repeat K/V to match Q's dimension
@@ -888,13 +892,47 @@ impl Interpreter {
         let scale = (head_dim as f32).sqrt();
         let scaled_scores = scores.div_scalar(scale).map_err(|e| RuntimeError::TensorError(e))?;
 
-        // Step 2: Apply causal mask if seq_len > 1
+        // Step 2: Apply causal mask if seq_len > 1 (prefill phase)
         let masked_scores = if seq_len > 1 {
-            // Create causal mask: upper triangle = -inf
-            // For prefill phase with seq_len > 1, we need to mask future positions
-            // TODO: Implement proper causal masking
-            scaled_scores
+            // During prefill, we need causal masking to prevent attending to future tokens
+            // Create a causal mask: mask[i, j] = -inf if i < j (upper triangle)
+            // scores shape: [seq_len, cache_len]
+            // During prefill: cache_len == seq_len
+
+            if cache_len != seq_len {
+                // This shouldn't happen during prefill, but handle gracefully
+                return Err(RuntimeError::InvalidOperation(
+                    format!("Prefill expects cache_len == seq_len, got cache_len={}, seq_len={}", cache_len, seq_len)
+                ));
+            }
+
+            // Create causal mask: 1 for allowed positions, 0 for masked
+            use crate::tensor::TensorCreation;
+            use crate::device::Device;
+            let mut mask_data = Vec::with_capacity(seq_len * seq_len);
+            for i in 0..seq_len {
+                for j in 0..seq_len {
+                    if j <= i {
+                        mask_data.push(1.0f32); // Allow attention
+                    } else {
+                        mask_data.push(0.0f32); // Mask out future positions
+                    }
+                }
+            }
+
+            // Create mask on GPU (same device as Q tensor)
+            let mask = match q.device() {
+                Device::Metal(dev) => Tensor::from_vec_gpu(dev, mask_data, vec![seq_len, seq_len])
+                    .map_err(|e| RuntimeError::TensorError(e))?,
+                _ => Tensor::from_vec(mask_data, vec![seq_len, seq_len])
+                    .map_err(|e| RuntimeError::TensorError(e))?,
+            };
+
+            // Apply mask using GPU kernel (converts 0s to -1e9)
+            scaled_scores.apply_attention_mask(&mask).map_err(|e| RuntimeError::TensorError(e))?
         } else {
+            // Decode phase (seq_len == 1): no masking needed
+            // The single new token can attend to all previous tokens
             scaled_scores
         };
 
@@ -991,13 +1029,65 @@ impl Interpreter {
         let scale = (head_dim as f32).sqrt();
         let scaled_scores = scores.div_scalar(f16::from_f32(scale)).map_err(|e| RuntimeError::TensorError(e))?;
 
-        // Step 2: Apply causal mask if seq_len > 1
+        // Step 2: Apply causal mask if seq_len > 1 (prefill phase)
         let masked_scores = if seq_len > 1 {
-            // TODO: Causal masking implementation causes issues
-            // Need to investigate softmax dimension and mask application
-            // For now, skip causal mask (like TensorLogic 2-layer version)
-            scaled_scores
+            // During prefill, we need causal masking to prevent attending to future tokens
+            // Create a causal mask: mask[i, j] = -inf if i < j (upper triangle)
+            // scores shape: [seq_len, cache_len]
+            // During prefill: cache_len == seq_len
+
+            if cache_len != seq_len {
+                // This shouldn't happen during prefill, but handle gracefully
+                return Err(RuntimeError::InvalidOperation(
+                    format!("Prefill expects cache_len == seq_len, got cache_len={}, seq_len={}", cache_len, seq_len)
+                ));
+            }
+
+            if std::env::var("TL_DEBUG_F16_MASK").is_ok() {
+                eprintln!("  [F16 MASK DEBUG] Creating causal mask: seq_len={}", seq_len);
+            }
+
+            // Create causal mask: 1 for allowed positions, 0 for masked
+            use crate::tensor::TensorCreation;
+            use crate::device::Device;
+            let mut mask_data = Vec::with_capacity(seq_len * seq_len);
+            for i in 0..seq_len {
+                for j in 0..seq_len {
+                    if j <= i {
+                        mask_data.push(f16::from_f32(1.0)); // Allow attention
+                    } else {
+                        mask_data.push(f16::from_f32(0.0)); // Mask out future positions
+                    }
+                }
+            }
+
+            if std::env::var("TL_DEBUG_F16_MASK").is_ok() {
+                eprintln!("  [F16 MASK DEBUG] Uploading mask to GPU...");
+            }
+
+            // Create mask on GPU (same device as Q tensor)
+            let mask = match q_flat.device() {
+                Device::Metal(dev) => Tensor::from_vec_gpu(dev, mask_data, vec![seq_len, seq_len])
+                    .map_err(|e| RuntimeError::TensorError(e))?,
+                _ => Tensor::from_vec(mask_data, vec![seq_len, seq_len])
+                    .map_err(|e| RuntimeError::TensorError(e))?,
+            };
+
+            if std::env::var("TL_DEBUG_F16_MASK").is_ok() {
+                eprintln!("  [F16 MASK DEBUG] Applying mask...");
+            }
+
+            // Apply mask using GPU kernel (converts 0s to -1e4)
+            let result = scaled_scores.apply_attention_mask(&mask).map_err(|e| RuntimeError::TensorError(e))?;
+
+            if std::env::var("TL_DEBUG_F16_MASK").is_ok() {
+                eprintln!("  [F16 MASK DEBUG] Mask applied successfully");
+            }
+
+            result
         } else {
+            // Decode phase (seq_len == 1): no masking needed
+            // The single new token can attend to all previous tokens
             scaled_scores
         };
 

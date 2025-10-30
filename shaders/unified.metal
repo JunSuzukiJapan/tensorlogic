@@ -4460,3 +4460,41 @@ kernel void matmul_transposed_b_tiled_32x32_f32(
         C[row * N + col] = sum;
     }
 }
+
+// ============================================================================
+// Attention Mask Application Kernels
+// ============================================================================
+
+/// Apply attention mask to scores (f16 version)
+/// mask: 1 = keep, 0 = mask out (replace with mask_value)
+/// scores[i] = mask[i] == 0 ? mask_value : scores[i]
+kernel void apply_attention_mask_f16(
+    device const half* scores [[buffer(0)]],     // Input scores
+    device const half* mask [[buffer(1)]],       // Mask (1=keep, 0=mask)
+    device half* output [[buffer(2)]],           // Output
+    constant uint& size [[buffer(3)]],           // Total number of elements
+    uint idx [[thread_position_in_grid]]
+) {
+    if (idx >= size) return;
+    
+    const half mask_value = -10000.0h;
+    half m = mask[idx];
+    output[idx] = (m == 0.0h) ? mask_value : scores[idx];
+}
+
+/// Apply attention mask to scores (f32 version)
+/// mask: 1 = keep, 0 = mask out (replace with mask_value)
+/// scores[i] = mask[i] == 0 ? mask_value : scores[i]
+kernel void apply_attention_mask_f32(
+    device const float* scores [[buffer(0)]],    // Input scores
+    device const float* mask [[buffer(1)]],      // Mask (1=keep, 0=mask)
+    device float* output [[buffer(2)]],          // Output
+    constant uint& size [[buffer(3)]],           // Total number of elements
+    uint idx [[thread_position_in_grid]]
+) {
+    if (idx >= size) return;
+    
+    const float mask_value = -10000.0f;
+    float m = mask[idx];
+    output[idx] = (m == 0.0f) ? mask_value : scores[idx];
+}
