@@ -994,9 +994,9 @@ impl Interpreter {
 
         // Step 2: Apply causal mask if seq_len > 1
         let masked_scores = if seq_len > 1 {
-            // Create causal mask: upper triangle = -inf
-            // For prefill phase with seq_len > 1, we need to mask future positions
-            // TODO: Implement proper causal masking
+            // TODO: Causal masking implementation causes issues
+            // Need to investigate softmax dimension and mask application
+            // For now, skip causal mask (like TensorLogic 2-layer version)
             scaled_scores
         } else {
             scaled_scores
@@ -1012,6 +1012,27 @@ impl Interpreter {
         // Step 5: Output projection: attn_out @ W_o.T (like linear layer)
         // Use fused transpose-matmul for better performance (2.89x faster than separate transpose + matmul)
         let result = attn_out.matmul_transposed_b(&w_o).map_err(|e| RuntimeError::TensorError(e))?;
+
+        if std::env::var("TL_DEBUG_ACTIVATION").is_ok() {
+            use crate::tensor::TensorIO;
+            let data: Vec<f32> = result.sync_and_read_f32();
+            let min = data.iter().copied().fold(f32::INFINITY, f32::min);
+            let max = data.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let mean = data.iter().sum::<f32>() / data.len() as f32;
+            let abs_max = data.iter().map(|x| x.abs()).fold(0.0f32, f32::max);
+
+            eprintln!("\n=== Attention Output (f16) ===");
+            eprintln!("  Shape: {:?}", result.dims());
+            eprintln!("  Range: [{:.4}, {:.4}]", min, max);
+            eprintln!("  Mean: {:.4}, AbsMax: {:.4}", mean, abs_max);
+
+            // Check for NaN or Inf
+            let nan_count = data.iter().filter(|x| x.is_nan()).count();
+            let inf_count = data.iter().filter(|x| x.is_infinite()).count();
+            if nan_count > 0 || inf_count > 0 {
+                eprintln!("  ⚠️  WARNING: NaN={}, Inf={}", nan_count, inf_count);
+            }
+        }
 
         Ok(Value::TensorF16(result))
     }
