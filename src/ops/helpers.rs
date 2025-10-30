@@ -145,9 +145,8 @@ pub(crate) fn execute_binary_metal_op<T: FloatType>(
         .new_compute_pipeline_state_with_function(&pipeline)
         .map_err(|e| TensorError::MetalError(format!("Failed to create pipeline: {:?}", e)))?;
 
-    let command_queue = device.command_queue();
-    let command_buffer = command_queue.new_command_buffer();
-    let encoder = command_buffer.new_compute_command_encoder();
+    let (_flushed, command_buffer) = device.command_buffer()?;
+    let encoder = command_buffer.as_ref().new_compute_command_encoder();
 
     encoder.set_compute_pipeline_state(&pipeline_state);
     encoder.set_buffer(0, Some(input_buf_f16.metal_buffer()), 0);
@@ -159,8 +158,6 @@ pub(crate) fn execute_binary_metal_op<T: FloatType>(
 
     encoder.dispatch_threads(grid_size, thread_group_size);
     encoder.end_encoding();
-    command_buffer.commit();
-    command_buffer.wait_until_completed();
 
     // Return new tensor
     Tensor::new(

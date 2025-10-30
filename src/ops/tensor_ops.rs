@@ -133,8 +133,9 @@ impl<T: FloatType> Tensor<T> {
                 metal::MTLResourceOptions::StorageModeShared,
             );
 
-            let command_buffer = device.command_queue().new_command_buffer();
-            let encoder = command_buffer.new_compute_command_encoder();
+            // Commands API (candle pattern)
+            let (_flushed, command_buffer) = device.command_buffer()?;
+            let encoder = command_buffer.as_ref().new_compute_command_encoder();
 
             encoder.set_compute_pipeline_state(&pipeline);
             encoder.set_buffer(0, Some(&input_buf.buffer), 0);
@@ -151,8 +152,7 @@ impl<T: FloatType> Tensor<T> {
 
             encoder.dispatch_threads(grid_size, threadgroup_size);
             encoder.end_encoding();
-            command_buffer.commit();
-            command_buffer.wait_until_completed();
+            // Note: wait_until_completed() is NOT called here (matches candle pattern).
 
             dim_offset += input_dim_size;
         }
@@ -304,8 +304,9 @@ impl<T: FloatType> Tensor<T> {
             metal::MTLResourceOptions::StorageModeShared,
         );
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Commands API (candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.as_ref().new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&input_buf.buffer), 0);
@@ -320,8 +321,7 @@ impl<T: FloatType> Tensor<T> {
 
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+        // Note: wait_until_completed() is NOT called here (matches candle pattern).
 
         Tensor::new(
             BufferHandle::Metal(unsafe { std::mem::transmute(output_buf) }),

@@ -273,9 +273,8 @@ impl<T: FloatType> Tensor<T> {
             })?;
 
         // Execute kernel
-        let command_queue = device.command_queue();
-        let command_buffer = command_queue.new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.as_ref().new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&pipeline_state);
         encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
@@ -293,8 +292,6 @@ impl<T: FloatType> Tensor<T> {
 
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
 
         Tensor::new(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -548,9 +545,8 @@ impl<T: FloatType> Tensor<T> {
             })?;
 
         // Execute kernel
-        let command_queue = device.command_queue();
-        let command_buffer = command_queue.new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.as_ref().new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&pipeline_state);
         encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
@@ -570,8 +566,6 @@ impl<T: FloatType> Tensor<T> {
 
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
 
         Tensor::new(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),

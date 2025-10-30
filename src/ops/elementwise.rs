@@ -677,8 +677,9 @@ impl<T: FloatType> Tensor<T> {
         let mut executor = KernelExecutor::new(device_mut);
         let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Commands API (candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.as_ref().new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&input_buf.buffer), 0);
         encoder.set_buffer(1, Some(&scalar_buf), 0);
@@ -688,8 +689,7 @@ impl<T: FloatType> Tensor<T> {
         let threadgroup_size = metal::MTLSize::new(256.min(self.numel() as u64), 1, 1);
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+        // Note: wait_until_completed() is NOT called here (matches candle pattern).
 
         Tensor::new(BufferHandle::Metal(output_buf), self.shape().clone(), Device::Metal(device))
     }
@@ -741,8 +741,9 @@ impl<T: FloatType> Tensor<T> {
         let mut executor = KernelExecutor::new(device_mut);
         let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Commands API (candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.as_ref().new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&input_buf.buffer), 0);
         encoder.set_buffer(1, Some(&scalar_buf), 0);
@@ -752,8 +753,7 @@ impl<T: FloatType> Tensor<T> {
         let threadgroup_size = metal::MTLSize::new(256.min(self.numel() as u64), 1, 1);
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+        // Note: wait_until_completed() is NOT called here (matches candle pattern).
 
         Tensor::new(BufferHandle::Metal(output_buf), self.shape().clone(), Device::Metal(device))
     }
@@ -811,8 +811,9 @@ impl<T: FloatType> Tensor<T> {
         let mut executor = KernelExecutor::new(device_mut);
         let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Commands API (candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.as_ref().new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&input_buf.buffer), 0);
         encoder.set_buffer(1, Some(&scalar_buf), 0);
@@ -822,8 +823,7 @@ impl<T: FloatType> Tensor<T> {
         let threadgroup_size = metal::MTLSize::new(256.min(self.numel() as u64), 1, 1);
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+        // Note: wait_until_completed() is NOT called here (matches candle pattern).
 
         Tensor::new(
             BufferHandle::Metal(output_buf),
@@ -879,8 +879,9 @@ impl<T: FloatType> Tensor<T> {
         let mut executor = KernelExecutor::new(device_mut);
         let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Commands API (candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.as_ref().new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&input_buf.buffer), 0);
         encoder.set_buffer(1, Some(&scalar_buf), 0);
@@ -890,8 +891,7 @@ impl<T: FloatType> Tensor<T> {
         let threadgroup_size = metal::MTLSize::new(256.min(self.numel() as u64), 1, 1);
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+        // Note: wait_until_completed() is NOT called here (matches candle pattern).
 
         Tensor::new(BufferHandle::Metal(output_buf), self.shape().clone(), Device::Metal(device))
     }
