@@ -947,17 +947,16 @@ impl Interpreter {
         let k_embd = k_dims[1];
         let v_embd = v.dims()[1];
 
-        // Apply RoPE to Q and K before attention computation
+        // Apply RoPE to Q only
+        // K/V cache should already have RoPE applied when stored
         // Reshape Q: [seq_len, n_embd] -> [seq_len, n_heads, head_dim]
         let q_heads = q.reshape(vec![seq_len, n_heads, head_dim]).map_err(|e| RuntimeError::TensorError(e))?;
         let q_rope = q_heads.rope(cache_len - seq_len).map_err(|e| RuntimeError::TensorError(e))?;  // position_offset
         let q_flat = q_rope.reshape(vec![seq_len, n_embd]).map_err(|e| RuntimeError::TensorError(e))?;
 
-        // Apply RoPE to K: [cache_len, k_embd] -> [cache_len, n_kv_heads, kv_head_dim]
+        // K cache already has RoPE applied, use as-is
         let n_kv_heads = k_embd / head_dim;
-        let k_heads = k.reshape(vec![cache_len, n_kv_heads, head_dim]).map_err(|e| RuntimeError::TensorError(e))?;
-        let k_rope = k_heads.rope(0).map_err(|e| RuntimeError::TensorError(e))?;  // position_offset=0 (full cache)
-        let k_flat = k_rope.reshape(vec![cache_len, k_embd]).map_err(|e| RuntimeError::TensorError(e))?;
+        let k_flat = k.clone();
 
         if std::env::var("TL_DEBUG_ROPE").is_ok() {
             eprintln!("\n=== RoPE Debug (f16) ===");
