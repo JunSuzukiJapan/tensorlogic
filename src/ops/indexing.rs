@@ -21,8 +21,8 @@ impl<T: FloatType> Tensor<T> {
     ///
     /// # Example
     /// ```ignore
-    /// let weight = Tensor::from_vec_metal(&device, data, vec![vocab_size, d_model])?;
-    /// let token_ids = Tensor::from_vec_metal(&device, ids, vec![batch, seq_len])?;
+    /// let weight = Tensor::from_vec_gpu(&device, data, vec![vocab_size, d_model])?;
+    /// let token_ids = Tensor::from_vec_gpu(&device, ids, vec![batch, seq_len])?;
     /// let embeddings = weight.embedding(&token_ids)?;
     /// // embeddings.shape() == [batch, seq_len, d_model]
     /// ```
@@ -74,7 +74,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Create output tensor on same device as weight
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, output, output_shape),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, output, output_shape),
             _ => Tensor::from_vec(output, output_shape),
         }
     }
@@ -92,7 +92,7 @@ impl<T: FloatType> Tensor<T> {
     ///
     /// # Example
     /// ```ignore
-    /// let weight = Tensor::from_vec_metal(&device, data, vec![vocab_size, d_model])?;
+    /// let weight = Tensor::from_vec_gpu(&device, data, vec![vocab_size, d_model])?;
     /// let token_ids = TokenIdArray::new(vec![1, 20358, 20359]);
     /// let embeddings = weight.embedding_from_token_ids(&token_ids)?;
     /// // embeddings.shape() == [3, d_model]
@@ -149,7 +149,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Create output tensor on same device as weight
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, output, output_shape),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, output, output_shape),
             _ => Tensor::from_vec(output, output_shape),
         }
     }
@@ -884,7 +884,7 @@ mod tests {
 
         let (x, indices) = match &device {
             Device::Metal(dev) => (
-                Tensor::from_vec_metal(
+                Tensor::from_vec_gpu(
                     dev,
                     vec![
                         f16::from_f32(1.0),
@@ -896,7 +896,7 @@ mod tests {
                     vec![5],
                 )
                 .unwrap(),
-                Tensor::from_vec_metal(
+                Tensor::from_vec_gpu(
                     dev,
                     vec![
                         f16::from_f32(0.0),
@@ -925,8 +925,8 @@ mod tests {
 
         let (x, indices, src) = match &device {
             Device::Metal(dev) => (
-                Tensor::from_vec_metal(dev, vec![f16::ZERO; 5], vec![5]).unwrap(),
-                Tensor::from_vec_metal(
+                Tensor::from_vec_gpu(dev, vec![f16::ZERO; 5], vec![5]).unwrap(),
+                Tensor::from_vec_gpu(
                     dev,
                     vec![
                         f16::from_f32(0.0),
@@ -936,7 +936,7 @@ mod tests {
                     vec![3],
                 )
                 .unwrap(),
-                Tensor::from_vec_metal(
+                Tensor::from_vec_gpu(
                     dev,
                     vec![
                         f16::from_f32(10.0),

@@ -21,7 +21,7 @@ fn debug_exp_backward_metal() {
     let input_values = vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)];
     println!("Input values: {:?}", input_values.iter().map(|x| x.to_f32()).collect::<Vec<_>>());
 
-    let x = Tensor::from_vec_metal(
+    let x = Tensor::from_vec_gpu(
         metal_device,
         input_values,
         vec![3],
@@ -37,7 +37,7 @@ fn debug_exp_backward_metal() {
     println!("Output values: {:?}", output_values.iter().map(|x| x.to_f32()).collect::<Vec<_>>());
 
     // Grad output: [1.0, 1.0, 1.0]
-    let grad_output = Tensor::from_vec_metal(
+    let grad_output = Tensor::from_vec_gpu(
         metal_device,
         vec![f16::from_f32(1.0), f16::from_f32(1.0), f16::from_f32(1.0)],
         vec![3],

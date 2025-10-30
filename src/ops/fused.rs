@@ -504,14 +504,14 @@ mod tests {
     fn test_fused_add_relu() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(-2.0), f16::from_f32(3.0), f16::from_f32(-4.0)],
             vec![4],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(-1.0), f16::from_f32(3.0), f16::from_f32(-2.0), f16::from_f32(5.0)],
             vec![4],
@@ -532,14 +532,14 @@ mod tests {
     fn test_fused_mul_relu() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(2.0), f16::from_f32(-3.0), f16::from_f32(4.0)],
             vec![3],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(0.5), f16::from_f32(2.0), f16::from_f32(-1.0)],
             vec![3],
@@ -559,21 +559,21 @@ mod tests {
     fn test_fused_affine() {
         let device = get_test_device();
 
-        let x = Tensor::from_vec_metal(
+        let x = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
             vec![3],
         )
         .unwrap();
 
-        let scale = Tensor::from_vec_metal(
+        let scale = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)],
             vec![3],
         )
         .unwrap();
 
-        let bias = Tensor::from_vec_metal(
+        let bias = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
             vec![3],
@@ -593,14 +593,14 @@ mod tests {
     fn test_fused_vs_unfused() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(-2.0), f16::from_f32(3.0)],
             vec![3],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(-1.0)],
             vec![3],
@@ -621,8 +621,8 @@ mod tests {
     fn test_matmul_relu_fusion() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(&device, vec![f16::ONE; 4], vec![2, 2]).unwrap();
-        let b = Tensor::from_vec_metal(&device, vec![f16::ONE; 4], vec![2, 2]).unwrap();
+        let a = Tensor::from_vec_gpu(&device, vec![f16::ONE; 4], vec![2, 2]).unwrap();
+        let b = Tensor::from_vec_gpu(&device, vec![f16::ONE; 4], vec![2, 2]).unwrap();
 
         let fused = a.matmul_with_activation(&b, Activation::ReLU).unwrap();
         let unfused = a.matmul(&b).unwrap().relu().unwrap();

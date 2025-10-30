@@ -596,7 +596,7 @@ impl Interpreter {
                     let val: f32 = rng.random_range(-0.1..0.1);
                     data.push(half::f16::from_f32(val));
                 }
-                Tensor::from_vec_metal(device, data, vec![num_entities, decl.dimension])?
+                Tensor::from_vec_gpu(device, data, vec![num_entities, decl.dimension])?
             }
             InitMethod::Xavier => {
                 // Xavier initialization: uniform(-sqrt(6/(n+m)), sqrt(6/(n+m)))
@@ -608,7 +608,7 @@ impl Interpreter {
                     let val: f32 = rng.random_range(-limit..limit);
                     data.push(half::f16::from_f32(val));
                 }
-                Tensor::from_vec_metal(device, data, vec![num_entities, decl.dimension])?
+                Tensor::from_vec_gpu(device, data, vec![num_entities, decl.dimension])?
             }
             InitMethod::He => {
                 // He initialization: normal(0, sqrt(2/n))
@@ -621,7 +621,7 @@ impl Interpreter {
                     let val: f32 = normal.sample(&mut rng) as f32;
                     data.push(half::f16::from_f32(val));
                 }
-                Tensor::from_vec_metal(device, data, vec![num_entities, decl.dimension])?
+                Tensor::from_vec_gpu(device, data, vec![num_entities, decl.dimension])?
             }
             InitMethod::Zeros => Tensor::zeros(&device, vec![num_entities, decl.dimension])?,
             InitMethod::Ones => Tensor::ones(&device, vec![num_entities, decl.dimension])?,
@@ -677,7 +677,7 @@ impl Interpreter {
                     let val: f32 = rng.random_range(-0.1..0.1);
                     data.push(half::f16::from_f32(val));
                 }
-                Tensor::from_vec_metal(device, data, vec![num_relations, decl.dimension])?
+                Tensor::from_vec_gpu(device, data, vec![num_relations, decl.dimension])?
             }
             InitMethod::Xavier => {
                 // Xavier initialization: uniform(-sqrt(6/(n+m)), sqrt(6/(n+m)))
@@ -689,7 +689,7 @@ impl Interpreter {
                     let val: f32 = rng.random_range(-limit..limit);
                     data.push(half::f16::from_f32(val));
                 }
-                Tensor::from_vec_metal(device, data, vec![num_relations, decl.dimension])?
+                Tensor::from_vec_gpu(device, data, vec![num_relations, decl.dimension])?
             }
             InitMethod::He => {
                 // He initialization: normal(0, sqrt(2/n))
@@ -702,7 +702,7 @@ impl Interpreter {
                     let val: f32 = normal.sample(&mut rng) as f32;
                     data.push(half::f16::from_f32(val));
                 }
-                Tensor::from_vec_metal(device, data, vec![num_relations, decl.dimension])?
+                Tensor::from_vec_gpu(device, data, vec![num_relations, decl.dimension])?
             }
             InitMethod::Zeros => Tensor::zeros(&device, vec![num_relations, decl.dimension])?,
             InitMethod::Ones => Tensor::ones(&device, vec![num_relations, decl.dimension])?,
@@ -1454,7 +1454,7 @@ impl Interpreter {
                         }
 
                         // Create output tensor
-                        let output = crate::tensor::Tensor::from_vec_metal(
+                        let output = crate::tensor::Tensor::from_vec_gpu(
                             self.env.metal_device(),
                             output_data,
                             dims.to_vec()
@@ -1503,7 +1503,7 @@ impl Interpreter {
                         }
 
                         // Create output tensor
-                        let output = crate::tensor::Tensor::from_vec_metal(
+                        let output = crate::tensor::Tensor::from_vec_gpu(
                             self.env.metal_device(),
                             output_data,
                             dims.to_vec()
@@ -1582,7 +1582,7 @@ impl Interpreter {
                             }
                         }
 
-                        let output = crate::tensor::Tensor::from_vec_metal(self.env.metal_device(), output_data, dims.to_vec())
+                        let output = crate::tensor::Tensor::from_vec_gpu(self.env.metal_device(), output_data, dims.to_vec())
                             .map_err(|e| RuntimeError::TensorError(e))?;
                         Ok(output.to_value())
                     }
@@ -1623,7 +1623,7 @@ impl Interpreter {
                             }
                         }
 
-                        let output = crate::tensor::Tensor::from_vec_metal(self.env.metal_device(), output_data, dims.to_vec())
+                        let output = crate::tensor::Tensor::from_vec_gpu(self.env.metal_device(), output_data, dims.to_vec())
                             .map_err(|e| RuntimeError::TensorError(e))?;
                         Ok(output.to_value())
                     }
@@ -1667,7 +1667,7 @@ impl Interpreter {
                             .map(|&v| half::f16::from_f32(v.to_f32() / temp))
                             .collect();
 
-                        let output = crate::tensor::Tensor::from_vec_metal(
+                        let output = crate::tensor::Tensor::from_vec_gpu(
                             self.env.metal_device(),
                             output_data,
                             logits.shape().dims().to_vec()
@@ -1682,7 +1682,7 @@ impl Interpreter {
                             .map(|&v| v / temp)
                             .collect();
 
-                        let output = crate::tensor::Tensor::from_vec_metal(
+                        let output = crate::tensor::Tensor::from_vec_gpu(
                             self.env.metal_device(),
                             output_data,
                             logits.shape().dims().to_vec()
@@ -1746,7 +1746,7 @@ impl Interpreter {
                         }
 
                         // Create output tensor
-                        let output = crate::tensor::Tensor::from_vec_metal(
+                        let output = crate::tensor::Tensor::from_vec_gpu(
                             self.env.metal_device(),
                             output_data,
                             dims.to_vec()
@@ -1791,7 +1791,7 @@ impl Interpreter {
                         }
 
                         // Create output tensor
-                        let output = crate::tensor::Tensor::from_vec_metal(
+                        let output = crate::tensor::Tensor::from_vec_gpu(
                             self.env.metal_device(),
                             output_data,
                             dims.to_vec()
@@ -2640,14 +2640,14 @@ impl Interpreter {
                     Value::TensorF16(tensor) => {
                         let dims = tensor.dims();
                         let shape_vec: Vec<f16> = dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
-                        let shape_tensor = Tensor::from_vec_metal(&device, shape_vec, vec![dims.len()])
+                        let shape_tensor = Tensor::from_vec_gpu(&device, shape_vec, vec![dims.len()])
                             .map_err(|e| RuntimeError::TensorError(e))?;
                         Ok(shape_tensor.to_value())
                     }
                     Value::TensorF32(tensor) => {
                         let dims = tensor.dims();
                         let shape_vec: Vec<f32> = dims.iter().map(|&d| d as f32).collect();
-                        let shape_tensor = Tensor::from_vec_metal(&device, shape_vec, vec![dims.len()])
+                        let shape_tensor = Tensor::from_vec_gpu(&device, shape_vec, vec![dims.len()])
                             .map_err(|e| RuntimeError::TensorError(e))?;
                         Ok(shape_tensor.to_value())
                     }
@@ -3461,7 +3461,7 @@ impl Interpreter {
                     .collect();
 
                 // Convert to tensor
-                let tensor = Tensor::from_vec_metal(self.env.metal_device(), f16_vec, vec![dim])
+                let tensor = Tensor::from_vec_gpu(self.env.metal_device(), f16_vec, vec![dim])
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::TensorF16(tensor))
@@ -3547,7 +3547,7 @@ impl Interpreter {
 
                                 // Create scalar tensor
                                 let device = self.env.metal_device();
-                                Tensor::from_vec_metal(device, vec![l2_norm_f16], vec![1])?
+                                Tensor::from_vec_gpu(device, vec![l2_norm_f16], vec![1])?
                             }
                             _ => return Err(RuntimeError::InvalidOperation(
                                 format!("transe_score() norm must be \"L1\" or \"L2\", got \"{}\"", norm_type)
@@ -3579,7 +3579,7 @@ impl Interpreter {
 
                                 // Create scalar tensor
                                 let device = self.env.metal_device();
-                                Tensor::from_vec_metal(device, vec![score_value], vec![1])?
+                                Tensor::from_vec_gpu(device, vec![score_value], vec![1])?
                             }
                             _ => return Err(RuntimeError::InvalidOperation(
                                 format!("transe_score() norm must be \"L1\" or \"L2\", got \"{}\"", norm_type)
@@ -3621,7 +3621,7 @@ impl Interpreter {
 
                         // Create scalar tensor
                         let device = self.env.metal_device();
-                        let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
+                        let score_tensor = Tensor::from_vec_gpu(device, vec![score_f16], vec![1])?;
 
                         Ok(score_tensor.to_value())
                     }
@@ -3635,7 +3635,7 @@ impl Interpreter {
 
                         // Create scalar tensor
                         let device = self.env.metal_device();
-                        let score_tensor = Tensor::from_vec_metal(device, vec![score], vec![1])?;
+                        let score_tensor = Tensor::from_vec_gpu(device, vec![score], vec![1])?;
 
                         Ok(score_tensor.to_value())
                     }
@@ -3698,10 +3698,10 @@ impl Interpreter {
                         let device = self.env.metal_device();
 
                         // Create scalar tensors for each term
-                        let term1_tensor = Tensor::from_vec_metal(device, vec![term1], vec![1])?;
-                        let term2_tensor = Tensor::from_vec_metal(device, vec![term2], vec![1])?;
-                        let term3_tensor = Tensor::from_vec_metal(device, vec![term3], vec![1])?;
-                        let term4_tensor = Tensor::from_vec_metal(device, vec![term4], vec![1])?;
+                        let term1_tensor = Tensor::from_vec_gpu(device, vec![term1], vec![1])?;
+                        let term2_tensor = Tensor::from_vec_gpu(device, vec![term2], vec![1])?;
+                        let term3_tensor = Tensor::from_vec_gpu(device, vec![term3], vec![1])?;
+                        let term4_tensor = Tensor::from_vec_gpu(device, vec![term4], vec![1])?;
 
                         // Add first three terms
                         let sum12 = term1_tensor.add(&term2_tensor)?;
@@ -3740,10 +3740,10 @@ impl Interpreter {
                         let device = self.env.metal_device();
 
                         // Create scalar tensors for each term
-                        let term1_tensor = Tensor::from_vec_metal(device, vec![term1], vec![1])?;
-                        let term2_tensor = Tensor::from_vec_metal(device, vec![term2], vec![1])?;
-                        let term3_tensor = Tensor::from_vec_metal(device, vec![term3], vec![1])?;
-                        let term4_tensor = Tensor::from_vec_metal(device, vec![term4], vec![1])?;
+                        let term1_tensor = Tensor::from_vec_gpu(device, vec![term1], vec![1])?;
+                        let term2_tensor = Tensor::from_vec_gpu(device, vec![term2], vec![1])?;
+                        let term3_tensor = Tensor::from_vec_gpu(device, vec![term3], vec![1])?;
+                        let term4_tensor = Tensor::from_vec_gpu(device, vec![term4], vec![1])?;
 
                         // Add first three terms
                         let sum12 = term1_tensor.add(&term2_tensor)?;
@@ -3794,7 +3794,7 @@ impl Interpreter {
                         // Add margin
                         let margin_f16 = half::f16::from_f32(margin);
                         let device = self.env.metal_device();
-                        let margin_tensor = Tensor::from_vec_metal(device, vec![margin_f16], vec![1])?;
+                        let margin_tensor = Tensor::from_vec_gpu(device, vec![margin_f16], vec![1])?;
                         let diff_plus_margin = neg_minus_pos.add(&margin_tensor)?;
 
                         // Apply max(0, x) = ReLU
@@ -3808,7 +3808,7 @@ impl Interpreter {
 
                         // Add margin
                         let device = self.env.metal_device();
-                        let margin_tensor = Tensor::from_vec_metal(device, vec![margin], vec![1])?;
+                        let margin_tensor = Tensor::from_vec_gpu(device, vec![margin], vec![1])?;
                         let diff_plus_margin = neg_minus_pos.add(&margin_tensor)?;
 
                         // Apply max(0, x) = ReLU
@@ -3869,7 +3869,7 @@ impl Interpreter {
                         let bce_f16 = half::f16::from_f32(bce_f32);
 
                         // Create scalar tensor
-                        let loss_tensor = Tensor::from_vec_metal(device, vec![bce_f16], vec![1])?;
+                        let loss_tensor = Tensor::from_vec_gpu(device, vec![bce_f16], vec![1])?;
 
                         Ok(loss_tensor.to_value())
                     }
@@ -3893,7 +3893,7 @@ impl Interpreter {
                         let bce = -target_f32 * log_prob - (1.0 - target_f32) * log_one_minus_prob;
 
                         // Create scalar tensor
-                        let loss_tensor = Tensor::from_vec_metal(device, vec![bce], vec![1])?;
+                        let loss_tensor = Tensor::from_vec_gpu(device, vec![bce], vec![1])?;
 
                         Ok(loss_tensor.to_value())
                     }
@@ -3947,7 +3947,7 @@ impl Interpreter {
                             let sum_squared_f32 = sum_squared_f16.to_f32();
                             let l2_norm_f32 = sum_squared_f32.sqrt();
                             let score_f16 = half::f16::from_f32(-l2_norm_f32);
-                            Tensor::from_vec_metal(device, vec![score_f16], vec![1])?
+                            Tensor::from_vec_gpu(device, vec![score_f16], vec![1])?
                         } else {
                             return Err(RuntimeError::NotImplemented(
                                 format!("predict_tail_transe: model '{}' not yet implemented (only L2 supported)", model)
@@ -3973,7 +3973,7 @@ impl Interpreter {
                             let sum_squared = squared.sum()?;
                             let l2_norm = sum_squared.sqrt();
                             let score_value = -l2_norm;
-                            Tensor::from_vec_metal(device, vec![score_value], vec![1])?
+                            Tensor::from_vec_gpu(device, vec![score_value], vec![1])?
                         } else {
                             return Err(RuntimeError::NotImplemented(
                                 format!("predict_tail_transe: model '{}' not yet implemented (only L2 supported)", model)
@@ -4026,7 +4026,7 @@ impl Interpreter {
                             let sum_squared_f32 = sum_squared_f16.to_f32();
                             let l2_norm_f32 = sum_squared_f32.sqrt();
                             let score_f16 = half::f16::from_f32(-l2_norm_f32);
-                            Tensor::from_vec_metal(device, vec![score_f16], vec![1])?
+                            Tensor::from_vec_gpu(device, vec![score_f16], vec![1])?
                         } else {
                             return Err(RuntimeError::NotImplemented(
                                 format!("predict_head_transe: model '{}' not yet implemented", model)
@@ -4047,7 +4047,7 @@ impl Interpreter {
                             let sum_squared = squared.sum()?;
                             let l2_norm = sum_squared.sqrt();
                             let score_value = -l2_norm;
-                            Tensor::from_vec_metal(device, vec![score_value], vec![1])?
+                            Tensor::from_vec_gpu(device, vec![score_value], vec![1])?
                         } else {
                             return Err(RuntimeError::NotImplemented(
                                 format!("predict_head_transe: model '{}' not yet implemented", model)
@@ -4086,7 +4086,7 @@ impl Interpreter {
                         let product = h_mul_r.mul(&tail_candidate)?;
                         let score_f16 = product.sum()?;
 
-                        let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
+                        let score_tensor = Tensor::from_vec_gpu(device, vec![score_f16], vec![1])?;
                         Ok(score_tensor.to_value())
                     }
                     (Value::TensorF32(head), Value::TensorF32(relation), Value::TensorF32(tail_candidate)) => {
@@ -4097,7 +4097,7 @@ impl Interpreter {
                         let product = h_mul_r.mul(&tail_candidate)?;
                         let score = product.sum()?;
 
-                        let score_tensor = Tensor::from_vec_metal(device, vec![score], vec![1])?;
+                        let score_tensor = Tensor::from_vec_gpu(device, vec![score], vec![1])?;
                         Ok(score_tensor.to_value())
                     }
                     _ => Err(RuntimeError::TypeError(
@@ -4130,7 +4130,7 @@ impl Interpreter {
                         let product = h_mul_r.mul(&tail)?;
                         let score_f16 = product.sum()?;
 
-                        let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
+                        let score_tensor = Tensor::from_vec_gpu(device, vec![score_f16], vec![1])?;
                         Ok(score_tensor.to_value())
                     }
                     (Value::TensorF32(head_candidate), Value::TensorF32(relation), Value::TensorF32(tail)) => {
@@ -4141,7 +4141,7 @@ impl Interpreter {
                         let product = h_mul_r.mul(&tail)?;
                         let score = product.sum()?;
 
-                        let score_tensor = Tensor::from_vec_metal(device, vec![score], vec![1])?;
+                        let score_tensor = Tensor::from_vec_gpu(device, vec![score], vec![1])?;
                         Ok(score_tensor.to_value())
                     }
                     _ => Err(RuntimeError::TypeError(
@@ -4195,10 +4195,10 @@ impl Interpreter {
 
                         // Combine: term1 + term2 + term3 - term4
                         let device = self.env.metal_device();
-                        let term1_tensor = Tensor::from_vec_metal(device, vec![term1], vec![1])?;
-                        let term2_tensor = Tensor::from_vec_metal(device, vec![term2], vec![1])?;
-                        let term3_tensor = Tensor::from_vec_metal(device, vec![term3], vec![1])?;
-                        let term4_tensor = Tensor::from_vec_metal(device, vec![term4], vec![1])?;
+                        let term1_tensor = Tensor::from_vec_gpu(device, vec![term1], vec![1])?;
+                        let term2_tensor = Tensor::from_vec_gpu(device, vec![term2], vec![1])?;
+                        let term3_tensor = Tensor::from_vec_gpu(device, vec![term3], vec![1])?;
+                        let term4_tensor = Tensor::from_vec_gpu(device, vec![term4], vec![1])?;
 
                         let sum12 = term1_tensor.add(&term2_tensor)?;
                         let sum123 = sum12.add(&term3_tensor)?;
@@ -4231,10 +4231,10 @@ impl Interpreter {
 
                         // Combine: term1 + term2 + term3 - term4
                         let device = self.env.metal_device();
-                        let term1_tensor = Tensor::from_vec_metal(device, vec![term1], vec![1])?;
-                        let term2_tensor = Tensor::from_vec_metal(device, vec![term2], vec![1])?;
-                        let term3_tensor = Tensor::from_vec_metal(device, vec![term3], vec![1])?;
-                        let term4_tensor = Tensor::from_vec_metal(device, vec![term4], vec![1])?;
+                        let term1_tensor = Tensor::from_vec_gpu(device, vec![term1], vec![1])?;
+                        let term2_tensor = Tensor::from_vec_gpu(device, vec![term2], vec![1])?;
+                        let term3_tensor = Tensor::from_vec_gpu(device, vec![term3], vec![1])?;
+                        let term4_tensor = Tensor::from_vec_gpu(device, vec![term4], vec![1])?;
 
                         let sum12 = term1_tensor.add(&term2_tensor)?;
                         let sum123 = sum12.add(&term3_tensor)?;
@@ -4293,10 +4293,10 @@ impl Interpreter {
 
                         // Combine: term1 + term2 + term3 - term4
                         let device = self.env.metal_device();
-                        let term1_tensor = Tensor::from_vec_metal(device, vec![term1], vec![1])?;
-                        let term2_tensor = Tensor::from_vec_metal(device, vec![term2], vec![1])?;
-                        let term3_tensor = Tensor::from_vec_metal(device, vec![term3], vec![1])?;
-                        let term4_tensor = Tensor::from_vec_metal(device, vec![term4], vec![1])?;
+                        let term1_tensor = Tensor::from_vec_gpu(device, vec![term1], vec![1])?;
+                        let term2_tensor = Tensor::from_vec_gpu(device, vec![term2], vec![1])?;
+                        let term3_tensor = Tensor::from_vec_gpu(device, vec![term3], vec![1])?;
+                        let term4_tensor = Tensor::from_vec_gpu(device, vec![term4], vec![1])?;
 
                         let sum12 = term1_tensor.add(&term2_tensor)?;
                         let sum123 = sum12.add(&term3_tensor)?;
@@ -4329,10 +4329,10 @@ impl Interpreter {
 
                         // Combine: term1 + term2 + term3 - term4
                         let device = self.env.metal_device();
-                        let term1_tensor = Tensor::from_vec_metal(device, vec![term1], vec![1])?;
-                        let term2_tensor = Tensor::from_vec_metal(device, vec![term2], vec![1])?;
-                        let term3_tensor = Tensor::from_vec_metal(device, vec![term3], vec![1])?;
-                        let term4_tensor = Tensor::from_vec_metal(device, vec![term4], vec![1])?;
+                        let term1_tensor = Tensor::from_vec_gpu(device, vec![term1], vec![1])?;
+                        let term2_tensor = Tensor::from_vec_gpu(device, vec![term2], vec![1])?;
+                        let term3_tensor = Tensor::from_vec_gpu(device, vec![term3], vec![1])?;
+                        let term4_tensor = Tensor::from_vec_gpu(device, vec![term4], vec![1])?;
 
                         let sum12 = term1_tensor.add(&term2_tensor)?;
                         let sum123 = sum12.add(&term3_tensor)?;
@@ -4511,7 +4511,7 @@ impl Interpreter {
                             // Divide by number of neighbors for mean aggregation
                             let scale = 1.0 / (num_neighbors as f32);
                             let scale_f16 = half::f16::from_f32(scale);
-                            let scale_tensor = Tensor::from_vec_metal(device, vec![scale_f16], vec![1])?;
+                            let scale_tensor = Tensor::from_vec_gpu(device, vec![scale_f16], vec![1])?;
                             let aggregated = node_features.mul(&scale_tensor)?;
                             Ok(aggregated.to_value())
                         } else {
@@ -4523,7 +4523,7 @@ impl Interpreter {
                         if aggregation == "mean" && num_neighbors > 0 {
                             // Divide by number of neighbors for mean aggregation
                             let scale = 1.0 / (num_neighbors as f32);
-                            let scale_tensor = Tensor::from_vec_metal(device, vec![scale], vec![1])?;
+                            let scale_tensor = Tensor::from_vec_gpu(device, vec![scale], vec![1])?;
                             let aggregated = node_features.mul(&scale_tensor)?;
                             Ok(aggregated.to_value())
                         } else {
@@ -4611,7 +4611,7 @@ impl Interpreter {
                         // For simplicity, just scale the value by the attention weight
                         // In a full implementation, this would use proper broadcasting
                         let weight_f16 = half::f16::from_f32(sigmoid_val);
-                        let weight_tensor = Tensor::from_vec_metal(device, vec![weight_f16], vec![1])?;
+                        let weight_tensor = Tensor::from_vec_gpu(device, vec![weight_f16], vec![1])?;
 
                         // Simplified: return weighted value (scalar multiplication)
                         let attended_value = value.mul(&weight_tensor)?;
@@ -4628,7 +4628,7 @@ impl Interpreter {
 
                         // For simplicity, just scale the value by the attention weight
                         // In a full implementation, this would use proper broadcasting
-                        let weight_tensor = Tensor::from_vec_metal(device, vec![sigmoid_val], vec![1])?;
+                        let weight_tensor = Tensor::from_vec_gpu(device, vec![sigmoid_val], vec![1])?;
 
                         // Simplified: return weighted value (scalar multiplication)
                         let attended_value = value.mul(&weight_tensor)?;
@@ -4675,7 +4675,7 @@ impl Interpreter {
 
                             if norm_f32 > 1e-8 {
                                 let inv_norm_f16 = half::f16::from_f32(1.0 / norm_f32);
-                                let inv_norm_tensor = Tensor::from_vec_metal(device, vec![inv_norm_f16], vec![1])?;
+                                let inv_norm_tensor = Tensor::from_vec_gpu(device, vec![inv_norm_f16], vec![1])?;
                                 let normalized = features.mul(&inv_norm_tensor)?;
                                 Ok(normalized.to_value())
                             } else {
@@ -4696,7 +4696,7 @@ impl Interpreter {
 
                             if norm_f32 > 1e-8 {
                                 let inv_norm = 1.0 / norm_f32;
-                                let inv_norm_tensor = Tensor::from_vec_metal(device, vec![inv_norm], vec![1])?;
+                                let inv_norm_tensor = Tensor::from_vec_gpu(device, vec![inv_norm], vec![1])?;
                                 let normalized = features.mul(&inv_norm_tensor)?;
                                 Ok(normalized.to_value())
                             } else {

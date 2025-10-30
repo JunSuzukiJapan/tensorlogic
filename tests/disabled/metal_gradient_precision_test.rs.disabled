@@ -38,13 +38,13 @@ fn compare_cpu_metal_gradients(
         _ => panic!("Expected Metal device"),
     };
 
-    let metal_input = Tensor::from_vec_metal(
+    let metal_input = Tensor::from_vec_gpu(
         metal_device,
         input_values.iter().map(|&x| f16::from_f32(x)).collect(),
         vec![input_values.len()],
     ).unwrap();
 
-    let metal_grad_output = Tensor::from_vec_metal(
+    let metal_grad_output = Tensor::from_vec_gpu(
         metal_device,
         grad_output_values.iter().map(|&x| f16::from_f32(x)).collect(),
         vec![grad_output_values.len()],

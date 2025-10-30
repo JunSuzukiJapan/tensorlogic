@@ -77,7 +77,7 @@ impl Interpreter {
         let device = tensor.device().clone();
         let shape_tensor = match &device {
             crate::device::Device::Metal(metal_device) => {
-                Tensor::from_vec_metal(metal_device, shape_data, vec![dims.len()])
+                Tensor::from_vec_gpu(metal_device, shape_data, vec![dims.len()])
             }
             crate::device::Device::CPU => {
                 Tensor::from_vec(shape_data, vec![dims.len()])
@@ -123,7 +123,7 @@ impl Interpreter {
 
         // Create tensor on Metal device
         let device = self.env.metal_device();
-        let tensor = Tensor::from_vec_metal(device, data, shape)
+        let tensor = Tensor::from_vec_gpu(device, data, shape)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
         Ok(Value::TensorF16(tensor))
@@ -477,7 +477,7 @@ impl Interpreter {
         let device = tensor.device().clone();
         let result_tensor = match &device {
             crate::device::Device::Metal(metal_device) => {
-                Tensor::from_vec_metal(metal_device, slice_data, vec![length])
+                Tensor::from_vec_gpu(metal_device, slice_data, vec![length])
             }
             crate::device::Device::CPU => {
                 Tensor::from_vec(slice_data, vec![length])
@@ -554,7 +554,7 @@ impl Interpreter {
         // Create result tensor on same device
         let result_tensor = match tensor.device() {
             crate::device::Device::Metal(metal_device) => {
-                Tensor::from_vec_metal(metal_device, slice_data, vec![length])
+                Tensor::from_vec_gpu(metal_device, slice_data, vec![length])
             }
             crate::device::Device::CPU => {
                 Tensor::from_vec(slice_data, vec![length])
@@ -773,7 +773,7 @@ impl Interpreter {
 
         // Create tensor on Metal device
         let device = self.env.metal_device();
-        let tensor = Tensor::from_vec_metal(device, data, shape)
+        let tensor = Tensor::from_vec_gpu(device, data, shape)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
         Ok(Value::TensorF16(tensor))

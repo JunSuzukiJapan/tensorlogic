@@ -342,7 +342,7 @@ mod tests {
         let device = MetalDevice::new().unwrap();
 
         // Create test tensors: x=[2,3], w=[3,2], bias=[2], residual=[2,2]
-        let x = Tensor::from_vec_metal(
+        let x = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(1.0),
@@ -356,7 +356,7 @@ mod tests {
         )
         .unwrap();
 
-        let w = Tensor::from_vec_metal(
+        let w = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(0.1),
@@ -370,14 +370,14 @@ mod tests {
         )
         .unwrap();
 
-        let bias = Tensor::from_vec_metal(
+        let bias = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(0.1), f16::from_f32(0.2)],
             vec![2],
         )
         .unwrap();
 
-        let residual = Tensor::from_vec_metal(
+        let residual = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(0.5),
@@ -404,7 +404,7 @@ mod tests {
     fn test_fused_gelu_linear() {
         let device = MetalDevice::new().unwrap();
 
-        let x = Tensor::from_vec_metal(
+        let x = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(1.0),
@@ -416,7 +416,7 @@ mod tests {
         )
         .unwrap();
 
-        let w = Tensor::from_vec_metal(
+        let w = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(0.5),
@@ -429,7 +429,7 @@ mod tests {
         .unwrap();
 
         let bias =
-            Tensor::from_vec_metal(&device, vec![f16::from_f32(0.1), f16::from_f32(0.1)], vec![2])
+            Tensor::from_vec_gpu(&device, vec![f16::from_f32(0.1), f16::from_f32(0.1)], vec![2])
                 .unwrap();
 
         let result = x.fused_gelu_linear(&w, &bias).unwrap();

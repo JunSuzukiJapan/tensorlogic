@@ -34,8 +34,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut all_results = Vec::new();
 
     for run in 0..10 {
-        let x = Tensor::from_vec_metal(&device, x_data_f16.clone(), vec![seq_len, hidden_dim])?;
-        let w_q = Tensor::from_vec_metal(&device, w_q_data_f16.clone(), vec![hidden_dim, hidden_dim])?;
+        let x = Tensor::from_vec_gpu(&device, x_data_f16.clone(), vec![seq_len, hidden_dim])?;
+        let w_q = Tensor::from_vec_gpu(&device, w_q_data_f16.clone(), vec![hidden_dim, hidden_dim])?;
 
         let q = x.matmul(&w_q)?;
         let result_vec = q.to_vec();
@@ -99,8 +99,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut all_results2 = Vec::new();
 
     for run in 0..10 {
-        let x = Tensor::from_vec_metal(&device, x_data_f16.clone(), vec![seq_len, hidden_dim])?;
-        let w_gate = Tensor::from_vec_metal(&device, w_gate_data_f16.clone(), vec![hidden_dim, ffn_dim])?;
+        let x = Tensor::from_vec_gpu(&device, x_data_f16.clone(), vec![seq_len, hidden_dim])?;
+        let w_gate = Tensor::from_vec_gpu(&device, w_gate_data_f16.clone(), vec![hidden_dim, ffn_dim])?;
 
         let gate = x.matmul(&w_gate)?;
         let result_vec = gate.to_vec();
@@ -165,9 +165,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut all_results3 = Vec::new();
 
     for run in 0..10 {
-        let x = Tensor::from_vec_metal(&device, x_data_f16.clone(), vec![seq_len, hidden_dim])?;
+        let x = Tensor::from_vec_gpu(&device, x_data_f16.clone(), vec![seq_len, hidden_dim])?;
         // linear() expects weight as [hidden_dim, output_dim] and transposes internally
-        let w_out = Tensor::from_vec_metal(&device, w_out_data_f16.clone(), vec![vocab_size, hidden_dim])?;
+        let w_out = Tensor::from_vec_gpu(&device, w_out_data_f16.clone(), vec![vocab_size, hidden_dim])?;
 
         let logits = x.matmul(&w_out.transpose()?)?;
         let result_vec = logits.to_vec();

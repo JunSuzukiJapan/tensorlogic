@@ -387,7 +387,7 @@ impl<T: FloatType> Tensor<T> {
 
         let output_t: Vec<T> = unsafe { std::mem::transmute(output_data) };
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, output_t, output_shape),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, output_t, output_shape),
             _ => Tensor::from_vec(output_t, output_shape),
         }
     }
@@ -591,7 +591,7 @@ impl<T: FloatType> Tensor<T> {
 
             // Create split tensor
             let split_tensor = match self.device() {
-                Device::Metal(dev) => Tensor::from_vec_metal(dev, split_data, split_dims)?,
+                Device::Metal(dev) => Tensor::from_vec_gpu(dev, split_data, split_dims)?,
                 _ => Tensor::from_vec(split_data, split_dims)?,
             };
 
@@ -615,14 +615,14 @@ mod tests {
     fn test_concat_dim0() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
             vec![1, 3],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(4.0), f16::from_f32(5.0), f16::from_f32(6.0)],
             vec![1, 3],
@@ -645,14 +645,14 @@ mod tests {
     fn test_concat_dim1() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0)],
             vec![2, 1],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(3.0), f16::from_f32(4.0)],
             vec![2, 1],
@@ -673,9 +673,9 @@ mod tests {
     fn test_concat_multiple() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(&device, vec![f16::from_f32(1.0)], vec![1, 1]).unwrap();
-        let b = Tensor::from_vec_metal(&device, vec![f16::from_f32(2.0)], vec![1, 1]).unwrap();
-        let c = Tensor::from_vec_metal(&device, vec![f16::from_f32(3.0)], vec![1, 1]).unwrap();
+        let a = Tensor::from_vec_gpu(&device, vec![f16::from_f32(1.0)], vec![1, 1]).unwrap();
+        let b = Tensor::from_vec_gpu(&device, vec![f16::from_f32(2.0)], vec![1, 1]).unwrap();
+        let c = Tensor::from_vec_gpu(&device, vec![f16::from_f32(3.0)], vec![1, 1]).unwrap();
 
         let d = Tensor::<f16>::concat(&[&a, &b, &c], 0).unwrap();
 
@@ -690,7 +690,7 @@ mod tests {
     fn test_transpose_2d() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0),
@@ -721,7 +721,7 @@ mod tests {
 
         // Create a 2x3x4 tensor
         let data: Vec<f16> = (0..24).map(|i| f16::from_f32(i as f32)).collect();
-        let a = Tensor::from_vec_metal(&device, data, vec![2, 3, 4]).unwrap();
+        let a = Tensor::from_vec_gpu(&device, data, vec![2, 3, 4]).unwrap();
 
         // Permute to [4, 2, 3] (dims [2, 0, 1])
         let b = a.permute(vec![2, 0, 1]).unwrap();
@@ -734,7 +734,7 @@ mod tests {
     fn test_permute_identity() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)],
             vec![2, 2],
@@ -752,7 +752,7 @@ mod tests {
         let device = crate::device::MetalDevice::new().unwrap();
 
         // Test unsqueeze on 1D tensor [3] -> [1, 3]
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
             vec![3],
@@ -772,7 +772,7 @@ mod tests {
         let device = crate::device::MetalDevice::new().unwrap();
 
         // Test squeeze on [1, 3, 1] -> [3]
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
             vec![1, 3, 1],
@@ -794,7 +794,7 @@ mod tests {
 
         // Test split on [6, 4] tensor
         let data: Vec<f16> = (0..24).map(|i| f16::from_f32(i as f32)).collect();
-        let a = Tensor::from_vec_metal(&device, data, vec![6, 4]).unwrap();
+        let a = Tensor::from_vec_gpu(&device, data, vec![6, 4]).unwrap();
 
         // Split into size 2 chunks along dim 0
         let splits = a.split(2, 0).unwrap();
@@ -804,7 +804,7 @@ mod tests {
         assert_eq!(splits[2].dims(), &[2, 4]);
 
         // Test split with uneven division
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             (0..28).map(|i| f16::from_f32(i as f32)).collect(),
             vec![7, 4],
@@ -824,7 +824,7 @@ mod tests {
 
         // Test chunk on [6, 4] tensor
         let data: Vec<f16> = (0..24).map(|i| f16::from_f32(i as f32)).collect();
-        let a = Tensor::from_vec_metal(&device, data, vec![6, 4]).unwrap();
+        let a = Tensor::from_vec_gpu(&device, data, vec![6, 4]).unwrap();
 
         // Split into 3 chunks along dim 0
         let chunks = a.chunk(3, 0).unwrap();
@@ -834,7 +834,7 @@ mod tests {
         assert_eq!(chunks[2].dims(), &[2, 4]);
 
         // Test chunk with uneven division
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             (0..28).map(|i| f16::from_f32(i as f32)).collect(),
             vec![7, 4],

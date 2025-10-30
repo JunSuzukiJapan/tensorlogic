@@ -376,7 +376,7 @@ mod tests {
     fn test_relu_gpu() {
         let device = MetalDevice::new().unwrap();
 
-        let input = Tensor::from_vec_metal(
+        let input = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(-2.0),
@@ -425,7 +425,7 @@ mod tests {
     fn test_gelu_gpu() {
         let device = MetalDevice::new().unwrap();
 
-        let input = Tensor::from_vec_metal(
+        let input = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(-1.0),
@@ -472,7 +472,7 @@ mod tests {
     fn test_sigmoid() {
         let device = MetalDevice::new().unwrap();
 
-        let input = Tensor::from_vec_metal(
+        let input = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(-2.0),
@@ -504,7 +504,7 @@ mod tests {
     fn test_tanh() {
         let device = MetalDevice::new().unwrap();
 
-        let input = Tensor::from_vec_metal(
+        let input = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(-2.0),

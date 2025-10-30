@@ -120,7 +120,7 @@ impl Interpreter {
         }
 
         // Create output tensor
-        let output = crate::tensor::Tensor::from_vec_metal(
+        let output = crate::tensor::Tensor::from_vec_gpu(
             self.env.metal_device(),
             pe_data,
             vec![seq_len, d_model]
@@ -197,7 +197,7 @@ impl Interpreter {
 
                 let large_neg_value = half::f16::from_f32(-1e9);
                 let large_neg_vec = vec![large_neg_value; inv_mask.shape().numel()];
-                let large_neg = Tensor::from_vec_metal(device, large_neg_vec, inv_mask.shape().dims().to_vec())
+                let large_neg = Tensor::from_vec_gpu(device, large_neg_vec, inv_mask.shape().dims().to_vec())
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                 let mask_value = inv_mask.mul(&large_neg).map_err(|e| RuntimeError::TensorError(e))?;
@@ -210,7 +210,7 @@ impl Interpreter {
                 let inv_mask = ones.sub(&mask).map_err(|e| RuntimeError::TensorError(e))?;
 
                 let large_neg_vec = vec![-1e9_f32; inv_mask.shape().numel()];
-                let large_neg = Tensor::from_vec_metal(device, large_neg_vec, inv_mask.shape().dims().to_vec())
+                let large_neg = Tensor::from_vec_gpu(device, large_neg_vec, inv_mask.shape().dims().to_vec())
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                 let mask_value = inv_mask.mul(&large_neg).map_err(|e| RuntimeError::TensorError(e))?;
@@ -263,7 +263,7 @@ impl Interpreter {
                     }
                 }
 
-                Tensor::from_vec_metal(device, mask_data, vec![batch_size, max_length])
+                Tensor::from_vec_gpu(device, mask_data, vec![batch_size, max_length])
                     .map_err(|e| RuntimeError::TensorError(e))?.to_value()
             }
             Value::TensorF32(lengths_tensor) => {
@@ -285,7 +285,7 @@ impl Interpreter {
                     }
                 }
 
-                Tensor::from_vec_metal(device, mask_data, vec![batch_size, max_length])
+                Tensor::from_vec_gpu(device, mask_data, vec![batch_size, max_length])
                     .map_err(|e| RuntimeError::TensorError(e))?.to_value()
             }
             _ => return Err(RuntimeError::TypeError("padding_mask() expects a tensor for lengths".to_string()))
@@ -514,7 +514,7 @@ impl Interpreter {
                 // Create result tensor on same device as table
                 let result = match table.device() {
                     crate::device::Device::Metal(metal_device) => {
-                        Tensor::from_vec_metal(metal_device, output_f16, vec![seq_len, emb_dim])
+                        Tensor::from_vec_gpu(metal_device, output_f16, vec![seq_len, emb_dim])
                             .map_err(|e| RuntimeError::TensorError(e))?
                     }
                     _ => {

@@ -36,8 +36,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let k_data_f16: Vec<half::f16> = k_data.iter().map(|&x| half::f16::from_f32(x)).collect();
 
     // Metal
-    let q_metal = Tensor::from_vec_metal(&metal_device, q_data_f16.clone(), vec![seq_len, n_heads, head_dim])?;
-    let k_metal = Tensor::from_vec_metal(&metal_device, k_data_f16.clone(), vec![seq_len, n_heads, head_dim])?;
+    let q_metal = Tensor::from_vec_gpu(&metal_device, q_data_f16.clone(), vec![seq_len, n_heads, head_dim])?;
+    let k_metal = Tensor::from_vec_gpu(&metal_device, k_data_f16.clone(), vec![seq_len, n_heads, head_dim])?;
 
     let scores_metal = Tensor::einsum("ihd,jhd->ihj", &[&q_metal, &k_metal])?;
     let scores_metal_vec = scores_metal.to_vec();
@@ -103,8 +103,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let v_data_f16: Vec<half::f16> = v_data.iter().map(|&x| half::f16::from_f32(x)).collect();
 
     // Metal
-    let attn_metal = Tensor::from_vec_metal(&metal_device, attn_weights_f16.clone(), vec![seq_len, n_heads, seq_len])?;
-    let v_metal = Tensor::from_vec_metal(&metal_device, v_data_f16.clone(), vec![seq_len, n_heads, head_dim])?;
+    let attn_metal = Tensor::from_vec_gpu(&metal_device, attn_weights_f16.clone(), vec![seq_len, n_heads, seq_len])?;
+    let v_metal = Tensor::from_vec_gpu(&metal_device, v_data_f16.clone(), vec![seq_len, n_heads, head_dim])?;
 
     let output_metal = Tensor::einsum("ihj,jhd->ihd", &[&attn_metal, &v_metal])?;
     let output_metal_vec = output_metal.to_vec();

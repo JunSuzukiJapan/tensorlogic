@@ -116,7 +116,7 @@ impl Interpreter {
         }
 
         // Create output tensor
-        let output = crate::tensor::Tensor::from_vec_metal(
+        let output = crate::tensor::Tensor::from_vec_gpu(
             self.env.metal_device(),
             pe_data,
             vec![seq_len, d_model]
@@ -191,7 +191,7 @@ impl Interpreter {
         // Create a tensor filled with -1e9
         let large_neg_value = half::f16::from_f32(-1e9);
         let large_neg_vec = vec![large_neg_value; inv_mask.shape().numel()];
-        let large_neg = Tensor::from_vec_metal(device, large_neg_vec, inv_mask.shape().dims().to_vec())
+        let large_neg = Tensor::from_vec_gpu(device, large_neg_vec, inv_mask.shape().dims().to_vec())
             .map_err(|e| RuntimeError::TensorError(e))?;
 
         let mask_value = inv_mask.mul(&large_neg).map_err(|e| RuntimeError::TensorError(e))?;
@@ -237,7 +237,7 @@ impl Interpreter {
         }
 
         let device = self.env.metal_device();
-        let mask = Tensor::from_vec_metal(device, mask_data, vec![batch_size, max_length])
+        let mask = Tensor::from_vec_gpu(device, mask_data, vec![batch_size, max_length])
             .map_err(|e| RuntimeError::TensorError(e))?;
 
         Ok(Value::TensorF16(mask))

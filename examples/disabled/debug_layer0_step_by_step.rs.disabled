@@ -41,7 +41,7 @@ fn main() {
         .map(|&x| half::f16::from_f32(x))
         .collect();
 
-    let input_ids_tensor = Tensor::from_vec_metal(&device, input_ids_f16, vec![1])
+    let input_ids_tensor = Tensor::from_vec_gpu(&device, input_ids_f16, vec![1])
         .expect("Failed to create input tensor");
 
     let h = token_embd.embedding(&input_ids_tensor)
@@ -160,7 +160,7 @@ fn main() {
     // Scale by 1/sqrt(64) = 1/8 = 0.125
     let scale_factor = half::f16::from_f32(0.125);
     let scale_vec = vec![scale_factor];
-    let scale_tensor = Tensor::from_vec_metal(&device, scale_vec, vec![1])
+    let scale_tensor = Tensor::from_vec_gpu(&device, scale_vec, vec![1])
         .expect("Failed to create scale tensor");
 
     let scores_scaled = scores_raw.multiply(&scale_tensor)

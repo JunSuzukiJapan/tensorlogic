@@ -430,7 +430,7 @@ impl GGUFLoader {
             };
 
             // Create TensorLogic tensor (on Metal GPU)
-            let tensor = Tensor::from_vec_metal(device, f16_data, shape)?;
+            let tensor = Tensor::from_vec_gpu(device, f16_data, shape)?;
             tensors.insert(name, tensor);
         }
 
@@ -547,7 +547,7 @@ impl GGUFLoader {
                 }
             };
 
-            let tensor = Tensor::from_vec_metal(device, f32_data, shape)?;
+            let tensor = Tensor::from_vec_gpu(device, f32_data, shape)?;
             tensors.insert(name, tensor);
         }
 

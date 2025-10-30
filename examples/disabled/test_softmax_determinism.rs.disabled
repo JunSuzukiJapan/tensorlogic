@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut all_results = Vec::new();
 
     for run in 0..10 {
-        let scores = Tensor::from_vec_metal(
+        let scores = Tensor::from_vec_gpu(
             &device,
             scores_data_f16.clone(),
             vec![seq_len, n_heads, seq_len]

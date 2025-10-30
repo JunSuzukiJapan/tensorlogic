@@ -203,7 +203,7 @@ Large (1M elements): [1000, 1000] - 7.310291ms
 ```rust
 // 基本パターン
 let device = MetalDevice::new().unwrap();
-let tensor = Tensor::from_vec_metal(&device, data, shape).unwrap();
+let tensor = Tensor::from_vec_gpu(&device, data, shape).unwrap();
 let result = tensor_to_mlmultiarray(&tensor);
 assert!(result.is_ok());
 ```

@@ -52,7 +52,7 @@ mod tests {
     #[test]
     fn test_reduce_grad_no_broadcast() {
         let device = get_test_device();
-        let grad = Tensor::from_vec_metal(
+        let grad = Tensor::from_vec_gpu(
             &device,
             vec![
                 half::f16::from_f32(1.0),
@@ -75,7 +75,7 @@ mod tests {
     fn test_reduce_grad_broadcast_scalar() {
         let device = get_test_device();
         // 勾配は [2, 2] だが、元の形状は [1] (スカラー)
-        let grad = Tensor::from_vec_metal(
+        let grad = Tensor::from_vec_gpu(
             &device,
             vec![
                 half::f16::from_f32(1.0),

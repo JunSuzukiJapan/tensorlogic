@@ -21,7 +21,7 @@ fn main() {
     println!("   [4, 5, 6]]");
 
     // Create tensor
-    let tensor = Tensor::from_vec_metal(&device, data_f16, vec![2, 3])
+    let tensor = Tensor::from_vec_gpu(&device, data_f16, vec![2, 3])
         .expect("Failed to create tensor");
 
     // Transpose

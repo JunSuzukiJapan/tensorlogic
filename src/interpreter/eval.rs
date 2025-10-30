@@ -1106,7 +1106,7 @@ impl Interpreter {
                                 let device = t.device().clone();
                                 let shape_tensor = match &device {
                                     crate::device::Device::Metal(metal_device) => {
-                                        crate::tensor::Tensor::from_vec_metal(metal_device, shape_data, vec![t.shape().dims().len()])
+                                        crate::tensor::Tensor::from_vec_gpu(metal_device, shape_data, vec![t.shape().dims().len()])
                                     }
                                     crate::device::Device::CPU => {
                                         crate::tensor::Tensor::from_vec(shape_data, vec![t.shape().dims().len()])
@@ -1125,7 +1125,7 @@ impl Interpreter {
                                 let device = t.device().clone();
                                 let shape_tensor = match &device {
                                     crate::device::Device::Metal(metal_device) => {
-                                        crate::tensor::Tensor::from_vec_metal(metal_device, shape_data, vec![t.shape().dims().len()])
+                                        crate::tensor::Tensor::from_vec_gpu(metal_device, shape_data, vec![t.shape().dims().len()])
                                     }
                                     crate::device::Device::CPU => {
                                         crate::tensor::Tensor::from_vec(shape_data, vec![t.shape().dims().len()])
@@ -1204,7 +1204,7 @@ impl Interpreter {
         // Support empty arrays - return empty Tensor
         if elements.is_empty() {
             
-            let tensor = Tensor::from_vec_metal(self.env.metal_device(), vec![], vec![0])
+            let tensor = Tensor::from_vec_gpu(self.env.metal_device(), vec![], vec![0])
                 .map_err(|e| RuntimeError::TensorError(e))?;
             return Ok(Value::TensorF16(tensor));
         }
@@ -1220,13 +1220,13 @@ impl Interpreter {
 
         if has_float_literal {
             // Array contains float literals -> create f32 tensor
-            let tensor = Tensor::from_vec_metal(self.env.metal_device(), values, shape)
+            let tensor = Tensor::from_vec_gpu(self.env.metal_device(), values, shape)
                 .map_err(|e| RuntimeError::TensorError(e))?;
             Ok(Value::TensorF32(tensor))
         } else {
             // Array contains only integers -> create f16 tensor (backward compatibility)
             let f16_values: Vec<f16> = values.into_iter().map(f16::from_f32).collect();
-            let tensor = Tensor::from_vec_metal(self.env.metal_device(), f16_values, shape)
+            let tensor = Tensor::from_vec_gpu(self.env.metal_device(), f16_values, shape)
                 .map_err(|e| RuntimeError::TensorError(e))?;
             Ok(Value::TensorF16(tensor))
         }
@@ -1760,7 +1760,7 @@ impl Interpreter {
         let entity_embedding = embedding_vec[start_idx..end_idx].to_vec();
 
         // Create tensor from embedding vector on Metal GPU
-        let embedding_tensor = Tensor::from_vec_metal(
+        let embedding_tensor = Tensor::from_vec_gpu(
             self.env.metal_device(),
             entity_embedding,
             vec![dimension]

@@ -24,9 +24,9 @@ fn main() {
     let a_f16 = a_data.iter().map(|&x| half::f16::from_f32(x)).collect();
     let b_f16 = b_data.iter().map(|&x| half::f16::from_f32(x)).collect();
 
-    let tensor_a = Tensor::from_vec_metal(&device, a_f16, vec![2, 3])
+    let tensor_a = Tensor::from_vec_gpu(&device, a_f16, vec![2, 3])
         .expect("Failed to create tensor A");
-    let tensor_b = Tensor::from_vec_metal(&device, b_f16, vec![3, 2])
+    let tensor_b = Tensor::from_vec_gpu(&device, b_f16, vec![3, 2])
         .expect("Failed to create tensor B");
 
     let gpu_result_tensor = tensor_a.matmul(&tensor_b)
@@ -84,9 +84,9 @@ fn main() {
     let a2_f16: Vec<half::f16> = a2_data.iter().map(|&x| half::f16::from_f32(x)).collect();
     let b2_f16: Vec<half::f16> = b2_data.iter().map(|&x| half::f16::from_f32(x)).collect();
 
-    let tensor_a2 = Tensor::from_vec_metal(&device, a2_f16, vec![1, hidden_size])
+    let tensor_a2 = Tensor::from_vec_gpu(&device, a2_f16, vec![1, hidden_size])
         .expect("Failed to create tensor A2");
-    let tensor_b2 = Tensor::from_vec_metal(&device, b2_f16, vec![hidden_size, hidden_size])
+    let tensor_b2 = Tensor::from_vec_gpu(&device, b2_f16, vec![hidden_size, hidden_size])
         .expect("Failed to create tensor B2");
 
     let gpu_result2_tensor = tensor_a2.matmul(&tensor_b2)

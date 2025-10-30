@@ -24,7 +24,7 @@ fn test_e2e_tensor_roundtrip_small() {
 
     // Convert f32 to f16 for tensor
     let f16_data: Vec<half::f16> = data.iter().map(|&x| half::f16::from_f32(x)).collect();
-    let tensor = Tensor::from_vec_metal(&device, f16_data.clone(), shape.clone()).unwrap();
+    let tensor = Tensor::from_vec_gpu(&device, f16_data.clone(), shape.clone()).unwrap();
 
     // Tensor → MLMultiArray conversion (validates data transfer)
     let result = tensor_to_mlmultiarray(&tensor);
@@ -48,7 +48,7 @@ fn test_e2e_tensor_roundtrip_large() {
     let shape = vec![10, 100];
 
     let f16_data: Vec<half::f16> = data.iter().map(|&x| half::f16::from_f32(x)).collect();
-    let tensor = Tensor::from_vec_metal(&device, f16_data, shape).unwrap();
+    let tensor = Tensor::from_vec_gpu(&device, f16_data, shape).unwrap();
 
     // Verify conversion succeeds for large tensors
     let result = tensor_to_mlmultiarray(&tensor);
@@ -68,7 +68,7 @@ fn test_e2e_image_tensor_4d() {
     let data: Vec<f32> = (0..size).map(|i| (i % 256) as f32 / 255.0).collect();
     let f16_data: Vec<half::f16> = data.iter().map(|&x| half::f16::from_f32(x)).collect();
 
-    let tensor = Tensor::from_vec_metal(&device, f16_data, shape).unwrap();
+    let tensor = Tensor::from_vec_gpu(&device, f16_data, shape).unwrap();
 
     // Verify 4D tensor conversion
     let result = tensor_to_mlmultiarray(&tensor);
@@ -94,7 +94,7 @@ fn test_ml_task_image_classification_preprocessing() {
     }).collect();
 
     let f16_data: Vec<half::f16> = data.iter().map(|&x| half::f16::from_f32(x)).collect();
-    let tensor = Tensor::from_vec_metal(&device, f16_data, shape).unwrap();
+    let tensor = Tensor::from_vec_gpu(&device, f16_data, shape).unwrap();
 
     // Verify preprocessing pipeline works
     let result = tensor_to_mlmultiarray(&tensor);
@@ -120,7 +120,7 @@ fn test_ml_task_object_detection_multiscale() {
         let data: Vec<f32> = (0..size).map(|i| (i % 100) as f32 / 100.0).collect();
         let f16_data: Vec<half::f16> = data.iter().map(|&x| half::f16::from_f32(x)).collect();
 
-        let tensor = Tensor::from_vec_metal(&device, f16_data, shape.clone()).unwrap();
+        let tensor = Tensor::from_vec_gpu(&device, f16_data, shape.clone()).unwrap();
         let result = tensor_to_mlmultiarray(&tensor);
 
         assert!(result.is_ok(), "Object detection input {:?} should convert", shape);
@@ -150,7 +150,7 @@ fn test_ml_task_nlp_embeddings() {
         }).collect();
         let f16_data: Vec<half::f16> = data.iter().map(|&x| half::f16::from_f32(x)).collect();
 
-        let tensor = Tensor::from_vec_metal(&device, f16_data, shape.clone()).unwrap();
+        let tensor = Tensor::from_vec_gpu(&device, f16_data, shape.clone()).unwrap();
         let result = tensor_to_mlmultiarray(&tensor);
 
         assert!(result.is_ok(), "NLP embedding {:?} should convert", shape);
@@ -175,7 +175,7 @@ fn test_ml_task_time_series_forecasting() {
     }).collect();
     let f16_data: Vec<half::f16> = data.iter().map(|&x| half::f16::from_f32(x)).collect();
 
-    let tensor = Tensor::from_vec_metal(&device, f16_data, shape).unwrap();
+    let tensor = Tensor::from_vec_gpu(&device, f16_data, shape).unwrap();
     let result = tensor_to_mlmultiarray(&tensor);
 
     assert!(result.is_ok(), "Time series data should convert successfully");
@@ -193,7 +193,7 @@ fn test_error_empty_tensor() {
 
     // Try to create a tensor with empty data
     // Note: This panics in Metal due to null buffer, which is expected behavior
-    let _result = Tensor::from_vec_metal(&device, vec![], vec![0]);
+    let _result = Tensor::from_vec_gpu(&device, vec![], vec![0]);
 }
 
 /// Error Case Test 2: Shape Mismatch
@@ -205,7 +205,7 @@ fn test_error_shape_mismatch() {
     let data = vec![half::f16::from_f32(1.0); 10];
     let shape = vec![2, 3];  // Expects 6 elements, but data has 10
 
-    let result = Tensor::from_vec_metal(&device, data, shape);
+    let result = Tensor::from_vec_gpu(&device, data, shape);
 
     // Should fail due to shape mismatch
     assert!(result.is_err(), "Shape mismatch should cause error");
@@ -230,7 +230,7 @@ fn test_error_invalid_dimensions() {
         }
 
         let data = vec![half::f16::from_f32(1.0); size];
-        let result = Tensor::from_vec_metal(&device, data, shape.clone());
+        let result = Tensor::from_vec_gpu(&device, data, shape.clone());
 
         // Most should fail, but we're testing the system doesn't panic
         if result.is_err() {
@@ -252,7 +252,7 @@ fn test_error_extremely_large_tensor() {
     let data: Vec<half::f16> = vec![half::f16::from_f32(1.0); 100];
 
     // Note: This will fail due to shape mismatch, which is expected
-    let result = Tensor::from_vec_metal(&device, data, shape);
+    let result = Tensor::from_vec_gpu(&device, data, shape);
     assert!(result.is_err(), "Huge tensor with mismatched data should fail");
 }
 
@@ -291,7 +291,7 @@ fn test_integration_full_pipeline_simulation() {
     let size: usize = shape.iter().product();
     let data: Vec<f32> = (0..size).map(|i| (i % 256) as f32 / 255.0).collect();
     let f16_data: Vec<half::f16> = data.iter().map(|&x| half::f16::from_f32(x)).collect();
-    let input_tensor = Tensor::from_vec_metal(&device, f16_data, shape.clone()).unwrap();
+    let input_tensor = Tensor::from_vec_gpu(&device, f16_data, shape.clone()).unwrap();
     println!("  Input tensor created: shape={:?}, size={}", shape, size);
 
     // Step 2: Convert to MLMultiArray
@@ -330,7 +330,7 @@ fn test_stress_rapid_conversions() {
         let data: Vec<f32> = (0..100).map(|j| (i * 100 + j) as f32).collect();
         let f16_data: Vec<half::f16> = data.iter().map(|&x| half::f16::from_f32(x)).collect();
 
-        let tensor = Tensor::from_vec_metal(&device, f16_data, shape.clone()).unwrap();
+        let tensor = Tensor::from_vec_gpu(&device, f16_data, shape.clone()).unwrap();
         let result = tensor_to_mlmultiarray(&tensor);
 
         assert!(result.is_ok(), "Conversion #{} should succeed", i + 1);
@@ -364,7 +364,7 @@ fn test_benchmark_conversion_speed() {
         let data: Vec<f32> = (0..size).map(|i| (i % 256) as f32).collect();
         let f16_data: Vec<half::f16> = data.iter().map(|&x| half::f16::from_f32(x)).collect();
 
-        let tensor = Tensor::from_vec_metal(&device, f16_data, shape.clone()).unwrap();
+        let tensor = Tensor::from_vec_gpu(&device, f16_data, shape.clone()).unwrap();
 
         // Measure conversion time
         let start = std::time::Instant::now();

@@ -12,8 +12,8 @@ Tensorのコードが長い（724行）ため、複数のtraitに分割して別
 - `new(buffer, shape, device)` - 基本的なコンストラクタ
 - `new_with_pool(buffer, shape, device, buffer_pool)` - プール付きコンストラクタ
 - `from_vec(data, shape)` - CPU上にVecから作成
-- `from_vec_metal(device, data, shape)` - Metal上にVecから作成
-- `from_vec_metal_pooled(device, data, shape)` - プール使用
+- `from_vec_gpu(device, data, shape)` - Metal上にVecから作成
+- `from_vec_gpu_pooled(device, data, shape)` - プール使用
 - `zeros(device, shape)` - ゼロ初期化
 - `ones(device, shape)` - 1で初期化
 - `scalar(device, value)` - スカラー値

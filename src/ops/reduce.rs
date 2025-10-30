@@ -942,7 +942,7 @@ mod tests {
         let metal_device = MetalDevice::new().unwrap();
 
         // Create tensor on Metal device
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &metal_device,
             vec![
                 f16::from_f32(1.0),
@@ -978,7 +978,7 @@ mod tests {
 
         let metal_device = MetalDevice::new().unwrap();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &metal_device,
             vec![
                 f16::from_f32(2.0),
@@ -1004,7 +1004,7 @@ mod tests {
 
         let metal_device = MetalDevice::new().unwrap();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &metal_device,
             vec![
                 f16::from_f32(1.0),
@@ -1026,7 +1026,7 @@ mod tests {
 
         let metal_device = MetalDevice::new().unwrap();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &metal_device,
             vec![
                 f16::from_f32(5.0),

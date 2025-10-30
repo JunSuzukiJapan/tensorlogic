@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|&x| half::f16::from_f32(x))
         .collect();
 
-    let input = Tensor::from_vec_metal(&device, input_data_f16.clone(), vec![seq_len, hidden_dim])?;
+    let input = Tensor::from_vec_gpu(&device, input_data_f16.clone(), vec![seq_len, hidden_dim])?;
 
     println!("Input (simulated embedding):");
     tensor_stats(&input, "embedding");
@@ -70,7 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let norm_weight_data_f16: Vec<half::f16> = norm_weight_data.iter()
         .map(|&x| half::f16::from_f32(x))
         .collect();
-    let norm_weight = Tensor::from_vec_metal(&device, norm_weight_data_f16, vec![hidden_dim])?;
+    let norm_weight = Tensor::from_vec_gpu(&device, norm_weight_data_f16, vec![hidden_dim])?;
 
     let normed = input.rms_norm(vec![hidden_dim], &norm_weight, 1e-5)?;
     tensor_stats(&normed, "after_rms_norm");
@@ -88,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let weight_data_f16: Vec<half::f16> = weight_data.iter()
         .map(|&x| half::f16::from_f32(x * 0.01))  // Scale down by 0.01
         .collect();
-    let weight = Tensor::from_vec_metal(&device, weight_data_f16, vec![hidden_dim, hidden_dim])?;
+    let weight = Tensor::from_vec_gpu(&device, weight_data_f16, vec![hidden_dim, hidden_dim])?;
 
     let proj = normed.matmul(&weight)?;
     tensor_stats(&proj, "after_matmul");

@@ -76,21 +76,21 @@ mod tests {
 
         // a = [4.0, 6.0], b = [2.0, 3.0]
         // c = a / b = [2.0, 2.0]
-        let a = <Tensor<half::f16>>::from_vec_metal(
+        let a = <Tensor<half::f16>>::from_vec_gpu(
             &device,
             vec![half::f16::from_f32(4.0), half::f16::from_f32(6.0)],
             vec![2],
         )
         .unwrap();
 
-        let b = <Tensor<half::f16>>::from_vec_metal(
+        let b = <Tensor<half::f16>>::from_vec_gpu(
             &device,
             vec![half::f16::from_f32(2.0), half::f16::from_f32(3.0)],
             vec![2],
         )
         .unwrap();
 
-        let grad_output = <Tensor<half::f16>>::from_vec_metal(
+        let grad_output = <Tensor<half::f16>>::from_vec_gpu(
             &device,
             vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)],
             vec![2],

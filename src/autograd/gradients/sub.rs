@@ -58,7 +58,7 @@ mod tests {
     #[test]
     fn test_sub_backward_same_shape() {
         let device = get_test_device();
-        let grad_output = <Tensor<half::f16>>::from_vec_metal(
+        let grad_output = <Tensor<half::f16>>::from_vec_gpu(
             &device,
             vec![
                 half::f16::from_f32(1.0),

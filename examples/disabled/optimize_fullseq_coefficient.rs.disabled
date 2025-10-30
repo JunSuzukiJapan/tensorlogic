@@ -47,7 +47,7 @@ fn test_coefficient(
     let input_data_f16: Vec<half::f16> = input_data.iter()
         .map(|&x| half::f16::from_f32(x))
         .collect();
-    let input = Tensor::from_vec_metal(device, input_data_f16.clone(), vec![seq_len, hidden_dim]).unwrap();
+    let input = Tensor::from_vec_gpu(device, input_data_f16.clone(), vec![seq_len, hidden_dim]).unwrap();
 
     let mut x = input.clone();
     let (_, _, _, initial_std) = tensor_stats(&x);
@@ -62,7 +62,7 @@ fn test_coefficient(
         let proj_scaled_data: Vec<half::f16> = proj_data.iter()
             .map(|&v| half::f16::from_f32(v.to_f32() * coeff))
             .collect();
-        let proj_scaled = Tensor::from_vec_metal(device, proj_scaled_data, vec![seq_len, hidden_dim]).unwrap();
+        let proj_scaled = Tensor::from_vec_gpu(device, proj_scaled_data, vec![seq_len, hidden_dim]).unwrap();
 
         x = x.add(&proj_scaled).unwrap();
     }

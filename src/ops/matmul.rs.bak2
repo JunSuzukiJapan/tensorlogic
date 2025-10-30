@@ -426,7 +426,7 @@ mod tests {
     fn test_matmul_gpu() {
         let device = MetalDevice::new().unwrap();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(1.0),
@@ -440,7 +440,7 @@ mod tests {
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(1.0),

@@ -145,7 +145,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Keep result on same device as self
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, result_t, self.dims().to_vec()),
             _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
@@ -227,7 +227,7 @@ impl<T: FloatType> Tensor<T> {
         let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, result_t, self.dims().to_vec()),
             _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
@@ -317,7 +317,7 @@ impl<T: FloatType> Tensor<T> {
         let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, result_t, self.dims().to_vec()),
             _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
@@ -407,7 +407,7 @@ impl<T: FloatType> Tensor<T> {
         let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, result_t, self.dims().to_vec()),
             _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
@@ -529,7 +529,7 @@ impl<T: FloatType> Tensor<T> {
             Device::Metal(dev) => dev,
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
-        let exp_tensor = Tensor::<T>::from_vec_metal(device, vec![T::from_f32(exponent)], vec![1])?;
+        let exp_tensor = Tensor::<T>::from_vec_gpu(device, vec![T::from_f32(exponent)], vec![1])?;
         super::helpers::execute_binary_metal_op(self, &exp_tensor, "pow_f16")
     }
 
@@ -700,7 +700,7 @@ impl<T: FloatType> Tensor<T> {
         let result: Vec<T> = data.iter().map(|&x| x + scalar).collect();
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, result, self.dims().to_vec()),
             _ => Tensor::from_vec(result, self.dims().to_vec()),
         }
     }
@@ -764,7 +764,7 @@ impl<T: FloatType> Tensor<T> {
         let result: Vec<T> = data.iter().map(|&x| x - scalar).collect();
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, result, self.dims().to_vec()),
             _ => Tensor::from_vec(result, self.dims().to_vec()),
         }
     }
@@ -838,7 +838,7 @@ impl<T: FloatType> Tensor<T> {
         let result: Vec<T> = data.iter().map(|&x| x * scalar).collect();
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, result, self.dims().to_vec()),
             _ => Tensor::from_vec(result, self.dims().to_vec()),
         }
     }
@@ -902,7 +902,7 @@ impl<T: FloatType> Tensor<T> {
         let result: Vec<T> = data.iter().map(|&x| x / scalar).collect();
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, result, self.dims().to_vec()),
             _ => Tensor::from_vec(result, self.dims().to_vec()),
         }
     }
@@ -921,14 +921,14 @@ mod tests {
     fn test_add_gpu() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
             vec![3],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(4.0), f16::from_f32(5.0), f16::from_f32(6.0)],
             vec![3],
@@ -945,14 +945,14 @@ mod tests {
     fn test_sub_gpu() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(5.0), f16::from_f32(7.0), f16::from_f32(9.0)],
             vec![3],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
             vec![3],
@@ -969,14 +969,14 @@ mod tests {
     fn test_mul_gpu() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)],
             vec![3],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(5.0), f16::from_f32(6.0), f16::from_f32(7.0)],
             vec![3],
@@ -993,14 +993,14 @@ mod tests {
     fn test_div_gpu() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(10.0), f16::from_f32(20.0), f16::from_f32(30.0)],
             vec![3],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(2.0), f16::from_f32(4.0), f16::from_f32(5.0)],
             vec![3],
@@ -1026,7 +1026,7 @@ mod tests {
     #[test]
     fn test_exp() {
         let device = get_test_device();
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(0.0), f16::from_f32(1.0), f16::from_f32(2.0)],
             vec![3],
@@ -1044,7 +1044,7 @@ mod tests {
     #[test]
     fn test_log() {
         let device = get_test_device();
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.718), f16::from_f32(7.389)],
             vec![3],
@@ -1062,7 +1062,7 @@ mod tests {
     #[test]
     fn test_sqrt() {
         let device = get_test_device();
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(4.0), f16::from_f32(9.0)],
             vec![3],
@@ -1077,7 +1077,7 @@ mod tests {
     #[test]
     fn test_pow() {
         let device = get_test_device();
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)],
             vec![3],
@@ -1092,7 +1092,7 @@ mod tests {
     #[test]
     fn test_sin() {
         let device = get_test_device();
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(0.0), f16::from_f32(std::f32::consts::PI / 2.0), f16::from_f32(std::f32::consts::PI)],
             vec![3],
@@ -1110,7 +1110,7 @@ mod tests {
     #[test]
     fn test_cos() {
         let device = get_test_device();
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(0.0), f16::from_f32(std::f32::consts::PI / 2.0), f16::from_f32(std::f32::consts::PI)],
             vec![3],
@@ -1128,7 +1128,7 @@ mod tests {
     #[test]
     fn test_tan() {
         let device = get_test_device();
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(0.0), f16::from_f32(std::f32::consts::PI / 4.0)],
             vec![2],

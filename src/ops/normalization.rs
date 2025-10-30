@@ -241,7 +241,7 @@ impl<T: FloatType> Tensor<T> {
 
         let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal_pooled(dev, output_t, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu_pooled(dev, output_t, self.dims().to_vec()),
             _ => Tensor::from_vec(output_t, self.dims().to_vec()),
         }
     }
@@ -521,7 +521,7 @@ impl<T: FloatType> Tensor<T> {
 
         let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal_pooled(dev, output_t, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu_pooled(dev, output_t, self.dims().to_vec()),
             _ => Tensor::from_vec(output_t, self.dims().to_vec()),
         }
     }
@@ -542,7 +542,7 @@ mod tests {
 
         // Create a simple 2x3 tensor
         let x = match &device {
-            Device::Metal(dev) => Tensor::from_vec_metal(
+            Device::Metal(dev) => Tensor::from_vec_gpu(
                 dev,
                 vec![
                     f16::from_f32(1.0),
@@ -606,7 +606,7 @@ mod tests {
 
         let (x, weight, bias) = match &device {
             Device::Metal(dev) => (
-                Tensor::from_vec_metal(
+                Tensor::from_vec_gpu(
                     dev,
                     vec![
                         f16::from_f32(1.0),
@@ -617,13 +617,13 @@ mod tests {
                     vec![2, 2],
                 )
                 .unwrap(),
-                Tensor::from_vec_metal(
+                Tensor::from_vec_gpu(
                     dev,
                     vec![f16::from_f32(2.0), f16::from_f32(3.0)],
                     vec![2],
                 )
                 .unwrap(),
-                Tensor::from_vec_metal(
+                Tensor::from_vec_gpu(
                     dev,
                     vec![f16::from_f32(0.5), f16::from_f32(1.0)],
                     vec![2],
@@ -676,7 +676,7 @@ mod tests {
         // Test with 3D tensor: [2, 3, 4]
         let data: Vec<f16> = (0..24).map(|i| f16::from_f32(i as f32 / 10.0)).collect();
         let x = match &device {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, data, vec![2, 3, 4]).unwrap(),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, data, vec![2, 3, 4]).unwrap(),
             _ => Tensor::from_vec(data, vec![2, 3, 4]).unwrap(),
         };
 

@@ -200,13 +200,13 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
 
         // Create tensor on specified device
         match device {
-            Device::Metal(metal_device) => Self::from_vec_metal(metal_device, data, shape),
+            Device::Metal(metal_device) => Self::from_vec_gpu(metal_device, data, shape),
             Device::CPU => Self::from_vec(data, shape),
             Device::NeuralEngine => {
                 // NeuralEngine uses Metal backend for tensor storage
                 // We need a Metal device - for now, create a new one
                 let metal = MetalDevice::new()?;
-                Self::from_vec_metal(&metal, data, shape)
+                Self::from_vec_gpu(&metal, data, shape)
             }
         }
     }

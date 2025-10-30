@@ -1,4 +1,4 @@
-// Full 22-Layer Chat Demo with f32
+// Full 22-Layer Chat Demo with f16 (Memory Optimized)
 // Complete implementation using ALL 22 transformer layers
 //
 // PERFORMANCE OPTIMIZATIONS:
@@ -25,18 +25,18 @@
 // - FFN: SwiGLU activation
 // - Context: KV cache for efficient autoregressive generation
 
-fn silu(x: float32[?, ?]) -> float32[?, ?] {
+fn silu(x: float16[?, ?]) -> float16[?, ?] {
     result := x * sigmoid(x)
 }
 
 // SwiGLU Feed-Forward Network
 // All linear() calls use optimized fused transpose-matmul kernel
 fn swiglu_ffn(
-    x: float32[?, ?],
-    W_gate: float32[?, ?],
-    W_up: float32[?, ?],
-    W_down: float32[?, ?]
-) -> float32[?, ?] {
+    x: float16[?, ?],
+    W_gate: float16[?, ?],
+    W_up: float16[?, ?],
+    W_down: float16[?, ?]
+) -> float16[?, ?] {
     let gate = linear(x, W_gate)    // Optimized
     let up = linear(x, W_up)        // Optimized
     let silu_result = silu(gate)
@@ -54,11 +54,11 @@ fn swiglu_ffn(
 
 // Original TL implementation (kept for reference, commented out):
 // fn attention_with_cache(
-//     Q: float32[?, ?],
-//     K_cache: float32[?, ?],
-//     V_cache: float32[?, ?],
-//     W_o: float32[?, ?]
-// ) -> float32[?, ?] {
+//     Q: float16[?, ?],
+//     K_cache: float16[?, ?],
+//     V_cache: float16[?, ?],
+//     W_o: float16[?, ?]
+// ) -> float16[?, ?] {
 //     let Q_shape = shape(Q)
 //     let seq_len_f = Q_shape[0]
 //     let K_shape = shape(K_cache)
@@ -93,19 +93,19 @@ fn swiglu_ffn(
 // The builtin handles GQA expansion automatically
 
 fn transformer_layer(
-    x: float32[?, ?],
-    W_attn_norm: float32[?],
-    W_q: float32[?, ?],
-    W_k: float32[?, ?],
-    W_v: float32[?, ?],
-    W_o: float32[?, ?],
-    W_ffn_norm: float32[?],
-    W_gate: float32[?, ?],
-    W_up: float32[?, ?],
-    W_down: float32[?, ?],
-    K_cache: float32[?, ?],
-    V_cache: float32[?, ?]
-) -> float32[?, ?] {
+    x: float16[?, ?],
+    W_attn_norm: float16[?],
+    W_q: float16[?, ?],
+    W_k: float16[?, ?],
+    W_v: float16[?, ?],
+    W_o: float16[?, ?],
+    W_ffn_norm: float16[?],
+    W_gate: float16[?, ?],
+    W_up: float16[?, ?],
+    W_down: float16[?, ?],
+    K_cache: float16[?, ?],
+    V_cache: float16[?, ?]
+) -> float16[?, ?] {
     let normed = rms_norm(x, W_attn_norm)
     let Q = linear(normed, W_q)
     let attn_out = attention_with_cache(Q, K_cache, V_cache, W_o)
@@ -123,7 +123,7 @@ main {
 
     print("[1/3] Loading model (ALL 22 layers)...")
     let home = env("HOME")
-    let model = load_model_f32(home + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf")
+    let model = load_model_f16(home + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf")
     let tokenizer = load_tokenizer(home + "/.llm/tokenizers/tinyllama-tokenizer.json")
 
     let tok_embd = model.token_embd.weight

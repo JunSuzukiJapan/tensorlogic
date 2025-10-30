@@ -1,10 +1,18 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cargo fmt:*)",
-      "Bash(git checkout:*)",
-      "Bash(python3:*)",
-      "Bash(time timeout 45 ./target/release/tl run:*)"
+      "SlashCommand(/sc:design:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo run:*)",
+      "Bash(timeout 30 ./target/release/tl run:*)",
+      "Bash(echo:*)",
+      "Bash(timeout 60 ./target/release/tl run:*)",
+      "Bash(timeout 10 cargo run:*)",
+      "Bash(./target/release/examples/check_gguf_types:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git restore:*)",
+      "Bash(git reset:*)"
     ],
     "deny": [],
     "ask": []

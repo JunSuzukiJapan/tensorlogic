@@ -257,7 +257,7 @@ mod tests {
     fn test_broadcast_gpu() {
         let device = MetalDevice::new().unwrap();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(1.0),

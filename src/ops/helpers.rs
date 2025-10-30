@@ -84,7 +84,7 @@ where
     let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
     match tensor.device() {
-        Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, tensor.dims().to_vec()),
+        Device::Metal(dev) => Tensor::from_vec_gpu(dev, result_t, tensor.dims().to_vec()),
         _ => Tensor::from_vec(result_t, tensor.dims().to_vec()),
     }
 }
@@ -191,7 +191,7 @@ where
         .collect();
 
     match tensor.device() {
-        Device::Metal(dev) => Tensor::from_vec_metal(dev, result, tensor.dims().to_vec()),
+        Device::Metal(dev) => Tensor::from_vec_gpu(dev, result, tensor.dims().to_vec()),
         _ => Tensor::from_vec(result, tensor.dims().to_vec()),
     }
 }

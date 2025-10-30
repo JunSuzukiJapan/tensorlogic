@@ -41,11 +41,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input_data_f16: Vec<half::f16> = input_data.iter()
         .map(|&x| half::f16::from_f32(x))
         .collect();
-    let input = Tensor::from_vec_metal(&device, input_data_f16.clone(), vec![1, hidden_dim])?;
+    let input = Tensor::from_vec_gpu(&device, input_data_f16.clone(), vec![1, hidden_dim])?;
 
     // Create weights
     let norm_weight_data: Vec<half::f16> = vec![half::f16::from_f32(1.0); hidden_dim];
-    let norm_weight = Tensor::from_vec_metal(&device, norm_weight_data, vec![hidden_dim])?;
+    let norm_weight = Tensor::from_vec_gpu(&device, norm_weight_data, vec![hidden_dim])?;
 
     let weight_data: Vec<f32> = (0..(hidden_dim * hidden_dim))
         .map(|i| ((i as f32 * 0.001) % 1.0 - 0.5) * 0.01)
@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let weight_data_f16: Vec<half::f16> = weight_data.iter()
         .map(|&x| half::f16::from_f32(x))
         .collect();
-    let weight = Tensor::from_vec_metal(&device, weight_data_f16, vec![hidden_dim, hidden_dim])?;
+    let weight = Tensor::from_vec_gpu(&device, weight_data_f16, vec![hidden_dim, hidden_dim])?;
 
     println!("Testing 3 different residual scaling strategies:");
     println!();
@@ -93,7 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let proj_scaled_data: Vec<half::f16> = proj_data.iter()
             .map(|&v| half::f16::from_f32(v.to_f32() * scale2))
             .collect();
-        let proj_scaled = Tensor::from_vec_metal(&device, proj_scaled_data, vec![1, hidden_dim])?;
+        let proj_scaled = Tensor::from_vec_gpu(&device, proj_scaled_data, vec![1, hidden_dim])?;
 
         x2 = x2.add(&proj_scaled)?;
 
@@ -122,7 +122,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let proj_scaled_data: Vec<half::f16> = proj_data.iter()
             .map(|&v| half::f16::from_f32(v.to_f32() * scale3))
             .collect();
-        let proj_scaled = Tensor::from_vec_metal(&device, proj_scaled_data, vec![1, hidden_dim])?;
+        let proj_scaled = Tensor::from_vec_gpu(&device, proj_scaled_data, vec![1, hidden_dim])?;
 
         x3 = x3.add(&proj_scaled)?;
 

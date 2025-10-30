@@ -32,7 +32,7 @@ fn numerical_gradient(
         let mut x_plus = x_data.clone();
         x_plus[i] = half::f16::from_f32(x_plus[i].to_f32() + eps);
         let x_plus_tensor = match x.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, x_plus, x.dims().to_vec()).unwrap(),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, x_plus, x.dims().to_vec()).unwrap(),
             _ => Tensor::from_vec(x_plus, x.dims().to_vec()).unwrap(),
         };
         let f_plus = f(&x_plus_tensor).to_vec()[0].to_f32();
@@ -41,7 +41,7 @@ fn numerical_gradient(
         let mut x_minus = x_data.clone();
         x_minus[i] = half::f16::from_f32(x_minus[i].to_f32() - eps);
         let x_minus_tensor = match x.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, x_minus, x.dims().to_vec()).unwrap(),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, x_minus, x.dims().to_vec()).unwrap(),
             _ => Tensor::from_vec(x_minus, x.dims().to_vec()).unwrap(),
         };
         let f_minus = f(&x_minus_tensor).to_vec()[0].to_f32();
@@ -51,7 +51,7 @@ fn numerical_gradient(
     }
 
     match x.device() {
-        Device::Metal(dev) => Tensor::from_vec_metal(dev, grad_data, x.dims().to_vec()).unwrap(),
+        Device::Metal(dev) => Tensor::from_vec_gpu(dev, grad_data, x.dims().to_vec()).unwrap(),
         _ => Tensor::from_vec(grad_data, x.dims().to_vec()).unwrap(),
     }
 }
@@ -61,7 +61,7 @@ fn test_exp_backward() {
     let device = get_test_device();
     let x = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(dev, vec![half::f16::from_f32(1.0), half::f16::from_f32(2.0)], vec![2]).unwrap()
+            Tensor::from_vec_gpu(dev, vec![half::f16::from_f32(1.0), half::f16::from_f32(2.0)], vec![2]).unwrap()
         }
         _ => Tensor::from_vec(vec![half::f16::from_f32(1.0), half::f16::from_f32(2.0)], vec![2]).unwrap(),
     };
@@ -72,7 +72,7 @@ fn test_exp_backward() {
     // Backward
     let grad_output = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(dev, vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap()
+            Tensor::from_vec_gpu(dev, vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap()
         }
         _ => Tensor::from_vec(vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap(),
     };
@@ -92,14 +92,14 @@ fn test_log_backward() {
     let device = get_test_device();
     let x = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(dev, vec![half::f16::from_f32(2.0), half::f16::from_f32(4.0)], vec![2]).unwrap()
+            Tensor::from_vec_gpu(dev, vec![half::f16::from_f32(2.0), half::f16::from_f32(4.0)], vec![2]).unwrap()
         }
         _ => Tensor::from_vec(vec![half::f16::from_f32(2.0), half::f16::from_f32(4.0)], vec![2]).unwrap(),
     };
 
     let grad_output = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(dev, vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap()
+            Tensor::from_vec_gpu(dev, vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap()
         }
         _ => Tensor::from_vec(vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap(),
     };
@@ -118,7 +118,7 @@ fn test_sqrt_backward() {
     let device = get_test_device();
     let x = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(dev, vec![half::f16::from_f32(4.0), half::f16::from_f32(9.0)], vec![2]).unwrap()
+            Tensor::from_vec_gpu(dev, vec![half::f16::from_f32(4.0), half::f16::from_f32(9.0)], vec![2]).unwrap()
         }
         _ => Tensor::from_vec(vec![half::f16::from_f32(4.0), half::f16::from_f32(9.0)], vec![2]).unwrap(),
     };
@@ -127,7 +127,7 @@ fn test_sqrt_backward() {
 
     let grad_output = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(dev, vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap()
+            Tensor::from_vec_gpu(dev, vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap()
         }
         _ => Tensor::from_vec(vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap(),
     };
@@ -149,14 +149,14 @@ fn test_pow_backward() {
     let device = get_test_device();
     let x = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(dev, vec![half::f16::from_f32(2.0), half::f16::from_f32(3.0)], vec![2]).unwrap()
+            Tensor::from_vec_gpu(dev, vec![half::f16::from_f32(2.0), half::f16::from_f32(3.0)], vec![2]).unwrap()
         }
         _ => Tensor::from_vec(vec![half::f16::from_f32(2.0), half::f16::from_f32(3.0)], vec![2]).unwrap(),
     };
 
     let grad_output = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(dev, vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap()
+            Tensor::from_vec_gpu(dev, vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap()
         }
         _ => Tensor::from_vec(vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap(),
     };
@@ -176,14 +176,14 @@ fn test_sin_backward() {
     let device = get_test_device();
     let x = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(dev, vec![half::f16::from_f32(0.0), half::f16::from_f32(std::f32::consts::PI / 2.0)], vec![2]).unwrap()
+            Tensor::from_vec_gpu(dev, vec![half::f16::from_f32(0.0), half::f16::from_f32(std::f32::consts::PI / 2.0)], vec![2]).unwrap()
         }
         _ => Tensor::from_vec(vec![half::f16::from_f32(0.0), half::f16::from_f32(std::f32::consts::PI / 2.0)], vec![2]).unwrap(),
     };
 
     let grad_output = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(dev, vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap()
+            Tensor::from_vec_gpu(dev, vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap()
         }
         _ => Tensor::from_vec(vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap(),
     };
@@ -202,14 +202,14 @@ fn test_cos_backward() {
     let device = get_test_device();
     let x = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(dev, vec![half::f16::from_f32(0.0), half::f16::from_f32(std::f32::consts::PI)], vec![2]).unwrap()
+            Tensor::from_vec_gpu(dev, vec![half::f16::from_f32(0.0), half::f16::from_f32(std::f32::consts::PI)], vec![2]).unwrap()
         }
         _ => Tensor::from_vec(vec![half::f16::from_f32(0.0), half::f16::from_f32(std::f32::consts::PI)], vec![2]).unwrap(),
     };
 
     let grad_output = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(dev, vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap()
+            Tensor::from_vec_gpu(dev, vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap()
         }
         _ => Tensor::from_vec(vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)], vec![2]).unwrap(),
     };
@@ -228,7 +228,7 @@ fn test_sigmoid_backward() {
     let device = get_test_device();
     let x = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(dev, vec![half::f16::from_f32(0.0)], vec![1]).unwrap()
+            Tensor::from_vec_gpu(dev, vec![half::f16::from_f32(0.0)], vec![1]).unwrap()
         }
         _ => Tensor::from_vec(vec![half::f16::from_f32(0.0)], vec![1]).unwrap(),
     };
@@ -237,7 +237,7 @@ fn test_sigmoid_backward() {
 
     let grad_output = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(dev, vec![half::f16::from_f32(1.0)], vec![1]).unwrap()
+            Tensor::from_vec_gpu(dev, vec![half::f16::from_f32(1.0)], vec![1]).unwrap()
         }
         _ => Tensor::from_vec(vec![half::f16::from_f32(1.0)], vec![1]).unwrap(),
     };
@@ -255,7 +255,7 @@ fn test_tanh_backward() {
     let device = get_test_device();
     let x = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(dev, vec![half::f16::from_f32(0.0)], vec![1]).unwrap()
+            Tensor::from_vec_gpu(dev, vec![half::f16::from_f32(0.0)], vec![1]).unwrap()
         }
         _ => Tensor::from_vec(vec![half::f16::from_f32(0.0)], vec![1]).unwrap(),
     };
@@ -264,7 +264,7 @@ fn test_tanh_backward() {
 
     let grad_output = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(dev, vec![half::f16::from_f32(1.0)], vec![1]).unwrap()
+            Tensor::from_vec_gpu(dev, vec![half::f16::from_f32(1.0)], vec![1]).unwrap()
         }
         _ => Tensor::from_vec(vec![half::f16::from_f32(1.0)], vec![1]).unwrap(),
     };
@@ -285,7 +285,7 @@ fn test_transpose_backward() {
     let device = get_test_device();
     let grad_output = match &device {
         Device::Metal(dev) => {
-            Tensor::from_vec_metal(
+            Tensor::from_vec_gpu(
                 dev,
                 vec![half::f16::from_f32(1.0), half::f16::from_f32(2.0), half::f16::from_f32(3.0), half::f16::from_f32(4.0)],
                 vec![2, 2],

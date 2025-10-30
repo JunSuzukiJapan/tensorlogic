@@ -25,7 +25,7 @@ fn main() {
     let cpu_result = softmax_cpu(&cpu_input, &[2, 5], 1);
 
     // GPU softmax (Metal)
-    let tensor = Tensor::from_vec_metal(&device, gpu_input, vec![2, 5])
+    let tensor = Tensor::from_vec_gpu(&device, gpu_input, vec![2, 5])
         .expect("Failed to create tensor");
     let gpu_tensor = tensor.softmax()
         .expect("Failed to run GPU softmax");
@@ -71,7 +71,7 @@ fn main() {
 
     let cpu_result2 = softmax_cpu(&cpu_input2, &[1, seq_len], 1);
 
-    let tensor2 = Tensor::from_vec_metal(&device, gpu_input2, vec![1, seq_len])
+    let tensor2 = Tensor::from_vec_gpu(&device, gpu_input2, vec![1, seq_len])
         .expect("Failed to create tensor");
     let gpu_tensor2 = tensor2.softmax()
         .expect("Failed to run GPU softmax");

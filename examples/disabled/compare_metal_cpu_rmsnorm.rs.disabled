@@ -36,9 +36,9 @@ fn main() {
     let input1_f16: Vec<_> = input1.iter().map(|&x| half::f16::from_f32(x)).collect();
     let weight1_f16: Vec<_> = weight1.iter().map(|&x| half::f16::from_f32(x)).collect();
 
-    let gpu_input = Tensor::from_vec_metal(&device, input1_f16, vec![1, 8])
+    let gpu_input = Tensor::from_vec_gpu(&device, input1_f16, vec![1, 8])
         .expect("Failed to create GPU input");
-    let gpu_weight = Tensor::from_vec_metal(&device, weight1_f16, vec![8])
+    let gpu_weight = Tensor::from_vec_gpu(&device, weight1_f16, vec![8])
         .expect("Failed to create GPU weight");
 
     let gpu_result_tensor = gpu_input.rms_norm(vec![8], &gpu_weight, 1e-6)
@@ -78,9 +78,9 @@ fn main() {
     let input2_f16: Vec<_> = input2.iter().map(|&x| half::f16::from_f32(x)).collect();
     let weight2_f16: Vec<_> = weight2.iter().map(|&x| half::f16::from_f32(x)).collect();
 
-    let gpu_input = Tensor::from_vec_metal(&device, input2_f16, vec![1, 2048])
+    let gpu_input = Tensor::from_vec_gpu(&device, input2_f16, vec![1, 2048])
         .expect("Failed to create GPU input");
-    let gpu_weight = Tensor::from_vec_metal(&device, weight2_f16, vec![2048])
+    let gpu_weight = Tensor::from_vec_gpu(&device, weight2_f16, vec![2048])
         .expect("Failed to create GPU weight");
 
     let gpu_result_tensor = gpu_input.rms_norm(vec![2048], &gpu_weight, 1e-6)
@@ -119,9 +119,9 @@ fn main() {
     let input3_f16: Vec<_> = input3.iter().map(|&x| half::f16::from_f32(x)).collect();
     let weight3_f16: Vec<_> = weight3.iter().map(|&x| half::f16::from_f32(x)).collect();
 
-    let gpu_input = Tensor::from_vec_metal(&device, input3_f16, vec![1, 2048])
+    let gpu_input = Tensor::from_vec_gpu(&device, input3_f16, vec![1, 2048])
         .expect("Failed to create GPU input");
-    let gpu_weight = Tensor::from_vec_metal(&device, weight3_f16, vec![2048])
+    let gpu_weight = Tensor::from_vec_gpu(&device, weight3_f16, vec![2048])
         .expect("Failed to create GPU weight");
 
     let gpu_result_tensor = gpu_input.rms_norm(vec![2048], &gpu_weight, 1e-6)
