@@ -131,12 +131,6 @@ impl<T: FloatType> Tensor<T> {
         // Select optimal kernel based on matrix size and type
         // Optimized for transformer inference patterns
         let suffix = T::kernel_suffix();
-
-        // DEBUG: Panic if f16 kernel selected (remove after f32 verification)
-        if suffix == "_f16" {
-            panic!("src/ops/matmul.rs:135: f16 kernel selected");
-        }
-
         // Dynamic tile size selection optimized for transformer workloads
         // Key insights:
         // 1. Batch size 1 inference (m=1): use tiled kernels for large K/N

@@ -87,12 +87,6 @@ impl<T: FloatType> Tensor<T> {
             .ok_or_else(|| TensorError::MetalError("No shader library loaded".to_string()))?;
 
         let suffix = T::kernel_suffix();
-
-        // DEBUG: Panic if f16 kernel selected
-        if suffix == "_f16" {
-            panic!("src/ops/rope.rs:92: f16 kernel selected for rope");
-        }
-
         let kernel_name = format!("rope{}", suffix);
         let function = library
             .get_function(&kernel_name, None)

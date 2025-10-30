@@ -389,9 +389,25 @@ impl GGUFLoader {
                         _ => return Err(TensorError::InvalidOperation("Unexpected tensor data type".to_string())),
                     };
 
+                    // Debug: Show first bytes for token_embd
+                    if tensor_info.name.contains("token_embd") {
+                        eprintln!("  F32 loader: '{}' reading {} bytes", tensor_info.name, bytes.len());
+                        eprintln!("    First 32 bytes: {:02x?}", &bytes[..32.min(bytes.len())]);
+                    }
+
                     // Dequantize Q4_0 to f16
                     let num_elements: usize = shape.iter().product();
-                    Self::dequantize_q4_0(bytes, num_elements)
+                    let f16_result = Self::dequantize_q4_0(bytes, num_elements);
+
+                    // Debug: Show first dequantized values
+                    if tensor_info.name.contains("token_embd") {
+                        eprintln!("    First 10 dequantized f16 values:");
+                        for i in 0..10.min(f16_result.len()) {
+                            eprintln!("      [{}]: {}", i, f16_result[i].to_f32());
+                        }
+                    }
+
+                    f16_result
                 }
                 GGUFTensorType::Q6_K => {
                     quantization_type = QuantizationType::Q6;
@@ -522,8 +538,27 @@ impl GGUFLoader {
                         gguf_rs_lib::tensor::TensorData::Shared(ref arc) => arc.as_slice(),
                         _ => return Err(TensorError::InvalidOperation("Unexpected tensor data type".to_string())),
                     };
+
+                    // Debug: Show first bytes for token_embd
+                    if tensor_info.name.contains("token_embd") {
+                        eprintln!("  F32 loader (load_f32): '{}' reading {} bytes", tensor_info.name, bytes.len());
+                        eprintln!("    First 32 bytes: {:02x?}", &bytes[..32.min(bytes.len())]);
+                    }
+
                     let num_elements: usize = shape.iter().product();
-                    Self::dequantize_q4_0(bytes, num_elements).iter().map(|&x| x.to_f32()).collect()
+                    let f16_values = Self::dequantize_q4_0(bytes, num_elements);
+
+                    // Debug: Show first dequantized values
+                    if tensor_info.name.contains("token_embd") {
+                        eprintln!("    First 10 dequantized f16 values (load_f32):");
+                        for i in 0..10.min(f16_values.len()) {
+                            eprintln!("      [{}]: {}", i, f16_values[i].to_f32());
+                        }
+                        eprintln!("    Creating tensor with shape: {:?}", shape);
+                        eprintln!("    Total elements: {} (expected: {})", f16_values.len(), shape.iter().product::<usize>());
+                    }
+
+                    f16_values.iter().map(|&x| x.to_f32()).collect()
                 }
                 GGUFTensorType::Q6_K => {
                     quantization_type = QuantizationType::Q6;

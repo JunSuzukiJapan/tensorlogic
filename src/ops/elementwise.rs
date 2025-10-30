@@ -105,12 +105,6 @@ impl<T: FloatType> Tensor<T> {
         // Create local executor for this operation
         let mut executor = crate::device::KernelExecutor::new(device);
         let suffix = T::kernel_suffix();
-
-        // DEBUG: Panic if f16 kernel selected
-        if suffix == "_f16" {
-            panic!("src/ops/elementwise.rs:110: f16 kernel selected for add");
-        }
-
         let kernel_name = format!("add{}", suffix);
         executor.execute_binary_op(&kernel_name, a_buf_f16, b_buf_f16, &result_buf)?;
 
@@ -283,12 +277,6 @@ impl<T: FloatType> Tensor<T> {
         let a_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(a_buf) };
         let b_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(b_buf) };
         let suffix = T::kernel_suffix();
-
-        // DEBUG: Panic if f16 kernel selected
-        if suffix == "_f16" {
-            panic!("src/ops/elementwise.rs:278: f16 kernel selected for mul");
-        }
-
         let kernel_name = format!("mul{}", suffix);
         executor.execute_binary_op(&kernel_name, a_buf_f16, b_buf_f16, &result_buf)?;
 
@@ -373,12 +361,6 @@ impl<T: FloatType> Tensor<T> {
         let a_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(a_buf) };
         let b_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(b_buf) };
         let suffix = T::kernel_suffix();
-
-        // DEBUG: Panic if f16 kernel selected
-        if suffix == "_f16" {
-            panic!("src/ops/elementwise.rs:363: f16 kernel selected for div");
-        }
-
         let kernel_name = format!("div{}", suffix);
         executor.execute_binary_op(&kernel_name, a_buf_f16, b_buf_f16, &result_buf)?;
 

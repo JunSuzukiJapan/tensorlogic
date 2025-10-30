@@ -3,7 +3,10 @@
 use crate::device::{BufferPool, Commands};
 use crate::error::{TensorError, TensorResult};
 use metal::{Device as MTLDevice, CommandQueue, Library};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
+
+/// Global Metal device instance (singleton)
+static GLOBAL_METAL_DEVICE: OnceLock<Arc<Mutex<MetalDevice>>> = OnceLock::new();
 
 /// Metal GPU device wrapper
 #[derive(Clone)]
@@ -27,8 +30,20 @@ impl std::fmt::Debug for MetalDevice {
 }
 
 impl MetalDevice {
-    /// Create a new Metal device (uses default GPU)
+    /// Get or create the global Metal device (singleton)
+    /// All MetalDevice::new() calls return a clone of the same underlying device
     pub fn new() -> TensorResult<Self> {
+        let device_arc = GLOBAL_METAL_DEVICE.get_or_init(|| {
+            let device = Self::create_device().expect("Failed to initialize global Metal device");
+            Arc::new(Mutex::new(device))
+        });
+
+        let device = device_arc.lock().unwrap().clone();
+        Ok(device)
+    }
+
+    /// Create a new Metal device instance (internal use only)
+    fn create_device() -> TensorResult<Self> {
         let device = MTLDevice::system_default()
             .ok_or_else(|| TensorError::MetalError("No Metal device found".to_string()))?;
 
@@ -41,13 +56,19 @@ impl MetalDevice {
         // Create Commands manager for efficient batching
         let commands = Commands::new(command_queue.clone())?;
 
-        Ok(Self {
+        let mut metal_device = Self {
             device: Arc::new(device),
             command_queue,
             library: None,
             buffer_pool,
             commands: Arc::new(Mutex::new(commands)),
-        })
+        };
+
+        // Load unified shader library once during initialization
+        let shader_source = include_str!("../../shaders/unified.metal");
+        metal_device.load_library(shader_source)?;
+
+        Ok(metal_device)
     }
 
     /// Create Metal device with specific device

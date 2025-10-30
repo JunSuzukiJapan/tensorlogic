@@ -168,12 +168,14 @@ impl MmapGGUFLoader {
                 format!("Tensor '{}' not found in {}", name, self.file_path)
             ))?;
 
+        // info.offset is relative to tensor data section start (data_offset)
         let start = (self.data_offset + info.offset) as usize;
         let end = start + info.size_bytes;
 
         if end > self.mmap.len() {
             return Err(TensorError::InvalidOperation(
-                format!("Tensor '{}' exceeds file bounds", name)
+                format!("Tensor '{}' exceeds file bounds: start={}, end={}, mmap_len={}",
+                    name, start, end, self.mmap.len())
             ));
         }
 
@@ -215,7 +217,6 @@ impl MmapGGUFLoader {
 
         // Parse tensor infos
         let mut tensor_infos = HashMap::new();
-        let mut current_offset = 0u64;
 
         for _ in 0..tensor_count {
             let name = Self::read_string(mmap, cursor, version)?;
@@ -230,25 +231,34 @@ impl MmapGGUFLoader {
             let gguf_type_raw = Self::read_u32(mmap, cursor)?;
             let gguf_type = GGUFTensorType::from_u32(gguf_type_raw)?;
 
-            let _tensor_offset = Self::read_u64(mmap, cursor)?; // Not used with mmap
+            let tensor_offset = Self::read_u64(mmap, cursor)?;
 
             // Calculate tensor size
             let num_elements: usize = shape.iter().product();
             let size_bytes = Self::calculate_tensor_size(num_elements, gguf_type);
 
+            // Debug: Show offset for token_embd
+            if name.contains("token_embd") || name.contains("blk.0.attn_q") {
+                eprintln!("  DEBUG tensor '{}': offset={}, size={} bytes, type={:?}, shape={:?}",
+                    name, tensor_offset, size_bytes, gguf_type, shape);
+            }
+
             tensor_infos.insert(name.clone(), TensorInfo {
                 name,
                 shape,
                 gguf_type,
-                offset: current_offset,
+                offset: tensor_offset, // Offset relative to tensor data section
                 size_bytes,
             });
-
-            current_offset += size_bytes as u64;
         }
 
         // Align data offset to DEFAULT_ALIGNMENT (32 bytes)
         let data_offset = (*cursor as u64 + 31) & !31;
+
+        eprintln!("DEBUG GGUF header parsing:");
+        eprintln!("  cursor (end of header): {}", cursor);
+        eprintln!("  data_offset (aligned): {}", data_offset);
+        eprintln!("  tensor_count: {}", tensor_count);
 
         let metadata = GGUFMetadata {
             version,
@@ -366,10 +376,11 @@ impl MmapGGUFLoader {
     }
 
     /// Q4_0 → f16 dequantization (CPU)
+    /// Matches llama.cpp implementation exactly
     pub fn dequantize_q4_0_to_f16(data: &[u8], num_elements: usize) -> Vec<half::f16> {
         const QK4_0: usize = 32; // Block size
         let num_blocks = num_elements / QK4_0;
-        let mut output = Vec::with_capacity(num_elements);
+        let mut output = vec![half::f16::ZERO; num_elements];
 
         for block_idx in 0..num_blocks {
             let block_start = block_idx * 18; // 18 bytes per Q4_0 block
@@ -377,18 +388,22 @@ impl MmapGGUFLoader {
             // Read scale (f16)
             let scale_bytes = &data[block_start..block_start + 2];
             let scale = half::f16::from_le_bytes([scale_bytes[0], scale_bytes[1]]);
+            let scale_f32 = scale.to_f32();
 
             // Read quantized values (16 bytes = 32 nibbles)
             let quant_bytes = &data[block_start + 2..block_start + 18];
 
-            for byte in quant_bytes {
-                // Low nibble
-                let q_low = (byte & 0x0F) as i8 - 8;
-                output.push(half::f16::from_f32(q_low as f32) * scale);
+            let base_offset = block_idx * QK4_0;
 
-                // High nibble
-                let q_high = ((byte >> 4) & 0x0F) as i8 - 8;
-                output.push(half::f16::from_f32(q_high as f32) * scale);
+            // Match old loader exactly: cast to i8, compute in f32, then convert to f16
+            for j in 0..16 {
+                // Low nibble (first half of block)
+                let x0 = ((quant_bytes[j] & 0x0F) as i8 - 8) as f32;
+                output[base_offset + j] = half::f16::from_f32(x0 * scale_f32);
+
+                // High nibble (second half of block)
+                let x1 = ((quant_bytes[j] >> 4) as i8 - 8) as f32;
+                output[base_offset + j + 16] = half::f16::from_f32(x1 * scale_f32);
             }
         }
 
@@ -432,80 +447,100 @@ impl MmapGGUFLoader {
     /// 
     /// Actually: scales are combined d (f16) + dmin (f16)
     /// Real structure from llama.cpp:
-    /// - ql[128]: Lower 4 bits of quantized data
-    /// - qh[64]: Upper 2 bits of quantized data  
-    /// - scales[8]: f16 scales
-    /// - d: f16 scale
+    /// - ql[128]: Lower 4 bits of quantized data (bytes 0-127)
+    /// - qh[64]: Upper 2 bits of quantized data (bytes 128-191)
+    /// - scales[16]: int8 scales (bytes 192-207)
+    /// - d: f16 main scale (bytes 208-209)
     pub fn dequantize_q6_k_to_f16(data: &[u8], num_elements: usize) -> Vec<half::f16> {
         const QK_K: usize = 256;
         const BLOCK_SIZE: usize = 210; // 128 + 64 + 16 + 2 = 210 bytes
-        
+
         let num_blocks = (num_elements + QK_K - 1) / QK_K;
-        let mut output = Vec::with_capacity(num_elements);
+        let mut output = vec![half::f16::ZERO; num_elements];
 
         for block_idx in 0..num_blocks {
             let block_start = block_idx * BLOCK_SIZE;
             if block_start + BLOCK_SIZE > data.len() {
-                // Pad with zeros if incomplete block
-                while output.len() < num_elements {
-                    output.push(half::f16::ZERO);
-                }
                 break;
             }
 
             // Q6_K block layout (210 bytes):
             // - ql[128]: lower 4 bits (bytes 0-127)
             // - qh[64]: upper 2 bits (bytes 128-191)
-            // - scales[8]: int8 scales (bytes 192-199)
-            // - d: f16 (bytes 200-201)
-            
+            // - scales[16]: int8 scales (bytes 192-207)
+            // - d: f16 (bytes 208-209)
+
             let ql = &data[block_start..block_start + 128];
             let qh = &data[block_start + 128..block_start + 192];
-            let scales = &data[block_start + 192..block_start + 200];
-            
+            let scales = &data[block_start + 192..block_start + 208];
+
             // Read d scale (f16)
             let d = half::f16::from_le_bytes([
-                data[block_start + 200],
-                data[block_start + 201]
+                data[block_start + 208],
+                data[block_start + 209]
             ]);
+            let d_f32 = d.to_f32();
 
-            // Dequantize 256 elements
-            for i in 0..QK_K {
-                if output.len() >= num_elements {
-                    break;
+            // Convert scales from int8 to i8
+            let scales_i8: Vec<i8> = scales.iter().map(|&b| b as i8).collect();
+
+            let base_idx = block_idx * QK_K;
+
+            // Process 2 groups of 128 values each (total 256)
+            // Following llama.cpp dequantize_row_q6_K exactly
+            let mut ql_offset = 0;
+            let mut qh_offset = 0;
+            let mut sc_offset = 0;
+
+            for n in (0..QK_K).step_by(128) {
+                // Process 32 iterations, each producing 4 values (total 128)
+                for l in 0..32 {
+                    let out_base = base_idx + n + l;
+                    if out_base >= num_elements {
+                        break;
+                    }
+
+                    let is = l / 16;  // Scale index within current group: 0 or 1
+
+                    // Reconstruct 4 6-bit values from ql and qh
+                    // q1: ql[l+0] lower 4 bits + qh[l] bits 0-1
+                    let q1 = ((ql[ql_offset + l] & 0xF) | (((qh[qh_offset + l] >> 0) & 0x3) << 4)) as i8 - 32;
+
+                    // q2: ql[l+32] lower 4 bits + qh[l] bits 2-3
+                    let q2 = ((ql[ql_offset + l + 32] & 0xF) | (((qh[qh_offset + l] >> 2) & 0x3) << 4)) as i8 - 32;
+
+                    // q3: ql[l+0] upper 4 bits + qh[l] bits 4-5
+                    let q3 = ((ql[ql_offset + l] >> 4) | (((qh[qh_offset + l] >> 4) & 0x3) << 4)) as i8 - 32;
+
+                    // q4: ql[l+32] upper 4 bits + qh[l] bits 6-7
+                    let q4 = ((ql[ql_offset + l + 32] >> 4) | (((qh[qh_offset + l] >> 6) & 0x3) << 4)) as i8 - 32;
+
+                    // Write 4 values with corresponding scales
+                    // y[l + 0] = d * sc[is + 0] * q1
+                    if out_base + 0 < num_elements {
+                        output[out_base + 0] = half::f16::from_f32(d_f32 * scales_i8[sc_offset + is + 0] as f32 * q1 as f32);
+                    }
+                    // y[l + 32] = d * sc[is + 2] * q2
+                    if out_base + 32 < num_elements {
+                        output[out_base + 32] = half::f16::from_f32(d_f32 * scales_i8[sc_offset + is + 2] as f32 * q2 as f32);
+                    }
+                    // y[l + 64] = d * sc[is + 4] * q3
+                    if out_base + 64 < num_elements {
+                        output[out_base + 64] = half::f16::from_f32(d_f32 * scales_i8[sc_offset + is + 4] as f32 * q3 as f32);
+                    }
+                    // y[l + 96] = d * sc[is + 6] * q4
+                    if out_base + 96 < num_elements {
+                        output[out_base + 96] = half::f16::from_f32(d_f32 * scales_i8[sc_offset + is + 6] as f32 * q4 as f32);
+                    }
                 }
 
-                // Get 6-bit quantized value
-                // Lower 4 bits from ql
-                let ql_idx = i / 2;
-                let q_low = if i % 2 == 0 {
-                    ql[ql_idx] & 0x0F
-                } else {
-                    (ql[ql_idx] >> 4) & 0x0F
-                };
-
-                // Upper 2 bits from qh
-                let qh_idx = i / 4;
-                let qh_shift = (i % 4) * 2;
-                let q_high = (qh[qh_idx] >> qh_shift) & 0x03;
-
-                // Combine to 6-bit value (0-63)
-                let q = ((q_high as i32) << 4) | (q_low as i32);
-
-                // Get scale for this group of 32 elements
-                let scale_idx = i / 32;
-                let scale_i8 = scales[scale_idx] as i8;
-                let scale = half::f16::from_f32(scale_i8 as f32);
-
-                // Dequantize: (q - 32) * scale * d
-                let q_centered = q - 32;
-                let value = half::f16::from_f32(q_centered as f32) * scale * d;
-                
-                output.push(value);
+                // Advance pointers for next 128-element group
+                ql_offset += 64;
+                qh_offset += 32;
+                sc_offset += 8;
             }
         }
 
-        output.truncate(num_elements);
         output
     }
 
@@ -525,6 +560,13 @@ impl MmapGGUFLoader {
 
         // Get quantized data (zero-copy from mmap)
         let quantized_data = self.get_tensor_data(name)?;
+
+        // Debug: Show first bytes of token_embd
+        if name.contains("token_embd") {
+            eprintln!("  DEBUG loading '{}': file_offset={}, reading {} bytes",
+                name, self.data_offset + info.offset, quantized_data.len());
+            eprintln!("    First 32 bytes: {:02x?}", &quantized_data[..32.min(quantized_data.len())]);
+        }
 
         // Dequantize to f16 based on type
         let f16_data: Vec<half::f16> = match info.gguf_type {
@@ -563,6 +605,16 @@ impl MmapGGUFLoader {
             )),
         };
 
+        // Debug: Show first dequantized values for token_embd
+        if name.contains("token_embd") {
+            eprintln!("    First 10 dequantized f16 values:");
+            for i in 0..10.min(f16_data.len()) {
+                eprintln!("      [{}]: {}", i, f16_data[i].to_f32());
+            }
+            eprintln!("    Creating tensor with shape: {:?}", info.shape);
+            eprintln!("    Total elements: {} (expected: {})", f16_data.len(), info.shape.iter().product::<usize>());
+        }
+
         // Upload to GPU and create tensor
         Tensor::from_vec_gpu(device, f16_data, info.shape.clone())
     }
@@ -582,6 +634,7 @@ impl MmapGGUFLoader {
             if i % 20 == 0 {
                 println!("  Progress: {}/{}", i, self.tensor_infos.len());
             }
+
             let tensor = self.load_tensor_f16(name, device)?;
             tensors.insert(name.clone(), tensor);
         }

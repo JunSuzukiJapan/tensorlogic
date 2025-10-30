@@ -149,11 +149,8 @@ static KERNEL_EXECUTOR: OnceLock<Mutex<Option<KernelExecutor>>> = OnceLock::new(
 /// Initialize global kernel executor
 fn init_kernel_executor() -> Mutex<Option<KernelExecutor>> {
     let result = (|| -> TensorResult<KernelExecutor> {
-        let mut device = MetalDevice::new()?;
-
-        // Load built-in kernels
-        let shader_source = include_str!("../../shaders/unified.metal");
-        device.load_library(shader_source)?;
+        // MetalDevice::new() now returns a singleton with shaders already loaded
+        let device = MetalDevice::new()?;
 
         Ok(KernelExecutor::new(device))
     })();
@@ -182,10 +179,8 @@ mod tests {
 
     #[test]
     fn test_kernel_executor_creation() {
-        let mut device = MetalDevice::new().unwrap();
-
-        let shader_source = include_str!("../../shaders/unified.metal");
-        device.load_library(shader_source).unwrap();
+        // MetalDevice::new() now returns a singleton with shaders already loaded
+        let device = MetalDevice::new().unwrap();
 
         let _executor = KernelExecutor::new(device);
     }
