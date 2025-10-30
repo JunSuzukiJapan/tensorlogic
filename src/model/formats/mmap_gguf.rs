@@ -239,7 +239,7 @@ impl MmapGGUFLoader {
             let size_bytes = Self::calculate_tensor_size(num_elements, gguf_type);
 
             // Debug: Show offset for token_embd
-            if name.contains("token_embd") || name.contains("blk.0.attn_q") {
+            if std::env::var("TL_DEBUG_MMAP").is_ok() && (name.contains("token_embd") || name.contains("blk.0.attn_q")) {
                 eprintln!("  DEBUG tensor '{}': offset={}, size={} bytes, type={:?}, shape={:?}",
                     name, tensor_offset, size_bytes, gguf_type, shape);
             }
@@ -256,10 +256,12 @@ impl MmapGGUFLoader {
         // Align data offset to DEFAULT_ALIGNMENT (32 bytes)
         let data_offset = (*cursor as u64 + 31) & !31;
 
-        eprintln!("DEBUG GGUF header parsing:");
-        eprintln!("  cursor (end of header): {}", cursor);
-        eprintln!("  data_offset (aligned): {}", data_offset);
-        eprintln!("  tensor_count: {}", tensor_count);
+        if std::env::var("TL_DEBUG_MMAP").is_ok() {
+            eprintln!("DEBUG GGUF header parsing:");
+            eprintln!("  cursor (end of header): {}", cursor);
+            eprintln!("  data_offset (aligned): {}", data_offset);
+            eprintln!("  tensor_count: {}", tensor_count);
+        }
 
         let metadata = GGUFMetadata {
             version,
@@ -563,7 +565,7 @@ impl MmapGGUFLoader {
         let quantized_data = self.get_tensor_data(name)?;
 
         // Debug: Show first bytes of token_embd
-        if name.contains("token_embd") {
+        if std::env::var("TL_DEBUG_MMAP").is_ok() && name.contains("token_embd") {
             eprintln!("  DEBUG loading '{}': file_offset={}, reading {} bytes",
                 name, self.data_offset + info.offset, quantized_data.len());
             eprintln!("    First 32 bytes: {:02x?}", &quantized_data[..32.min(quantized_data.len())]);
@@ -607,7 +609,7 @@ impl MmapGGUFLoader {
         };
 
         // Debug: Show first dequantized values for token_embd
-        if name.contains("token_embd") {
+        if std::env::var("TL_DEBUG_MMAP").is_ok() && name.contains("token_embd") {
             eprintln!("    First 10 dequantized f16 values:");
             for i in 0..10.min(f16_data.len()) {
                 eprintln!("      [{}]: {}", i, f16_data[i].to_f32());

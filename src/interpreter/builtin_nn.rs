@@ -501,12 +501,16 @@ impl Interpreter {
                 let result = match table.device() {
                     crate::device::Device::Metal(metal_device) => {
                         // GPU implementation
-                        eprintln!("DEBUG: Using GPU embedding_lookup_f16 kernel (seq_len={}, emb_dim={})", seq_len, emb_dim);
+                        if std::env::var("TL_DEBUG_F16_EMBEDDING").is_ok() {
+                            eprintln!("DEBUG: Using GPU embedding_lookup_f16 kernel (seq_len={}, emb_dim={})", seq_len, emb_dim);
+                        }
                         self.embedding_lookup_metal_f16(&table, &token_data, metal_device, vocab_size, emb_dim, seq_len)?
                     }
                     _ => {
                         // CPU fallback
-                        eprintln!("DEBUG: Using CPU fallback for f16 embedding");
+                        if std::env::var("TL_DEBUG_F16_EMBEDDING").is_ok() {
+                            eprintln!("DEBUG: Using CPU fallback for f16 embedding");
+                        }
                         let table_data = table.sync_and_read_f32();
                         let mut output_data = Vec::with_capacity(seq_len * emb_dim);
 
