@@ -936,12 +936,28 @@ impl Interpreter {
         let seq_len = q_dims[0];
         let n_embd = q_dims[1];
         let cache_len = k_dims[0];
-        let head_dim = n_embd; // Assuming single head for simplicity
+
+        // FIX: head_dim should be 64 (n_embd=2048 / n_heads=32 = 64) for TinyLlama
+        // Using full n_embd causes incorrect attention scaling
+        let n_heads = 32;
+        let head_dim = n_embd / n_heads;
 
         // Handle Grouped Query Attention (GQA): K/V may have fewer dimensions than Q
         // If k_dims[1] < n_embd, we need to repeat K/V to match Q's dimension
         let k_embd = k_dims[1];
         let v_embd = v.dims()[1];
+
+        // Apply RoPE to Q and K before attention computation
+        // Reshape Q: [seq_len, n_embd] -> [seq_len, n_heads, head_dim]
+        let q_heads = q.reshape(vec![seq_len, n_heads, head_dim]).map_err(|e| RuntimeError::TensorError(e))?;
+        let q_rope = q_heads.rope(cache_len - seq_len).map_err(|e| RuntimeError::TensorError(e))?;  // position_offset
+        let q_flat = q_rope.reshape(vec![seq_len, n_embd]).map_err(|e| RuntimeError::TensorError(e))?;
+
+        // Apply RoPE to K: [cache_len, k_embd] -> [cache_len, n_kv_heads, kv_head_dim]
+        let n_kv_heads = k_embd / head_dim;
+        let k_heads = k.reshape(vec![cache_len, n_kv_heads, head_dim]).map_err(|e| RuntimeError::TensorError(e))?;
+        let k_rope = k_heads.rope(0).map_err(|e| RuntimeError::TensorError(e))?;  // position_offset=0 (full cache)
+        let k_flat = k_rope.reshape(vec![cache_len, k_embd]).map_err(|e| RuntimeError::TensorError(e))?;
 
         let (k_expanded, v_expanded) = if k_embd != n_embd || v_embd != n_embd {
             // GQA: repeat K/V to match Q dimension
@@ -953,17 +969,17 @@ impl Interpreter {
             }
 
             // Repeat K and V along the embedding dimension using broadcast
-            let k_repeated = Self::repeat_kv_for_gqa(&k, n_rep)?;
+            let k_repeated = Self::repeat_kv_for_gqa(&k_flat, n_rep)?;
             let v_repeated = Self::repeat_kv_for_gqa(&v, n_rep)?;
             (k_repeated, v_repeated)
         } else {
-            (k, v)
+            (k_flat, v)
         };
 
         // Step 1: Attention scores = Q @ K^T / sqrt(head_dim)
         // Q: [seq_len, n_embd], K^T: [n_embd, cache_len] -> [seq_len, cache_len]
         let k_t = k_expanded.transpose().map_err(|e| RuntimeError::TensorError(e))?;
-        let scores = q.matmul(&k_t).map_err(|e| RuntimeError::TensorError(e))?;
+        let scores = q_flat.matmul(&k_t).map_err(|e| RuntimeError::TensorError(e))?;
 
         let scale = (head_dim as f32).sqrt();
         let scaled_scores = scores.div_scalar(f16::from_f32(scale)).map_err(|e| RuntimeError::TensorError(e))?;
