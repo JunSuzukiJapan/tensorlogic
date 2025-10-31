@@ -26,7 +26,10 @@ impl Interpreter {
                 Ok(())
             }
             Statement::Let { target, value } => {
+                eprintln!("[DEBUG] Statement::Let: target={}", target.as_str());
+                eprintln!("[DEBUG] Statement::Let: About to eval_expr...");
                 let evaluated_value = self.eval_expr(value)?;
+                eprintln!("[DEBUG] Statement::Let: eval_expr completed");
 
                 // Check if we're inside a function call
                 if let Some(frame) = self.call_stack.last_mut() {
@@ -743,24 +746,34 @@ impl Interpreter {
     pub(super) fn read_element_f32(&self, tensor: &crate::tensor::Tensor<f32>, linear_idx: usize) -> RuntimeResult<f32> {
         use crate::device::{MetalBuffer, KernelExecutor};
 
+        eprintln!("[DEBUG] read_element_f32: Entry, linear_idx={}", linear_idx);
+
         if linear_idx >= tensor.numel() {
             return Err(RuntimeError::InvalidOperation(
                 format!("Index {} out of bounds for tensor with {} elements", linear_idx, tensor.numel())
             ));
         }
 
+        eprintln!("[DEBUG] read_element_f32: Getting Metal device...");
         let device = match tensor.device() {
             crate::device::Device::Metal(dev) => dev.clone(),
             _ => return Err(RuntimeError::InvalidOperation("read_element_f32 requires Metal device".to_string())),
         };
+        eprintln!("[DEBUG] read_element_f32: Metal device acquired");
 
+        eprintln!("[DEBUG] read_element_f32: Checking shader library...");
         let mut device_mut = device.clone();
         if device_mut.library().is_none() {
+            eprintln!("[DEBUG] read_element_f32: Loading shader library...");
             let shader_source = include_str!("../../shaders/unified.metal");
             device_mut.load_library(shader_source)
                 .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to load shader: {}", e)))?;
+            eprintln!("[DEBUG] read_element_f32: Shader library loaded");
+        } else {
+            eprintln!("[DEBUG] read_element_f32: Shader library already loaded");
         }
 
+        eprintln!("[DEBUG] read_element_f32: Creating buffers...");
         let input_buf = tensor.buffer().as_metal()
             .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to get Metal buffer: {}", e)))?;
         let output_buf = MetalBuffer::<f32>::new_uninit(device.metal_device(), 1)
@@ -772,11 +785,15 @@ impl Interpreter {
             std::mem::size_of::<u32>() as u64,
             metal::MTLResourceOptions::StorageModeShared,
         );
+        eprintln!("[DEBUG] read_element_f32: Buffers created");
 
+        eprintln!("[DEBUG] read_element_f32: Compiling kernel...");
         let mut executor = KernelExecutor::new(device_mut);
         let pipeline = executor.get_or_compile_pipeline("read_element_f32")
             .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to compile kernel: {}", e)))?;
+        eprintln!("[DEBUG] read_element_f32: Kernel compiled");
 
+        eprintln!("[DEBUG] read_element_f32: Setting up command buffer...");
         let command_buffer = device.command_queue().new_command_buffer();
         let encoder = command_buffer.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&pipeline);
@@ -789,12 +806,16 @@ impl Interpreter {
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
         command_buffer.commit();
+        eprintln!("[DEBUG] read_element_f32: Command buffer committed, waiting for completion...");
         command_buffer.wait_until_completed();
+        eprintln!("[DEBUG] read_element_f32: Command buffer completed");
 
         // Read result from GPU
+        eprintln!("[DEBUG] read_element_f32: Reading result from GPU...");
         let result_slice = unsafe {
             std::slice::from_raw_parts(output_buf.buffer.contents() as *const f32, 1)
         };
+        eprintln!("[DEBUG] read_element_f32: Result={}", result_slice[0]);
         Ok(result_slice[0])
     }
 
@@ -885,6 +906,22 @@ impl Interpreter {
     }
 
     pub(super) fn eval_expr(&mut self, expr: &TensorExpr) -> RuntimeResult<Value> {
+        // Debug: print expression type
+        let expr_type = match expr {
+            TensorExpr::Variable(_) => "Variable",
+            TensorExpr::Literal(_) => "Literal",
+            TensorExpr::BinaryOp { .. } => "BinaryOp",
+            TensorExpr::UnaryOp { .. } => "UnaryOp",
+            TensorExpr::FunctionCall { .. } => "FunctionCall",
+            TensorExpr::TensorIndex { .. } => "TensorIndex",
+            TensorExpr::EinSum { .. } => "EinSum",
+            TensorExpr::EmbeddingLookup { .. } => "EmbeddingLookup",
+            TensorExpr::PythonCall { .. } => "PythonCall",
+            TensorExpr::PropertyAccess { .. } => "PropertyAccess",
+            TensorExpr::MethodCall { .. } => "MethodCall",
+        };
+        eprintln!("[DEBUG] eval_expr: type={}", expr_type);
+
         match expr {
             TensorExpr::Variable(id) => {
                 // Use self.get_variable() to check local scope first
@@ -1200,33 +1237,46 @@ impl Interpreter {
 
     /// Evaluate an array literal to a tensor
     pub(super) fn eval_array_literal(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Value> {
+        eprintln!("[DEBUG] eval_array_literal: Entry, elements.len={}", elements.len());
+
         // Support empty arrays - return empty Tensor
         if elements.is_empty() {
-            
+            eprintln!("[DEBUG] eval_array_literal: Empty array, creating empty tensor");
             let tensor = Tensor::from_vec_gpu(self.env.metal_device(), vec![], vec![0])
                 .map_err(|e| RuntimeError::TensorError(e))?;
             return Ok(Value::TensorF16(tensor));
         }
 
         // Recursively collect all scalar values
+        eprintln!("[DEBUG] eval_array_literal: Calling collect_scalars...");
         let values = self.collect_scalars(elements)?;
+        eprintln!("[DEBUG] eval_array_literal: collect_scalars completed, values.len={}", values.len());
 
         // Determine shape
+        eprintln!("[DEBUG] eval_array_literal: Calling infer_shape...");
         let shape = self.infer_shape(elements)?;
+        eprintln!("[DEBUG] eval_array_literal: infer_shape completed, shape={:?}", shape);
 
         // Determine if array contains float literals (f32) or only integers (f16)
+        eprintln!("[DEBUG] eval_array_literal: Calling has_float_literal...");
         let has_float_literal = self.has_float_literal(elements);
+        eprintln!("[DEBUG] eval_array_literal: has_float_literal={}", has_float_literal);
 
         if has_float_literal {
+            eprintln!("[DEBUG] eval_array_literal: Creating f32 tensor...");
             // Array contains float literals -> create f32 tensor
             let tensor = Tensor::from_vec_gpu(self.env.metal_device(), values, shape)
                 .map_err(|e| RuntimeError::TensorError(e))?;
+            eprintln!("[DEBUG] eval_array_literal: f32 tensor created");
             Ok(Value::TensorF32(tensor))
         } else {
+            eprintln!("[DEBUG] eval_array_literal: Creating f16 tensor...");
             // Array contains only integers -> create f16 tensor (backward compatibility)
             let f16_values: Vec<f16> = values.into_iter().map(f16::from_f32).collect();
+            eprintln!("[DEBUG] eval_array_literal: f16 conversion complete, creating tensor...");
             let tensor = Tensor::from_vec_gpu(self.env.metal_device(), f16_values, shape)
                 .map_err(|e| RuntimeError::TensorError(e))?;
+            eprintln!("[DEBUG] eval_array_literal: f16 tensor created");
             Ok(Value::TensorF16(tensor))
         }
     }
@@ -1253,30 +1303,40 @@ impl Interpreter {
 
     /// Collect all scalar values from nested arrays
     pub(super) fn collect_scalars(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Vec<f32>> {
+        eprintln!("[DEBUG] collect_scalars: Entry, elements.len={}", elements.len());
         let mut values = Vec::new();
 
-        for elem in elements {
+        for (i, elem) in elements.iter().enumerate() {
+            eprintln!("[DEBUG] collect_scalars: Processing element[{}]", i);
             match elem {
                 ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Float(f))) => {
+                    eprintln!("[DEBUG] collect_scalars: element[{}] is Float={}", i, f);
                     values.push(*f as f32);
                 }
-                ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Integer(i))) => {
-                    values.push(*i as f32);
+                ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Integer(i_val))) => {
+                    eprintln!("[DEBUG] collect_scalars: element[{}] is Integer={}", i, i_val);
+                    values.push(*i_val as f32);
                 }
                 ArrayElement::Literal(TensorLiteral::Array(nested)) => {
+                    eprintln!("[DEBUG] collect_scalars: element[{}] is nested array", i);
                     values.extend(self.collect_scalars(nested)?);
                 }
                 ArrayElement::Expression(expr) => {
+                    eprintln!("[DEBUG] collect_scalars: element[{}] is Expression, evaluating...", i);
                     // Evaluate the expression (e.g., variable reference like seq_len, d_model)
                     let value = self.eval_expr(expr)?;
+                    eprintln!("[DEBUG] collect_scalars: element[{}] eval_expr returned, matching value...", i);
                     match value {
                         Value::Float(f) => {
+                            eprintln!("[DEBUG] collect_scalars: element[{}] evaluated to Float={}", i, f);
                             values.push(f as f32);
                         }
-                        Value::Integer(i) => {
-                            values.push(i as f32);
+                        Value::Integer(i_val) => {
+                            eprintln!("[DEBUG] collect_scalars: element[{}] evaluated to Integer={}", i, i_val);
+                            values.push(i_val as f32);
                         }
                         _ => {
+                            eprintln!("[DEBUG] collect_scalars: element[{}] evaluated to non-scalar type", i);
                             return Err(RuntimeError::TypeError(
                                 "Array element expression must evaluate to a scalar number".to_string(),
                             ));
@@ -1922,11 +1982,12 @@ impl Interpreter {
                     stride *= dims[i];
                 }
 
-                // Read the value using GPU kernel
-                let value = self.read_element_f16(&tensor, linear_idx)?;
+                // FIXED: Transfer tensor to CPU and read directly (avoids GPU kernel hang)
+                let cpu_data = tensor.buffer().to_cpu_vec();
+                let value = cpu_data[linear_idx];
 
                 // Return as a scalar float
-                Ok(Value::Float(value as f64))
+                Ok(Value::Float(value.to_f32() as f64))
             }
             Value::TensorF32(tensor) => {
                 // Calculate linear index
@@ -1953,8 +2014,9 @@ impl Interpreter {
                     stride *= dims[i];
                 }
 
-                // Read the value using GPU kernel
-                let value = self.read_element_f32(&tensor, linear_idx)?;
+                // FIXED: Transfer tensor to CPU and read directly (avoids GPU kernel hang)
+                let cpu_data = tensor.buffer().to_cpu_vec();
+                let value = cpu_data[linear_idx];
 
                 // Return as a scalar float
                 Ok(Value::Float(value as f64))

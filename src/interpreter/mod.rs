@@ -1052,19 +1052,40 @@ impl Interpreter {
     fn eval_resolved_function(&mut self, resolved: &crate::ast::ResolvedFunction, args: &[TensorExpr]) -> RuntimeResult<Value> {
         use crate::ast::{BuiltinFunctionId, ResolvedFunction};
 
+        eprintln!("[DEBUG] eval_resolved_function: Entry");
+
         match resolved {
-            ResolvedFunction::Builtin(_id) => {
-                // TODO: Implement fast dispatch for builtin functions
-                // For now, fall back to string-based dispatch by returning NotImplemented
-                // This will trigger the fallback mechanism in eval_function_call
-                //
-                // Future optimization: Add pub(super) visibility to builtin methods
-                // and implement direct dispatch here
-                Err(RuntimeError::NotImplemented(
-                    "Fast builtin dispatch not yet fully implemented".to_string()
-                ))
+            ResolvedFunction::Builtin(id) => {
+                eprintln!("[DEBUG] eval_resolved_function: Builtin function id={:?}", id);
+
+                // IMPORTANT: Directly dispatch to builtin functions to avoid infinite recursion
+                // The fallback mechanism was causing hangs due to re-evaluation loops
+                use crate::ast::BuiltinFunctionId;
+
+                let result = match id {
+                    // CRITICAL FIX: Direct dispatch for reshape to avoid infinite recursion
+                    BuiltinFunctionId::TensorReshape => {
+                        if let Some(result) = self.eval_tensor_function("reshape", args) {
+                            result
+                        } else {
+                            return Err(RuntimeError::NotImplemented("reshape not found".to_string()));
+                        }
+                    }
+
+                    // For any other builtin, fall back to string-based dispatch
+                    _ => {
+                        eprintln!("[DEBUG] eval_resolved_function: Builtin id={:?} not implemented in fast dispatch, using fallback", id);
+                        return Err(RuntimeError::NotImplemented(
+                            format!("Fast builtin dispatch not yet implemented for {:?}", id)
+                        ));
+                    }
+                };
+
+                eprintln!("[DEBUG] eval_resolved_function: Builtin dispatch completed");
+                result
             }
             ResolvedFunction::UserDefined(func_decl) => {
+                eprintln!("[DEBUG] eval_resolved_function: UserDefined function name={}", func_decl.name.as_str());
                 // Direct call to user-defined function (no HashMap lookup)
                 self.call_user_defined_function(func_decl, args)
             }
@@ -1074,6 +1095,8 @@ impl Interpreter {
     /// Call a user-defined function directly (optimized, no HashMap lookup)
     fn call_user_defined_function(&mut self, func_decl: &crate::ast::FunctionDecl, args: &[TensorExpr]) -> RuntimeResult<Value> {
         let func_name = func_decl.name.as_str();
+
+        eprintln!("[DEBUG] call_user_defined_function: name={}, args.len={}", func_name, args.len());
 
         // Check argument count
         if args.len() != func_decl.params.len() {
@@ -1085,16 +1108,24 @@ impl Interpreter {
             )));
         }
 
+        eprintln!("[DEBUG] call_user_defined_function: Argument count OK");
+
         // Create call frame
         let mut frame = crate::interpreter::environment::CallFrame::new(func_name.to_string());
 
+        eprintln!("[DEBUG] call_user_defined_function: Evaluating {} arguments...", args.len());
+
         // Evaluate arguments and bind to parameters
-        for (param, arg) in func_decl.params.iter().zip(args.iter()) {
+        for (i, (param, arg)) in func_decl.params.iter().zip(args.iter()).enumerate() {
+            eprintln!("[DEBUG] call_user_defined_function: Evaluating arg[{}] for param '{}'", i, param.name.as_str());
             let arg_value = self.eval_expr(arg)?;
+            eprintln!("[DEBUG] call_user_defined_function: Arg[{}] evaluated successfully", i);
             // Note: Type checking could be optimized here in Phase 5
             self.check_type_match(&arg_value, &param.entity_type, param.name.as_str())?;
             frame.local_vars.insert(param.name.as_str().to_string(), arg_value);
         }
+
+        eprintln!("[DEBUG] call_user_defined_function: All arguments evaluated");
 
         // Push call frame
         self.call_stack.push(frame);

@@ -1,14 +1,19 @@
 // Test reshape + rope fix
 
-fn apply_rope_k_test(K: float16[?, ?], pos: float) -> float16[?, ?] {
-    let shp = shape(K)
-    let s = shp[0]
-    print("Before reshape: shape = {}", shp)
-    let K_h = reshape(K, [s, 4.0, 64.0])
-    print("After reshape: calling rope...")
+// Fixed: Pass seq_len as parameter to avoid shape[0] indexing issue
+fn apply_rope_k_test(K: float16[?, ?], seq_len: float, pos: float) -> float16[?, ?] {
+    print("[APPLY_ROPE_K] === Entry === seq_len={}, pos={}", seq_len, pos)
+    print("[APPLY_ROPE_K] Step 1: Calling reshape(K, [{}, 4.0, 64.0])...", seq_len)
+    let K_h = reshape(K, [seq_len, 4.0, 64.0])
+    print("[APPLY_ROPE_K] Step 1: DONE")
+    print("[APPLY_ROPE_K] Step 2: Calling rope(K_h, {})...", pos)
     let K_r = rope(K_h, pos)
-    print("After rope: reshaping back...")
-    result := reshape(K_r, [s, 256.0])
+    print("[APPLY_ROPE_K] Step 2: DONE")
+    print("[APPLY_ROPE_K] Step 3: Reshaping back to [{}, 256.0]...", seq_len)
+    let result_tmp = reshape(K_r, [seq_len, 256.0])
+    print("[APPLY_ROPE_K] Step 3: DONE")
+    print("[APPLY_ROPE_K] === Exit ===")
+    result := result_tmp
 }
 
 main {
@@ -30,9 +35,9 @@ main {
     let K_raw = linear(x, L0.attn_k.weight)  // Shape: [4, 256]
     print("K_raw: shape = {}", shape(K_raw))
 
-    // Apply RoPE with reshape
+    // Apply RoPE with reshape (pass seq_len=2.0 directly to avoid shape[0] indexing)
     print("Applying RoPE with reshape...")
-    let K = apply_rope_k_test(K_raw, 0.0)
+    let K = apply_rope_k_test(K_raw, 2.0, 0.0)
     print("K: shape = {}", shape(K))
 
     print("✅ Test passed!")

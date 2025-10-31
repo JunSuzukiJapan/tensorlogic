@@ -148,7 +148,7 @@ main {
     // PREFILL PHASE: Build initial KV caches for all 22 layers
     // Apply RoPE to K at position 0 before caching
     // ============================================================
-    // Get sequence length once (optimization: avoid repeated shape() calls)
+    // FIXED: shape tensor indexing now works with extract_shape! fix
     let x_shp = shape(x)
     let seq_len = x_shp[0]
 

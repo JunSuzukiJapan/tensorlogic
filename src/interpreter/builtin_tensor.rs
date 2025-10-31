@@ -13,23 +13,25 @@ macro_rules! extract_shape {
     ($self:expr, $value:expr) => {
         match $value {
             Value::TensorF32(ref t) => {
-                // Read each element from GPU
-                let numel = t.numel();
-                let mut shape = Vec::with_capacity(numel);
-                for i in 0..numel {
-                    let val = $self.read_element_f32(t, i)?;
-                    shape.push(val as usize);
-                }
+                eprintln!("[DEBUG] extract_shape!: TensorF32 branch");
+                // Transfer entire tensor from GPU to CPU at once (faster than per-element reads)
+                eprintln!("[DEBUG] extract_shape!: Calling to_cpu_vec()...");
+                let data = t.buffer().to_cpu_vec();
+                eprintln!("[DEBUG] extract_shape!: to_cpu_vec() completed, data.len={}", data.len());
+                // Convert f32 values to usize shape dimensions
+                let shape: Vec<usize> = data.iter().map(|&v| v as usize).collect();
+                eprintln!("[DEBUG] extract_shape!: shape={:?}", shape);
                 shape
             }
             Value::TensorF16(ref t) => {
-                // Read each element from GPU
-                let numel = t.numel();
-                let mut shape = Vec::with_capacity(numel);
-                for i in 0..numel {
-                    let val = $self.read_element_f16(t, i)?;
-                    shape.push(val as usize);
-                }
+                eprintln!("[DEBUG] extract_shape!: TensorF16 branch");
+                // Transfer entire tensor from GPU to CPU at once (faster than per-element reads)
+                eprintln!("[DEBUG] extract_shape!: Calling to_cpu_vec()...");
+                let data = t.buffer().to_cpu_vec();
+                eprintln!("[DEBUG] extract_shape!: to_cpu_vec() completed, data.len={}", data.len());
+                // Convert f16 values to usize shape dimensions
+                let shape: Vec<usize> = data.iter().map(|&v| v.to_f32() as usize).collect();
+                eprintln!("[DEBUG] extract_shape!: shape={:?}", shape);
                 shape
             }
             _ => return Err(RuntimeError::TypeError(
@@ -296,15 +298,24 @@ impl Interpreter {
     fn eval_reshape(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         use crate::interpreter::value::ToValue;
 
+        eprintln!("[DEBUG] eval_reshape: Entry, args.len={}", args.len());
+
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("reshape() expects 2 arguments (tensor, new_shape), got {}", args.len())
             ));
         }
 
+        eprintln!("[DEBUG] eval_reshape: Evaluating arg[0] (tensor)...");
         let tensor_val = self.eval_expr(&args[0])?;
+        eprintln!("[DEBUG] eval_reshape: arg[0] evaluated");
+
+        eprintln!("[DEBUG] eval_reshape: Evaluating arg[1] (shape)...");
         let shape_val = self.eval_expr(&args[1])?;
+        eprintln!("[DEBUG] eval_reshape: arg[1] evaluated, extracting shape...");
+
         let new_shape = extract_shape!(self, shape_val);
+        eprintln!("[DEBUG] eval_reshape: Shape extracted: {:?}", new_shape);
 
         Ok(match tensor_val {
             Value::TensorF16(tensor) => {
