@@ -204,37 +204,19 @@ impl Interpreter {
             Value::TensorF16(tensor) => {
                 let dims = tensor.dims();
                 let shape_data: Vec<f16> = dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
-                let device = tensor.device().clone();
-                let shape_tensor = match &device {
-                    crate::device::Device::Metal(metal_device) => {
-                        // CRITICAL FIX: Use pooled allocation to avoid GPU memory exhaustion
-                        Tensor::from_vec_gpu_pooled(metal_device, shape_data, vec![dims.len()])
-                    }
-                    crate::device::Device::CPU => {
-                        Tensor::from_vec(shape_data, vec![dims.len()])
-                    }
-                    crate::device::Device::NeuralEngine => {
-                        Tensor::from_vec(shape_data, vec![dims.len()])
-                    }
-                }.map_err(|e| RuntimeError::TensorError(e))?;
+                // OPTIMIZATION: Always create shape tensors on CPU for instant access
+                // Shape tensors are tiny (1-10 elements) and frequently indexed
+                let shape_tensor = Tensor::from_vec(shape_data, vec![dims.len()])
+                    .map_err(|e| RuntimeError::TensorError(e))?;
                 shape_tensor.to_value()
             }
             Value::TensorF32(tensor) => {
                 let dims = tensor.dims();
                 let shape_data: Vec<f32> = dims.iter().map(|&d| d as f32).collect();
-                let device = tensor.device().clone();
-                let shape_tensor = match &device {
-                    crate::device::Device::Metal(metal_device) => {
-                        // CRITICAL FIX: Use pooled allocation to avoid GPU memory exhaustion
-                        Tensor::from_vec_gpu_pooled(metal_device, shape_data, vec![dims.len()])
-                    }
-                    crate::device::Device::CPU => {
-                        Tensor::from_vec(shape_data, vec![dims.len()])
-                    }
-                    crate::device::Device::NeuralEngine => {
-                        Tensor::from_vec(shape_data, vec![dims.len()])
-                    }
-                }.map_err(|e| RuntimeError::TensorError(e))?;
+                // OPTIMIZATION: Always create shape tensors on CPU for instant access
+                // Shape tensors are tiny (1-10 elements) and frequently indexed
+                let shape_tensor = Tensor::from_vec(shape_data, vec![dims.len()])
+                    .map_err(|e| RuntimeError::TensorError(e))?;
                 shape_tensor.to_value()
             }
             _ => return Err(RuntimeError::TypeError("Expected tensor".to_string()))
