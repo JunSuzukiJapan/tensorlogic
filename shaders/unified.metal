@@ -4500,6 +4500,81 @@ kernel void apply_attention_mask_f32(
 }
 
 // ============================================================================
+// Memory layout transformation kernels
+// ============================================================================
+
+/// Make tensor contiguous by reordering elements according to strides (f16)
+/// Converts strided (non-contiguous) layout to row-major (contiguous) layout
+kernel void make_contiguous_f16(
+    device const half* input [[buffer(0)]],      // Non-contiguous input
+    device half* output [[buffer(1)]],           // Contiguous output
+    device const uint* shape [[buffer(2)]],      // Shape dimensions [d0, d1, d2, ...]
+    device const uint* strides [[buffer(3)]],    // Input strides
+    device const uint* ndim [[buffer(4)]],       // Number of dimensions
+    device const uint* numel [[buffer(5)]],      // Total number of elements
+    uint gid [[thread_position_in_grid]]
+) {
+    // Bounds check - critical for safety when threadgroup size doesn't divide evenly
+    if (gid >= numel[0]) return;
+
+    uint n_dims = ndim[0];
+
+    // Convert linear output index to multi-dimensional indices
+    uint linear_idx = gid;
+    uint remaining = linear_idx;
+
+    // Calculate multi-dimensional indices (reverse order for row-major)
+    uint indices[8];  // Support up to 8D tensors
+    for (int i = int(n_dims) - 1; i >= 0; i--) {
+        uint dim_size = shape[i];
+        indices[i] = remaining % dim_size;
+        remaining /= dim_size;
+    }
+
+    // Calculate strided offset in input
+    uint src_offset = 0;
+    for (uint i = 0; i < n_dims; i++) {
+        src_offset += indices[i] * strides[i];
+    }
+
+    // Copy element
+    output[linear_idx] = input[src_offset];
+}
+
+/// Make tensor contiguous by reordering elements according to strides (f32)
+kernel void make_contiguous_f32(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    device const uint* shape [[buffer(2)]],
+    device const uint* strides [[buffer(3)]],
+    device const uint* ndim [[buffer(4)]],
+    device const uint* numel [[buffer(5)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    // Bounds check - critical for safety when threadgroup size doesn't divide evenly
+    if (gid >= numel[0]) return;
+
+    uint n_dims = ndim[0];
+
+    uint linear_idx = gid;
+    uint remaining = linear_idx;
+
+    uint indices[8];
+    for (int i = int(n_dims) - 1; i >= 0; i--) {
+        uint dim_size = shape[i];
+        indices[i] = remaining % dim_size;
+        remaining /= dim_size;
+    }
+
+    uint src_offset = 0;
+    for (uint i = 0; i < n_dims; i++) {
+        src_offset += indices[i] * strides[i];
+    }
+
+    output[linear_idx] = input[src_offset];
+}
+
+// ============================================================================
 // Argmax kernels for greedy sampling (temperature=0)
 // ============================================================================
 

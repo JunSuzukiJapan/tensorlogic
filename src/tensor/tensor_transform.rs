@@ -1,7 +1,7 @@
 //! Tensor transformation methods (reshape, flatten, etc.)
 
 use crate::error::TensorResult;
-use crate::tensor::{FloatType, Tensor};
+use crate::tensor::{BufferHandle, FloatType, Tensor};
 use crate::tensor::TensorAccessors;
 use crate::tensor::TensorCreation;
 use crate::tensor::TensorIO;
@@ -75,14 +75,149 @@ impl<T: FloatType> TensorTransform for Tensor<T> {
                      self.dims(), self.strides);
         }
 
-        // For non-contiguous tensors, copy data via CPU
-        // This ensures proper element ordering regardless of strides
+        // TEMPORARY: Disable GPU contiguous to test if it's causing the hang
+        // Use GPU implementation for Metal tensors
+        use crate::device::Device;
+        match self.device() {
+            Device::Metal(_metal_device) => {
+                if std::env::var("TL_DEBUG_CONTIGUOUS").is_ok() {
+                    eprintln!("[CONTIGUOUS] Using CPU fallback (GPU disabled for testing)");
+                }
+                self.contiguous_cpu()
+                // self.contiguous_metal(metal_device)
+            }
+            _ => {
+                // CPU fallback for non-Metal devices
+                if std::env::var("TL_DEBUG_CONTIGUOUS").is_ok() {
+                    eprintln!("[CONTIGUOUS] Using CPU fallback");
+                }
+                self.contiguous_cpu()
+            }
+        }
+    }
+}
+
+impl<T: FloatType> Tensor<T> {
+    /// GPU implementation of contiguous() for Metal tensors
+    fn contiguous_metal(&self, metal_device: &crate::device::MetalDevice) -> TensorResult<Self> {
+        use crate::device::MetalBuffer;
+
+        let dims = self.dims().to_vec();
+        let numel = self.numel();
+        let ndim = dims.len();
+
+        if std::env::var("TL_DEBUG_CONTIGUOUS").is_ok() {
+            eprintln!("[CONTIGUOUS_METAL] Starting GPU contiguous: numel={}, ndim={}", numel, ndim);
+        }
+
+        let mut device = metal_device.clone();
+
+        // Load shader library if not already loaded
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device.load_library(shader_source)?;
+        }
+
+        // Get input buffer
+        let input_buf = self.buffer().as_metal()?;
+
+        // Create output buffer (pooled allocation)
+        let output_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), numel)?;
+
+        // Create shape buffer
+        let shape_u32: Vec<u32> = dims.iter().map(|&d| d as u32).collect();
+        let shape_buf = device.metal_device().new_buffer_with_data(
+            shape_u32.as_ptr() as *const _,
+            (shape_u32.len() * std::mem::size_of::<u32>()) as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        // Create strides buffer
+        let strides_u32: Vec<u32> = self.strides.iter().map(|&s| s as u32).collect();
+        let strides_buf = device.metal_device().new_buffer_with_data(
+            strides_u32.as_ptr() as *const _,
+            (strides_u32.len() * std::mem::size_of::<u32>()) as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        // Create ndim buffer
+        let ndim_u32 = ndim as u32;
+        let ndim_buf = device.metal_device().new_buffer_with_data(
+            &ndim_u32 as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        // Create numel buffer
+        let numel_u32 = numel as u32;
+        let numel_buf = device.metal_device().new_buffer_with_data(
+            &numel_u32 as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        // Get kernel
+        let suffix = T::kernel_suffix();
+        let kernel_name = format!("make_contiguous{}", suffix);
+
+        if std::env::var("TL_DEBUG_CONTIGUOUS").is_ok() {
+            eprintln!("[CONTIGUOUS_METAL] Compiling kernel: {}", kernel_name);
+        }
+
+        let mut executor = crate::device::KernelExecutor::new(device.clone());
+        let pipeline = executor.get_or_compile_pipeline(&kernel_name)?;
+
+        if std::env::var("TL_DEBUG_CONTIGUOUS").is_ok() {
+            eprintln!("[CONTIGUOUS_METAL] Kernel compiled, executing...");
+        }
+
+        // Execute kernel
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
+        encoder.set_buffer(1, Some(output_buf.metal_buffer()), 0);
+        encoder.set_buffer(2, Some(&shape_buf), 0);
+        encoder.set_buffer(3, Some(&strides_buf), 0);
+        encoder.set_buffer(4, Some(&ndim_buf), 0);
+        encoder.set_buffer(5, Some(&numel_buf), 0);
+
+        // Dispatch threads
+        let max_threads = pipeline.max_total_threads_per_threadgroup().min(256) as u64;
+        let grid_size = metal::MTLSize::new(numel as u64, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(max_threads, 1, 1);
+
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+
+        if std::env::var("TL_DEBUG_CONTIGUOUS").is_ok() {
+            eprintln!("[CONTIGUOUS_METAL] Kernel encoded, creating result tensor...");
+        }
+
+        // No wait here - let Commands manager handle batching
+
+        // Create result tensor with contiguous strides
+        let result = self.new_from_pool(
+            BufferHandle::Metal(unsafe { std::mem::transmute(output_buf) }),
+            self.shape().clone(),
+        )?;
+
+        if std::env::var("TL_DEBUG_CONTIGUOUS").is_ok() {
+            eprintln!("[CONTIGUOUS_METAL] GPU contiguous complete");
+        }
+
+        Ok(result)
+    }
+
+    /// CPU fallback implementation of contiguous()
+    fn contiguous_cpu(&self) -> TensorResult<Self> {
         let dims = self.dims().to_vec();
         let numel = self.numel();
 
         // Get data as CPU vector (handles GPU->CPU transfer if needed)
         if std::env::var("TL_DEBUG_CONTIGUOUS").is_ok() {
-            eprintln!("[CONTIGUOUS] Transferring {} elements from GPU to CPU...", numel);
+            eprintln!("[CONTIGUOUS] Transferring {} elements to CPU...", numel);
         }
         let src_data = self.to_vec();
         if std::env::var("TL_DEBUG_CONTIGUOUS").is_ok() {
@@ -113,24 +248,10 @@ impl<T: FloatType> TensorTransform for Tensor<T> {
         }
 
         if std::env::var("TL_DEBUG_CONTIGUOUS").is_ok() {
-            eprintln!("[CONTIGUOUS] Reordering complete, creating new tensor on device...");
+            eprintln!("[CONTIGUOUS] Reordering complete, creating new tensor...");
         }
 
-        // Create new tensor from contiguous data on the same device
-        use crate::device::Device;
-        match self.device() {
-            Device::Metal(metal_device) => {
-                // Use pooled allocation for GPU tensor
-                Self::from_vec_gpu_pooled(metal_device, dst_data, dims)
-            }
-            Device::CPU => {
-                // CPU tensor
-                Self::from_vec(dst_data, dims)
-            }
-            Device::NeuralEngine => {
-                // For now, fallback to CPU
-                Self::from_vec(dst_data, dims)
-            }
-        }
+        // Create new tensor on CPU
+        Self::from_vec(dst_data, dims)
     }
 }
