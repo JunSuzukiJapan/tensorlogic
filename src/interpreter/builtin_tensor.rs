@@ -205,7 +205,8 @@ impl Interpreter {
                 let device = tensor.device().clone();
                 let shape_tensor = match &device {
                     crate::device::Device::Metal(metal_device) => {
-                        Tensor::from_vec_gpu(metal_device, shape_data, vec![dims.len()])
+                        // CRITICAL FIX: Use pooled allocation to avoid GPU memory exhaustion
+                        Tensor::from_vec_gpu_pooled(metal_device, shape_data, vec![dims.len()])
                     }
                     crate::device::Device::CPU => {
                         Tensor::from_vec(shape_data, vec![dims.len()])
@@ -222,7 +223,8 @@ impl Interpreter {
                 let device = tensor.device().clone();
                 let shape_tensor = match &device {
                     crate::device::Device::Metal(metal_device) => {
-                        Tensor::from_vec_gpu(metal_device, shape_data, vec![dims.len()])
+                        // CRITICAL FIX: Use pooled allocation to avoid GPU memory exhaustion
+                        Tensor::from_vec_gpu_pooled(metal_device, shape_data, vec![dims.len()])
                     }
                     crate::device::Device::CPU => {
                         Tensor::from_vec(shape_data, vec![dims.len()])

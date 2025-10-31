@@ -15,6 +15,13 @@ impl<T: FloatType> Tensor<T> {
     /// position_offset: Starting position index for the sequence (for KV cache)
     /// Returns: Same shape with RoPE applied
     pub fn rope(&self, position_offset: usize) -> TensorResult<Self> {
+        use crate::tensor::TensorTransform;
+
+        if std::env::var("TL_DEBUG_ROPE").is_ok() {
+            eprintln!("[ROPE] Called with shape={:?}, strides={:?}, pos_offset={}",
+                     self.dims(), self.strides, position_offset);
+        }
+
         let dims = self.dims();
         if dims.len() < 3 {
             return Err(TensorError::InvalidOperation(
@@ -32,7 +39,26 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        self.rope_metal(seq_len, n_heads, head_dim, position_offset)
+        // CRITICAL: Ensure tensor is contiguous before GPU operations
+        // reshape() only changes metadata (strides), but rope kernel expects
+        // contiguous memory layout (linear indexing)
+        let is_contig = self.is_contiguous();
+        if std::env::var("TL_DEBUG_ROPE").is_ok() {
+            eprintln!("[ROPE] is_contiguous={}, will {}",
+                     is_contig, if is_contig { "clone" } else { "make contiguous" });
+        }
+
+        let input = if is_contig {
+            self.clone()
+        } else {
+            self.contiguous()?
+        };
+
+        if std::env::var("TL_DEBUG_ROPE").is_ok() {
+            eprintln!("[ROPE] Calling rope_metal...");
+        }
+
+        input.rope_metal(seq_len, n_heads, head_dim, position_offset)
     }
 
     /// Metal GPU implementation of RoPE
