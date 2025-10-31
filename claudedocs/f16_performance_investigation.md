@@ -70,7 +70,42 @@ GPU `contiguous()` 実装は完了（commit 338605e）：
 
 ## Implementation Status
 
-- ✅ GPU `contiguous()` 実装完了（commit 338605e、現在無効化）
-- ⏳ `shape()` 削除版 `apply_rope_k()` 未実装
-- ⏳ Rust builtin `apply_rope_k()` 未実装
+- ✅ GPU `contiguous()` 実装完了（commit 338605e、e6ff6d7で有効化）
+- ✅ `shape()` 削除版 `apply_rope_k()` 実装完了（commit e6ff6d7）
+- ❌ **改善効果なし**: 依然としてハング状態
+- ⏳ Rust builtin `apply_rope_k()` 未実装（推奨）
+
+## 追加調査結果（commit e6ff6d7）
+
+### 実装した最適化
+1. `apply_rope_k(K, seq_len, pos)`: seq_lenをパラメータ化
+2. Prefill: `shape(x)`を1回だけ呼び出し、全22層に渡す
+3. Decode: seq_len=1.0を固定で渡す（新K常に1トークン）
+4. GPU `contiguous()` 有効化
+
+### 効果
+- `shape()` 呼び出し: 44回/token → 22回/token（50%削減）
+- GPU contiguous: CPU→GPU転送を排除
+
+### 問題: 依然ハング
+デバッグ出力（`TL_DEBUG_ROPE=1 TL_DEBUG_CONTIGUOUS=1`）でROPE/CONTIGUOUSメッセージが一切出力されないことから、**最初の`rope()`呼び出し前**でハングしていると判明。
+
+### 根本原因の再分析
+`reshape()` が非連続テンソルを作成することが問題：
+
+```tensorlogic
+fn apply_rope_k(K: float16[?, ?], seq_len: float, pos: float) -> float16[?, ?] {
+    let K_h = reshape(K, [seq_len, 4.0, 64.0])  // ← 非連続テンソル作成
+    let K_r = rope(K_h, pos)                     // ← .contiguous()トリガー
+    result := reshape(K_r, [seq_len, 256.0])
+}
+```
+
+GPUで`.contiguous()`を実装しても、`reshape()`によって作成される非連続性が根本的なボトルネックとなっている。
+
+### 最終推奨解決策
+**Rust builtin `apply_rope_k()` 実装**が唯一の解決策：
+- メリット: reshape中間テンソル不要、GPU最適化パス
+- デメリット: 実装コスト
+- 見積もり: TensorLogicの`rope()`と同様の実装パターン
 
