@@ -681,7 +681,7 @@ impl Interpreter {
     /// Read a single element from f16 tensor at linear index
     /// SIMPLIFIED: Use CPU transfer instead of GPU kernel to avoid command buffer complexity
     pub(super) fn read_element_f16(&self, tensor: &crate::tensor::Tensor<half::f16>, linear_idx: usize) -> RuntimeResult<f32> {
-        use crate::tensor::TensorIO;
+        use crate::device::{MetalBuffer, KernelExecutor};
         use half::f16;
 
         if linear_idx >= tensor.numel() {
@@ -690,16 +690,58 @@ impl Interpreter {
             ));
         }
 
-        // CRITICAL FIX: Use simple CPU transfer instead of complex GPU kernel
-        // This avoids command buffer management issues and is simpler/safer
-        let data = tensor.sync_and_read();
-        Ok(data[linear_idx].to_f32())
+        let device = match tensor.device() {
+            crate::device::Device::Metal(dev) => dev.clone(),
+            _ => return Err(RuntimeError::InvalidOperation("read_element_f16 requires Metal device".to_string())),
+        };
+
+        let mut device_mut = device.clone();
+        if device_mut.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device_mut.load_library(shader_source)
+                .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to load shader: {}", e)))?;
+        }
+
+        let input_buf = tensor.buffer().as_metal()
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to get Metal buffer: {}", e)))?;
+        let output_buf = MetalBuffer::<f16>::new_uninit(device.metal_device(), 1)
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to create output buffer: {}", e)))?;
+
+        let index_data = [linear_idx as u32];
+        let index_buf = device.metal_device().new_buffer_with_data(
+            index_data.as_ptr() as *const _,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        let mut executor = KernelExecutor::new(device_mut);
+        let pipeline = executor.get_or_compile_pipeline("read_element_f16")
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to compile kernel: {}", e)))?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&output_buf.buffer), 0);
+        encoder.set_buffer(2, Some(&index_buf), 0);
+
+        let grid_size = metal::MTLSize::new(1, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(1, 1, 1);
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        // Read result from GPU
+        let result_slice = unsafe {
+            std::slice::from_raw_parts(output_buf.buffer.contents() as *const f16, 1)
+        };
+        Ok(result_slice[0].to_f32())
     }
 
-    /// Read a single element from f32 tensor at linear index
-    /// SIMPLIFIED: Use CPU transfer instead of GPU kernel to avoid command buffer complexity
+    /// Read a single element from f32 tensor at linear index using GPU
     pub(super) fn read_element_f32(&self, tensor: &crate::tensor::Tensor<f32>, linear_idx: usize) -> RuntimeResult<f32> {
-        use crate::tensor::TensorIO;
+        use crate::device::{MetalBuffer, KernelExecutor};
 
         if linear_idx >= tensor.numel() {
             return Err(RuntimeError::InvalidOperation(
@@ -707,10 +749,53 @@ impl Interpreter {
             ));
         }
 
-        // CRITICAL FIX: Use simple CPU transfer instead of complex GPU kernel
-        // This avoids command buffer management issues and is simpler/safer
-        let data = tensor.sync_and_read();
-        Ok(data[linear_idx])
+        let device = match tensor.device() {
+            crate::device::Device::Metal(dev) => dev.clone(),
+            _ => return Err(RuntimeError::InvalidOperation("read_element_f32 requires Metal device".to_string())),
+        };
+
+        let mut device_mut = device.clone();
+        if device_mut.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device_mut.load_library(shader_source)
+                .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to load shader: {}", e)))?;
+        }
+
+        let input_buf = tensor.buffer().as_metal()
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to get Metal buffer: {}", e)))?;
+        let output_buf = MetalBuffer::<f32>::new_uninit(device.metal_device(), 1)
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to create output buffer: {}", e)))?;
+
+        let index_data = [linear_idx as u32];
+        let index_buf = device.metal_device().new_buffer_with_data(
+            index_data.as_ptr() as *const _,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        let mut executor = KernelExecutor::new(device_mut);
+        let pipeline = executor.get_or_compile_pipeline("read_element_f32")
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to compile kernel: {}", e)))?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&output_buf.buffer), 0);
+        encoder.set_buffer(2, Some(&index_buf), 0);
+
+        let grid_size = metal::MTLSize::new(1, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(1, 1, 1);
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        // Read result from GPU
+        let result_slice = unsafe {
+            std::slice::from_raw_parts(output_buf.buffer.contents() as *const f32, 1)
+        };
+        Ok(result_slice[0])
     }
 
 

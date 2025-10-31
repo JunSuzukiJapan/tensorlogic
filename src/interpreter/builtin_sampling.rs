@@ -118,9 +118,12 @@ impl Interpreter {
             ));
         };
 
-        // Use CPU sampling (like llama.cpp and candle)
-        // GPU sampling is too slow due to multiple kernel launches and sync overhead
-        self.temperature_sample_cpu(logits, temperature, vocab_size)
+        // Use GPU sampling to avoid sync_and_read() bottleneck on every token
+        // This keeps logits on GPU and performs sampling async
+        match logits.device() {
+            Device::Metal(_) => self.temperature_sample_metal(logits, temperature, vocab_size),
+            _ => self.temperature_sample_cpu(logits, temperature, vocab_size),
+        }
     }
 
     /// CPU sampling implementation (following llama.cpp and candle approach)
