@@ -4498,3 +4498,101 @@ kernel void apply_attention_mask_f32(
     float m = mask[idx];
     output[idx] = (m == 0.0f) ? mask_value : scores[idx];
 }
+
+// ============================================================================
+// Argmax kernels for greedy sampling (temperature=0)
+// ============================================================================
+
+/// Find argmax (index of maximum value) for f16 logits
+/// Uses parallel reduction to find both max value and its index simultaneously
+kernel void argmax_f16(
+    device const half* logits [[buffer(0)]],     // Input logits
+    device uint* max_idx [[buffer(1)]],          // Output: index of max
+    device const uint* vocab_size [[buffer(2)]], // Vocabulary size
+    device const uint* offset [[buffer(3)]],     // Offset for 2D tensors
+    threadgroup half* shared_max [[threadgroup(0)]],   // Shared max values
+    threadgroup uint* shared_idx [[threadgroup(1)]],   // Shared max indices
+    uint gid [[thread_position_in_grid]],
+    uint lid [[thread_position_in_threadgroup]],
+    uint group_size [[threads_per_threadgroup]]
+) {
+    uint vocab = vocab_size[0];
+    uint start_offset = offset[0];
+    
+    // Each thread loads one value and its index
+    half val;
+    uint idx;
+    if (gid < vocab) {
+        val = logits[start_offset + gid];
+        idx = gid;
+    } else {
+        val = half(-65504.0);  // -inf for f16
+        idx = 0;
+    }
+    
+    shared_max[lid] = val;
+    shared_idx[lid] = idx;
+    
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    
+    // Parallel reduction: find max and its index
+    for (uint stride = group_size / 2; stride > 0; stride >>= 1) {
+        if (lid < stride) {
+            if (shared_max[lid + stride] > shared_max[lid]) {
+                shared_max[lid] = shared_max[lid + stride];
+                shared_idx[lid] = shared_idx[lid + stride];
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    
+    // Write result
+    if (lid == 0) {
+        max_idx[0] = shared_idx[0];
+    }
+}
+
+/// Find argmax (index of maximum value) for f32 logits
+kernel void argmax_f32(
+    device const float* logits [[buffer(0)]],
+    device uint* max_idx [[buffer(1)]],
+    device const uint* vocab_size [[buffer(2)]],
+    device const uint* offset [[buffer(3)]],
+    threadgroup float* shared_max [[threadgroup(0)]],
+    threadgroup uint* shared_idx [[threadgroup(1)]],
+    uint gid [[thread_position_in_grid]],
+    uint lid [[thread_position_in_threadgroup]],
+    uint group_size [[threads_per_threadgroup]]
+) {
+    uint vocab = vocab_size[0];
+    uint start_offset = offset[0];
+    
+    float val;
+    uint idx;
+    if (gid < vocab) {
+        val = logits[start_offset + gid];
+        idx = gid;
+    } else {
+        val = -INFINITY;
+        idx = 0;
+    }
+    
+    shared_max[lid] = val;
+    shared_idx[lid] = idx;
+    
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    
+    for (uint stride = group_size / 2; stride > 0; stride >>= 1) {
+        if (lid < stride) {
+            if (shared_max[lid + stride] > shared_max[lid]) {
+                shared_max[lid] = shared_max[lid + stride];
+                shared_idx[lid] = shared_idx[lid + stride];
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    
+    if (lid == 0) {
+        max_idx[0] = shared_idx[0];
+    }
+}

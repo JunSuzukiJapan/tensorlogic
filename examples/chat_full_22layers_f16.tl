@@ -302,10 +302,10 @@ main {
     let KV21 = K21
     let KV21_V = V21
 
-    print("Prefill complete, exiting for timing test")
+    print("Prefill complete, starting token generation...")
 
     // Token-by-token generation (max 10 tokens for testing)
-    for i in range(0) {
+    for i in range(10) {
         if continue_generation {
             // Sample next token using temperature sampling
             let token_id = temperature_sample(current_logits, temperature)

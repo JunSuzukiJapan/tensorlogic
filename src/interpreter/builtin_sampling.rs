@@ -118,6 +118,15 @@ impl Interpreter {
             ));
         };
 
+        // OPTIMIZATION: Use argmax for temperature=0 (greedy sampling)
+        // This skips expensive softmax computation entirely
+        if temperature == 0.0 {
+            match logits.device() {
+                Device::Metal(_) => return self.argmax_sample_metal(logits, vocab_size),
+                _ => {} // Fall through to CPU sampling
+            }
+        }
+
         // Use GPU sampling to avoid sync_and_read() bottleneck on every token
         // This keeps logits on GPU and performs sampling async
         match logits.device() {
@@ -365,8 +374,8 @@ impl Interpreter {
         let pipeline5 = executor.get_or_compile_pipeline(&format!("cumulative_sample{}", suffix))
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        let final_command_buffer = device.command_queue().new_command_buffer();
+        let encoder = final_command_buffer.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&pipeline5);
         encoder.set_buffer(0, Some(&probs_buf.buffer), 0);
         encoder.set_buffer(1, Some(&sampled_buf), 0);
@@ -377,11 +386,12 @@ impl Interpreter {
         let threadgroup_size = metal::MTLSize::new(1, 1, 1);
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        crate::ops::async_exec::submit_async(&command_buffer);
+        final_command_buffer.commit();
 
-        // Sync all pending operations before reading result
-        crate::ops::async_exec::sync_all();
+        // TARGETED SYNC: Wait only for the final sampling command buffer
+        // This avoids waiting for all 22 layers of transformer computation
+        // Metal's dependency tracking ensures logits are ready before sampling starts
+        final_command_buffer.wait_until_completed();
 
         // Read result (only 4 bytes!)
         let sampled_ptr = sampled_buf.contents() as *const u32;
@@ -396,5 +406,103 @@ impl Interpreter {
         }
 
         Ok(Value::Integer(sampled_token as i64))
+    }
+
+    /// GPU-accelerated argmax sampling (for temperature=0 greedy decoding)
+    /// Much faster than full temperature sampling as it skips softmax computation
+    fn argmax_sample_metal<T: FloatType>(&self, logits: &crate::tensor::Tensor<T>, vocab_size: usize) -> RuntimeResult<Value> {
+        use crate::device::{Device, MetalBuffer};
+        use crate::tensor::TensorAccessors;
+
+        let mut device = match logits.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(RuntimeError::TensorError(
+                crate::error::TensorError::DeviceConversionError("Not on Metal device".to_string())
+            )),
+        };
+
+        // Load shader library
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device.load_library(shader_source)
+                .map_err(|e| RuntimeError::TensorError(e))?;
+        }
+
+        let input_buf = logits.buffer().as_metal()
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        // Calculate buffer offset for 2D tensors (to get last sequence position)
+        let dims = logits.dims();
+        let buffer_offset: u64 = if dims.len() == 2 {
+            let seq_len = dims[0];
+            let start_idx = (seq_len - 1) * vocab_size;
+            start_idx as u64
+        } else {
+            0
+        };
+
+        // Type suffix for kernel selection
+        let suffix = T::kernel_suffix();
+
+        // Create output buffer for argmax result
+        let max_idx_buf = device.metal_device().new_buffer_with_data(
+            &0u32 as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        // Create parameter buffers
+        let vocab_u32 = vocab_size as u32;
+        let vocab_buf = device.metal_device().new_buffer_with_data(
+            &vocab_u32 as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        let offset_u32 = buffer_offset as u32;
+        let offset_buf = device.metal_device().new_buffer_with_data(
+            &offset_u32 as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        let mut executor = crate::device::KernelExecutor::new(device.clone());
+
+        // Execute argmax kernel
+        let pipeline = executor.get_or_compile_pipeline(&format!("argmax{}", suffix))
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        let command_buffer = device.command_queue().new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&max_idx_buf), 0);
+        encoder.set_buffer(2, Some(&vocab_buf), 0);
+        encoder.set_buffer(3, Some(&offset_buf), 0);
+
+        // Allocate threadgroup memory for parallel reduction
+        encoder.set_threadgroup_memory_length(0, 256 * std::mem::size_of::<T>() as u64);  // shared_max
+        encoder.set_threadgroup_memory_length(1, 256 * std::mem::size_of::<u32>() as u64); // shared_idx
+
+        let threadgroup_size = metal::MTLSize::new(256, 1, 1);
+        let grid_size = metal::MTLSize::new(256, 1, 1);
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        command_buffer.commit();
+
+        // TARGETED SYNC: Wait only for this argmax command buffer
+        command_buffer.wait_until_completed();
+
+        // Read result (only 4 bytes!)
+        let max_idx_ptr = max_idx_buf.contents() as *const u32;
+        let max_idx = unsafe { *max_idx_ptr };
+
+        if std::env::var("TL_DEBUG_SAMPLING").is_ok() {
+            eprintln!("\n=== GPU Argmax Sample (greedy) ===");
+            eprintln!("  Vocab size: {}", vocab_size);
+            eprintln!("  Selected token (argmax): {}", max_idx);
+        }
+
+        Ok(Value::Integer(max_idx as i64))
     }
 }
