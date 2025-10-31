@@ -728,12 +728,21 @@ impl Interpreter {
         encoder.set_buffer(1, Some(&output_buf.buffer), 0);
         encoder.set_buffer(2, Some(&index_buf), 0);
 
-        let grid_size = metal::MTLSize::new(1, 1, 1);
-        let threadgroup_size = metal::MTLSize::new(1, 1, 1);
-        encoder.dispatch_threads(grid_size, threadgroup_size);
+        // FIXED: Use dispatchThreadgroups for single-thread execution (more reliable than dispatch_threads)
+        let threadgroups = metal::MTLSize::new(1, 1, 1);
+        let threads_per_threadgroup = metal::MTLSize::new(1, 1, 1);
+        encoder.dispatch_thread_groups(threadgroups, threads_per_threadgroup);
         encoder.end_encoding();
+
         command_buffer.commit();
         command_buffer.wait_until_completed();
+
+        // Check for errors
+        if command_buffer.status() != metal::MTLCommandBufferStatus::Completed {
+            return Err(RuntimeError::InvalidOperation(
+                format!("GPU command buffer failed with status: {:?}", command_buffer.status())
+            ));
+        }
 
         // Read result from GPU
         let result_slice = unsafe {
@@ -801,14 +810,24 @@ impl Interpreter {
         encoder.set_buffer(1, Some(&output_buf.buffer), 0);
         encoder.set_buffer(2, Some(&index_buf), 0);
 
-        let grid_size = metal::MTLSize::new(1, 1, 1);
-        let threadgroup_size = metal::MTLSize::new(1, 1, 1);
-        encoder.dispatch_threads(grid_size, threadgroup_size);
+        // FIXED: Use dispatchThreadgroups for single-thread execution (more reliable than dispatch_threads)
+        let threadgroups = metal::MTLSize::new(1, 1, 1);
+        let threads_per_threadgroup = metal::MTLSize::new(1, 1, 1);
+        encoder.dispatch_thread_groups(threadgroups, threads_per_threadgroup);
         encoder.end_encoding();
+
         command_buffer.commit();
         eprintln!("[DEBUG] read_element_f32: Command buffer committed, waiting for completion...");
         command_buffer.wait_until_completed();
-        eprintln!("[DEBUG] read_element_f32: Command buffer completed");
+
+        // Check for errors
+        if command_buffer.status() != metal::MTLCommandBufferStatus::Completed {
+            eprintln!("[DEBUG] read_element_f32: Command buffer failed with status: {:?}", command_buffer.status());
+            return Err(RuntimeError::InvalidOperation(
+                format!("GPU command buffer failed with status: {:?}", command_buffer.status())
+            ));
+        }
+        eprintln!("[DEBUG] read_element_f32: Command buffer completed successfully");
 
         // Read result from GPU
         eprintln!("[DEBUG] read_element_f32: Reading result from GPU...");
@@ -1262,20 +1281,36 @@ impl Interpreter {
         let has_float_literal = self.has_float_literal(elements);
         eprintln!("[DEBUG] eval_array_literal: has_float_literal={}", has_float_literal);
 
+        // OPTIMIZATION: Keep small tensors on CPU to avoid GPU transfer overhead
+        // Shape tensors (typically < 10 elements) benefit significantly from this
+        const SMALL_TENSOR_THRESHOLD: usize = 256;  // ~1KB for f32
+        let numel = values.len();
+        let use_cpu = numel < SMALL_TENSOR_THRESHOLD;
+
         if has_float_literal {
-            eprintln!("[DEBUG] eval_array_literal: Creating f32 tensor...");
+            eprintln!("[DEBUG] eval_array_literal: Creating f32 tensor (numel={}, cpu={})...", numel, use_cpu);
             // Array contains float literals -> create f32 tensor
-            let tensor = Tensor::from_vec_gpu(self.env.metal_device(), values, shape)
-                .map_err(|e| RuntimeError::TensorError(e))?;
+            let tensor = if use_cpu {
+                Tensor::from_vec(values, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?
+            } else {
+                Tensor::from_vec_gpu(self.env.metal_device(), values, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?
+            };
             eprintln!("[DEBUG] eval_array_literal: f32 tensor created");
             Ok(Value::TensorF32(tensor))
         } else {
-            eprintln!("[DEBUG] eval_array_literal: Creating f16 tensor...");
+            eprintln!("[DEBUG] eval_array_literal: Creating f16 tensor (numel={}, cpu={})...", numel, use_cpu);
             // Array contains only integers -> create f16 tensor (backward compatibility)
             let f16_values: Vec<f16> = values.into_iter().map(f16::from_f32).collect();
             eprintln!("[DEBUG] eval_array_literal: f16 conversion complete, creating tensor...");
-            let tensor = Tensor::from_vec_gpu(self.env.metal_device(), f16_values, shape)
-                .map_err(|e| RuntimeError::TensorError(e))?;
+            let tensor = if use_cpu {
+                Tensor::from_vec(f16_values, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?
+            } else {
+                Tensor::from_vec_gpu(self.env.metal_device(), f16_values, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?
+            };
             eprintln!("[DEBUG] eval_array_literal: f16 tensor created");
             Ok(Value::TensorF16(tensor))
         }
