@@ -21,7 +21,13 @@
       "Bash(TL_DEBUG_ACTIVATION=1 timeout 120 ./target/release/tl run:*)",
       "Bash(TL_DEBUG_ACTIVATION=1 timeout 60 ./target/release/tl run:*)",
       "Bash(TL_DEBUG_SAMPLING=1 timeout 120 ./target/release/tl run:*)",
-      "Bash(TL_DEBUG_ROPE=1 timeout 60 ./target/release/tl run:*)"
+      "Bash(TL_DEBUG_ROPE=1 timeout 60 ./target/release/tl run:*)",
+      "Bash(TL_DEBUG_ROPE=1 TL_DEBUG_CONTIGUOUS=1 timeout 10 ./target/release/tl run:*)",
+      "Bash(TL_DEBUG_ROPE=1 TL_DEBUG_CONTIGUOUS=1 timeout 60 ./target/release/tl run:*)",
+      "Bash(TL_DEBUG_ROPE=1 TL_DEBUG_CONTIGUOUS=1 timeout 20 ./target/release/tl run:*)",
+      "Bash(TL_DEBUG_ROPE=1 TL_DEBUG_CONTIGUOUS=1 timeout 90 ./target/release/tl run:*)",
+      "Bash(TL_DEBUG_ROPE=1 TL_DEBUG_CONTIGUOUS=1 timeout 120 ./target/release/tl run:*)",
+      "Bash(timeout 180 ./target/release/tl run:*)"
     ],
     "deny": [],
     "ask": []

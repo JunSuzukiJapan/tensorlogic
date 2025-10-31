@@ -75,16 +75,14 @@ impl<T: FloatType> TensorTransform for Tensor<T> {
                      self.dims(), self.strides);
         }
 
-        // TEMPORARY: Disable GPU contiguous to test if it's causing the hang
         // Use GPU implementation for Metal tensors
         use crate::device::Device;
         match self.device() {
-            Device::Metal(_metal_device) => {
+            Device::Metal(metal_device) => {
                 if std::env::var("TL_DEBUG_CONTIGUOUS").is_ok() {
-                    eprintln!("[CONTIGUOUS] Using CPU fallback (GPU disabled for testing)");
+                    eprintln!("[CONTIGUOUS] Using GPU implementation");
                 }
-                self.contiguous_cpu()
-                // self.contiguous_metal(metal_device)
+                self.contiguous_metal(metal_device)
             }
             _ => {
                 // CPU fallback for non-Metal devices
