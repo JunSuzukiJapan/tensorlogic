@@ -4,6 +4,7 @@ use super::*;
 use crate::interpreter::value::ToValue;
 use crate::tensor::{Tensor, TensorCreation};
 use half::f16;
+use std::time::Instant;
 
 impl Interpreter {
     pub(super) fn eval_nn_function(&mut self, name: &str, args: &[TensorExpr]) -> Option<RuntimeResult<Value>> {
@@ -33,6 +34,7 @@ impl Interpreter {
     /// rms_norm(x, weight, [eps]) -> tensor
     /// RMS Normalization (used in LLaMA, TinyLlama)
     fn eval_rms_norm(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        let _start = Instant::now();
         if args.len() < 2 || args.len() > 3 {
             return Err(RuntimeError::TypeError(
                 format!("rms_norm() expects 2-3 arguments (tensor, weight, optional eps), got {}", args.len())
@@ -42,6 +44,7 @@ impl Interpreter {
         // Evaluate tensor and weight arguments
         let tensor_val = self.eval_expr(&args[0])?;
         let weight_val = self.eval_expr(&args[1])?;
+        eprintln!("[TIMING] rms_norm: arg evaluation: {:.3}ms", _start.elapsed().as_secs_f64() * 1000.0);
 
         // Use default epsilon value (1e-6 for LLaMA/TinyLlama) or custom value
         let eps = if args.len() >= 3 {
@@ -55,7 +58,8 @@ impl Interpreter {
         };
 
         // Process based on input type (f16 or f32)
-        match (tensor_val, weight_val) {
+        let compute_start = Instant::now();
+        let result = match (tensor_val, weight_val) {
             (Value::TensorF16(tensor), Value::TensorF16(weight)) => {
                 let normalized_shape = weight.dims().to_vec();
                 let result = tensor.rms_norm(normalized_shape, &weight, eps)
@@ -71,7 +75,11 @@ impl Interpreter {
             _ => Err(RuntimeError::TypeError(
                 "rms_norm() requires tensor and weight to be same type (both f16 or both f32)".to_string()
             )),
-        }
+        };
+        eprintln!("[TIMING] rms_norm: computation: {:.3}ms, total: {:.3}ms",
+                  compute_start.elapsed().as_secs_f64() * 1000.0,
+                  _start.elapsed().as_secs_f64() * 1000.0);
+        result
     }
 
     /// positional_encoding(seq_len, d_model) -> tensor
@@ -826,7 +834,13 @@ impl Interpreter {
         let broadcasted = reshaped.broadcast_to(&TensorShape::new(vec![seq_len, k_embd, n_rep]))
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        let result = broadcasted.reshape(vec![seq_len, new_embd])
+        // CRITICAL: Make contiguous before reshape! Broadcast creates non-contiguous tensors
+        // with special strides, which causes GPU matmul to hang. We must materialize the data.
+        use crate::tensor::TensorTransform;
+        let contiguous = broadcasted.contiguous()
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        let result = contiguous.reshape(vec![seq_len, new_embd])
             .map_err(|e| RuntimeError::TensorError(e))?;
 
         Ok(result)
@@ -838,6 +852,7 @@ impl Interpreter {
         v: Tensor<f32>,
         w_o: Tensor<f32>,
     ) -> RuntimeResult<Value> {
+        let _fn_start = Instant::now();
 
         // Q shape: [seq_len, n_embd]
         // K shape: [cache_len, n_embd]
@@ -846,6 +861,7 @@ impl Interpreter {
 
         let q_dims = q.dims();
         let k_dims = k.dims();
+        eprintln!("[TIMING]   attention_f32: setup: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
 
         if q_dims.len() != 2 || k_dims.len() != 2 {
             return Err(RuntimeError::TypeError(
@@ -886,11 +902,13 @@ impl Interpreter {
 
         // Step 1: Attention scores = Q @ K^T / sqrt(head_dim)
         // Q: [seq_len, n_embd], K^T: [n_embd, cache_len] -> [seq_len, cache_len]
+        let qk_start = Instant::now();
         let k_t = k_expanded.transpose().map_err(|e| RuntimeError::TensorError(e))?;
         let scores = q.matmul(&k_t).map_err(|e| RuntimeError::TensorError(e))?;
 
         let scale = (head_dim as f32).sqrt();
         let scaled_scores = scores.div_scalar(scale).map_err(|e| RuntimeError::TensorError(e))?;
+        eprintln!("[TIMING]   attention_f32: Q@K^T: {:.3}ms", qk_start.elapsed().as_secs_f64() * 1000.0);
 
         // Step 2: Apply causal mask if seq_len > 1 (prefill phase)
         let masked_scores = if seq_len > 1 {
@@ -937,15 +955,22 @@ impl Interpreter {
         };
 
         // Step 3: Softmax over last dimension
+        let softmax_start = Instant::now();
         let attn_weights = masked_scores.softmax().map_err(|e| RuntimeError::TensorError(e))?;
+        eprintln!("[TIMING]   attention_f32: softmax: {:.3}ms", softmax_start.elapsed().as_secs_f64() * 1000.0);
 
         // Step 4: Weighted sum: attn_weights @ V (use expanded V for GQA)
         // attn_weights: [seq_len, cache_len], V: [cache_len, n_embd] -> [seq_len, n_embd]
+        let attn_v_start = Instant::now();
         let attn_out = attn_weights.matmul(&v_expanded).map_err(|e| RuntimeError::TensorError(e))?;
+        eprintln!("[TIMING]   attention_f32: attn@V: {:.3}ms", attn_v_start.elapsed().as_secs_f64() * 1000.0);
 
         // Step 5: Output projection: attn_out @ W_o.T (like linear layer)
         // Use fused transpose-matmul for better performance (2.89x faster than separate transpose + matmul)
+        let output_start = Instant::now();
         let result = attn_out.matmul_transposed_b(&w_o).map_err(|e| RuntimeError::TensorError(e))?;
+        eprintln!("[TIMING]   attention_f32: output projection: {:.3}ms", output_start.elapsed().as_secs_f64() * 1000.0);
+        eprintln!("[TIMING]   attention_f32: TOTAL: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
 
         Ok(Value::TensorF32(result))
     }
@@ -956,7 +981,6 @@ impl Interpreter {
         v: Tensor<f16>,
         w_o: Tensor<f16>,
     ) -> RuntimeResult<Value> {
-
         // Q shape: [seq_len, n_embd]
         // K shape: [cache_len, n_embd]
         // V shape: [cache_len, n_embd]
@@ -1023,7 +1047,13 @@ impl Interpreter {
 
         // Step 1: Attention scores = Q @ K^T / sqrt(head_dim)
         // Q: [seq_len, n_embd], K^T: [n_embd, cache_len] -> [seq_len, cache_len]
-        let k_t = k_expanded.transpose().map_err(|e| RuntimeError::TensorError(e))?;
+        let k_t_view = k_expanded.transpose().map_err(|e| RuntimeError::TensorError(e))?;
+
+        // CRITICAL: Transpose creates non-contiguous tensor (just swaps strides)
+        // Must make contiguous before matmul to avoid GPU hang!
+        use crate::tensor::TensorTransform;
+        let k_t = k_t_view.contiguous().map_err(|e| RuntimeError::TensorError(e))?;
+
         let scores = q_flat.matmul(&k_t).map_err(|e| RuntimeError::TensorError(e))?;
 
         let scale = (head_dim as f32).sqrt();
