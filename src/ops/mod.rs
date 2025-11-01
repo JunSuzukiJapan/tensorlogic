@@ -20,6 +20,9 @@ pub mod rope;
 pub mod cache_ops;
 pub mod async_exec;
 
+#[cfg(test)]
+mod tests;
+
 // Re-export commonly used types
 pub use fused::Activation;
 

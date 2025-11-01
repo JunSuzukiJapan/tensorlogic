@@ -147,7 +147,14 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
         let metal_buffer = MetalBuffer::from_slice(device.metal_device(), &data)?;
         let buffer = BufferHandle::Metal(metal_buffer);
 
-        Self::new(buffer, shape, Device::Metal(device.clone()))
+        let tensor = Self::new(buffer, shape, Device::Metal(device.clone()))?;
+
+        // Force synchronization to ensure GPU buffer is fully initialized
+        // This prevents race conditions when the tensor is used immediately after creation
+        use crate::tensor::TensorIO;
+        let _ = tensor.sync_and_read();
+
+        Ok(tensor)
     }
 
     fn from_vec_gpu_pooled(
@@ -168,12 +175,18 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
         let metal_buffer = MetalBuffer::from_vec_pooled(device.buffer_pool(), &data_f16)?;
         let buffer = BufferHandle::Metal(unsafe { std::mem::transmute(metal_buffer) });
 
-        Self::new_with_pool(
+        let tensor = Self::new_with_pool(
             buffer,
             shape,
             Device::Metal(device.clone()),
             Some(device.buffer_pool().clone()),
-        )
+        )?;
+
+        // Force synchronization to ensure GPU buffer is fully initialized
+        use crate::tensor::TensorIO;
+        let _ = tensor.sync_and_read();
+
+        Ok(tensor)
     }
 
     fn zeros(device: &MetalDevice, shape: Vec<usize>) -> TensorResult<Self> {

@@ -27,7 +27,21 @@
       "Bash(TL_DEBUG_ROPE=1 TL_DEBUG_CONTIGUOUS=1 timeout 20 ./target/release/tl run:*)",
       "Bash(TL_DEBUG_ROPE=1 TL_DEBUG_CONTIGUOUS=1 timeout 90 ./target/release/tl run:*)",
       "Bash(TL_DEBUG_ROPE=1 TL_DEBUG_CONTIGUOUS=1 timeout 120 ./target/release/tl run:*)",
-      "Bash(timeout 180 ./target/release/tl run:*)"
+      "Bash(timeout 180 ./target/release/tl run:*)",
+      "Bash(timeout 20 ./target/release/tl run:*)",
+      "Bash(timeout 10 ./target/release/tl run:*)",
+      "Bash(timeout 240 ./target/release/tl run:*)",
+      "Bash(timeout 360 ./target/release/tl run:*)",
+      "Bash(timeout 300 ./target/release/tl run:*)",
+      "Bash(for test in test_add_values test_sub_values test_mul_values test_matmul_2x2 test_exp_values test_reshape_values)",
+      "Bash(do echo \"=== Testing $test ===\" cargo test --lib ops::tests::tensor_ops_tests::$test)",
+      "Bash(TL_DEBUG_SAMPLING=1 TL_DEBUG_ACTIVATION=1 timeout:*)",
+      "Bash(TL_DEBUG_ACTIVATION=1 timeout 240 ./target/release/tl run:*)",
+      "Bash(TL_DEBUG_SAMPLING=1 timeout 240 ./target/release/tl run:*)",
+      "Bash(./target/release/tl test:*)",
+      "Bash(find:*)",
+      "Bash(git restore:*)",
+      "Bash(timeout 60 ./target/release/tl test:*)"
     ],
     "deny": [],
     "ask": []
