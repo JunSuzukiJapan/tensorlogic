@@ -279,6 +279,7 @@ impl Interpreter {
     /// Reshapes a tensor to a new shape
     fn eval_reshape(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         use crate::interpreter::value::ToValue;
+        let _fn_start = std::time::Instant::now();
 
         eprintln!("[DEBUG] eval_reshape: Entry, args.len={}", args.len());
 
@@ -289,17 +290,21 @@ impl Interpreter {
         }
 
         eprintln!("[DEBUG] eval_reshape: Evaluating arg[0] (tensor)...");
+        let arg0_start = std::time::Instant::now();
         let tensor_val = self.eval_expr(&args[0])?;
-        eprintln!("[DEBUG] eval_reshape: arg[0] evaluated");
+        eprintln!("[DEBUG] eval_reshape: arg[0] evaluated in {:.3}ms", arg0_start.elapsed().as_secs_f64() * 1000.0);
 
         eprintln!("[DEBUG] eval_reshape: Evaluating arg[1] (shape)...");
+        let arg1_start = std::time::Instant::now();
         let shape_val = self.eval_expr(&args[1])?;
-        eprintln!("[DEBUG] eval_reshape: arg[1] evaluated, extracting shape...");
+        eprintln!("[DEBUG] eval_reshape: arg[1] evaluated in {:.3}ms, extracting shape...", arg1_start.elapsed().as_secs_f64() * 1000.0);
 
+        let extract_start = std::time::Instant::now();
         let new_shape = extract_shape!(self, shape_val);
-        eprintln!("[DEBUG] eval_reshape: Shape extracted: {:?}", new_shape);
+        eprintln!("[DEBUG] eval_reshape: Shape extracted in {:.3}ms: {:?}", extract_start.elapsed().as_secs_f64() * 1000.0, new_shape);
 
-        Ok(match tensor_val {
+        let reshape_start = std::time::Instant::now();
+        let result = match tensor_val {
             Value::TensorF16(tensor) => {
                 let old_numel: usize = tensor.dims().iter().product();
                 let new_numel: usize = new_shape.iter().product();
@@ -327,7 +332,11 @@ impl Interpreter {
                 tensor.reshape(new_shape).map_err(|e| RuntimeError::TensorError(e))?.to_value()
             }
             _ => return Err(RuntimeError::TypeError("Expected tensor".to_string()))
-        })
+        };
+        eprintln!("[DEBUG] eval_reshape: reshape() call completed in {:.3}ms", reshape_start.elapsed().as_secs_f64() * 1000.0);
+        eprintln!("[DEBUG] eval_reshape: TOTAL function time: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
+
+        Ok(result)
     }
 
     /// transpose(tensor) -> tensor

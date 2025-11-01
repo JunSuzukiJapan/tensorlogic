@@ -644,6 +644,12 @@ impl Interpreter {
             ));
         }
 
+        // Fast path for CPU tensors: direct access without copying
+        use crate::tensor::BufferHandle;
+        if let BufferHandle::CPU(ref vec) = tensor.buffer() {
+            return Ok(vec[linear_idx].to_f32());
+        }
+
         let device = match tensor.device() {
             crate::device::Device::Metal(dev) => dev.clone(),
             _ => return Err(RuntimeError::InvalidOperation("read_element_f16 requires Metal device".to_string())),
@@ -712,6 +718,13 @@ impl Interpreter {
             return Err(RuntimeError::InvalidOperation(
                 format!("Index {} out of bounds for tensor with {} elements", linear_idx, tensor.numel())
             ));
+        }
+
+        // Fast path for CPU tensors: direct access without copying
+        use crate::tensor::BufferHandle;
+        if let BufferHandle::CPU(ref vec) = tensor.buffer() {
+            eprintln!("[DEBUG] read_element_f32: CPU tensor, using direct access");
+            return Ok(vec[linear_idx]);
         }
 
         eprintln!("[DEBUG] read_element_f32: Getting Metal device...");
@@ -1207,6 +1220,7 @@ impl Interpreter {
 
     /// Evaluate an array literal to a tensor
     pub(super) fn eval_array_literal(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Value> {
+        let _fn_start = std::time::Instant::now();
         eprintln!("[DEBUG] eval_array_literal: Entry, elements.len={}", elements.len());
 
         // Support empty arrays - return empty Tensor
@@ -1219,27 +1233,34 @@ impl Interpreter {
 
         // Recursively collect all scalar values
         eprintln!("[DEBUG] eval_array_literal: Calling collect_scalars...");
+        let collect_start = std::time::Instant::now();
         let values = self.collect_scalars(elements)?;
-        eprintln!("[DEBUG] eval_array_literal: collect_scalars completed, values.len={}", values.len());
+        eprintln!("[DEBUG] eval_array_literal: collect_scalars completed in {:.3}ms, values.len={}",
+                  collect_start.elapsed().as_secs_f64() * 1000.0, values.len());
 
         // Determine shape
         eprintln!("[DEBUG] eval_array_literal: Calling infer_shape...");
+        let shape_start = std::time::Instant::now();
         let shape = self.infer_shape(elements)?;
-        eprintln!("[DEBUG] eval_array_literal: infer_shape completed, shape={:?}", shape);
+        eprintln!("[DEBUG] eval_array_literal: infer_shape completed in {:.3}ms, shape={:?}",
+                  shape_start.elapsed().as_secs_f64() * 1000.0, shape);
 
         // Determine if array contains float literals (f32) or only integers (f16)
         eprintln!("[DEBUG] eval_array_literal: Calling has_float_literal...");
+        let float_check_start = std::time::Instant::now();
         let has_float_literal = self.has_float_literal(elements);
-        eprintln!("[DEBUG] eval_array_literal: has_float_literal={}", has_float_literal);
+        eprintln!("[DEBUG] eval_array_literal: has_float_literal={} ({:.3}ms)",
+                  has_float_literal, float_check_start.elapsed().as_secs_f64() * 1000.0);
 
-        // Always use GPU when available for consistent behavior in tests/production
-        // Previous optimization kept small tensors (<256 elements) on CPU, but this
-        // caused issues with builtin functions that expect GPU tensors
+        // TODO: Optimization disabled temporarily - builtin functions expect GPU tensors
+        // Small arrays (shape parameters) cause 4-5ms GPU transfer overhead
+        // Need smarter approach: only use CPU for arrays that are ONLY used as shape params
         let numel = values.len();
         let use_cpu = false;
 
         if has_float_literal {
             eprintln!("[DEBUG] eval_array_literal: Creating f32 tensor (numel={}, cpu={})...", numel, use_cpu);
+            let create_start = std::time::Instant::now();
             // Array contains float literals -> create f32 tensor
             let tensor = if use_cpu {
                 Tensor::from_vec(values, shape)
@@ -1248,13 +1269,16 @@ impl Interpreter {
                 Tensor::from_vec_gpu(self.env.metal_device(), values, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?
             };
-            eprintln!("[DEBUG] eval_array_literal: f32 tensor created");
+            eprintln!("[DEBUG] eval_array_literal: f32 tensor created in {:.3}ms", create_start.elapsed().as_secs_f64() * 1000.0);
+            eprintln!("[DEBUG] eval_array_literal: TOTAL time: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
             Ok(Value::TensorF32(tensor))
         } else {
             eprintln!("[DEBUG] eval_array_literal: Creating f16 tensor (numel={}, cpu={})...", numel, use_cpu);
+            let convert_start = std::time::Instant::now();
             // Array contains only integers -> create f16 tensor (backward compatibility)
             let f16_values: Vec<f16> = values.into_iter().map(f16::from_f32).collect();
-            eprintln!("[DEBUG] eval_array_literal: f16 conversion complete, creating tensor...");
+            eprintln!("[DEBUG] eval_array_literal: f16 conversion complete in {:.3}ms, creating tensor...", convert_start.elapsed().as_secs_f64() * 1000.0);
+            let create_start = std::time::Instant::now();
             let tensor = if use_cpu {
                 Tensor::from_vec(f16_values, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?
@@ -1262,7 +1286,8 @@ impl Interpreter {
                 Tensor::from_vec_gpu(self.env.metal_device(), f16_values, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?
             };
-            eprintln!("[DEBUG] eval_array_literal: f16 tensor created");
+            eprintln!("[DEBUG] eval_array_literal: f16 tensor created in {:.3}ms", create_start.elapsed().as_secs_f64() * 1000.0);
+            eprintln!("[DEBUG] eval_array_literal: TOTAL time: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
             Ok(Value::TensorF16(tensor))
         }
     }

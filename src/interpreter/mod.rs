@@ -1162,9 +1162,12 @@ impl Interpreter {
     fn eval_function_call(&mut self, type_namespace: Option<&str>, name: &Identifier, args: &[TensorExpr], resolved: Option<&crate::ast::ResolvedFunction>) -> RuntimeResult<Value> {
         let name_str = name.as_str();
 
-        // Profiling: check if TL_PROFILE is set
+        // Profiling: check if TL_PROFILE is set OR always profile key functions
+        let key_functions = ["transformer_layer", "linear", "rope", "embedding", "attention_with_cache",
+                             "softmax", "matmul", "einsum", "concat", "reshape"];
+        let should_profile = std::env::var("TL_PROFILE").is_ok() || key_functions.contains(&name_str);
         let profile_enabled = std::env::var("TL_PROFILE").is_ok();
-        let start_time = if profile_enabled {
+        let start_time = if should_profile {
             let full_name = if let Some(ns) = type_namespace {
                 format!("{}::{}", ns, name_str)
             } else {
