@@ -601,3 +601,187 @@ impl Interpreter {
         Ok(Value::String(substring))
     }
 }
+
+#[cfg(test)]
+mod detokenize_tests {
+    use super::*;
+    use crate::tokenizer::Tokenizer;
+    use std::sync::Arc;
+
+    /// Helper function to load TinyLlama tokenizer for testing
+    /// Returns None if tokenizer file is not available (optional test)
+    fn load_test_tokenizer() -> Option<Arc<Tokenizer>> {
+        let home = std::env::var("HOME").ok()?;
+        let tokenizer_path = format!("{}/.llm/tokenizers/tinyllama-tokenizer.json", home);
+
+        if !std::path::Path::new(&tokenizer_path).exists() {
+            return None;
+        }
+
+        Tokenizer::from_file(&tokenizer_path).ok().map(Arc::new)
+    }
+
+    #[test]
+    fn test_detokenize_single_special_tokens() {
+        let Some(tokenizer) = load_test_tokenizer() else {
+            eprintln!("Skipping test: TinyLlama tokenizer not available");
+            return;
+        };
+
+        // Test BOS token <s> (ID: 1)
+        let bos_text = tokenizer.decode(&[1], false).unwrap();
+        assert_eq!(bos_text, "<s>", "Token ID 1 should decode to <s>");
+
+        // Test EOS token </s> (ID: 2)
+        let eos_text = tokenizer.decode(&[2], false).unwrap();
+        assert_eq!(eos_text, "</s>", "Token ID 2 should decode to </s>");
+
+        // Test UNK token <unk> (ID: 0)
+        let unk_text = tokenizer.decode(&[0], false).unwrap();
+        assert_eq!(unk_text, "<unk>", "Token ID 0 should decode to <unk>");
+    }
+
+    #[test]
+    fn test_detokenize_single_skip_special_tokens() {
+        let Some(tokenizer) = load_test_tokenizer() else {
+            eprintln!("Skipping test: TinyLlama tokenizer not available");
+            return;
+        };
+
+        // When skip_special_tokens=true, special tokens should be empty or filtered
+        let bos_text_skip = tokenizer.decode(&[1], true).unwrap();
+        assert!(
+            bos_text_skip.is_empty() || bos_text_skip == " ",
+            "BOS token should be skipped when skip_special_tokens=true, got: '{}'",
+            bos_text_skip
+        );
+
+        let eos_text_skip = tokenizer.decode(&[2], true).unwrap();
+        assert!(
+            eos_text_skip.is_empty() || eos_text_skip == " ",
+            "EOS token should be skipped when skip_special_tokens=true, got: '{}'",
+            eos_text_skip
+        );
+    }
+
+    #[test]
+    fn test_detokenize_single_regular_tokens() {
+        let Some(tokenizer) = load_test_tokenizer() else {
+            eprintln!("Skipping test: TinyLlama tokenizer not available");
+            return;
+        };
+
+        // Test known single-character token mappings from debug_sampling.tl
+        // Token ID 100 should produce 'a' or similar common character
+        let token_100 = tokenizer.decode(&[100], false).unwrap();
+        assert!(!token_100.is_empty(), "Token ID 100 should decode to non-empty string");
+
+        // For TinyLlama, token 100 is known to be a valid character
+        assert!(
+            token_100.len() <= 10,
+            "Single token should not produce unreasonably long text, got: '{}'",
+            token_100
+        );
+    }
+
+    #[test]
+    fn test_detokenize_single_utf8_handling() {
+        let Some(tokenizer) = load_test_tokenizer() else {
+            eprintln!("Skipping test: TinyLlama tokenizer not available");
+            return;
+        };
+
+        // Test that decoder properly handles UTF-8 encoding
+        // We'll test with a sequence of tokens that should form valid UTF-8
+        let hello_tokens = tokenizer.encode("Hello", false).unwrap();
+        let decoded = tokenizer.decode(&hello_tokens, false).unwrap();
+
+        assert_eq!(decoded, "Hello", "UTF-8 encoding/decoding should be consistent");
+        assert!(decoded.is_ascii(), "Hello should decode as ASCII");
+    }
+
+    #[test]
+    fn test_detokenize_single_consistency() {
+        let Some(tokenizer) = load_test_tokenizer() else {
+            eprintln!("Skipping test: TinyLlama tokenizer not available");
+            return;
+        };
+
+        // Test encode-decode consistency (mathematical property: decode(encode(x)) == x)
+        let test_texts = vec![
+            "Hello, world!",
+            "The quick brown fox",
+            "123456",
+            "Special chars: !@#$%",
+        ];
+
+        for text in test_texts {
+            let tokens = tokenizer.encode(text, false).unwrap();
+            let decoded = tokenizer.decode(&tokens, false).unwrap();
+
+            assert_eq!(
+                decoded, text,
+                "Encode-decode should be consistent: encode('{}') → {:?} → decode → '{}'",
+                text, tokens, decoded
+            );
+        }
+    }
+
+    #[test]
+    fn test_detokenize_single_empty_behavior() {
+        let Some(tokenizer) = load_test_tokenizer() else {
+            eprintln!("Skipping test: TinyLlama tokenizer not available");
+            return;
+        };
+
+        // Test that decoding empty token array produces empty string
+        let empty_decoded = tokenizer.decode(&[], false).unwrap();
+        assert_eq!(empty_decoded, "", "Empty token array should decode to empty string");
+    }
+
+    #[test]
+    fn test_detokenize_single_token_id_bounds() {
+        let Some(tokenizer) = load_test_tokenizer() else {
+            eprintln!("Skipping test: TinyLlama tokenizer not available");
+            return;
+        };
+
+        let vocab_size = tokenizer.vocab_size();
+        println!("TinyLlama vocab size: {}", vocab_size);
+
+        // Test that valid token IDs within vocabulary bounds decode successfully
+        // TinyLlama has 32000 tokens in vocabulary
+        assert!(vocab_size > 0, "Vocabulary size should be positive");
+        assert!(vocab_size <= 100000, "Vocabulary size should be reasonable");
+
+        // Test first token (usually <unk>)
+        let first_token = tokenizer.decode(&[0], false);
+        assert!(first_token.is_ok(), "First token (ID 0) should decode successfully");
+
+        // Test a mid-range token
+        let mid_token = tokenizer.decode(&[vocab_size as u32 / 2], false);
+        assert!(mid_token.is_ok(), "Mid-range token should decode successfully");
+
+        // Test last valid token
+        let last_token = tokenizer.decode(&[(vocab_size - 1) as u32], false);
+        assert!(last_token.is_ok(), "Last valid token should decode successfully");
+    }
+
+    #[test]
+    fn test_detokenize_single_deterministic() {
+        let Some(tokenizer) = load_test_tokenizer() else {
+            eprintln!("Skipping test: TinyLlama tokenizer not available");
+            return;
+        };
+
+        // Test that same token ID always produces same output (deterministic property)
+        let token_id = 100u32;
+
+        let result1 = tokenizer.decode(&[token_id], false).unwrap();
+        let result2 = tokenizer.decode(&[token_id], false).unwrap();
+        let result3 = tokenizer.decode(&[token_id], false).unwrap();
+
+        assert_eq!(result1, result2, "Decoding should be deterministic");
+        assert_eq!(result2, result3, "Decoding should be deterministic");
+    }
+}

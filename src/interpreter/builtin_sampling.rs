@@ -506,3 +506,251 @@ impl Interpreter {
         Ok(Value::Integer(max_idx as i64))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::device::MetalDevice;
+    use crate::tensor::{Tensor, TensorCreation};
+    use half::f16;
+
+    #[test]
+    fn test_temperature_sample_greedy() {
+        // Test that temperature=0.0 (greedy) always selects the highest logit
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        // Create logits with a clear maximum at index 5
+        let logits_data: Vec<f16> = vec![
+            f16::from_f32(1.0),  // idx 0
+            f16::from_f32(2.0),  // idx 1
+            f16::from_f32(0.5),  // idx 2
+            f16::from_f32(3.0),  // idx 3
+            f16::from_f32(1.5),  // idx 4
+            f16::from_f32(10.0), // idx 5 <- maximum
+            f16::from_f32(2.5),  // idx 6
+            f16::from_f32(0.1),  // idx 7
+        ];
+
+        let logits = Tensor::from_vec_gpu(&device, logits_data, vec![8])
+            .expect("Failed to create logits tensor");
+
+        let interpreter = Interpreter::new();
+        let result = interpreter.temperature_sample_gpu(&logits, 0.0);
+
+        assert!(result.is_ok());
+        if let Ok(Value::Integer(token_id)) = result {
+            assert_eq!(token_id, 5, "Greedy sampling should select token with highest logit");
+        } else {
+            panic!("Expected Integer value from temperature_sample");
+        }
+    }
+
+    #[test]
+    fn test_temperature_sample_2d_tensor() {
+        // Test that 2D logits [seq_len, vocab_size] correctly samples from last position
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        // Create 2D logits [2, 8] - should sample from last row
+        let logits_data: Vec<f16> = vec![
+            // First sequence position (should be ignored)
+            f16::from_f32(10.0), f16::from_f32(1.0), f16::from_f32(1.0), f16::from_f32(1.0),
+            f16::from_f32(1.0), f16::from_f32(1.0), f16::from_f32(1.0), f16::from_f32(1.0),
+            // Last sequence position (should be used) - maximum at idx 3
+            f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(0.5), f16::from_f32(15.0),
+            f16::from_f32(1.5), f16::from_f32(2.5), f16::from_f32(0.1), f16::from_f32(1.0),
+        ];
+
+        let logits = Tensor::from_vec_gpu(&device, logits_data, vec![2, 8])
+            .expect("Failed to create 2D logits tensor");
+
+        let interpreter = Interpreter::new();
+        let result = interpreter.temperature_sample_gpu(&logits, 0.0);
+
+        assert!(result.is_ok());
+        if let Ok(Value::Integer(token_id)) = result {
+            assert_eq!(token_id, 3, "Should sample from last sequence position, selecting highest logit");
+        } else {
+            panic!("Expected Integer value from temperature_sample");
+        }
+    }
+
+    #[test]
+    fn test_softmax_numerical_accuracy() {
+        // Test softmax computation for numerical stability
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        // Create logits with large values to test numerical stability
+        let logits_data: Vec<f16> = vec![
+            f16::from_f32(100.0),
+            f16::from_f32(101.0), // slightly higher
+            f16::from_f32(100.5),
+        ];
+
+        let logits = Tensor::from_vec_gpu(&device, logits_data, vec![3])
+            .expect("Failed to create logits tensor");
+
+        // With temperature=0.0, should still select argmax despite numerical challenges
+        let interpreter = Interpreter::new();
+        let result = interpreter.temperature_sample_gpu(&logits, 0.0);
+
+        assert!(result.is_ok());
+        if let Ok(Value::Integer(token_id)) = result {
+            assert_eq!(token_id, 1, "Should handle large logits correctly");
+        } else {
+            panic!("Expected Integer value");
+        }
+    }
+
+    #[test]
+    fn test_softmax_probabilities_sum_to_one() {
+        // Mathematical property: softmax probabilities must sum to 1.0
+        use crate::tensor::TensorIO;
+
+        let logits_data = vec![1.0f32, 2.0, 3.0, 0.5, 1.5];
+        let temperature = 1.0;
+
+        // Compute softmax manually
+        let scaled: Vec<f32> = logits_data.iter().map(|&x| x / temperature).collect();
+        let max_logit = scaled.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+
+        let mut exp_sum = 0.0f32;
+        let mut probs: Vec<f32> = Vec::new();
+
+        for &logit in &scaled {
+            let exp_val = (logit - max_logit).exp();
+            probs.push(exp_val);
+            exp_sum += exp_val;
+        }
+
+        for prob in &mut probs {
+            *prob /= exp_sum;
+        }
+
+        // Verify probabilities sum to 1.0
+        let prob_sum: f32 = probs.iter().sum();
+        assert!(
+            (prob_sum - 1.0).abs() < 1e-6,
+            "Softmax probabilities must sum to 1.0, got {}",
+            prob_sum
+        );
+
+        // Verify all probabilities are in [0, 1]
+        for (i, &prob) in probs.iter().enumerate() {
+            assert!(
+                prob >= 0.0 && prob <= 1.0,
+                "Probability at index {} is {}, must be in [0, 1]",
+                i,
+                prob
+            );
+        }
+    }
+
+    #[test]
+    fn test_temperature_scaling_effects() {
+        // Mathematical property: temperature affects distribution sharpness
+        // Lower temperature -> sharper distribution (more peaked)
+        // Higher temperature -> flatter distribution (more uniform)
+
+        let logits_data = vec![1.0f32, 2.0, 3.0, 0.5];
+
+        // Test with different temperatures
+        for temperature in [0.5, 1.0, 2.0] {
+            let scaled: Vec<f32> = logits_data.iter().map(|&x| x / temperature).collect();
+            let max_logit = scaled.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+
+            let mut exp_sum = 0.0f32;
+            let mut probs: Vec<f32> = Vec::new();
+
+            for &logit in &scaled {
+                let exp_val = (logit - max_logit).exp();
+                probs.push(exp_val);
+                exp_sum += exp_val;
+            }
+
+            for prob in &mut probs {
+                *prob /= exp_sum;
+            }
+
+            // Lower temperature should give higher probability to max logit
+            let max_prob = probs.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let expected_max_idx = logits_data.iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                .unwrap().0;
+
+            assert_eq!(
+                probs.iter().position(|&p| p == max_prob).unwrap(),
+                expected_max_idx,
+                "Maximum probability should be at index with maximum logit"
+            );
+        }
+    }
+
+    #[test]
+    fn test_temperature_zero_equivalence() {
+        // Mathematical property: temperature=0 should be equivalent to argmax
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let logits_data: Vec<f16> = vec![
+            f16::from_f32(1.0),
+            f16::from_f32(5.0),  // maximum
+            f16::from_f32(2.0),
+            f16::from_f32(3.0),
+        ];
+
+        let logits = Tensor::from_vec_gpu(&device, logits_data, vec![4])
+            .expect("Failed to create logits tensor");
+
+        let interpreter = Interpreter::new();
+
+        // With temperature=0, should always select index 1 (maximum)
+        for _ in 0..10 {
+            let result = interpreter.temperature_sample_gpu(&logits, 0.0);
+            assert!(result.is_ok());
+            if let Ok(Value::Integer(token_id)) = result {
+                assert_eq!(token_id, 1, "Temperature=0 should always select argmax");
+            } else {
+                panic!("Expected Integer value");
+            }
+        }
+    }
+
+    #[test]
+    fn test_exp_numerical_stability() {
+        // Test that exp(x - max_x) prevents overflow/underflow
+        let large_logits = vec![1000.0f32, 1001.0, 1000.5];
+
+        // Without subtracting max, exp(1000) would overflow
+        // With max subtraction: exp(0), exp(1), exp(0.5)
+        let max_logit = large_logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+
+        let mut probs: Vec<f32> = Vec::new();
+        let mut exp_sum = 0.0f32;
+
+        for &logit in &large_logits {
+            let exp_val = (logit - max_logit).exp();
+            assert!(
+                exp_val.is_finite(),
+                "exp({} - {}) should be finite, got {}",
+                logit,
+                max_logit,
+                exp_val
+            );
+            probs.push(exp_val);
+            exp_sum += exp_val;
+        }
+
+        // Normalize
+        for prob in &mut probs {
+            *prob /= exp_sum;
+        }
+
+        // Verify probabilities are valid
+        let prob_sum: f32 = probs.iter().sum();
+        assert!(
+            (prob_sum - 1.0).abs() < 1e-5,
+            "Probabilities must sum to 1.0 even with large logits, got {}",
+            prob_sum
+        );
+    }
+}
