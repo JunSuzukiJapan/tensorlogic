@@ -2,7 +2,7 @@
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
-    result := x * sig
+    result = x * sig
 }
 
 main {

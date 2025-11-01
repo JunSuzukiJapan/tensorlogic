@@ -787,31 +787,10 @@ impl Interpreter {
 
                 Ok(Some(evaluated_value))
             }
-            Statement::Equation(eq) => {
-                // For assignment equations (expr := expr), return the right-hand side value
-                if eq.eq_type == EquationType::Assign {
-                    // Evaluate the right-hand side
-                    let value = self.eval_expr(&eq.right)?;
-
-                    // Also execute the statement for side effects (variable assignment)
-                    if let TensorExpr::Variable(var_name) = &eq.left {
-                        if let Some(frame) = self.call_stack.last_mut() {
-                            frame.local_vars.insert(var_name.as_str().to_string(), value.clone());
-                        } else {
-                            if self.env.has_variable(var_name.as_str()) {
-                                self.env.set_variable(var_name.as_str().to_string(), value.clone())?;
-                            } else {
-                                self.env.declare_variable(var_name.as_str().to_string(), value.clone())?;
-                            }
-                        }
-                    }
-
-                    Ok(Some(value))
-                } else {
-                    // For other equation types (=, ~), execute but don't return value
-                    self.execute_statement(stmt)?;
-                    Ok(None)
-                }
+            Statement::Equation(_eq) => {
+                // For equation types (~), execute but don't return value
+                self.execute_statement(stmt)?;
+                Ok(None)
             }
             Statement::FunctionCall { name, args, resolved } => {
                 // Function call result can be implicitly returned

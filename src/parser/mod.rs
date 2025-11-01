@@ -1515,9 +1515,7 @@ impl TensorLogicParser {
 
     fn parse_eq_type(pair: pest::iterators::Pair<Rule>) -> Result<EquationType, ParseError> {
         match pair.as_str() {
-            "=" => Ok(EquationType::Exact),
             "~" => Ok(EquationType::Approx),
-            ":=" => Ok(EquationType::Assign),
             s => Err(ParseError::InvalidValue(format!("Unknown equation type: {}", s))),
         }
     }

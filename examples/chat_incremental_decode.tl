@@ -2,7 +2,7 @@
 // Uses detokenize_incremental to properly handle multi-byte UTF-8 tokens
 
 fn silu(x: float32[?, ?]) -> float32[?, ?] {
-    result := x * sigmoid(x)
+    result = x * sigmoid(x)
 }
 
 fn swiglu_ffn(
@@ -15,7 +15,7 @@ fn swiglu_ffn(
     let up = linear(x, W_up)
     let silu_result = silu(gate)
     let mul_result = silu_result * up
-    result := linear(mul_result, W_down)
+    result = linear(mul_result, W_down)
 }
 
 fn attention_with_cache(
@@ -50,7 +50,7 @@ fn attention_with_cache(
     let out = einsum("ihj,jhd->ihd", attn, V_expanded)
 
     let reshaped = reshape(out, [seq_len_f, 2048.0])
-    result := linear(reshaped, W_o)
+    result = linear(reshaped, W_o)
 }
 
 fn transformer_layer(
@@ -73,7 +73,7 @@ fn transformer_layer(
     let after_attn = x + attn_out
     let normed2 = rms_norm(after_attn, W_ffn_norm)
     let ffn_out = swiglu_ffn(normed2, W_gate, W_up, W_down)
-    result := after_attn + ffn_out
+    result = after_attn + ffn_out
 }
 
 main {

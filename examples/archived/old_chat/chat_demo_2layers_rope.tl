@@ -2,7 +2,7 @@
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
-    result := x * sig
+    result = x * sig
 }
 
 fn tinyllama_gqa_attention(
@@ -49,7 +49,7 @@ fn tinyllama_gqa_attention(
     let d_model = 2048.0
     let shape_output = [seq_len_f, d_model]
     let attn_reshaped = reshape(attn_output, shape_output)
-    result := matmul(attn_reshaped, W_o)
+    result = matmul(attn_reshaped, W_o)
 }
 
 fn transformer_layer(
@@ -77,7 +77,7 @@ fn transformer_layer(
     let intermediate = silu(gate) * up
     let ffn_out = matmul(intermediate, W_down)
 
-    result := x1 + ffn_out
+    result = x1 + ffn_out
 }
 
 main {
@@ -137,7 +137,7 @@ main {
     let norm1 = rms_norm(h1_1, output_norm)
     let logits1 = matmul(norm1, output_weight)
     let t1 = temperature_sample(logits1, 0.8)
-    gen_tokens := append(gen_tokens, t1)
+    gen_tokens = append(gen_tokens, t1)
     print("            Token:", t1)
 
     // Token 2
@@ -148,7 +148,7 @@ main {
     let norm2 = rms_norm(h1_2, output_norm)
     let logits2 = matmul(norm2, output_weight)
     let t2 = temperature_sample(logits2, 0.8)
-    gen_tokens := append(gen_tokens, t2)
+    gen_tokens = append(gen_tokens, t2)
     print("            Token:", t2)
 
     // Token 3
@@ -159,7 +159,7 @@ main {
     let norm3 = rms_norm(h1_3, output_norm)
     let logits3 = matmul(norm3, output_weight)
     let t3 = temperature_sample(logits3, 0.8)
-    gen_tokens := append(gen_tokens, t3)
+    gen_tokens = append(gen_tokens, t3)
     print("            Token:", t3)
 
     print("")

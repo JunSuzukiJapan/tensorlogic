@@ -77,7 +77,7 @@ main {
     while outer_counter < 2 {
         let inner_counter = 100
         print("  WHILE iteration: outer_counter =", outer_counter, ", inner_counter =", inner_counter, "(shadowed)")
-        outer_counter := outer_counter + 1
+        outer_counter = outer_counter + 1
     }
 
     print("  After WHILE: outer_counter =", outer_counter)
@@ -93,7 +93,7 @@ main {
         let z = 2
         print("  Block: z =", z, "(shadowed)")
 
-        z := 3
+        z = 3
         print("  Block after assignment: z =", z, "(modified shadow)")
     }
 

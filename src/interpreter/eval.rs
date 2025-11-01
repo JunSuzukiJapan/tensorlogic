@@ -70,70 +70,10 @@ impl Interpreter {
                 Ok(())
             }
             Statement::Equation(eq) => {
-                use crate::ast::EquationType;
-
-                match eq.eq_type {
-                    EquationType::Assign => {
-                        // := is assignment with auto-declaration
-                        // Left side must be a simple identifier
-                        if let TensorExpr::Variable(var_name) = &eq.left {
-                            let value = self.eval_expr(&eq.right)?;
-
-                            // Check if we're inside a function call
-                            if let Some(frame) = self.call_stack.last_mut() {
-                                // Inside function: update local variable
-                                frame.local_vars.insert(var_name.as_str().to_string(), value);
-                            } else {
-                                // Global scope: try to set existing variable, if it doesn't exist, declare it
-                                if self.env.has_variable(var_name.as_str()) {
-                                    self.env.set_variable(var_name.as_str().to_string(), value)?;
-                                } else {
-                                    self.env.declare_variable(var_name.as_str().to_string(), value)?;
-                                }
-                            }
-                            Ok(())
-                        } else {
-                            Err(RuntimeError::TypeError(
-                                "Left side of := must be a variable name".to_string()
-                            ))
-                        }
-                    }
-                    EquationType::Exact => {
-                        // = can be used for assignment if left side is a variable
-                        if let TensorExpr::Variable(var_name) = &eq.left {
-                            let value = self.eval_expr(&eq.right)?;
-
-                            // Check if we're inside a function call
-                            if let Some(frame) = self.call_stack.last_mut() {
-                                // Inside function: update local variable
-                                frame.local_vars.insert(var_name.as_str().to_string(), value);
-                            } else {
-                                // Global scope: update existing variable
-                                if self.env.has_variable(var_name.as_str()) {
-                                    self.env.set_variable(var_name.as_str().to_string(), value)?;
-                                } else {
-                                    return Err(RuntimeError::InvalidOperation(format!(
-                                        "Variable '{}' not declared. Use 'let {} = ...' to declare.",
-                                        var_name.as_str(), var_name.as_str()
-                                    )));
-                                }
-                            }
-                            Ok(())
-                        } else {
-                            // For non-variable left sides, just execute both sides (equation semantics)
-                            let _left = self.eval_expr(&eq.left)?;
-                            let _right = self.eval_expr(&eq.right)?;
-                            Ok(())
-                        }
-                    }
-                    _ => {
-                        // For other equation types (~), just execute both sides
-                        let _left = self.eval_expr(&eq.left)?;
-                        let _right = self.eval_expr(&eq.right)?;
-                        // In a full implementation, this would perform unification or constraint solving
-                        Ok(())
-                    }
-                }
+                // Equation types (~) - just execute both sides
+                let _left = self.eval_expr(&eq.left)?;
+                let _right = self.eval_expr(&eq.right)?;
+                Ok(())
             }
             Statement::FunctionCall { name, args, resolved } => {
                 // Handle function calls as statements (e.g., print)

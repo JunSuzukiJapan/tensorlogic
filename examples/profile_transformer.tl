@@ -7,7 +7,7 @@ fn transformer_layer(x, W_attn_norm, W_q, W_k, W_v, W_o, W_ffn_norm, W_gate, W_u
     let after_attn = x + attn_out
     let normed2 = rms_norm(after_attn, W_ffn_norm)
     let ffn_out = swiglu_ffn(normed2, W_gate, W_up, W_down)
-    result := after_attn + ffn_out
+    result = after_attn + ffn_out
 }
 
 main {

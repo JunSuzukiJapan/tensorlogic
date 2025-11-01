@@ -2,7 +2,7 @@
 // Tests scaling performance with incremental layer count
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
-    result := x * sigmoid(x)
+    result = x * sigmoid(x)
 }
 
 fn swiglu_ffn(
@@ -13,7 +13,7 @@ fn swiglu_ffn(
 ) -> float16[?, ?] {
     let gate = matmul(x, W_gate)
     let up = matmul(x, W_up)
-    result := matmul(silu(gate) * up, W_down)
+    result = matmul(silu(gate) * up, W_down)
 }
 
 fn attention_with_cache(
@@ -47,7 +47,7 @@ fn attention_with_cache(
     let out = einsum("ihj,jhd->ihd", attn, V_expanded)
 
     let reshaped = reshape(out, [seq_len_f, 2048.0])
-    result := matmul(reshaped, W_o)
+    result = matmul(reshaped, W_o)
 }
 
 main {

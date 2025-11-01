@@ -3,7 +3,7 @@
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
-    result := x * sig
+    result = x * sig
 }
 
 fn swiglu_ffn(
@@ -32,7 +32,7 @@ fn swiglu_ffn(
     let down = linear(intermediate, W_down)
     print("      down (first 5):", down)
 
-    result := down
+    result = down
 }
 
 fn tinyllama_gqa_attention(
@@ -105,7 +105,7 @@ fn tinyllama_gqa_attention(
     let out = linear(attn_reshaped, W_o)
     print("      final output (first 5):", out)
 
-    result := out
+    result = out
 }
 
 fn transformer_layer(
@@ -152,7 +152,7 @@ fn transformer_layer(
     let x2 = x1 + ffn_out
     print("      x2 (first 5):", x2)
 
-    result := x2
+    result = x2
 }
 
 main {
@@ -202,7 +202,7 @@ main {
     print("  Logits (first 5):", logits1)
 
     let t1 = temperature_sample(logits1, 0.8)
-    gen_tokens := append(gen_tokens, t1)
+    gen_tokens = append(gen_tokens, t1)
     print("  Generated token:", t1)
     print("")
 

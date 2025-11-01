@@ -13,7 +13,7 @@ fn apply_rope_k_test(K: float16[?, ?], seq_len: float, pos: float) -> float16[?,
     let result_tmp = reshape(K_r, [seq_len, 256.0])
     print("[APPLY_ROPE_K] Step 3: DONE")
     print("[APPLY_ROPE_K] === Exit ===")
-    result := result_tmp
+    result = result_tmp
 }
 
 main {

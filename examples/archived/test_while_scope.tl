@@ -13,7 +13,7 @@ main {
     while i < 3 {
         let loop_var = model.blk[i].attn_norm.weight
         print("  Iteration", i, ": loop_var declared")
-        i := i + 1
+        i = i + 1
     }
 
     print("  Expected: 3 iterations without error")

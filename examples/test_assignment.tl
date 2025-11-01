@@ -1,4 +1,4 @@
-// Test variable assignment with = and :=
+// Test variable assignment with = and =
 
 main {
     print("Test 1: Assignment with = inside loop")
@@ -9,10 +9,10 @@ main {
     }
     print("Final counter:", counter)
 
-    print("\nTest 2: Assignment with := inside loop")
+    print("\nTest 2: Assignment with = inside loop")
     let counter2 = 0
     for i in range(5) {
-        counter2 := counter2 + 1
+        counter2 = counter2 + 1
         print("  counter2 = ", counter2)
     }
     print("Final counter2:", counter2)

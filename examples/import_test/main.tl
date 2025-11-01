@@ -6,10 +6,10 @@ tensor radius: float16[1] = [2.0]
 
 main {
     // Use imported constant pi
-    area := pi * radius * radius
+    area = pi * radius * radius
 
     // Use imported constant e
-    result := e * area
+    result = e * area
 
     print("Pi:", pi)
     print("E:", e)

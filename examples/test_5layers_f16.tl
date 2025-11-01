@@ -8,7 +8,7 @@ fn apply_rope_k(K: float16[?, ?], pos: float) -> float16[?, ?] {
     print("    [ROPE] Starting rope...")
     let K_r = rope(K_h, pos)
     print("    [ROPE] Reshaping back...")
-    result := reshape(K_r, [s, 256.0])
+    result = reshape(K_r, [s, 256.0])
 }
 
 fn swiglu_ffn(
@@ -21,7 +21,7 @@ fn swiglu_ffn(
     let up = linear(x, W_up)
     let silu_result = gate * sigmoid(gate)
     let mul_result = silu_result * up
-    result := linear(mul_result, W_down)
+    result = linear(mul_result, W_down)
 }
 
 fn transformer_layer(
@@ -44,7 +44,7 @@ fn transformer_layer(
     let after_attn = x + attn_out
     let normed2 = rms_norm(after_attn, W_ffn_norm)
     let ffn_out = swiglu_ffn(normed2, W_gate, W_up, W_down)
-    result := after_attn + ffn_out
+    result = after_attn + ffn_out
 }
 
 main {

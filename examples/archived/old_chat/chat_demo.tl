@@ -4,7 +4,7 @@
 // SiLU activation function
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
-    result := x * sig
+    result = x * sig
 }
 
 // SwiGLU Feed-Forward Network
@@ -18,7 +18,7 @@ fn swiglu_ffn(
     let gate_act = silu(gate)
     let up = matmul(x, W_up)
     let intermediate = gate_act * up
-    result := matmul(intermediate, W_down)
+    result = matmul(intermediate, W_down)
 }
 
 main {
@@ -110,7 +110,7 @@ main {
     let hidden_norm1 = rms_norm(hidden1, output_norm)
     let l1 = matmul(hidden_norm1, output_weight)
     let t1 = temperature_sample(l1, 0.8)
-    gen_tokens := append(gen_tokens, t1)
+    gen_tokens = append(gen_tokens, t1)
     print("        [1/15] Generated token:", t1)
 
     // Token 2
@@ -147,7 +147,7 @@ main {
     let hidden_norm2 = rms_norm(hidden2, output_norm)
     let l2 = matmul(hidden_norm2, output_weight)
     let t2 = temperature_sample(l2, 0.8)
-    gen_tokens := append(gen_tokens, t2)
+    gen_tokens = append(gen_tokens, t2)
     print("        [2/15] Generated token:", t2)
 
     // Token 3
@@ -184,7 +184,7 @@ main {
     let hidden_norm3 = rms_norm(hidden3, output_norm)
     let l3 = matmul(hidden_norm3, output_weight)
     let t3 = temperature_sample(l3, 0.8)
-    gen_tokens := append(gen_tokens, t3)
+    gen_tokens = append(gen_tokens, t3)
     print("        [3/15] Generated token:", t3)
 
     // Token 4
@@ -221,7 +221,7 @@ main {
     let hidden_norm4 = rms_norm(hidden4, output_norm)
     let l4 = matmul(hidden_norm4, output_weight)
     let t4 = temperature_sample(l4, 0.8)
-    gen_tokens := append(gen_tokens, t4)
+    gen_tokens = append(gen_tokens, t4)
     print("        [4/15] Generated token:", t4)
 
     // Token 5
@@ -258,7 +258,7 @@ main {
     let hidden_norm5 = rms_norm(hidden5, output_norm)
     let l5 = matmul(hidden_norm5, output_weight)
     let t5 = temperature_sample(l5, 0.8)
-    gen_tokens := append(gen_tokens, t5)
+    gen_tokens = append(gen_tokens, t5)
     print("        [5/15] Generated token:", t5)
 
     print("        ... (continuing generation)")

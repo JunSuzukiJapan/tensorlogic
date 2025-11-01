@@ -498,9 +498,7 @@ pub struct TensorEquation {
 /// Equation type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EquationType {
-    Exact,      // =
     Approx,     // ~
-    Assign,     // :=
 }
 
 // ============================================================================

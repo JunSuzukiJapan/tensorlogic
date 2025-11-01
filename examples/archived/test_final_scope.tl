@@ -26,7 +26,7 @@ main {
     while i < 3 {
         let layer_weight = model.blk[i].attn_norm.weight
         print("  Iteration", i, ": layer_weight declared")
-        i := i + 1
+        i = i + 1
     }
     print("  ✅ PASSED: Each iteration can declare 'layer_weight'")
     print("")
@@ -42,7 +42,7 @@ main {
         }
         let layer_weight = model.blk[j].attn_norm.weight
         print("  Iteration", j, ": layer_weight declared")
-        j := j + 1
+        j = j + 1
     }
     print("  ✅ PASSED: Each iteration can declare 'layer_weight'")
     print("")
@@ -60,7 +60,7 @@ main {
     let k = 0
     while k < 2 {
         print("  WHILE: outer =", outer)
-        k := k + 1
+        k = k + 1
     }
 
     let m = 0
@@ -69,7 +69,7 @@ main {
             break
         }
         print("  LOOP: outer =", outer)
-        m := m + 1
+        m = m + 1
     }
     print("  ✅ PASSED: Outer variables accessible in all loops")
     print("")

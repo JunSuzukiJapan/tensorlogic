@@ -26,7 +26,7 @@
 // - Context: KV cache for efficient autoregressive generation
 
 fn silu(x: float32[?, ?]) -> float32[?, ?] {
-    result := x * sigmoid(x)
+    result = x * sigmoid(x)
 }
 
 // SwiGLU Feed-Forward Network
@@ -41,7 +41,7 @@ fn swiglu_ffn(
     let up = linear(x, W_up)        // Optimized
     let silu_result = silu(gate)
     let mul_result = silu_result * up
-    result := linear(mul_result, W_down)  // Optimized
+    result = linear(mul_result, W_down)  // Optimized
 }
 
 // Multi-Head Attention with KV Cache
@@ -86,7 +86,7 @@ fn swiglu_ffn(
 //     let out = einsum("ihj,jhd->ihd", attn, V_expanded)  // Weighted sum
 //
 //     let reshaped = reshape(out, [seq_len_f, 2048.0])
-//     result := linear(reshaped, W_o)  // Optimized output projection
+//     result = linear(reshaped, W_o)  // Optimized output projection
 // }
 
 // Now using Rust builtin: attention_with_cache(Q, K_cache, V_cache, W_o)
@@ -112,7 +112,7 @@ fn transformer_layer(
     let after_attn = x + attn_out
     let normed2 = rms_norm(after_attn, W_ffn_norm)
     let ffn_out = swiglu_ffn(normed2, W_gate, W_up, W_down)
-    result := after_attn + ffn_out
+    result = after_attn + ffn_out
 }
 
 main {

@@ -30,7 +30,7 @@ main {
     while j < 1 {
         print("  WHILE: outer_idx =", outer_idx, ", outer_val =", outer_val)
         let w3 = model.blk[outer_idx].attn_norm.weight
-        j := j + 1
+        j = j + 1
     }
 
     let k = 0
@@ -38,7 +38,7 @@ main {
         if k >= 1 { break }
         print("  LOOP: outer_idx =", outer_idx, ", outer_val =", outer_val)
         let w4 = model.blk[outer_idx].attn_norm.weight
-        k := k + 1
+        k = k + 1
     }
 
     print("  ✅ RULE 1 PASSED: All control structures can access outer variables")
@@ -70,7 +70,7 @@ main {
     while m < 3 {
         let iteration_var = model.blk[m].attn_norm.weight
         print("    WHILE iteration", m, ": iteration_var declared")
-        m := m + 1
+        m = m + 1
     }
 
     print("  Testing LOOP iterations:")
@@ -79,7 +79,7 @@ main {
         if n >= 3 { break }
         let iteration_var = model.blk[n].attn_norm.weight
         print("    LOOP iteration", n, ": iteration_var declared")
-        n := n + 1
+        n = n + 1
     }
 
     print("  ✅ RULE 2 PASSED: Block-local variables properly isolated/re-initialized")
@@ -105,7 +105,7 @@ main {
     while p < 3 {
         let weight = model.blk[p].attn_norm.weight
         print("  WHILE: model.blk[", p, "] accessed")
-        p := p + 1
+        p = p + 1
     }
 
     let q = 0
@@ -113,7 +113,7 @@ main {
         if q >= 3 { break }
         let weight = model.blk[q].attn_norm.weight
         print("  LOOP: model.blk[", q, "] accessed")
-        q := q + 1
+        q = q + 1
     }
 
     print("  ✅ RULE 3 PASSED: Dynamic array indexing works everywhere")

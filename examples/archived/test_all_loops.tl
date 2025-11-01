@@ -32,9 +32,9 @@ main {
     let weight2 = model.blk[0].attn_norm.weight
 
     while i < 3 {
-        weight2 := model.blk[i].attn_norm.weight
+        weight2 = model.blk[i].attn_norm.weight
         print("  ✓ while loop iteration", i, "- accessed model.blk[", i, "]")
-        i := i + 1
+        i = i + 1
     }
 
     print("  RESULT: WHILE loop PASSED ✅")
@@ -52,9 +52,9 @@ main {
             break
         }
 
-        weight3 := model.blk[j].attn_norm.weight
+        weight3 = model.blk[j].attn_norm.weight
         print("  ✓ loop iteration", j, "- accessed model.blk[", j, "]")
-        j := j + 1
+        j = j + 1
     }
 
     print("  RESULT: LOOP with BREAK PASSED ✅")

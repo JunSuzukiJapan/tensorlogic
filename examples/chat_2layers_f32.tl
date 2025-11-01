@@ -2,7 +2,7 @@
 // Complete ChatGPT-like system
 
 fn silu(x: float32[?, ?]) -> float32[?, ?] {
-    result := x * sigmoid(x)
+    result = x * sigmoid(x)
 }
 
 fn swiglu_ffn(
@@ -15,7 +15,7 @@ fn swiglu_ffn(
     let up = linear(x, W_up)
     let silu_result = silu(gate)
     let mul_result = silu_result * up
-    result := linear(mul_result, W_down)
+    result = linear(mul_result, W_down)
 }
 
 fn attention_with_cache(
@@ -50,7 +50,7 @@ fn attention_with_cache(
     let out = einsum("ihj,jhd->ihd", attn, V_expanded)
 
     let reshaped = reshape(out, [seq_len_f, 2048.0])
-    result := linear(reshaped, W_o)
+    result = linear(reshaped, W_o)
 }
 
 fn transformer_layer(
@@ -73,7 +73,7 @@ fn transformer_layer(
     let after_attn = x + attn_out
     let normed2 = rms_norm(after_attn, W_ffn_norm)
     let ffn_out = swiglu_ffn(normed2, W_gate, W_up, W_down)
-    result := after_attn + ffn_out
+    result = after_attn + ffn_out
 }
 
 main {
@@ -191,44 +191,44 @@ main {
     for i in range(50) {
         if continue_generation {
             // Sample token
-            token_id := temperature_sample(current_logits, temperature)
+            token_id = temperature_sample(current_logits, temperature)
 
             // Buffered decoding: append token and decode all
-            generated_tokens := generated_tokens.append_token(token_id)
+            generated_tokens = generated_tokens.append_token(token_id)
             let full_text = tokenizer.detokenize(generated_tokens, false)
             let new_text = string_substring(full_text, previous_text_length, string_length(full_text))
             print(new_text, "")
-            previous_text_length := string_length(full_text)
+            previous_text_length = string_length(full_text)
 
-            token_count := token_count + 1
+            token_count = token_count + 1
 
             // Check for EOS
             if token_id == EOS_TOKEN {
-                continue_generation := false
+                continue_generation = false
                 print(" <EOS>")
             }
 
             // Update KV caches
-            token_ids_single := int_to_tokenids(token_id)
-            new_token_emb := embedding(tok_embd, token_ids_single)
-            new_K0 := linear(new_token_emb, layer_0_k)
-            new_V0 := linear(new_token_emb, layer_0_v)
-            new_K1 := linear(new_token_emb, layer_1_k)
-            new_V1 := linear(new_token_emb, layer_1_v)
+            token_ids_single = int_to_tokenids(token_id)
+            new_token_emb = embedding(tok_embd, token_ids_single)
+            new_K0 = linear(new_token_emb, layer_0_k)
+            new_V0 = linear(new_token_emb, layer_0_v)
+            new_K1 = linear(new_token_emb, layer_1_k)
+            new_V1 = linear(new_token_emb, layer_1_v)
 
-            KV0_cache := concat(KV0_cache, new_K0, 0.0)
-            KV0_V_cache := concat(KV0_V_cache, new_V0, 0.0)
-            KV1_cache := concat(KV1_cache, new_K1, 0.0)
-            KV1_V_cache := concat(KV1_V_cache, new_V1, 0.0)
+            KV0_cache = concat(KV0_cache, new_K0, 0.0)
+            KV0_V_cache = concat(KV0_V_cache, new_V0, 0.0)
+            KV1_cache = concat(KV1_cache, new_K1, 0.0)
+            KV1_V_cache = concat(KV1_V_cache, new_V1, 0.0)
 
             // Run transformer
-            h0_new := transformer_layer(new_token_emb, layer_0_attn_norm, layer_0_q, layer_0_k, layer_0_v, layer_0_o,
+            h0_new = transformer_layer(new_token_emb, layer_0_attn_norm, layer_0_q, layer_0_k, layer_0_v, layer_0_o,
                                         layer_0_ffn_norm, layer_0_gate, layer_0_up, layer_0_down, KV0_cache, KV0_V_cache)
-            h1_new := transformer_layer(h0_new, layer_1_attn_norm, layer_1_q, layer_1_k, layer_1_v, layer_1_o,
+            h1_new = transformer_layer(h0_new, layer_1_attn_norm, layer_1_q, layer_1_k, layer_1_v, layer_1_o,
                                         layer_1_ffn_norm, layer_1_gate, layer_1_up, layer_1_down, KV1_cache, KV1_V_cache)
 
-            norm_new := rms_norm(h1_new, output_norm)
-            current_logits := linear(norm_new, output)
+            norm_new = rms_norm(h1_new, output_norm)
+            current_logits = linear(norm_new, output)
         }
     }
 
