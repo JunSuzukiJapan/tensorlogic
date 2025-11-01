@@ -89,6 +89,10 @@ impl Commands {
 
         // Check if we need to flush (exceeded batch size)
         if self.command_buffer_index > self.compute_per_buffer {
+            if std::env::var("TL_DEBUG_BATCHING").is_ok() {
+                eprintln!("[BATCH] Flushing at index {} (limit: {})",
+                         self.command_buffer_index, self.compute_per_buffer);
+            }
             command_buffer.commit();
 
             // Create new command buffer
@@ -101,6 +105,12 @@ impl Commands {
         }
 
         self.command_buffer_index += 1;
+
+        if std::env::var("TL_DEBUG_BATCHING").is_ok() && self.command_buffer_index % 100 == 0 {
+            eprintln!("[BATCH] Current index: {}/{}",
+                     self.command_buffer_index, self.compute_per_buffer);
+        }
+
         Ok((flushed, command_buffer.clone()))
     }
 
@@ -114,6 +124,11 @@ impl Commands {
     /// - Only commits if buffer hasn't been committed yet
     /// - Only waits if buffer hasn't completed yet
     pub fn wait_until_completed(&mut self) -> TensorResult<()> {
+        if std::env::var("TL_DEBUG_BATCHING").is_ok() {
+            eprintln!("[BATCH] wait_until_completed called at index {}",
+                     self.command_buffer_index);
+        }
+
         // CRITICAL: Reset command buffer index when replacing buffer
         // This ensures we don't immediately hit the batch size limit after sync
         self.command_buffer_index = 0;

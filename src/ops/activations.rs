@@ -4,7 +4,7 @@ use crate::autograd::gradients::{GELUBackward, ReLUBackward, SoftmaxBackward};
 use crate::tensor::FloatType;
 use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorAutograd};
 use crate::autograd::{AutogradContext, GradientFunctionGeneric, Operation};
-use crate::device::{Device, MetalBuffer};
+use crate::device::{Device, MetalBuffer, EncoderProvider};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
@@ -254,7 +254,7 @@ impl<T: FloatType> Tensor<T> {
             eprintln!("[HANG] softmax: START kernel={}, batch={}, last_dim={}", kernel_name, batch_size, last_dim);
         }
         let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline_state);
         encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);

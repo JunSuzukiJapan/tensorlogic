@@ -3,6 +3,7 @@
 use super::*;
 use crate::interpreter::value::ToValue;
 use crate::tensor::{Tensor, TensorCreation};
+use crate::device::EncoderProvider;
 use half::f16;
 use std::time::Instant;
 
@@ -648,7 +649,7 @@ impl Interpreter {
         let (_flushed, command_buffer) = device
             .command_buffer()
             .map_err(|e| RuntimeError::TensorError(e))?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&table_buf.buffer), 0);
@@ -742,7 +743,7 @@ impl Interpreter {
         let (_flushed, command_buffer) = device
             .command_buffer()
             .map_err(|e| RuntimeError::TensorError(e))?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&table_buf.buffer), 0);

@@ -5,6 +5,7 @@ use crate::tensor::{BufferHandle, FloatType, Tensor};
 use crate::tensor::TensorAccessors;
 use crate::tensor::TensorCreation;
 use crate::tensor::TensorIO;
+use crate::device::EncoderProvider;
 use std::marker::PhantomData;
 
 /// Trait for transforming tensor shapes
@@ -182,7 +183,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Execute kernel
         let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);

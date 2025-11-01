@@ -1,6 +1,6 @@
 //! Reduction operations for tensors
 
-use crate::device::{Device, MetalBuffer};
+use crate::device::{Device, MetalBuffer, EncoderProvider};
 use crate::tensor::FloatType;
 use crate::tensor::{TensorAccessors, TensorCreation, TensorIO};
 use crate::error::{TensorError, TensorResult};
@@ -40,11 +40,6 @@ impl<T: FloatType> Tensor<T> {
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
 
-        // CRITICAL: Wait for all pending command buffers to complete before creating new one
-        // Since we removed sync_and_read() from tensor creation, we must ensure
-        // all GPU operations are complete before sum reduction
-        device.wait_until_completed()?;
-
         // Select kernel based on type
         let kernel_name = if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f16>() {
             "sum_global_f16"
@@ -58,8 +53,9 @@ impl<T: FloatType> Tensor<T> {
 
         let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Use Commands manager for command buffer (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&input_buf.buffer), 0);
@@ -73,8 +69,10 @@ impl<T: FloatType> Tensor<T> {
         encoder.set_threadgroup_memory_length(0, shared_mem_size as u64);
         encoder.dispatch_threads(grid_size, tg_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+
+        // Commands manager will flush and commit when needed
+        // Since we need results immediately for stage 2, wait for completion
+        device.wait_until_completed()?;
 
         // Stage 2: Reduce blocks to final result (CPU for simplicity)
         // Note: For small num_blocks (<256), CPU reduction is faster than launching
@@ -163,7 +161,7 @@ impl<T: FloatType> Tensor<T> {
         let pipeline = executor.get_or_compile_pipeline("sum_dim_f16")?;
 
         let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&input_buf.buffer), 0);
@@ -334,7 +332,7 @@ impl<T: FloatType> Tensor<T> {
         let pipeline = executor.get_or_compile_pipeline("mean_dim_f16")?;
 
         let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&input_buf.buffer), 0);
@@ -430,15 +428,11 @@ impl<T: FloatType> Tensor<T> {
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
 
-        // CRITICAL: Wait for all pending command buffers to complete before creating new one
-        // Since we removed sync_and_read() from tensor creation, we must ensure
-        // all GPU operations are complete before max reduction
-        device.wait_until_completed()?;
-
         let pipeline = executor.get_or_compile_pipeline("max_global_f16")?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Use Commands manager for command buffer (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&input_buf.buffer), 0);
@@ -452,8 +446,10 @@ impl<T: FloatType> Tensor<T> {
         encoder.set_threadgroup_memory_length(0, shared_mem_size as u64);
         encoder.dispatch_threads(grid_size, tg_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+
+        // Commands manager will flush and commit when needed
+        // Since we need results immediately for stage 2, wait for completion
+        device.wait_until_completed()?;
 
         // Stage 2: Final reduction on CPU
         let stage1_data = stage1_buf.to_vec();
@@ -541,15 +537,11 @@ impl<T: FloatType> Tensor<T> {
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
 
-        // CRITICAL: Wait for all pending command buffers to complete before creating new one
-        // Since we removed sync_and_read() from tensor creation, we must ensure
-        // all GPU operations are complete before min reduction
-        device.wait_until_completed()?;
-
         let pipeline = executor.get_or_compile_pipeline("min_global_f16")?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Use Commands manager for command buffer (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&input_buf.buffer), 0);
@@ -563,8 +555,10 @@ impl<T: FloatType> Tensor<T> {
         encoder.set_threadgroup_memory_length(0, shared_mem_size as u64);
         encoder.dispatch_threads(grid_size, tg_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+
+        // Commands manager will flush and commit when needed
+        // Since we need results immediately for stage 2, wait for completion
+        device.wait_until_completed()?;
 
         // Stage 2: Final reduction on CPU
         let stage1_data = stage1_buf.to_vec();

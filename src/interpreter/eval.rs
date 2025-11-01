@@ -6,6 +6,7 @@ use super::*;
 use crate::ast::*;
 use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO};
 use crate::tensor::Tensor;
+use crate::device::EncoderProvider;
 use std::collections::HashSet;
 
 impl Interpreter {
@@ -676,17 +677,13 @@ impl Interpreter {
 
         let mut executor = KernelExecutor::new(device_mut);
 
-        // CRITICAL: Wait for all pending command buffers to complete before reading
-        // Since we removed sync_and_read() from tensor creation, we must ensure
-        // all GPU operations are complete before reading data
-        device.wait_until_completed()
-            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to wait for GPU: {}", e)))?;
-
         let pipeline = executor.get_or_compile_pipeline("read_element_f16")
             .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to compile kernel: {}", e)))?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Use Commands manager for command buffer (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to get command buffer: {}", e)))?;
+        let encoder = command_buffer.encoder();
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&input_buf.buffer), 0);
         encoder.set_buffer(1, Some(&output_buf.buffer), 0);
@@ -698,8 +695,10 @@ impl Interpreter {
         encoder.dispatch_thread_groups(threadgroups, threads_per_threadgroup);
         encoder.end_encoding();
 
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+        // Commands manager will flush and commit when needed
+        // Since we need the result immediately, wait for completion
+        device.wait_until_completed()
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to wait for GPU: {}", e)))?;
 
         // Check for errors
         if command_buffer.status() != metal::MTLCommandBufferStatus::Completed {
@@ -719,8 +718,6 @@ impl Interpreter {
     pub(super) fn read_element_f32(&self, tensor: &crate::tensor::Tensor<f32>, linear_idx: usize) -> RuntimeResult<f32> {
         use crate::device::{MetalBuffer, KernelExecutor};
 
-        eprintln!("[DEBUG] read_element_f32: Entry, linear_idx={}", linear_idx);
-
         if linear_idx >= tensor.numel() {
             return Err(RuntimeError::InvalidOperation(
                 format!("Index {} out of bounds for tensor with {} elements", linear_idx, tensor.numel())
@@ -730,38 +727,19 @@ impl Interpreter {
         // Fast path for CPU tensors: direct access without copying
         use crate::tensor::BufferHandle;
         if let BufferHandle::CPU(ref vec) = tensor.buffer() {
-            eprintln!("[DEBUG] read_element_f32: CPU tensor, using direct access");
             return Ok(vec[linear_idx]);
         }
-
-        eprintln!("[DEBUG] read_element_f32: Getting Metal device...");
         let device = match tensor.device() {
             crate::device::Device::Metal(dev) => dev.clone(),
             _ => return Err(RuntimeError::InvalidOperation("read_element_f32 requires Metal device".to_string())),
         };
-        eprintln!("[DEBUG] read_element_f32: Metal device acquired");
-
-        // CRITICAL: Wait for all pending command buffers to complete before reading
-        // Since we removed sync_and_read() from tensor creation, we must ensure
-        // all GPU operations are complete before reading data
-        eprintln!("[DEBUG] read_element_f32: Waiting for pending command buffers...");
-        device.wait_until_completed()
-            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to wait for GPU: {}", e)))?;
-        eprintln!("[DEBUG] read_element_f32: All command buffers completed");
-
-        eprintln!("[DEBUG] read_element_f32: Checking shader library...");
         let mut device_mut = device.clone();
         if device_mut.library().is_none() {
-            eprintln!("[DEBUG] read_element_f32: Loading shader library...");
             let shader_source = include_str!("../../shaders/unified.metal");
             device_mut.load_library(shader_source)
                 .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to load shader: {}", e)))?;
-            eprintln!("[DEBUG] read_element_f32: Shader library loaded");
-        } else {
-            eprintln!("[DEBUG] read_element_f32: Shader library already loaded");
         }
 
-        eprintln!("[DEBUG] read_element_f32: Creating buffers...");
         let input_buf = tensor.buffer().as_metal()
             .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to get Metal buffer: {}", e)))?;
         let output_buf = MetalBuffer::<f32>::new_uninit(device.metal_device(), 1)
@@ -773,17 +751,15 @@ impl Interpreter {
             std::mem::size_of::<u32>() as u64,
             metal::MTLResourceOptions::StorageModeShared,
         );
-        eprintln!("[DEBUG] read_element_f32: Buffers created");
 
-        eprintln!("[DEBUG] read_element_f32: Compiling kernel...");
         let mut executor = KernelExecutor::new(device_mut);
         let pipeline = executor.get_or_compile_pipeline("read_element_f32")
             .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to compile kernel: {}", e)))?;
-        eprintln!("[DEBUG] read_element_f32: Kernel compiled");
 
-        eprintln!("[DEBUG] read_element_f32: Setting up command buffer...");
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Use Commands manager for command buffer (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to get command buffer: {}", e)))?;
+        let encoder = command_buffer.encoder();
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&input_buf.buffer), 0);
         encoder.set_buffer(1, Some(&output_buf.buffer), 0);
@@ -795,25 +771,22 @@ impl Interpreter {
         encoder.dispatch_thread_groups(threadgroups, threads_per_threadgroup);
         encoder.end_encoding();
 
-        command_buffer.commit();
-        eprintln!("[DEBUG] read_element_f32: Command buffer committed, waiting for completion...");
-        command_buffer.wait_until_completed();
+        // Commands manager will flush and commit when needed
+        // Since we need the result immediately, wait for completion
+        device.wait_until_completed()
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to wait for GPU: {}", e)))?;
 
         // Check for errors
         if command_buffer.status() != metal::MTLCommandBufferStatus::Completed {
-            eprintln!("[DEBUG] read_element_f32: Command buffer failed with status: {:?}", command_buffer.status());
             return Err(RuntimeError::InvalidOperation(
                 format!("GPU command buffer failed with status: {:?}", command_buffer.status())
             ));
         }
-        eprintln!("[DEBUG] read_element_f32: Command buffer completed successfully");
 
         // Read result from GPU
-        eprintln!("[DEBUG] read_element_f32: Reading result from GPU...");
         let result_slice = unsafe {
             std::slice::from_raw_parts(output_buf.buffer.contents() as *const f32, 1)
         };
-        eprintln!("[DEBUG] read_element_f32: Result={}", result_slice[0]);
         Ok(result_slice[0])
     }
 
@@ -1267,11 +1240,11 @@ impl Interpreter {
         eprintln!("[DEBUG] eval_array_literal: has_float_literal={} ({:.3}ms)",
                   has_float_literal, float_check_start.elapsed().as_secs_f64() * 1000.0);
 
-        // TODO: Optimization disabled temporarily - builtin functions expect GPU tensors
-        // Small arrays (shape parameters) cause 4-5ms GPU transfer overhead
-        // Need smarter approach: only use CPU for arrays that are ONLY used as shape params
+        // OPTIMIZATION: Create array literals on CPU to avoid GPU sync overhead
+        // Builtin functions (ones, zeros, reshape) now support CPU tensors via to_cpu_vec()
+        // This eliminates per-element GPU sync when using arrays as shape parameters
         let numel = values.len();
-        let use_cpu = false;
+        let use_cpu = true;
 
         if has_float_literal {
             eprintln!("[DEBUG] eval_array_literal: Creating f32 tensor (numel={}, cpu={})...", numel, use_cpu);

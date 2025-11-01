@@ -1,6 +1,6 @@
 //! Indexing operations: gather and scatter
 
-use crate::device::{Device, MetalBuffer};
+use crate::device::{Device, MetalBuffer, EncoderProvider};
 use crate::tensor::FloatType;
 use crate::tensor::{TensorAccessors, TensorCreation, TensorIO};
 use crate::error::{TensorError, TensorResult};
@@ -274,7 +274,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Execute kernel
         let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline_state);
         encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
@@ -546,7 +546,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Execute kernel
         let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline_state);
         encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);

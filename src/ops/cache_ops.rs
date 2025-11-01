@@ -3,7 +3,7 @@
 //! This module provides efficient operations for managing Key-Value caches
 //! in transformer models, avoiding quadratic memory allocation overhead.
 
-use crate::device::{Device, MetalBuffer, MetalDevice};
+use crate::device::{Device, MetalBuffer, MetalDevice, EncoderProvider};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{FloatType, Tensor, TensorAccessors, TensorIO};
 
@@ -202,7 +202,7 @@ impl<T: FloatType> Tensor<T> {
         );
 
         let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&new_buf.buffer), 0);

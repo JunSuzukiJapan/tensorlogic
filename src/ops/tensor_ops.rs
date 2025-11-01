@@ -1,6 +1,6 @@
 //! Tensor manipulation operations (concat, transpose, permute, split)
 
-use crate::device::{Device, MetalBuffer};
+use crate::device::{Device, MetalBuffer, EncoderProvider};
 use crate::tensor::FloatType;
 use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
 use crate::error::{TensorError, TensorResult};
@@ -135,7 +135,7 @@ impl<T: FloatType> Tensor<T> {
 
             // Commands API (candle pattern)
             let (_flushed, command_buffer) = device.command_buffer()?;
-            let encoder = command_buffer.as_ref().new_compute_command_encoder();
+            let encoder = command_buffer.encoder();
 
             encoder.set_compute_pipeline_state(&pipeline);
             encoder.set_buffer(0, Some(&input_buf.buffer), 0);
@@ -306,7 +306,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Commands API (candle pattern)
         let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&input_buf.buffer), 0);

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::tensor::TensorIO;
+use crate::device::EncoderProvider;
 use rand::Rng;
 
 impl Interpreter {
@@ -294,20 +295,14 @@ impl Interpreter {
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
 
-        // CRITICAL: Wait for all pending command buffers to complete before creating new ones
-        // Since we removed sync_and_read() from tensor creation, we must ensure
-        // all GPU operations are complete before sampling
-        device.wait_until_completed()
-            .map_err(|e| RuntimeError::TensorError(
-                crate::error::TensorError::MetalError(format!("Failed to wait for GPU: {}", e))
-            ))?;
-
         // Step 1: Apply temperature scaling
         let pipeline1 = executor.get_or_compile_pipeline(&format!("temperature_softmax{}", suffix))
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Use Commands manager for command buffer (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()
+            .map_err(|e| RuntimeError::TensorError(e))?;
+        let encoder = command_buffer.encoder();
         encoder.set_compute_pipeline_state(&pipeline1);
         encoder.set_buffer(0, Some(&input_buf.buffer), buffer_offset);
         encoder.set_buffer(1, Some(&probs_buf.buffer), 0);
@@ -318,15 +313,15 @@ impl Interpreter {
         let threadgroup_size = metal::MTLSize::new(256.min(vocab_size as u64), 1, 1);
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        crate::ops::async_exec::submit_async(&command_buffer); // Async!
 
         // Step 2: Find max value (for numerical stability)
         let pipeline2 = executor.get_or_compile_pipeline(&format!("find_max{}", suffix))
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Use Commands manager for command buffer (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()
+            .map_err(|e| RuntimeError::TensorError(e))?;
+        let encoder = command_buffer.encoder();
         encoder.set_compute_pipeline_state(&pipeline2);
         encoder.set_buffer(0, Some(&probs_buf.buffer), 0);
         encoder.set_buffer(1, Some(&max_buf.buffer), 0);
@@ -337,15 +332,15 @@ impl Interpreter {
         let grid_size = metal::MTLSize::new(256, 1, 1);
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        crate::ops::async_exec::submit_async(&command_buffer); // Async!
 
         // Step 3: Compute exp and sum
         let pipeline3 = executor.get_or_compile_pipeline(&format!("softmax_normalize{}", suffix))
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Use Commands manager for command buffer (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()
+            .map_err(|e| RuntimeError::TensorError(e))?;
+        let encoder = command_buffer.encoder();
         encoder.set_compute_pipeline_state(&pipeline3);
         encoder.set_buffer(0, Some(&probs_buf.buffer), 0);
         encoder.set_buffer(1, Some(&max_buf.buffer), 0);
@@ -357,15 +352,15 @@ impl Interpreter {
         let threadgroup_size = metal::MTLSize::new(256.min(vocab_size as u64), 1, 1);
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        crate::ops::async_exec::submit_async(&command_buffer); // Async!
 
         // Step 4: Normalize by sum
         let pipeline4 = executor.get_or_compile_pipeline(&format!("divide_by_sum{}", suffix))
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Use Commands manager for command buffer (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()
+            .map_err(|e| RuntimeError::TensorError(e))?;
+        let encoder = command_buffer.encoder();
         encoder.set_compute_pipeline_state(&pipeline4);
         encoder.set_buffer(0, Some(&probs_buf.buffer), 0);
         encoder.set_buffer(1, Some(&sum_buf.buffer), 0);
@@ -375,15 +370,15 @@ impl Interpreter {
         let threadgroup_size = metal::MTLSize::new(256.min(vocab_size as u64), 1, 1);
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        crate::ops::async_exec::submit_async(&command_buffer); // Async!
 
         // Step 5: Sample from distribution
         let pipeline5 = executor.get_or_compile_pipeline(&format!("cumulative_sample{}", suffix))
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        let final_command_buffer = device.command_queue().new_command_buffer();
-        let encoder = final_command_buffer.new_compute_command_encoder();
+        // Use Commands manager for command buffer (Candle pattern)
+        let (_flushed, final_command_buffer) = device.command_buffer()
+            .map_err(|e| RuntimeError::TensorError(e))?;
+        let encoder = final_command_buffer.encoder();
         encoder.set_compute_pipeline_state(&pipeline5);
         encoder.set_buffer(0, Some(&probs_buf.buffer), 0);
         encoder.set_buffer(1, Some(&sampled_buf), 0);
@@ -394,12 +389,13 @@ impl Interpreter {
         let threadgroup_size = metal::MTLSize::new(1, 1, 1);
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        final_command_buffer.commit();
 
-        // TARGETED SYNC: Wait only for the final sampling command buffer
-        // This avoids waiting for all 22 layers of transformer computation
-        // Metal's dependency tracking ensures logits are ready before sampling starts
-        final_command_buffer.wait_until_completed();
+        // Commands manager will flush and commit when needed
+        // Since we need the result immediately, wait for completion
+        device.wait_until_completed()
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::MetalError(format!("Failed to wait for GPU: {}", e))
+            ))?;
 
         // Read result (only 4 bytes!)
         let sampled_ptr = sampled_buf.contents() as *const u32;
@@ -476,20 +472,14 @@ impl Interpreter {
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
 
-        // CRITICAL: Wait for all pending command buffers to complete before creating new one
-        // Since we removed sync_and_read() from tensor creation, we must ensure
-        // all GPU operations are complete before sampling
-        device.wait_until_completed()
-            .map_err(|e| RuntimeError::TensorError(
-                crate::error::TensorError::MetalError(format!("Failed to wait for GPU: {}", e))
-            ))?;
-
         // Execute argmax kernel
         let pipeline = executor.get_or_compile_pipeline(&format!("argmax{}", suffix))
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Use Commands manager for command buffer (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()
+            .map_err(|e| RuntimeError::TensorError(e))?;
+        let encoder = command_buffer.encoder();
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&input_buf.buffer), 0);
         encoder.set_buffer(1, Some(&max_idx_buf), 0);
@@ -504,10 +494,13 @@ impl Interpreter {
         let grid_size = metal::MTLSize::new(256, 1, 1);
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
 
-        // TARGETED SYNC: Wait only for this argmax command buffer
-        command_buffer.wait_until_completed();
+        // Commands manager will flush and commit when needed
+        // Since we need the result immediately, wait for completion
+        device.wait_until_completed()
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::MetalError(format!("Failed to wait for GPU: {}", e))
+            ))?;
 
         // Read result (only 4 bytes!)
         let max_idx_ptr = max_idx_buf.contents() as *const u32;

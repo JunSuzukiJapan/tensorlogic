@@ -4,7 +4,7 @@ use crate::autograd::gradients::MatMulBackward;
 use crate::tensor::FloatType;
 use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorAutograd};
 use crate::autograd::{AutogradContext, Operation};
-use crate::device::{Device, MetalBuffer};
+use crate::device::{Device, MetalBuffer, EncoderProvider};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
@@ -159,7 +159,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Create command buffer and encoder (Commands API - candle pattern)
         let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(a_buf.metal_buffer()), 0);
@@ -336,7 +336,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Commands API (candle pattern)
         let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(a_buf.metal_buffer()), 0);

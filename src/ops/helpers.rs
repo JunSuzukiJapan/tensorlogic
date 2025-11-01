@@ -1,7 +1,7 @@
 //! Common helper functions for operation implementations
 //! Reduces code duplication across elementwise and activation operations
 
-use crate::device::{Device, KernelExecutor, MetalBuffer};
+use crate::device::{Device, KernelExecutor, MetalBuffer, EncoderProvider};
 use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
@@ -146,7 +146,7 @@ pub(crate) fn execute_binary_metal_op<T: FloatType>(
         .map_err(|e| TensorError::MetalError(format!("Failed to create pipeline: {:?}", e)))?;
 
     let (_flushed, command_buffer) = device.command_buffer()?;
-    let encoder = command_buffer.as_ref().new_compute_command_encoder();
+    let encoder = command_buffer.encoder();
 
     encoder.set_compute_pipeline_state(&pipeline_state);
     encoder.set_buffer(0, Some(input_buf_f16.metal_buffer()), 0);

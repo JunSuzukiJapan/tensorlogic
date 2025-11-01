@@ -2,7 +2,7 @@ use crate::tensor::FloatType;
 use crate::autograd::GradientFunctionGeneric;
 use std::marker::PhantomData;
 use super::prelude::*;
-use crate::device::{Device, MetalBuffer};
+use crate::device::{Device, MetalBuffer, EncoderProvider};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 
@@ -61,15 +61,11 @@ impl<T: FloatType> GELUBackward<T> {
         // Execute kernel
         let mut executor = crate::device::KernelExecutor::new(device.clone());
 
-        // CRITICAL: Wait for all pending command buffers to complete before creating new one
-        // Since we removed sync_and_read() from tensor creation, we must ensure
-        // all GPU operations are complete before backward pass
-        device.wait_until_completed()?;
-
         let pipeline = executor.get_or_compile_pipeline("gelu_backward_f16")?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Use Commands manager for command buffer (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&grad_out_buf.buffer), 0);
@@ -81,8 +77,9 @@ impl<T: FloatType> GELUBackward<T> {
 
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+
+        // Commands manager will flush and commit when needed
+        // Result stays on GPU - no wait needed (batching-friendly)
 
         Tensor::<T>::new(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),

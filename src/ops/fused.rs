@@ -3,7 +3,7 @@
 //! These operations combine multiple operations into single GPU kernels,
 //! reducing memory access overhead and kernel launch overhead.
 
-use crate::device::{Device, MetalBuffer, NeuralEngineOps};
+use crate::device::{Device, MetalBuffer, NeuralEngineOps, EncoderProvider};
 use crate::tensor::FloatType;
 use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorAutograd};
 use crate::error::{TensorError, TensorResult};
@@ -70,7 +70,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Commands API (candle pattern)
         let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&a_buf.buffer), 0);
@@ -164,7 +164,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Commands API (candle pattern)
         let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&a_buf.buffer), 0);
@@ -310,7 +310,7 @@ impl<T: FloatType> Tensor<T> {
         let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
 
         let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&a_buf.buffer), 0);
@@ -396,7 +396,7 @@ impl<T: FloatType> Tensor<T> {
         let pipeline = executor.get_or_compile_pipeline("fused_affine_f16")?;
 
         let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&x_buf.buffer), 0);

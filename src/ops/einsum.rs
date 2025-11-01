@@ -8,7 +8,7 @@
 //! - `ij->`: Sum all elements
 //! - `ij,j->i`: Matrix-vector product
 
-use crate::device::{Device, MetalDevice, MetalBuffer};
+use crate::device::{Device, MetalDevice, MetalBuffer, EncoderProvider};
 use crate::tensor::FloatType;
 use crate::tensor::{TensorAccessors, TensorAutograd, TensorCreation, TensorIO};
 use crate::error::{TensorError, TensorResult};
@@ -741,7 +741,7 @@ fn einsum_ihd_jhd_ihj_metal<T: FloatType>(
 
     // Get command buffer from batch (candle-style)
     let (_flushed, command_buffer) = device_mut.command_buffer()?;
-    let encoder = command_buffer.as_ref().new_compute_command_encoder();
+    let encoder = command_buffer.encoder();
 
     encoder.set_compute_pipeline_state(&pipeline);
     encoder.set_buffer(0, Some(a_buf.metal_buffer()), 0);
@@ -838,7 +838,7 @@ fn einsum_ihj_jhd_ihd_metal<T: FloatType>(
 
     // Get command buffer from batch (candle-style)
     let (_flushed, command_buffer) = device_mut.command_buffer()?;
-    let encoder = command_buffer.as_ref().new_compute_command_encoder();
+    let encoder = command_buffer.encoder();
 
     encoder.set_compute_pipeline_state(&pipeline);
     encoder.set_buffer(0, Some(a_buf.metal_buffer()), 0);

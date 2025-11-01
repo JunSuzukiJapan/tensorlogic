@@ -8,7 +8,7 @@
 //! - LayerNorm + Linear
 //! - GELU + Linear
 
-use crate::device::{Device, MetalBuffer};
+use crate::device::{Device, MetalBuffer, EncoderProvider};
 use crate::tensor::FloatType;
 use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorAutograd};
 use crate::error::{TensorError, TensorResult};
@@ -126,7 +126,7 @@ impl<T: FloatType> Tensor<T> {
         let pipeline = executor.get_or_compile_pipeline("fused_linear_residual_relu_f16")?;
 
         let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(x_buf.metal_buffer()), 0);
@@ -270,7 +270,7 @@ impl<T: FloatType> Tensor<T> {
         let pipeline = executor.get_or_compile_pipeline("fused_gelu_linear_f16")?;
 
         let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.as_ref().new_compute_command_encoder();
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(x_buf.metal_buffer()), 0);
