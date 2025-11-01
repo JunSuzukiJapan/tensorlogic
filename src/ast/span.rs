@@ -37,21 +37,35 @@ impl fmt::Display for Position {
 }
 
 /// Span in source code
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Span {
     pub start: Position,
     pub end: Position,
+    pub file: Option<String>,
 }
 
 impl Span {
     pub fn new(start: Position, end: Position) -> Self {
-        Span { start, end }
+        Span {
+            start,
+            end,
+            file: None,
+        }
+    }
+
+    pub fn with_file(start: Position, end: Position, file: String) -> Self {
+        Span {
+            start,
+            end,
+            file: Some(file),
+        }
     }
 
     pub fn zero() -> Self {
         Span {
             start: Position::zero(),
             end: Position::zero(),
+            file: None,
         }
     }
 
@@ -68,12 +82,16 @@ impl Span {
             } else {
                 other.end
             },
+            file: self.file.or(other.file),
         }
     }
 }
 
 impl fmt::Display for Span {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(ref file) = self.file {
+            write!(f, "{}:", file)?;
+        }
         if self.start.line == self.end.line {
             write!(f, "{}:{}-{}", self.start.line, self.start.column, self.end.column)
         } else {

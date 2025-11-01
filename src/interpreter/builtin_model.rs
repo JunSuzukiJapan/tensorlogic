@@ -622,7 +622,11 @@ impl Interpreter {
         };
 
         if !condition {
-            panic!("Assertion failed!");
+            let location = self.current_file
+                .as_ref()
+                .and_then(|p| p.to_str())
+                .unwrap_or("<unknown>");
+            panic!("Assertion failed!\n  at {}", location);
         }
 
         Ok(Value::Void)
@@ -666,9 +670,14 @@ impl Interpreter {
         };
 
         if !are_equal {
-            panic!("Assertion failed: {:?} != {:?}",
+            let location = self.current_file
+                .as_ref()
+                .and_then(|p| p.to_str())
+                .unwrap_or("<unknown>");
+            panic!("Assertion failed: {:?} != {:?}\n  at {}",
                    self.value_to_display(&left_val),
-                   self.value_to_display(&right_val));
+                   self.value_to_display(&right_val),
+                   location);
         }
 
         Ok(Value::Void)
@@ -736,10 +745,15 @@ impl Interpreter {
         };
 
         if !are_approx_equal {
-            panic!("Assertion failed: {:?} ≈ {:?} (within epsilon {})",
+            let location = self.current_file
+                .as_ref()
+                .and_then(|p| p.to_str())
+                .unwrap_or("<unknown>");
+            panic!("Assertion failed: {:?} ≈ {:?} (within epsilon {})\n  at {}",
                    self.value_to_display(&left_val),
                    self.value_to_display(&right_val),
-                   epsilon);
+                   epsilon,
+                   location);
         }
 
         Ok(Value::Void)
