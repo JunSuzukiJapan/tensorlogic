@@ -834,8 +834,8 @@ impl Interpreter {
         let broadcasted = reshaped.broadcast_to(&TensorShape::new(vec![seq_len, k_embd, n_rep]))
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        // CRITICAL: Make contiguous before reshape! Broadcast creates non-contiguous tensors
-        // with special strides, which causes GPU matmul to hang. We must materialize the data.
+        // CRITICAL: Make contiguous after broadcast! Broadcast creates non-contiguous tensors
+        // with special strides. Must materialize the data before reshape.
         use crate::tensor::TensorTransform;
         let contiguous = broadcasted.contiguous()
             .map_err(|e| RuntimeError::TensorError(e))?;
@@ -901,10 +901,10 @@ impl Interpreter {
         };
 
         // Step 1: Attention scores = Q @ K^T / sqrt(head_dim)
-        // Q: [seq_len, n_embd], K^T: [n_embd, cache_len] -> [seq_len, cache_len]
+        // Q: [seq_len, n_embd], K: [cache_len, n_embd] -> [seq_len, cache_len]
+        // Use fused transpose-matmul to avoid creating transposed copy
         let qk_start = Instant::now();
-        let k_t = k_expanded.transpose().map_err(|e| RuntimeError::TensorError(e))?;
-        let scores = q.matmul(&k_t).map_err(|e| RuntimeError::TensorError(e))?;
+        let scores = q.matmul_transposed_b(&k_expanded).map_err(|e| RuntimeError::TensorError(e))?;
 
         let scale = (head_dim as f32).sqrt();
         let scaled_scores = scores.div_scalar(scale).map_err(|e| RuntimeError::TensorError(e))?;
@@ -1046,15 +1046,10 @@ impl Interpreter {
         };
 
         // Step 1: Attention scores = Q @ K^T / sqrt(head_dim)
-        // Q: [seq_len, n_embd], K^T: [n_embd, cache_len] -> [seq_len, cache_len]
-        let k_t_view = k_expanded.transpose().map_err(|e| RuntimeError::TensorError(e))?;
-
-        // CRITICAL: Transpose creates non-contiguous tensor (just swaps strides)
-        // Must make contiguous before matmul to avoid GPU hang!
-        use crate::tensor::TensorTransform;
-        let k_t = k_t_view.contiguous().map_err(|e| RuntimeError::TensorError(e))?;
-
-        let scores = q_flat.matmul(&k_t).map_err(|e| RuntimeError::TensorError(e))?;
+        // Q: [seq_len, n_embd], K: [cache_len, n_embd] -> [seq_len, cache_len]
+        // Use fused transpose-matmul to avoid creating transposed copy + contiguous call
+        // This is the key optimization: matmul_transposed_b transposes K on-the-fly during matmul
+        let scores = q_flat.matmul_transposed_b(&k_expanded).map_err(|e| RuntimeError::TensorError(e))?;
 
         let scale = (head_dim as f32).sqrt();
         let scaled_scores = scores.div_scalar(f16::from_f32(scale)).map_err(|e| RuntimeError::TensorError(e))?;
