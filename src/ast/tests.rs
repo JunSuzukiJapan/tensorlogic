@@ -148,10 +148,10 @@ mod tests {
                 TensorExpr::var("x"),
                 TensorExpr::var("w"),
             ),
-            eq_type: EquationType::Assign,
+            eq_type: EquationType::Approx,
         };
 
-        assert_eq!(eq.eq_type, EquationType::Assign);
+        assert_eq!(eq.eq_type, EquationType::Approx);
     }
 
     #[test]

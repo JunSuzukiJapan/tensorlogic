@@ -21,6 +21,11 @@ pub trait TensorIO<T: FloatType>: Sized {
     /// Get data as Vec<f32> - THIS WILL PANIC to identify call sites
     fn to_vec_f32(&self) -> Vec<f32>;
 
+    /// Flush all pending GPU command buffers without reading data
+    /// Use this when you need to ensure GPU operations complete but don't need CPU data
+    /// Much faster than sync_and_read() as it avoids expensive GPU->CPU transfer
+    fn flush_gpu(&self) -> TensorResult<()>;
+
     /// Sync all pending GPU operations and read data as Vec<T>
     /// Use this when you actually need CPU data (print, final output, etc)
     fn sync_and_read(&self) -> Vec<T>;
@@ -77,6 +82,16 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
         panic!("⚠️ to_vec_f32() called without sync! Use sync_and_read_f32() instead.\n\
                 Call site: {}",
                std::panic::Location::caller());
+    }
+
+    fn flush_gpu(&self) -> TensorResult<()> {
+        // Flush all pending GPU command buffers without reading data
+        // This is much faster than sync_and_read() as it avoids GPU->CPU transfer
+        use crate::tensor::TensorAccessors;
+        if let crate::device::Device::Metal(ref device) = self.device() {
+            device.wait_until_completed()?;
+        }
+        Ok(())
     }
 
     fn sync_and_read(&self) -> Vec<T> {
