@@ -250,6 +250,9 @@ impl<T: FloatType> Tensor<T> {
             })?;
 
         // Execute kernel
+        if std::env::var("TL_DEBUG_HANG").is_ok() {
+            eprintln!("[HANG] softmax: START kernel={}, batch={}, last_dim={}", kernel_name, batch_size, last_dim);
+        }
         let (_flushed, command_buffer) = device.command_buffer()?;
         let encoder = command_buffer.as_ref().new_compute_command_encoder();
 
@@ -269,10 +272,20 @@ impl<T: FloatType> Tensor<T> {
         // command_buffer.commit(); // Handled by Commands manager
         // submit_async - not needed with Commands batching
 
-        self.new_from_pool(
+        if std::env::var("TL_DEBUG_HANG").is_ok() {
+            eprintln!("[HANG] softmax: Kernel dispatched, creating result");
+        }
+
+        let result = self.new_from_pool(
             crate::tensor::BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             self.shape().clone(),
-        )
+        )?;
+
+        if std::env::var("TL_DEBUG_HANG").is_ok() {
+            eprintln!("[HANG] softmax: DONE");
+        }
+
+        Ok(result)
     }
 
     /// CPU implementation of softmax

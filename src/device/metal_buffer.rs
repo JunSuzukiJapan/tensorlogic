@@ -4,7 +4,7 @@ use crate::device::{BufferPool, NeuralEngineBuffer};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::FloatType;
 use half::f16;
-use metal::{Buffer, Device as MTLDevice};
+use metal::{Buffer, Device as MTLDevice, NSRange};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -87,11 +87,21 @@ impl<T: FloatType> MetalBuffer<T> {
     /// Read data from buffer to Vec<T>
     /// Note: This should only be called after sync_all() to ensure GPU operations are complete
     pub fn to_vec(&self) -> Vec<T> {
+        if std::env::var("TL_DEBUG_HANG").is_ok() {
+            eprintln!("[HANG] to_vec: START reading {} elements", self.length);
+        }
         let ptr = self.buffer.contents() as *const T;
-        unsafe { std::slice::from_raw_parts(ptr, self.length).to_vec() }
+        let result = unsafe { std::slice::from_raw_parts(ptr, self.length).to_vec() };
+        if std::env::var("TL_DEBUG_HANG").is_ok() {
+            eprintln!("[HANG] to_vec: DONE");
+        }
+        result
     }
 
     /// Write data to buffer from slice
+    ///
+    /// For SharedMode buffers, notifies GPU of CPU modifications via didModifyRange.
+    /// This is required when writing directly to buffer memory (following Candle's pattern).
     pub fn write_from_slice(&mut self, data: &[T]) -> TensorResult<()> {
         if data.len() != self.length {
             return Err(TensorError::ShapeMismatch {
@@ -104,6 +114,11 @@ impl<T: FloatType> MetalBuffer<T> {
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), ptr, self.length);
         }
+
+        // Notify GPU of CPU modification (required for SharedMode buffers)
+        // See: https://developer.apple.com/documentation/metal/mtlbuffer/1515396-didmodifyrange
+        let byte_range = NSRange::new(0, self.byte_length() as u64);
+        self.buffer.did_modify_range(byte_range);
 
         Ok(())
     }

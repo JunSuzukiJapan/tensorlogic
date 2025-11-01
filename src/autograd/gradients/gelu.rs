@@ -60,6 +60,12 @@ impl<T: FloatType> GELUBackward<T> {
 
         // Execute kernel
         let mut executor = crate::device::KernelExecutor::new(device.clone());
+
+        // CRITICAL: Wait for all pending command buffers to complete before creating new one
+        // Since we removed sync_and_read() from tensor creation, we must ensure
+        // all GPU operations are complete before backward pass
+        device.wait_until_completed()?;
+
         let pipeline = executor.get_or_compile_pipeline("gelu_backward_f16")?;
 
         let command_buffer = device.command_queue().new_command_buffer();

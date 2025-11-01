@@ -40,6 +40,11 @@ impl<T: FloatType> Tensor<T> {
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
 
+        // CRITICAL: Wait for all pending command buffers to complete before creating new one
+        // Since we removed sync_and_read() from tensor creation, we must ensure
+        // all GPU operations are complete before sum reduction
+        device.wait_until_completed()?;
+
         // Select kernel based on type
         let kernel_name = if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f16>() {
             "sum_global_f16"
@@ -424,6 +429,12 @@ impl<T: FloatType> Tensor<T> {
         let stage1_buf: MetalBuffer<T> = unsafe { std::mem::transmute(stage1_buf_f16) };
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
+
+        // CRITICAL: Wait for all pending command buffers to complete before creating new one
+        // Since we removed sync_and_read() from tensor creation, we must ensure
+        // all GPU operations are complete before max reduction
+        device.wait_until_completed()?;
+
         let pipeline = executor.get_or_compile_pipeline("max_global_f16")?;
 
         let command_buffer = device.command_queue().new_command_buffer();
@@ -529,6 +540,12 @@ impl<T: FloatType> Tensor<T> {
         let stage1_buf: MetalBuffer<T> = unsafe { std::mem::transmute(stage1_buf_f16) };
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
+
+        // CRITICAL: Wait for all pending command buffers to complete before creating new one
+        // Since we removed sync_and_read() from tensor creation, we must ensure
+        // all GPU operations are complete before min reduction
+        device.wait_until_completed()?;
+
         let pipeline = executor.get_or_compile_pipeline("min_global_f16")?;
 
         let command_buffer = device.command_queue().new_command_buffer();

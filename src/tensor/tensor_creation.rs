@@ -149,10 +149,8 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
 
         let tensor = Self::new(buffer, shape, Device::Metal(device.clone()))?;
 
-        // Force synchronization to ensure GPU buffer is fully initialized
-        // This prevents race conditions when the tensor is used immediately after creation
-        use crate::tensor::TensorIO;
-        let _ = tensor.sync_and_read();
+        // No sync needed: Metal's newBufferWithBytes is synchronous
+        // Data is fully initialized before the buffer is returned
 
         Ok(tensor)
     }
@@ -171,8 +169,20 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
             });
         }
 
+        if std::env::var("TL_DEBUG_TENSOR_CREATION").is_ok() {
+            eprintln!("[TENSOR_CREATION] from_vec_gpu_pooled: start, len={}", data.len());
+        }
+
         let data_f16: Vec<f16> = unsafe { std::mem::transmute(data) };
+
+        if std::env::var("TL_DEBUG_TENSOR_CREATION").is_ok() {
+            eprintln!("[TENSOR_CREATION] calling from_vec_pooled...");
+        }
         let metal_buffer = MetalBuffer::from_vec_pooled(device.buffer_pool(), &data_f16)?;
+
+        if std::env::var("TL_DEBUG_TENSOR_CREATION").is_ok() {
+            eprintln!("[TENSOR_CREATION] from_vec_pooled done, creating tensor...");
+        }
         let buffer = BufferHandle::Metal(unsafe { std::mem::transmute(metal_buffer) });
 
         let tensor = Self::new_with_pool(
@@ -182,9 +192,12 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
             Some(device.buffer_pool().clone()),
         )?;
 
-        // Force synchronization to ensure GPU buffer is fully initialized
-        use crate::tensor::TensorIO;
-        let _ = tensor.sync_and_read();
+        if std::env::var("TL_DEBUG_TENSOR_CREATION").is_ok() {
+            eprintln!("[TENSOR_CREATION] tensor created successfully");
+        }
+
+        // No sync needed: write_from_slice now calls didModifyRange
+        // GPU is notified of CPU buffer modifications via Metal API
 
         Ok(tensor)
     }

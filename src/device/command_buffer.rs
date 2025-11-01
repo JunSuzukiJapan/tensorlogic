@@ -37,6 +37,11 @@ impl CommandBuffer {
     pub fn wait_until_completed(&self) {
         self.raw.wait_until_completed();
     }
+
+    /// Get the inner MTL command buffer reference
+    pub fn inner(&self) -> &CommandBufferRef {
+        &self.raw
+    }
 }
 
 /// Thread-local command buffer map

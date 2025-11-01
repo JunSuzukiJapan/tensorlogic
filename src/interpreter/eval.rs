@@ -675,6 +675,13 @@ impl Interpreter {
         );
 
         let mut executor = KernelExecutor::new(device_mut);
+
+        // CRITICAL: Wait for all pending command buffers to complete before reading
+        // Since we removed sync_and_read() from tensor creation, we must ensure
+        // all GPU operations are complete before reading data
+        device.wait_until_completed()
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to wait for GPU: {}", e)))?;
+
         let pipeline = executor.get_or_compile_pipeline("read_element_f16")
             .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to compile kernel: {}", e)))?;
 
@@ -733,6 +740,14 @@ impl Interpreter {
             _ => return Err(RuntimeError::InvalidOperation("read_element_f32 requires Metal device".to_string())),
         };
         eprintln!("[DEBUG] read_element_f32: Metal device acquired");
+
+        // CRITICAL: Wait for all pending command buffers to complete before reading
+        // Since we removed sync_and_read() from tensor creation, we must ensure
+        // all GPU operations are complete before reading data
+        eprintln!("[DEBUG] read_element_f32: Waiting for pending command buffers...");
+        device.wait_until_completed()
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to wait for GPU: {}", e)))?;
+        eprintln!("[DEBUG] read_element_f32: All command buffers completed");
 
         eprintln!("[DEBUG] read_element_f32: Checking shader library...");
         let mut device_mut = device.clone();

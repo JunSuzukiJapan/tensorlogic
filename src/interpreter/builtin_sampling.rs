@@ -294,6 +294,14 @@ impl Interpreter {
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
 
+        // CRITICAL: Wait for all pending command buffers to complete before creating new ones
+        // Since we removed sync_and_read() from tensor creation, we must ensure
+        // all GPU operations are complete before sampling
+        device.wait_until_completed()
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::MetalError(format!("Failed to wait for GPU: {}", e))
+            ))?;
+
         // Step 1: Apply temperature scaling
         let pipeline1 = executor.get_or_compile_pipeline(&format!("temperature_softmax{}", suffix))
             .map_err(|e| RuntimeError::TensorError(e))?;
@@ -467,6 +475,14 @@ impl Interpreter {
         );
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
+
+        // CRITICAL: Wait for all pending command buffers to complete before creating new one
+        // Since we removed sync_and_read() from tensor creation, we must ensure
+        // all GPU operations are complete before sampling
+        device.wait_until_completed()
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::MetalError(format!("Failed to wait for GPU: {}", e))
+            ))?;
 
         // Execute argmax kernel
         let pipeline = executor.get_or_compile_pipeline(&format!("argmax{}", suffix))
