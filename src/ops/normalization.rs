@@ -726,4 +726,226 @@ mod tests {
             assert!(mean.abs() < 1e-3);
         }
     }
+
+    #[test]
+    fn test_rms_norm_mathematical_correctness() {
+        // Test RMS normalization with known values
+        // Formula: output = (x / rms(x)) * weight
+        // where rms(x) = sqrt(mean(x^2) + eps)
+        //
+        // For input [2, 4, 6, 8] with weight=1.0 and eps=1e-6:
+        // mean(x^2) = (4 + 16 + 36 + 64) / 4 = 30
+        // rms = sqrt(30 + 1e-6) ≈ 5.477
+        // output = [2/5.477, 4/5.477, 6/5.477, 8/5.477] * 1.0
+        //        = [0.3652, 0.7305, 1.0957, 1.4609]
+
+        let device = get_test_device();
+
+        let x_data = vec![
+            f16::from_f32(2.0),
+            f16::from_f32(4.0),
+            f16::from_f32(6.0),
+            f16::from_f32(8.0),
+        ];
+        let weight_data = vec![
+            f16::from_f32(1.0),
+            f16::from_f32(1.0),
+            f16::from_f32(1.0),
+            f16::from_f32(1.0),
+        ];
+
+        let x = match &device {
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, x_data, vec![1, 4]).unwrap(),
+            _ => Tensor::from_vec(x_data, vec![1, 4]).unwrap(),
+        };
+
+        let weight = match &device {
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, weight_data, vec![4]).unwrap(),
+            _ => Tensor::from_vec(weight_data, vec![4]).unwrap(),
+        };
+
+        let result = x.rms_norm(vec![4], &weight, 1e-6).unwrap();
+        let values = result.sync_and_read();
+
+        // Expected values from the formula
+        let expected = vec![0.3652, 0.7305, 1.0957, 1.4609];
+
+        for i in 0..4 {
+            let actual = values[i].to_f32();
+            let diff = (actual - expected[i]).abs();
+            assert!(
+                diff < 0.01,
+                "RMS norm mismatch at index {}: expected {:.4}, got {:.4}, diff {:.4}",
+                i,
+                expected[i],
+                actual,
+                diff
+            );
+        }
+    }
+
+    #[test]
+    fn test_rms_norm_scaling_property() {
+        // RMS norm should preserve relative magnitudes
+        // If input is [x, 2x, 3x], output should maintain ratios 1:2:3
+        let device = get_test_device();
+
+        let x_data = vec![
+            f16::from_f32(1.0),
+            f16::from_f32(2.0),
+            f16::from_f32(3.0),
+        ];
+        let weight_data = vec![
+            f16::from_f32(1.0),
+            f16::from_f32(1.0),
+            f16::from_f32(1.0),
+        ];
+
+        let x = match &device {
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, x_data, vec![1, 3]).unwrap(),
+            _ => Tensor::from_vec(x_data, vec![1, 3]).unwrap(),
+        };
+
+        let weight = match &device {
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, weight_data, vec![3]).unwrap(),
+            _ => Tensor::from_vec(weight_data, vec![3]).unwrap(),
+        };
+
+        let result = x.rms_norm(vec![3], &weight, 1e-6).unwrap();
+        let values = result.sync_and_read();
+
+        // Check that ratios are preserved
+        let v0 = values[0].to_f32();
+        let v1 = values[1].to_f32();
+        let v2 = values[2].to_f32();
+
+        let ratio_1_0 = v1 / v0;
+        let ratio_2_0 = v2 / v0;
+
+        assert!(
+            (ratio_1_0 - 2.0).abs() < 0.01,
+            "Ratio v1/v0 should be ~2.0, got {:.4}",
+            ratio_1_0
+        );
+        assert!(
+            (ratio_2_0 - 3.0).abs() < 0.01,
+            "Ratio v2/v0 should be ~3.0, got {:.4}",
+            ratio_2_0
+        );
+    }
+
+    #[test]
+    fn test_rms_norm_weight_scaling() {
+        // Weight parameter should scale the normalized output
+        let device = get_test_device();
+
+        let x_data = vec![
+            f16::from_f32(2.0),
+            f16::from_f32(4.0),
+            f16::from_f32(6.0),
+            f16::from_f32(8.0),
+        ];
+
+        // Test with different weight values
+        let weight_1_data = vec![
+            f16::from_f32(1.0),
+            f16::from_f32(1.0),
+            f16::from_f32(1.0),
+            f16::from_f32(1.0),
+        ];
+        let weight_2_data = vec![
+            f16::from_f32(2.0),
+            f16::from_f32(2.0),
+            f16::from_f32(2.0),
+            f16::from_f32(2.0),
+        ];
+
+        let x1 = match &device {
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, x_data.clone(), vec![1, 4]).unwrap(),
+            _ => Tensor::from_vec(x_data.clone(), vec![1, 4]).unwrap(),
+        };
+        let x2 = match &device {
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, x_data, vec![1, 4]).unwrap(),
+            _ => Tensor::from_vec(x_data, vec![1, 4]).unwrap(),
+        };
+
+        let weight1 = match &device {
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, weight_1_data, vec![4]).unwrap(),
+            _ => Tensor::from_vec(weight_1_data, vec![4]).unwrap(),
+        };
+        let weight2 = match &device {
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, weight_2_data, vec![4]).unwrap(),
+            _ => Tensor::from_vec(weight_2_data, vec![4]).unwrap(),
+        };
+
+        let result1 = x1.rms_norm(vec![4], &weight1, 1e-6).unwrap();
+        let result2 = x2.rms_norm(vec![4], &weight2, 1e-6).unwrap();
+
+        let values1 = result1.sync_and_read();
+        let values2 = result2.sync_and_read();
+
+        // result2 should be approximately 2x result1
+        for i in 0..4 {
+            let v1 = values1[i].to_f32();
+            let v2 = values2[i].to_f32();
+            let ratio = v2 / v1;
+
+            assert!(
+                (ratio - 2.0).abs() < 0.01,
+                "Weight scaling: v2/v1 should be ~2.0 at index {}, got {:.4}",
+                i,
+                ratio
+            );
+        }
+    }
+
+    #[test]
+    fn test_rms_norm_deterministic() {
+        // Same input should always produce same output
+        let device = get_test_device();
+
+        let x_data = vec![
+            f16::from_f32(2.0),
+            f16::from_f32(4.0),
+            f16::from_f32(6.0),
+            f16::from_f32(8.0),
+        ];
+        let weight_data = vec![
+            f16::from_f32(1.0),
+            f16::from_f32(1.0),
+            f16::from_f32(1.0),
+            f16::from_f32(1.0),
+        ];
+
+        let x = match &device {
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, x_data, vec![1, 4]).unwrap(),
+            _ => Tensor::from_vec(x_data, vec![1, 4]).unwrap(),
+        };
+
+        let weight = match &device {
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, weight_data, vec![4]).unwrap(),
+            _ => Tensor::from_vec(weight_data, vec![4]).unwrap(),
+        };
+
+        let result1 = x.rms_norm(vec![4], &weight, 1e-6).unwrap();
+        let result2 = x.rms_norm(vec![4], &weight, 1e-6).unwrap();
+        let result3 = x.rms_norm(vec![4], &weight, 1e-6).unwrap();
+
+        let values1 = result1.sync_and_read();
+        let values2 = result2.sync_and_read();
+        let values3 = result3.sync_and_read();
+
+        for i in 0..4 {
+            assert_eq!(
+                values1[i], values2[i],
+                "RMS norm should be deterministic (result1 vs result2 at index {})",
+                i
+            );
+            assert_eq!(
+                values2[i], values3[i],
+                "RMS norm should be deterministic (result2 vs result3 at index {})",
+                i
+            );
+        }
+    }
 }

@@ -528,4 +528,186 @@ mod tests {
         // Check symmetry
         assert!((result[0].to_f32() + result[4].to_f32()).abs() < 0.01); // tanh(-x) = -tanh(x)
     }
+
+    #[test]
+    fn test_softmax_mathematical_correctness() {
+        // Test softmax with known values
+        // Formula: softmax(x)_i = exp(x_i) / sum_j(exp(x_j))
+        //
+        // For input [1, 2, 3]:
+        // exp(1) = 2.718, exp(2) = 7.389, exp(3) = 20.086
+        // sum = 30.193
+        // output = [2.718/30.193, 7.389/30.193, 20.086/30.193]
+        //        = [0.090, 0.245, 0.665]
+
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![
+            f16::from_f32(1.0),
+            f16::from_f32(2.0),
+            f16::from_f32(3.0),
+        ];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![3]).unwrap();
+        let result = x.softmax().unwrap();
+        let values = result.sync_and_read();
+
+        // Expected values from the formula
+        let expected = vec![0.090, 0.245, 0.665];
+
+        for i in 0..3 {
+            let actual = values[i].to_f32();
+            let diff = (actual - expected[i]).abs();
+            assert!(
+                diff < 0.01,
+                "Softmax mismatch at index {}: expected {:.3}, got {:.3}, diff {:.3}",
+                i,
+                expected[i],
+                actual,
+                diff
+            );
+        }
+
+        // Verify sum equals 1 (fundamental property)
+        let sum: f32 = values.iter().map(|x| x.to_f32()).sum();
+        assert!(
+            (sum - 1.0).abs() < 0.001,
+            "Softmax output should sum to 1.0, got {:.6}",
+            sum
+        );
+    }
+
+    #[test]
+    fn test_softmax_numerical_stability() {
+        // Test softmax with large values (should not overflow)
+        // Softmax should use max subtraction for numerical stability:
+        // softmax(x)_i = exp(x_i - max(x)) / sum_j(exp(x_j - max(x)))
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![
+            f16::from_f32(100.0),
+            f16::from_f32(101.0),
+            f16::from_f32(102.0),
+        ];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![3]).unwrap();
+        let result = x.softmax().unwrap();
+        let values = result.sync_and_read();
+
+        // After max subtraction: [-2, -1, 0]
+        // Same result as test above: [0.090, 0.245, 0.665]
+        let expected = vec![0.090, 0.245, 0.665];
+
+        for i in 0..3 {
+            let actual = values[i].to_f32();
+            assert!(
+                !actual.is_nan() && !actual.is_infinite(),
+                "Softmax should not produce NaN or Inf with large values"
+            );
+            let diff = (actual - expected[i]).abs();
+            assert!(
+                diff < 0.01,
+                "Softmax with large values mismatch at index {}: expected {:.3}, got {:.3}",
+                i,
+                expected[i],
+                actual
+            );
+        }
+
+        // Verify sum equals 1
+        let sum: f32 = values.iter().map(|x| x.to_f32()).sum();
+        assert!((sum - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_softmax_2d_batch() {
+        // Test softmax on 2D tensor (batch processing)
+        // Softmax should be applied independently to each row
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![
+            // Row 0: [1, 2, 3]
+            f16::from_f32(1.0),
+            f16::from_f32(2.0),
+            f16::from_f32(3.0),
+            // Row 1: [0, 0, 0]
+            f16::from_f32(0.0),
+            f16::from_f32(0.0),
+            f16::from_f32(0.0),
+        ];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![2, 3]).unwrap();
+        let result = x.softmax().unwrap();
+        let values = result.sync_and_read();
+
+        // Row 0 expected: [0.090, 0.245, 0.665]
+        let row0_expected = vec![0.090, 0.245, 0.665];
+        for i in 0..3 {
+            let actual = values[i].to_f32();
+            let diff = (actual - row0_expected[i]).abs();
+            assert!(
+                diff < 0.01,
+                "Row 0 mismatch at index {}: expected {:.3}, got {:.3}",
+                i,
+                row0_expected[i],
+                actual
+            );
+        }
+
+        // Row 1 expected: [1/3, 1/3, 1/3] (uniform for equal inputs)
+        for i in 3..6 {
+            let actual = values[i].to_f32();
+            let expected = 1.0 / 3.0;
+            let diff = (actual - expected).abs();
+            assert!(
+                diff < 0.01,
+                "Row 1 mismatch at index {}: expected {:.3}, got {:.3}",
+                i - 3,
+                expected,
+                actual
+            );
+        }
+
+        // Verify each row sums to 1
+        let row0_sum: f32 = values[0..3].iter().map(|x| x.to_f32()).sum();
+        let row1_sum: f32 = values[3..6].iter().map(|x| x.to_f32()).sum();
+        assert!((row0_sum - 1.0).abs() < 0.001);
+        assert!((row1_sum - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_softmax_deterministic() {
+        // Same input should always produce same output
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![
+            f16::from_f32(1.0),
+            f16::from_f32(2.0),
+            f16::from_f32(3.0),
+            f16::from_f32(4.0),
+        ];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![4]).unwrap();
+
+        let result1 = x.softmax().unwrap();
+        let result2 = x.softmax().unwrap();
+        let result3 = x.softmax().unwrap();
+
+        let values1 = result1.sync_and_read();
+        let values2 = result2.sync_and_read();
+        let values3 = result3.sync_and_read();
+
+        for i in 0..4 {
+            assert_eq!(
+                values1[i], values2[i],
+                "Softmax should be deterministic (result1 vs result2 at index {})",
+                i
+            );
+            assert_eq!(
+                values2[i], values3[i],
+                "Softmax should be deterministic (result2 vs result3 at index {})",
+                i
+            );
+        }
+    }
 }
