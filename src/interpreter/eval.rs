@@ -75,7 +75,9 @@ impl Interpreter {
                 let _right = self.eval_expr(&eq.right)?;
                 Ok(())
             }
-            Statement::FunctionCall { name, args, resolved } => {
+            Statement::FunctionCall { name, args, resolved, span } => {
+                // Save span for error reporting
+                self.current_span = Some(span.clone());
                 // Handle function calls as statements (e.g., print)
                 if name.as_str() == "print" {
                     // Special handling for print with format string support

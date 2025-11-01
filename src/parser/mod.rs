@@ -1590,6 +1590,7 @@ impl TensorLogicParser {
                 Self::parse_python_import(inner)
             }
             Rule::function_call => {
+                let pest_span = inner.as_span();
                 let mut inner_pairs = inner.into_inner();
                 let name = Self::parse_identifier(inner_pairs.next().ok_or_else(|| {
                     ParseError::MissingField("function name".to_string())
@@ -1601,7 +1602,22 @@ impl TensorLogicParser {
                     Vec::new()
                 };
 
-                Ok(Statement::FunctionCall { name, args, resolved: None })
+                // Convert pest::Span to our Span type
+                let (start_line, start_col) = pest_span.start_pos().line_col();
+                let (end_line, end_col) = pest_span.end_pos().line_col();
+                let start = Position {
+                    line: start_line,
+                    column: start_col,
+                    offset: pest_span.start(),
+                };
+                let end = Position {
+                    line: end_line,
+                    column: end_col,
+                    offset: pest_span.end(),
+                };
+                let span = Span::new(start, end);
+
+                Ok(Statement::FunctionCall { name, args, resolved: None, span })
             }
             Rule::fact_assertion => {
                 Self::parse_fact_assertion(inner, registry)

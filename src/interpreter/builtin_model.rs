@@ -622,10 +622,19 @@ impl Interpreter {
         };
 
         if !condition {
-            let location = self.current_file
-                .as_ref()
-                .and_then(|p| p.to_str())
-                .unwrap_or("<unknown>");
+            let location = if let Some(ref span) = self.current_span {
+                let file = self.current_file
+                    .as_ref()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("<unknown>");
+                format!("{}:{}:{}", file, span.start.line, span.start.column)
+            } else {
+                self.current_file
+                    .as_ref()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("<unknown>")
+                    .to_string()
+            };
             panic!("Assertion failed!\n  at {}", location);
         }
 
@@ -670,10 +679,19 @@ impl Interpreter {
         };
 
         if !are_equal {
-            let location = self.current_file
-                .as_ref()
-                .and_then(|p| p.to_str())
-                .unwrap_or("<unknown>");
+            let location = if let Some(ref span) = self.current_span {
+                let file = self.current_file
+                    .as_ref()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("<unknown>");
+                format!("{}:{}:{}", file, span.start.line, span.start.column)
+            } else {
+                self.current_file
+                    .as_ref()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("<unknown>")
+                    .to_string()
+            };
             panic!("Assertion failed: {:?} != {:?}\n  at {}",
                    self.value_to_display(&left_val),
                    self.value_to_display(&right_val),
@@ -745,10 +763,19 @@ impl Interpreter {
         };
 
         if !are_approx_equal {
-            let location = self.current_file
-                .as_ref()
-                .and_then(|p| p.to_str())
-                .unwrap_or("<unknown>");
+            let location = if let Some(ref span) = self.current_span {
+                let file = self.current_file
+                    .as_ref()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("<unknown>");
+                format!("{}:{}:{}", file, span.start.line, span.start.column)
+            } else {
+                self.current_file
+                    .as_ref()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("<unknown>")
+                    .to_string()
+            };
             panic!("Assertion failed: {:?} ≈ {:?} (within epsilon {})\n  at {}",
                    self.value_to_display(&left_val),
                    self.value_to_display(&right_val),

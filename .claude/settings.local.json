@@ -41,7 +41,9 @@
       "Bash(./target/release/tl test:*)",
       "Bash(find:*)",
       "Bash(git restore:*)",
-      "Bash(timeout 60 ./target/release/tl test:*)"
+      "Bash(timeout 60 ./target/release/tl test:*)",
+      "Bash(cat:*)",
+      "Bash(git rm:*)"
     ],
     "deny": [],
     "ask": []

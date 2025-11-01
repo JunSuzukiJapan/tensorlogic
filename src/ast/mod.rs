@@ -528,6 +528,8 @@ pub enum Statement {
         args: Vec<TensorExpr>,
         /// Resolved function reference (populated during semantic analysis)
         resolved: Option<ResolvedFunction>,
+        /// Source location of the function call
+        span: Span,
     },
     /// Fact assertion: <- pred(a, b)
     FactAssertion {

@@ -132,6 +132,8 @@ pub struct Interpreter {
     imported_files: HashSet<PathBuf>,
     // Current file being executed (for resolving relative imports)
     current_file: Option<PathBuf>,
+    // Current source location (for error reporting)
+    current_span: Option<Span>,
     // Track defined relation variables: predicate_name -> set of variable names
     relation_variables: HashMap<String, HashSet<String>>,
     // Track relation entity parameters: predicate_name -> (param_index -> entity_type_name)
@@ -158,6 +160,7 @@ impl Interpreter {
             python_env: None,
             imported_files: HashSet::new(),
             current_file: None,
+            current_span: None,
             relation_variables: HashMap::new(),
             relation_entity_params: HashMap::new(),
             functions: HashMap::new(),
@@ -792,7 +795,9 @@ impl Interpreter {
                 self.execute_statement(stmt)?;
                 Ok(None)
             }
-            Statement::FunctionCall { name, args, resolved } => {
+            Statement::FunctionCall { name, args, resolved, span } => {
+                // Save span for error reporting
+                self.current_span = Some(span.clone());
                 // Function call result can be implicitly returned
                 let value = self.eval_function_call(None, name, args, resolved.as_ref())?;
                 Ok(Some(value))
