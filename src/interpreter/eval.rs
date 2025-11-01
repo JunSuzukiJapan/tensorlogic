@@ -12,18 +12,27 @@ impl Interpreter {
     pub(super) fn execute_statement(&mut self, stmt: &Statement) -> RuntimeResult<()> {
         match stmt {
             Statement::TensorDecl(decl) => {
-                // Handle tensor declaration in main block
+                // Handle tensor declaration (same logic as Let statement)
                 if let Some(init_expr) = &decl.init_expr {
                     let value = self.eval_expr(init_expr)?;
-                    let _ = self.env
-                        .set_variable(decl.name.as_str().to_string(), value);
+
+                    // Check if we're inside a function call
+                    if let Some(frame) = self.call_stack.last_mut() {
+                        // Inside function: declare in local scope
+                        frame.local_vars.insert(decl.name.as_str().to_string(), value);
+                        Ok(())
+                    } else {
+                        // Global scope: declare in environment
+                        self.env
+                            .declare_variable(decl.name.as_str().to_string(), value)?;
+                        Ok(())
+                    }
                 } else {
                     // No initializer - create uninitialized tensor (would need default value)
                     return Err(RuntimeError::TypeError(
-                        "Tensor declarations in main block must have initializers".to_string(),
+                        "Tensor declarations must have initializers".to_string(),
                     ));
                 }
-                Ok(())
             }
             Statement::Let { target, value } => {
                 eprintln!("[DEBUG] Statement::Let: target={}", target.as_str());
@@ -1281,11 +1290,11 @@ impl Interpreter {
         let has_float_literal = self.has_float_literal(elements);
         eprintln!("[DEBUG] eval_array_literal: has_float_literal={}", has_float_literal);
 
-        // OPTIMIZATION: Keep small tensors on CPU to avoid GPU transfer overhead
-        // Shape tensors (typically < 10 elements) benefit significantly from this
-        const SMALL_TENSOR_THRESHOLD: usize = 256;  // ~1KB for f32
+        // Always use GPU when available for consistent behavior in tests/production
+        // Previous optimization kept small tensors (<256 elements) on CPU, but this
+        // caused issues with builtin functions that expect GPU tensors
         let numel = values.len();
-        let use_cpu = numel < SMALL_TENSOR_THRESHOLD;
+        let use_cpu = false;
 
         if has_float_literal {
             eprintln!("[DEBUG] eval_array_literal: Creating f32 tensor (numel={}, cpu={})...", numel, use_cpu);
@@ -2017,9 +2026,17 @@ impl Interpreter {
                     stride *= dims[i];
                 }
 
-                // FIXED: Transfer tensor to CPU and read directly (avoids GPU kernel hang)
-                let cpu_data = tensor.buffer().to_cpu_vec();
-                let value = cpu_data[linear_idx];
+                // OPTIMIZATION: Fast path for CPU tensors (no clone needed)
+                let value = if tensor.buffer().is_cpu() {
+                    // Direct access to CPU buffer (zero-copy)
+                    let cpu_vec = tensor.buffer().as_cpu()
+                        .map_err(|e| RuntimeError::InvalidOperation(e.to_string()))?;
+                    cpu_vec[linear_idx]
+                } else {
+                    // GPU tensor: transfer to CPU
+                    let cpu_data = tensor.buffer().to_cpu_vec();
+                    cpu_data[linear_idx]
+                };
 
                 // Return as a scalar float
                 Ok(Value::Float(value.to_f32() as f64))
@@ -2049,9 +2066,17 @@ impl Interpreter {
                     stride *= dims[i];
                 }
 
-                // FIXED: Transfer tensor to CPU and read directly (avoids GPU kernel hang)
-                let cpu_data = tensor.buffer().to_cpu_vec();
-                let value = cpu_data[linear_idx];
+                // OPTIMIZATION: Fast path for CPU tensors (no clone needed)
+                let value = if tensor.buffer().is_cpu() {
+                    // Direct access to CPU buffer (zero-copy)
+                    let cpu_vec = tensor.buffer().as_cpu()
+                        .map_err(|e| RuntimeError::InvalidOperation(e.to_string()))?;
+                    cpu_vec[linear_idx]
+                } else {
+                    // GPU tensor: transfer to CPU
+                    let cpu_data = tensor.buffer().to_cpu_vec();
+                    cpu_data[linear_idx]
+                };
 
                 // Return as a scalar float
                 Ok(Value::Float(value as f64))
