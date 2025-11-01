@@ -14,6 +14,9 @@ impl Interpreter {
             "get_tensor" => Some(self.eval_get_tensor(args)),
 
             "print" => Some(self.eval_print(args)),
+            "assert" => Some(self.eval_assert(args)),
+            "assert_eq" => Some(self.eval_assert_eq(args)),
+            "assert_about_eq" => Some(self.eval_assert_about_eq(args)),
             "load_tokenizer" => Some(self.eval_load_tokenizer(args)),
             // tokenize, detokenize, append_token are now type methods only
             // Use: tokenizer.tokenize() / tokenizer.detokenize() / tokens.append_token()
@@ -599,6 +602,147 @@ impl Interpreter {
 
         let substring = text.chars().skip(start).take(length).collect::<String>();
         Ok(Value::String(substring))
+    }
+
+    /// assert(condition)
+    /// Panic if condition is false (like Rust's assert! macro)
+    fn eval_assert(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("assert() expects 1 argument (condition), got {}", args.len())
+            ));
+        }
+
+        let condition_val = self.eval_expr(&args[0])?;
+        let condition = match condition_val {
+            Value::Boolean(b) => b,
+            _ => return Err(RuntimeError::TypeError(
+                "assert() argument must be a boolean".to_string()
+            )),
+        };
+
+        if !condition {
+            panic!("Assertion failed!");
+        }
+
+        Ok(Value::Void)
+    }
+
+    /// assert_eq(left, right)
+    /// Panic if values are not equal (like Rust's assert_eq! macro)
+    fn eval_assert_eq(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("assert_eq() expects 2 arguments (left, right), got {}", args.len())
+            ));
+        }
+
+        let left_val = self.eval_expr(&args[0])?;
+        let right_val = self.eval_expr(&args[1])?;
+
+        // Compare values based on type
+        let are_equal = match (&left_val, &right_val) {
+            (Value::Integer(a), Value::Integer(b)) => a == b,
+            (Value::Float(a), Value::Float(b)) => a == b,
+            (Value::Boolean(a), Value::Boolean(b)) => a == b,
+            (Value::String(a), Value::String(b)) => a == b,
+            (Value::TensorF16(a), Value::TensorF16(b)) => {
+                // Compare tensors by shape and values
+                a.dims() == b.dims() && {
+                    let a_data = a.sync_and_read_f32();
+                    let b_data = b.sync_and_read_f32();
+                    a_data == b_data
+                }
+            }
+            (Value::TensorF32(a), Value::TensorF32(b)) => {
+                // Compare tensors by shape and values
+                a.dims() == b.dims() && {
+                    let a_data = a.sync_and_read_f32();
+                    let b_data = b.sync_and_read_f32();
+                    a_data == b_data
+                }
+            }
+            _ => false, // Different types are not equal
+        };
+
+        if !are_equal {
+            panic!("Assertion failed: {:?} != {:?}",
+                   self.value_to_display(&left_val),
+                   self.value_to_display(&right_val));
+        }
+
+        Ok(Value::Void)
+    }
+
+    /// assert_about_eq(left, right, epsilon)
+    /// Panic if values are not approximately equal within epsilon (uses ≈ comparison)
+    fn eval_assert_about_eq(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 3 {
+            return Err(RuntimeError::TypeError(
+                format!("assert_about_eq() expects 3 arguments (left, right, epsilon), got {}", args.len())
+            ));
+        }
+
+        let left_val = self.eval_expr(&args[0])?;
+        let right_val = self.eval_expr(&args[1])?;
+        let epsilon_val = self.eval_expr(&args[2])?;
+
+        let epsilon = match epsilon_val {
+            Value::Float(e) => e,
+            Value::Integer(e) => e as f64,
+            _ => return Err(RuntimeError::TypeError(
+                "assert_about_eq() third argument (epsilon) must be a number".to_string()
+            )),
+        };
+
+        // Compare values based on type with epsilon tolerance
+        let are_approx_equal = match (&left_val, &right_val) {
+            (Value::Integer(a), Value::Integer(b)) => {
+                (*a as f64 - *b as f64).abs() < epsilon
+            }
+            (Value::Float(a), Value::Float(b)) => {
+                (a - b).abs() < epsilon
+            }
+            (Value::Integer(a), Value::Float(b)) | (Value::Float(b), Value::Integer(a)) => {
+                (*a as f64 - b).abs() < epsilon
+            }
+            (Value::TensorF16(a), Value::TensorF16(b)) => {
+                if a.dims() != b.dims() {
+                    false
+                } else {
+                    let a_data = a.sync_and_read_f32();
+                    let b_data = b.sync_and_read_f32();
+                    a_data.iter().zip(b_data.iter()).all(|(av, bv)| {
+                        (av - bv).abs() < epsilon as f32
+                    })
+                }
+            }
+            (Value::TensorF32(a), Value::TensorF32(b)) => {
+                if a.dims() != b.dims() {
+                    false
+                } else {
+                    let a_data = a.sync_and_read_f32();
+                    let b_data = b.sync_and_read_f32();
+                    a_data.iter().zip(b_data.iter()).all(|(av, bv)| {
+                        (av - bv).abs() < epsilon as f32
+                    })
+                }
+            }
+            _ => return Err(RuntimeError::TypeError(
+                format!("assert_about_eq() cannot compare {} and {}",
+                        std::any::type_name_of_val(&left_val),
+                        std::any::type_name_of_val(&right_val))
+            )),
+        };
+
+        if !are_approx_equal {
+            panic!("Assertion failed: {:?} ≈ {:?} (within epsilon {})",
+                   self.value_to_display(&left_val),
+                   self.value_to_display(&right_val),
+                   epsilon);
+        }
+
+        Ok(Value::Void)
     }
 }
 
