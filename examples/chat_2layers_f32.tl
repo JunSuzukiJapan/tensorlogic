@@ -191,44 +191,44 @@ main {
     for i in range(50) {
         if continue_generation {
             // Sample token
-            token_id = temperature_sample(current_logits, temperature)
+            token_id := temperature_sample(current_logits, temperature)
 
             // Buffered decoding: append token and decode all
-            generated_tokens = generated_tokens.append_token(token_id)
+            generated_tokens := generated_tokens.append_token(token_id)
             let full_text = tokenizer.detokenize(generated_tokens, false)
             let new_text = string_substring(full_text, previous_text_length, string_length(full_text))
             print(new_text, "")
-            previous_text_length = string_length(full_text)
+            previous_text_length := string_length(full_text)
 
-            token_count = token_count + 1
+            token_count := token_count + 1
 
             // Check for EOS
             if token_id == EOS_TOKEN {
-                continue_generation = false
+                continue_generation := false
                 print(" <EOS>")
             }
 
             // Update KV caches
-            token_ids_single = int_to_tokenids(token_id)
-            new_token_emb = embedding(tok_embd, token_ids_single)
-            new_K0 = linear(new_token_emb, layer_0_k)
-            new_V0 = linear(new_token_emb, layer_0_v)
-            new_K1 = linear(new_token_emb, layer_1_k)
-            new_V1 = linear(new_token_emb, layer_1_v)
+            token_ids_single := int_to_tokenids(token_id)
+            new_token_emb := embedding(tok_embd, token_ids_single)
+            new_K0 := linear(new_token_emb, layer_0_k)
+            new_V0 := linear(new_token_emb, layer_0_v)
+            new_K1 := linear(new_token_emb, layer_1_k)
+            new_V1 := linear(new_token_emb, layer_1_v)
 
-            KV0_cache = concat(KV0_cache, new_K0, 0.0)
-            KV0_V_cache = concat(KV0_V_cache, new_V0, 0.0)
-            KV1_cache = concat(KV1_cache, new_K1, 0.0)
-            KV1_V_cache = concat(KV1_V_cache, new_V1, 0.0)
+            KV0_cache := concat(KV0_cache, new_K0, 0.0)
+            KV0_V_cache := concat(KV0_V_cache, new_V0, 0.0)
+            KV1_cache := concat(KV1_cache, new_K1, 0.0)
+            KV1_V_cache := concat(KV1_V_cache, new_V1, 0.0)
 
             // Run transformer
-            h0_new = transformer_layer(new_token_emb, layer_0_attn_norm, layer_0_q, layer_0_k, layer_0_v, layer_0_o,
+            h0_new := transformer_layer(new_token_emb, layer_0_attn_norm, layer_0_q, layer_0_k, layer_0_v, layer_0_o,
                                         layer_0_ffn_norm, layer_0_gate, layer_0_up, layer_0_down, KV0_cache, KV0_V_cache)
-            h1_new = transformer_layer(h0_new, layer_1_attn_norm, layer_1_q, layer_1_k, layer_1_v, layer_1_o,
+            h1_new := transformer_layer(h0_new, layer_1_attn_norm, layer_1_q, layer_1_k, layer_1_v, layer_1_o,
                                         layer_1_ffn_norm, layer_1_gate, layer_1_up, layer_1_down, KV1_cache, KV1_V_cache)
 
-            norm_new = rms_norm(h1_new, output_norm)
-            current_logits = linear(norm_new, output)
+            norm_new := rms_norm(h1_new, output_norm)
+            current_logits := linear(norm_new, output)
         }
     }
 
