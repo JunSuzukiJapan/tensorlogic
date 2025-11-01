@@ -374,7 +374,7 @@ if_statement = {
     ~ ("else" ~ "{" ~ statement* ~ "}")?
 }
 
-condition = { constraint | tensor_expr }
+condition = { tensor_expr | constraint }
 
 for_statement = {
     "for" ~ identifier ~ "in" ~ iterable ~ "{" ~ statement* ~ "}"

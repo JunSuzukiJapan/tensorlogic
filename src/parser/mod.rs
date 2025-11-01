@@ -1894,42 +1894,49 @@ impl TensorLogicParser {
     }
 
     fn parse_if_statement(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<ControlFlow, ParseError> {
-        // Get the input string before consuming pair
+        // Get the input string and position before consuming pair
         let input_str = pair.as_str();
+        let if_start_pos = pair.as_span().start();
         let has_else = input_str.contains("} else {");
-        
+
         let mut inner = pair.into_inner();
-        
+
         // Parse condition (always first)
         let condition_pair = inner.next().ok_or_else(|| {
             ParseError::MissingField("if condition".to_string())
         })?;
         let condition = Self::parse_condition(condition_pair, registry)?;
-        
+
+        // Find the absolute position of "} else {" to determine then/else boundary
+        let else_pos = input_str.find("} else {").map(|p| if_start_pos + p + 1); // +1 for the closing }
+
         // Collect all statement pairs
         let remaining: Vec<_> = inner
             .filter(|p| p.as_rule() == Rule::statement)
             .collect();
-        
+
         let mut then_block = Vec::new();
         let mut else_block = None;
-        
+
         if has_else {
-            // Count statements in then block by counting := before "} else {"
-            let before_else = input_str.split("} else {").next().unwrap();
-            let then_stmt_count = before_else.matches(":=").count();
-            
-            // Parse then block
-            for i in 0..then_stmt_count.min(remaining.len()) {
-                then_block.push(Self::parse_statement(remaining[i].clone(), registry)?);
+            // Split statements by position: before else_pos goes to then block, after goes to else block
+            let boundary_pos = else_pos.unwrap();
+
+            // Parse then block (statements before the else)
+            for stmt_pair in remaining.iter() {
+                if stmt_pair.as_span().start() < boundary_pos {
+                    then_block.push(Self::parse_statement(stmt_pair.clone(), registry)?);
+                }
             }
 
-            // Parse else block
+            // Parse else block (statements after the else)
             let mut else_stmts = Vec::new();
-            for i in then_stmt_count..remaining.len() {
-                else_stmts.push(Self::parse_statement(remaining[i].clone(), registry)?);
+            for stmt_pair in remaining.iter() {
+                if stmt_pair.as_span().start() > boundary_pos {
+                    else_stmts.push(Self::parse_statement(stmt_pair.clone(), registry)?);
+                }
             }
-            
+
             if !else_stmts.is_empty() {
                 else_block = Some(else_stmts);
             }
