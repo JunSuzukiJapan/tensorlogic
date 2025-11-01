@@ -961,8 +961,12 @@ impl Interpreter {
 
         // Step 4: Weighted sum: attn_weights @ V (use expanded V for GQA)
         // attn_weights: [seq_len, cache_len], V: [cache_len, n_embd] -> [seq_len, n_embd]
+        // CRITICAL: Make V contiguous before matmul for performance
+        // Following candle: "matmul doesn't support strided vs for now"
         let attn_v_start = Instant::now();
-        let attn_out = attn_weights.matmul(&v_expanded).map_err(|e| RuntimeError::TensorError(e))?;
+        use crate::tensor::TensorTransform;
+        let v_contiguous = v_expanded.contiguous().map_err(|e| RuntimeError::TensorError(e))?;
+        let attn_out = attn_weights.matmul(&v_contiguous).map_err(|e| RuntimeError::TensorError(e))?;
         eprintln!("[TIMING]   attention_f32: attn@V: {:.3}ms", attn_v_start.elapsed().as_secs_f64() * 1000.0);
 
         // Step 5: Output projection: attn_out @ W_o.T (like linear layer)
@@ -1121,7 +1125,11 @@ impl Interpreter {
 
         // Step 4: Weighted sum: attn_weights @ V (use expanded V for GQA)
         // attn_weights: [seq_len, cache_len], V: [cache_len, n_embd] -> [seq_len, n_embd]
-        let attn_out = attn_weights.matmul(&v_expanded).map_err(|e| RuntimeError::TensorError(e))?;
+        // CRITICAL: Make V contiguous before matmul for performance
+        // Following candle: "matmul doesn't support strided vs for now"
+        use crate::tensor::TensorTransform;
+        let v_contiguous = v_expanded.contiguous().map_err(|e| RuntimeError::TensorError(e))?;
+        let attn_out = attn_weights.matmul(&v_contiguous).map_err(|e| RuntimeError::TensorError(e))?;
 
         // Step 5: Output projection: attn_out @ W_o.T (like linear layer)
         // Use fused transpose-matmul for better performance (2.89x faster than separate transpose + matmul)
