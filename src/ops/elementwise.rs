@@ -400,14 +400,8 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn exp_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "exp_f16")
+        let kernel_name = format!("exp{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     fn exp_cpu(&self) -> TensorResult<Self> {
@@ -431,14 +425,8 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn log_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "log_f16")
+        let kernel_name = format!("log{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     fn log_cpu(&self) -> TensorResult<Self> {
@@ -462,14 +450,8 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sqrt_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "sqrt_f16")
+        let kernel_name = format!("sqrt{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     fn sqrt_cpu(&self) -> TensorResult<Self> {
@@ -493,19 +475,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn pow_metal(&self, exponent: f32) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
         let device = match self.device() {
             Device::Metal(dev) => dev,
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
         let exp_tensor = Tensor::<T>::from_vec_gpu(device, vec![T::from_f32(exponent)], vec![1])?;
-        super::helpers::execute_binary_metal_op(self, &exp_tensor, "pow_f16")
+        let kernel_name = format!("pow{}", T::kernel_suffix());
+        super::helpers::execute_binary_metal_op(self, &exp_tensor, &kernel_name)
     }
 
     fn pow_cpu(&self, exponent: f32) -> TensorResult<Self> {
@@ -529,14 +505,8 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sin_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "sin_f16")
+        let kernel_name = format!("sin{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     fn sin_cpu(&self) -> TensorResult<Self> {
@@ -560,14 +530,8 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn cos_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "cos_f16")
+        let kernel_name = format!("cos{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     fn cos_cpu(&self) -> TensorResult<Self> {
@@ -591,14 +555,8 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn tan_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "tan_f16")
+        let kernel_name = format!("tan{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     fn tan_cpu(&self) -> TensorResult<Self> {

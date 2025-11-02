@@ -53,14 +53,8 @@ impl<T: FloatType> Tensor<T> {
 
     /// Metal GPU implementation of ReLU
     fn relu_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "relu_f16")
+        let kernel_name = format!("relu{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     /// CPU fallback for ReLU
@@ -89,14 +83,8 @@ impl<T: FloatType> Tensor<T> {
 
     /// Metal GPU implementation of GELU
     fn gelu_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "gelu_f16")
+        let kernel_name = format!("gelu{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     /// CPU fallback for GELU
@@ -257,14 +245,8 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sigmoid_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "sigmoid_f16")
+        let kernel_name = format!("sigmoid{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     fn sigmoid_cpu(&self) -> TensorResult<Self> {
@@ -293,14 +275,8 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn tanh_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if false {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "tanh_f16")
+        let kernel_name = format!("tanh{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     fn tanh_cpu(&self) -> TensorResult<Self> {
