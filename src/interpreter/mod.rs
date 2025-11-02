@@ -802,6 +802,11 @@ impl Interpreter {
                 let value = self.eval_function_call(None, name, args, resolved.as_ref())?;
                 Ok(Some(value))
             }
+            Statement::Expr { expr } => {
+                // Expression statement: evaluate and discard result (for side effects like method calls)
+                self.eval_expr(expr)?;
+                Ok(None)
+            }
             // All other statement types: execute and return None
             _ => {
                 self.execute_statement(stmt)?;

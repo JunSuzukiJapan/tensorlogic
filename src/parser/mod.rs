@@ -1646,6 +1646,11 @@ impl TensorLogicParser {
                     statements: statements?,
                 })
             }
+            Rule::tensor_expr => {
+                // Parse expression as an expression statement (for method calls like cache.set(...))
+                let expr = Self::parse_tensor_expr(inner, registry)?;
+                Ok(Statement::Expr { expr })
+            }
             _ => Err(ParseError::UnexpectedRule {
                 expected: "statement type".to_string(),
                 found: format!("{:?}", inner.as_rule()),

@@ -388,6 +388,10 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
             }
             Ok(())
         }
+        Statement::Expr { expr } => {
+            // Visit expression statement
+            visitor.visit_tensor_expr(expr)
+        }
     }
 }
 

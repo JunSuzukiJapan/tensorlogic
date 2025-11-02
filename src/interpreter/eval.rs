@@ -630,6 +630,11 @@ impl Interpreter {
                 println!("=== With block completed ===\n");
                 Ok(())
             }
+            Statement::Expr { expr } => {
+                // Execute expression statement (for side effects like method calls)
+                self.eval_expr(expr)?;
+                Ok(())
+            }
         }
     }
 

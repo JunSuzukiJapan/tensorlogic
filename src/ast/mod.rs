@@ -578,6 +578,10 @@ pub enum Statement {
         module: String,
         alias: Option<String>,
     },
+    /// Expression statement (e.g., method calls like cache.set(...))
+    Expr {
+        expr: TensorExpr,
+    },
 }
 
 /// Inference methods
