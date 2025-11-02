@@ -48,7 +48,7 @@ where
         let grad_b_positive = grad_output_mul_a.div(&b_squared)?;
 
         // 符号を反転 - ジェネリックで処理
-        let grad_b_data = grad_b_positive.to_vec();
+        let grad_b_data = grad_b_positive.sync_and_read();
         let neg_grad_b_data: Vec<T> = grad_b_data.iter().map(|&x| T::zero() - x).collect();
         let grad_b = Tensor::<T>::from_vec(neg_grad_b_data, grad_b_positive.dims().to_vec())?;
 
@@ -104,7 +104,7 @@ mod tests {
 
         // grad_a = grad_output / b = [1.0, 1.0] / [2.0, 3.0] = [0.5, 0.333...]
         let grad_a_expected = vec![half::f16::from_f32(0.5), half::f16::from_f32(1.0 / 3.0)];
-        let grad_a_actual = grads[0].to_vec();
+        let grad_a_actual = grads[0].sync_and_read();
         for (actual, expected) in grad_a_actual.iter().zip(grad_a_expected.iter()) {
             assert!((actual.to_f32() - expected.to_f32()).abs() < 0.01);
         }
@@ -112,7 +112,7 @@ mod tests {
         // grad_b = -grad_output * a / b² = -[1.0, 1.0] * [4.0, 6.0] / [4.0, 9.0]
         //        = -[4.0/4.0, 6.0/9.0] = -[1.0, 0.666...] = [-1.0, -0.666...]
         let grad_b_expected = vec![half::f16::from_f32(-1.0), half::f16::from_f32(-6.0 / 9.0)];
-        let grad_b_actual = grads[1].to_vec();
+        let grad_b_actual = grads[1].sync_and_read();
         for (actual, expected) in grad_b_actual.iter().zip(grad_b_expected.iter()) {
             assert!((actual.to_f32() - expected.to_f32()).abs() < 0.01);
         }

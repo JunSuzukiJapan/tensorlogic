@@ -24,7 +24,7 @@ fn numerical_gradient(
     x: &Tensor,
     eps: f32,
 ) -> Tensor {
-    let x_data = x.to_vec();
+    let x_data = x.sync_and_read();
     let mut grad_data = vec![half::f16::ZERO; x.numel()];
 
     for i in 0..x.numel() {
@@ -35,7 +35,7 @@ fn numerical_gradient(
             Device::Metal(dev) => Tensor::from_vec_gpu(dev, x_plus, x.dims().to_vec()).unwrap(),
             _ => Tensor::from_vec(x_plus, x.dims().to_vec()).unwrap(),
         };
-        let f_plus = f(&x_plus_tensor).to_vec()[0].to_f32();
+        let f_plus = f(&x_plus_tensor).sync_and_read()[0].to_f32();
 
         // f(x - eps)
         let mut x_minus = x_data.clone();
@@ -44,7 +44,7 @@ fn numerical_gradient(
             Device::Metal(dev) => Tensor::from_vec_gpu(dev, x_minus, x.dims().to_vec()).unwrap(),
             _ => Tensor::from_vec(x_minus, x.dims().to_vec()).unwrap(),
         };
-        let f_minus = f(&x_minus_tensor).to_vec()[0].to_f32();
+        let f_minus = f(&x_minus_tensor).sync_and_read()[0].to_f32();
 
         // Numerical gradient: (f(x+eps) - f(x-eps)) / (2*eps)
         grad_data[i] = half::f16::from_f32((f_plus - f_minus) / (2.0 * eps));
@@ -82,7 +82,7 @@ fn test_exp_backward() {
 
     // exp'(x) = exp(x), so gradient should be exp(1) and exp(2)
     // Note: half::f16 precision loss means we need looser tolerances
-    let grad_values = grad_input[0].to_vec();
+    let grad_values = grad_input[0].sync_and_read();
     assert!((grad_values[0].to_f32() - 1.0_f32.exp()).abs() < 0.01, "Expected {}, got {}", 1.0_f32.exp(), grad_values[0].to_f32());
     assert!((grad_values[1].to_f32() - 2.0_f32.exp()).abs() < 0.01, "Expected {}, got {}", 2.0_f32.exp(), grad_values[1].to_f32());
 }
@@ -108,7 +108,7 @@ fn test_log_backward() {
     let grad_input = backward.backward(&grad_output, &[]).unwrap();
 
     // log'(x) = 1/x, so gradient should be 1/2 and 1/4
-    let grad_values = grad_input[0].to_vec();
+    let grad_values = grad_input[0].sync_and_read();
     assert!((grad_values[0].to_f32() - 0.5).abs() < 0.01);
     assert!((grad_values[1].to_f32() - 0.25).abs() < 0.01);
 }
@@ -138,7 +138,7 @@ fn test_sqrt_backward() {
         let grad_input = backward.backward(&grad_output, &[]).unwrap();
 
         // sqrt'(x) = 1/(2*sqrt(x)), so gradient should be 1/4 and 1/6
-        let grad_values = grad_input[0].to_vec();
+        let grad_values = grad_input[0].sync_and_read();
         assert!((grad_values[0].to_f32() - 0.25).abs() < 0.01);
         assert!((grad_values[1].to_f32() - 1.0 / 6.0).abs() < 0.01);
     }
@@ -166,7 +166,7 @@ fn test_pow_backward() {
     let grad_input = backward.backward(&grad_output, &[]).unwrap();
 
     // (x^3)' = 3*x^2, so gradient should be 3*4=12 and 3*9=27
-    let grad_values = grad_input[0].to_vec();
+    let grad_values = grad_input[0].sync_and_read();
     assert!((grad_values[0].to_f32() - 12.0).abs() < 0.1, "Expected 12.0, got {}", grad_values[0].to_f32());
     assert!((grad_values[1].to_f32() - 27.0).abs() < 0.1, "Expected 27.0, got {}", grad_values[1].to_f32());
 }
@@ -192,7 +192,7 @@ fn test_sin_backward() {
     let grad_input = backward.backward(&grad_output, &[]).unwrap();
 
     // sin'(x) = cos(x), so gradient should be cos(0)=1 and cos(π/2)=0
-    let grad_values = grad_input[0].to_vec();
+    let grad_values = grad_input[0].sync_and_read();
     assert!((grad_values[0].to_f32() - 1.0).abs() < 0.01);
     assert!(grad_values[1].to_f32().abs() < 0.01);
 }
@@ -218,7 +218,7 @@ fn test_cos_backward() {
     let grad_input = backward.backward(&grad_output, &[]).unwrap();
 
     // cos'(x) = -sin(x), so gradient should be -sin(0)=0 and -sin(π)=0
-    let grad_values = grad_input[0].to_vec();
+    let grad_values = grad_input[0].sync_and_read();
     assert!(grad_values[0].to_f32().abs() < 0.01);
     assert!(grad_values[1].to_f32().abs() < 0.01);
 }
@@ -246,7 +246,7 @@ fn test_sigmoid_backward() {
     let grad_input = backward.backward(&grad_output, &[]).unwrap();
 
     // sigmoid'(0) = sigmoid(0) * (1 - sigmoid(0)) = 0.5 * 0.5 = 0.25
-    let grad_values = grad_input[0].to_vec();
+    let grad_values = grad_input[0].sync_and_read();
     assert!((grad_values[0].to_f32() - 0.25).abs() < 0.01);
 }
 
@@ -275,7 +275,7 @@ fn test_tanh_backward() {
         let grad_input = backward.backward(&grad_output, &[]).unwrap();
 
         // tanh'(0) = 1 - tanh²(0) = 1 - 0 = 1
-        let grad_values = grad_input[0].to_vec();
+        let grad_values = grad_input[0].sync_and_read();
         assert!((grad_values[0].to_f32() - 1.0).abs() < 0.01);
     }
 }
@@ -302,7 +302,7 @@ fn test_transpose_backward() {
 
     // Transpose is self-inverse, so gradient should be transposed back
     assert_eq!(grad_input[0].dims(), &[2, 2]);
-    let values = grad_input[0].to_vec();
+    let values = grad_input[0].sync_and_read();
     // Original: [[1,2],[3,4]] -> Transposed: [[1,3],[2,4]]
     assert_eq!(values[0].to_f32(), 1.0);
     assert_eq!(values[1].to_f32(), 3.0);

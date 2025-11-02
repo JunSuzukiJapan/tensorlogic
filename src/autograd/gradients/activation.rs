@@ -37,8 +37,8 @@ impl SigmoidBackward {
     }
 
     fn backward_cpu(&self, grad_output: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
-        let grad_out = grad_output.to_vec();
-        let output = self.output.to_vec();
+        let grad_out = grad_output.sync_and_read();
+        let output = self.output.sync_and_read();
 
         let grad_input: Vec<_> = grad_out
             .iter()
@@ -91,8 +91,8 @@ impl TanhBackward {
     }
 
     fn backward_cpu(&self, grad_output: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
-        let grad_out = grad_output.to_vec();
-        let output = self.output.to_vec();
+        let grad_out = grad_output.sync_and_read();
+        let output = self.output.sync_and_read();
 
         let grad_input: Vec<_> = grad_out
             .iter()

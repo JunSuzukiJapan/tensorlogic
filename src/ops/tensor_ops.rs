@@ -183,7 +183,7 @@ impl<T: FloatType> Tensor<T> {
         // Concatenate along the specified dimension
         for chunk_idx in 0..num_chunks {
             for tensor in tensors {
-                let data = tensor.to_vec();
+                let data = tensor.sync_and_read();
                 let tensor_dim_size = tensor.dims()[dim];
 
                 for i in 0..tensor_dim_size {
@@ -339,7 +339,7 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let input_data_t = self.to_vec();
+        let input_data_t = self.sync_and_read();
         let input_data: Vec<f16> = unsafe { std::mem::transmute(input_data_t) };
         let input_shape = self.dims();
 
@@ -541,7 +541,7 @@ impl<T: FloatType> Tensor<T> {
         let num_splits = (dim_size + split_size - 1) / split_size;
 
         let mut result = Vec::with_capacity(num_splits);
-        let data = self.to_vec();
+        let data = self.sync_and_read();
 
         // Calculate strides for indexing
         let mut strides = vec![1; dims.len()];
@@ -632,7 +632,7 @@ mod tests {
         let c = Tensor::<f16>::concat(&[&a, &b], 0).unwrap();
 
         assert_eq!(c.dims(), &[2, 3]);
-        let result = c.to_vec();
+        let result = c.sync_and_read();
         assert_eq!(result[0], f16::from_f32(1.0));
         assert_eq!(result[1], f16::from_f32(2.0));
         assert_eq!(result[2], f16::from_f32(3.0));
@@ -662,7 +662,7 @@ mod tests {
         let c = Tensor::<f16>::concat(&[&a, &b], 1).unwrap();
 
         assert_eq!(c.dims(), &[2, 2]);
-        let result = c.to_vec();
+        let result = c.sync_and_read();
         assert_eq!(result[0], f16::from_f32(1.0));
         assert_eq!(result[1], f16::from_f32(3.0));
         assert_eq!(result[2], f16::from_f32(2.0));
@@ -680,7 +680,7 @@ mod tests {
         let d = Tensor::<f16>::concat(&[&a, &b, &c], 0).unwrap();
 
         assert_eq!(d.dims(), &[3, 1]);
-        let result = d.to_vec();
+        let result = d.sync_and_read();
         assert_eq!(result[0], f16::from_f32(1.0));
         assert_eq!(result[1], f16::from_f32(2.0));
         assert_eq!(result[2], f16::from_f32(3.0));
@@ -703,7 +703,7 @@ mod tests {
         let b = a.transpose().unwrap();
 
         assert_eq!(b.dims(), &[3, 2]);
-        let result = b.to_vec();
+        let result = b.sync_and_read();
 
         // Original: [[1,2,3], [4,5,6]]
         // Transposed: [[1,4], [2,5], [3,6]]
@@ -744,7 +744,7 @@ mod tests {
         let b = a.permute(vec![0, 1]).unwrap();
 
         assert_eq!(b.dims(), &[2, 2]);
-        assert_eq!(a.to_vec(), b.to_vec());
+        assert_eq!(a.sync_and_read(), b.sync_and_read());
     }
 
     #[test]
@@ -761,7 +761,7 @@ mod tests {
 
         let b = a.unsqueeze(0).unwrap();
         assert_eq!(b.dims(), &[1, 3]);
-        assert_eq!(a.to_vec(), b.to_vec());
+        assert_eq!(a.sync_and_read(), b.sync_and_read());
 
         let c = a.unsqueeze(1).unwrap();
         assert_eq!(c.dims(), &[3, 1]);
@@ -781,7 +781,7 @@ mod tests {
 
         let b = a.squeeze(None).unwrap();
         assert_eq!(b.dims(), &[3]);
-        assert_eq!(a.to_vec(), b.to_vec());
+        assert_eq!(a.sync_and_read(), b.sync_and_read());
 
         // Test squeeze specific dimension
         let c = a.squeeze(Some(0)).unwrap();

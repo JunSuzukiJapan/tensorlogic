@@ -380,7 +380,12 @@ impl Interpreter {
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
 
-        // Commands manager will flush and commit when needed
+        // CRITICAL: Flush pending operations before wait to prevent deadlock
+        device.flush_if_needed()
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::MetalError(format!("Failed to flush: {}", e))
+            ))?;
+
         // Since we need the result immediately, wait for completion
         device.wait_until_completed()
             .map_err(|e| RuntimeError::TensorError(
@@ -485,7 +490,12 @@ impl Interpreter {
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
 
-        // Commands manager will flush and commit when needed
+        // CRITICAL: Flush pending operations before wait to prevent deadlock
+        device.flush_if_needed()
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::MetalError(format!("Failed to flush: {}", e))
+            ))?;
+
         // Since we need the result immediately, wait for completion
         device.wait_until_completed()
             .map_err(|e| RuntimeError::TensorError(

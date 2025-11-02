@@ -68,7 +68,7 @@ mod tests {
         let result = reduce_grad_for_broadcast(&grad, &original_shape).unwrap();
 
         assert_eq!(result.dims(), &[2, 2]);
-        assert_eq!(result.to_vec(), grad.to_vec());
+        assert_eq!(result.sync_and_read(), grad.sync_and_read());
     }
 
     #[test]
@@ -92,6 +92,6 @@ mod tests {
 
         assert_eq!(result.dims(), &[1]);
         // sum = 1 + 2 + 3 + 4 = 10
-        assert_eq!(result.to_vec()[0], half::f16::from_f32(10.0));
+        assert_eq!(result.sync_and_read()[0], half::f16::from_f32(10.0));
     }
 }

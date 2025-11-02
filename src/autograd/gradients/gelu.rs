@@ -90,8 +90,8 @@ impl<T: FloatType> GELUBackward<T> {
 
     /// CPU fallback for GELU backward
     fn backward_cpu(&self, grad_output: &Tensor<T>) -> TensorResult<Tensor<T>> {
-        let grad_output_data = grad_output.to_vec();
-        let input_data = self.input.to_vec();
+        let grad_output_data = grad_output.sync_and_read();
+        let input_data = self.input.sync_and_read();
 
         let sqrt_2_over_pi_f32 = (2.0_f32 / std::f32::consts::PI).sqrt();
 
@@ -156,7 +156,7 @@ mod tests {
         assert_eq!(grads[0].dims(), &[2]);
 
         // 勾配が計算されていることを確認（具体的な値は数値微分で検証が望ましい）
-        let grad_values = grads[0].to_vec();
+        let grad_values = grads[0].sync_and_read();
         assert!(grad_values[0].to_f32() > 0.0); // x=0での勾配は正
         assert!(grad_values[1].to_f32() > 0.0); // x=1での勾配は正
     }

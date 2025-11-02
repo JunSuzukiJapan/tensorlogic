@@ -96,8 +96,8 @@ impl<T: FloatType> Tensor<T> {
     /// CPU fallback for apply_attention_mask
     fn apply_attention_mask_cpu(&self, mask: &Tensor<T>) -> TensorResult<Self> {
         // For CPU, we need to implement the logic
-        let self_data = self.to_vec();
-        let mask_data = mask.to_vec();
+        let self_data = self.sync_and_read();
+        let mask_data = mask.sync_and_read();
 
         let result_data: Vec<T> = self_data
             .iter()

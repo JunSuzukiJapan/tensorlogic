@@ -127,8 +127,8 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let a = self.to_vec();
-        let b = other.to_vec();
+        let a = self.sync_and_read();
+        let b = other.sync_and_read();
 
         // Safety: We checked T::is_f16() above
         let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
@@ -209,8 +209,8 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let a = self.to_vec();
-        let b = other.to_vec();
+        let a = self.sync_and_read();
+        let b = other.sync_and_read();
 
         // Safety: We checked T::is_f16() above
         let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
@@ -292,8 +292,8 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let a = self.to_vec();
-        let b = other.to_vec();
+        let a = self.sync_and_read();
+        let b = other.sync_and_read();
 
         // Safety: We checked T::is_f16() above
         let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
@@ -375,8 +375,8 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let a = self.to_vec();
-        let b = other.to_vec();
+        let a = self.sync_and_read();
+        let b = other.sync_and_read();
 
         // Safety: We checked T::is_f16() above
         let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
@@ -666,7 +666,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn add_scalar_cpu(&self, scalar: T) -> TensorResult<Self> {
-        let data = self.to_vec();
+        let data = self.sync_and_read();
         let result: Vec<T> = data.iter().map(|&x| x + scalar).collect();
 
         match self.device() {
@@ -729,7 +729,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sub_scalar_cpu(&self, scalar: T) -> TensorResult<Self> {
-        let data = self.to_vec();
+        let data = self.sync_and_read();
         let result: Vec<T> = data.iter().map(|&x| x - scalar).collect();
 
         match self.device() {
@@ -802,7 +802,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn mul_scalar_cpu(&self, scalar: T) -> TensorResult<Self> {
-        let data = self.to_vec();
+        let data = self.sync_and_read();
         let result: Vec<T> = data.iter().map(|&x| x * scalar).collect();
 
         match self.device() {
@@ -865,7 +865,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn div_scalar_cpu(&self, scalar: T) -> TensorResult<Self> {
-        let data = self.to_vec();
+        let data = self.sync_and_read();
         let result: Vec<T> = data.iter().map(|&x| x / scalar).collect();
 
         match self.device() {
@@ -905,7 +905,7 @@ mod tests {
         let c = a.add(&b).unwrap();
 
         let expected = vec![f16::from_f32(5.0), f16::from_f32(7.0), f16::from_f32(9.0)];
-        assert_eq!(c.to_vec(), expected);
+        assert_eq!(c.sync_and_read(), expected);
     }
 
     #[test]
@@ -929,7 +929,7 @@ mod tests {
         let c = a.sub(&b).unwrap();
 
         let expected = vec![f16::from_f32(4.0), f16::from_f32(5.0), f16::from_f32(6.0)];
-        assert_eq!(c.to_vec(), expected);
+        assert_eq!(c.sync_and_read(), expected);
     }
 
     #[test]
@@ -953,7 +953,7 @@ mod tests {
         let c = a.mul(&b).unwrap();
 
         let expected = vec![f16::from_f32(10.0), f16::from_f32(18.0), f16::from_f32(28.0)];
-        assert_eq!(c.to_vec(), expected);
+        assert_eq!(c.sync_and_read(), expected);
     }
 
     #[test]
@@ -977,7 +977,7 @@ mod tests {
         let c = a.div(&b).unwrap();
 
         let expected = vec![f16::from_f32(5.0), f16::from_f32(5.0), f16::from_f32(6.0)];
-        assert_eq!(c.to_vec(), expected);
+        assert_eq!(c.sync_and_read(), expected);
     }
 
     #[test]
@@ -1001,7 +1001,7 @@ mod tests {
         .unwrap();
 
         let result = a.exp().unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         assert!((values[0].to_f32() - 1.0).abs() < 0.01);
         assert!((values[1].to_f32() - 2.718).abs() < 0.01);
@@ -1019,7 +1019,7 @@ mod tests {
         .unwrap();
 
         let result = a.log().unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         assert!((values[0].to_f32() - 0.0).abs() < 0.01);
         assert!((values[1].to_f32() - 1.0).abs() < 0.01);
@@ -1038,7 +1038,7 @@ mod tests {
 
         let result = a.sqrt().unwrap();
         let expected = vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)];
-        assert_eq!(result.to_vec(), expected);
+        assert_eq!(result.sync_and_read(), expected);
     }
 
     #[test]
@@ -1053,7 +1053,7 @@ mod tests {
 
         let result = a.pow(2.0).unwrap();
         let expected = vec![f16::from_f32(4.0), f16::from_f32(9.0), f16::from_f32(16.0)];
-        assert_eq!(result.to_vec(), expected);
+        assert_eq!(result.sync_and_read(), expected);
     }
 
     #[test]
@@ -1067,7 +1067,7 @@ mod tests {
         .unwrap();
 
         let result = a.sin().unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         assert!((values[0].to_f32() - 0.0).abs() < 0.01);
         assert!((values[1].to_f32() - 1.0).abs() < 0.01);
@@ -1085,7 +1085,7 @@ mod tests {
         .unwrap();
 
         let result = a.cos().unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         assert!((values[0].to_f32() - 1.0).abs() < 0.01);
         assert!((values[1].to_f32() - 0.0).abs() < 0.01);
@@ -1103,7 +1103,7 @@ mod tests {
         .unwrap();
 
         let result = a.tan().unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         assert!((values[0].to_f32() - 0.0).abs() < 0.01);
         assert!((values[1].to_f32() - 1.0).abs() < 0.01);

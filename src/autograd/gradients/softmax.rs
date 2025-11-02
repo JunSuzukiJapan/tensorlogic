@@ -28,8 +28,8 @@ impl<T: FloatType> SoftmaxBackward<T> {
 
 impl<T: FloatType> GradientFunctionGeneric<T> for SoftmaxBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>, _inputs: &[&Tensor<T>]) -> TensorResult<Vec<Tensor<T>>> {
-        let grad_output_data = grad_output.to_vec();
-        let output_data = self.output.to_vec();
+        let grad_output_data = grad_output.sync_and_read();
+        let output_data = self.output.sync_and_read();
 
         // Σ_j (grad_output_j * y_j)
         let sum_grad_y: T = grad_output_data
@@ -95,7 +95,7 @@ mod tests {
         assert_eq!(grads.len(), 1);
         assert_eq!(grads[0].dims(), &[3]);
 
-        let grad_input = grads[0].to_vec();
+        let grad_input = grads[0].sync_and_read();
 
         // Softmax勾配の性質：Σ_i grad_input_i = 0 (合計は0になる)
         let sum: f32 = grad_input.iter().map(|x| x.to_f32()).sum();

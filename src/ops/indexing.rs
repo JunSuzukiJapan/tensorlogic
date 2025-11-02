@@ -42,7 +42,7 @@ impl<T: FloatType> Tensor<T> {
         let d_model = weight_dims[1];
 
         // Validate token IDs are in range [0, vocab_size)
-        let token_data = token_ids.to_vec();
+        let token_data = token_ids.sync_and_read();
         for &token_id in &token_data {
             let id = token_id.to_f32() as usize;
             if id >= vocab_size {
@@ -58,7 +58,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Perform embedding lookup
         let num_tokens: usize = token_dims.iter().product();
-        let weight_data = self.to_vec();
+        let weight_data = self.sync_and_read();
         let mut output = Vec::with_capacity(num_tokens * d_model);
 
         for &token_id in &token_data {
@@ -133,7 +133,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Perform embedding lookup
         let num_tokens: usize = token_dims.iter().product();
-        let weight_data = self.to_vec();
+        let weight_data = self.sync_and_read();
         let mut output = Vec::with_capacity(num_tokens * d_model);
 
         for &token_id in token_data {
@@ -309,9 +309,9 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let self_data_t = self.to_vec();
+        let self_data_t = self.sync_and_read();
         let self_data: Vec<f16> = unsafe { std::mem::transmute(self_data_t) };
-        let indices_data_t = indices.to_vec();
+        let indices_data_t = indices.sync_and_read();
         let indices_data: Vec<f16> = unsafe { std::mem::transmute(indices_data_t) };
         let self_dims = self.dims();
         let indices_dims = indices.dims();
@@ -576,9 +576,9 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of scatter
     fn scatter_cpu<I: FloatType>(&self, dim: usize, indices: &Tensor<I>, src: &Tensor<T>) -> TensorResult<Self> {
-        let self_data = self.to_vec();
-        let indices_data = indices.to_vec();
-        let src_data = src.to_vec();
+        let self_data = self.sync_and_read();
+        let indices_data = indices.sync_and_read();
+        let src_data = src.sync_and_read();
         let self_dims = self.dims();
         let indices_dims = indices.dims();
         let src_dims = src.dims();
@@ -700,7 +700,7 @@ mod tests {
         .unwrap();
 
         let result = x.gather(0, &indices).unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         assert_eq!(values.len(), 4);
         assert_eq!(values[0], f16::from_f32(1.0));
@@ -737,7 +737,7 @@ mod tests {
         .unwrap();
 
         let result = x.gather(1, &indices).unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         assert_eq!(result.dims(), &[2, 2]);
         assert_eq!(values[0], f16::from_f32(1.0)); // x[0, 0]
@@ -771,7 +771,7 @@ mod tests {
         .unwrap();
 
         let result = x.scatter(0, &indices, &src).unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         assert_eq!(values.len(), 5);
         assert_eq!(values[0], f16::from_f32(10.0));
@@ -825,7 +825,7 @@ mod tests {
         .unwrap();
 
         let result = x.scatter(1, &indices, &src).unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         assert_eq!(result.dims(), &[3, 4]);
         // First row should have values scattered to indices [0, 2, 1, 3]
@@ -870,7 +870,7 @@ mod tests {
         .unwrap();
 
         let result = x.scatter(0, &indices, &src).unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         // Last write wins
         assert_eq!(values[0], f16::from_f32(20.0));
@@ -911,7 +911,7 @@ mod tests {
         };
 
         let result = x.gather(0, &indices).unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         assert_eq!(values.len(), 3);
         assert_eq!(values[0], f16::from_f32(1.0));
@@ -951,7 +951,7 @@ mod tests {
         };
 
         let result = x.scatter(0, &indices, &src).unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         assert_eq!(values.len(), 5);
         assert_eq!(values[0], f16::from_f32(10.0));

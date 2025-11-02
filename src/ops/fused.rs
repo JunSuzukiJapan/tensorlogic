@@ -519,7 +519,7 @@ mod tests {
         .unwrap();
 
         let result = a.fused_add_relu(&b).unwrap();
-        let result_data = result.to_vec();
+        let result_data = result.sync_and_read();
 
         // Expected: max(1-1, 0) = 0, max(-2+3, 0) = 1, max(3-2, 0) = 1, max(-4+5, 0) = 1
         assert_eq!(result_data[0], f16::from_f32(0.0));
@@ -547,7 +547,7 @@ mod tests {
         .unwrap();
 
         let result = a.fused_mul_relu(&b).unwrap();
-        let result_data = result.to_vec();
+        let result_data = result.sync_and_read();
 
         // Expected: max(2*0.5, 0) = 1, max(-3*2, 0) = 0, max(4*-1, 0) = 0
         assert_eq!(result_data[0], f16::from_f32(1.0));
@@ -581,7 +581,7 @@ mod tests {
         .unwrap();
 
         let result = x.fused_affine(&scale, &bias).unwrap();
-        let result_data = result.to_vec();
+        let result_data = result.sync_and_read();
 
         // Expected: 1*2+1=3, 2*3+2=8, 3*4+3=15
         assert_eq!(result_data[0], f16::from_f32(3.0));
@@ -614,7 +614,7 @@ mod tests {
         let unfused_result = a.add(&b).unwrap().relu().unwrap();
 
         // Results should be identical
-        assert_eq!(fused_result.to_vec(), unfused_result.to_vec());
+        assert_eq!(fused_result.sync_and_read(), unfused_result.sync_and_read());
     }
 
     #[test]
@@ -628,8 +628,8 @@ mod tests {
         let unfused = a.matmul(&b).unwrap().relu().unwrap();
 
         // Should be equivalent
-        let fused_data = fused.to_vec();
-        let unfused_data = unfused.to_vec();
+        let fused_data = fused.sync_and_read();
+        let unfused_data = unfused.sync_and_read();
 
         for (f, u) in fused_data.iter().zip(unfused_data.iter()) {
             assert!((f.to_f32() - u.to_f32()).abs() < 0.01);

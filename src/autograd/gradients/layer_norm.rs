@@ -50,9 +50,9 @@ impl GradientFunction for LayerNormBackward {
 
 impl LayerNormBackward {
     fn backward_cpu(&self, grad_output: &Tensor) -> TensorResult<Vec<Tensor<half::f16>>> {
-        let grad_out = grad_output.to_vec();
-        let normalized = self.normalized.to_vec();
-        let inv_std = self.inv_std.to_vec();
+        let grad_out = grad_output.sync_and_read();
+        let normalized = self.normalized.sync_and_read();
+        let inv_std = self.inv_std.sync_and_read();
 
         let normalized_size: usize = self.normalized_shape.iter().product();
         let batch_size = self.input.numel() / normalized_size;
@@ -69,7 +69,7 @@ impl LayerNormBackward {
             None
         };
 
-        let weight_vec = self.weight.as_ref().map(|w| w.to_vec());
+        let weight_vec = self.weight.as_ref().map(|w| w.sync_and_read());
 
         for batch_idx in 0..batch_size {
             let offset = batch_idx * normalized_size;

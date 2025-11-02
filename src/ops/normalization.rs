@@ -202,13 +202,13 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let input_data = self.to_vec();
+        let input_data = self.sync_and_read();
         let input_f16: Vec<f16> = unsafe { std::mem::transmute(input_data) };
         let normalized_size: usize = normalized_shape.iter().product();
         let batch_size = self.numel() / normalized_size;
 
         let mut output = vec![f16::ZERO; self.numel()];
-        let weight_data = weight.to_vec();
+        let weight_data = weight.sync_and_read();
         let weight_vec: Vec<f16> = unsafe { std::mem::transmute(weight_data) };
 
         for batch_idx in 0..batch_size {
@@ -460,7 +460,7 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let input_data = self.to_vec();
+        let input_data = self.sync_and_read();
         let input_f16: Vec<f16> = unsafe { std::mem::transmute(input_data) };
         let normalized_size: usize = normalized_shape.iter().product();
         let batch_size = self.numel() / normalized_size;
@@ -468,12 +468,12 @@ impl<T: FloatType> Tensor<T> {
         let mut output = vec![f16::ZERO; self.numel()];
 
         let weight_vec = weight.map(|w| {
-            let data = w.to_vec();
+            let data = w.sync_and_read();
             let f16_data: Vec<f16> = unsafe { std::mem::transmute(data) };
             f16_data
         });
         let bias_vec = bias.map(|b| {
-            let data = b.to_vec();
+            let data = b.sync_and_read();
             let f16_data: Vec<f16> = unsafe { std::mem::transmute(data) };
             f16_data
         });
@@ -564,7 +564,7 @@ mod tests {
 
         // Normalize over last dimension (size 3)
         let result = x.layer_norm(vec![3], None, None, 1e-5).unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         // Each row should have mean ≈ 0 and std ≈ 1
         for batch in 0..2 {
@@ -650,7 +650,7 @@ mod tests {
         let result = x
             .layer_norm(vec![2], Some(&weight), Some(&bias), 1e-5)
             .unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         // Verify output shape
         assert_eq!(values.len(), 4);
@@ -679,7 +679,7 @@ mod tests {
         assert_eq!(result.dims(), &[2, 3, 4]);
 
         // Check that each normalized slice has mean ≈ 0 and std ≈ 1
-        let values = result.to_vec();
+        let values = result.sync_and_read();
         for batch in 0..6 {
             // 2 * 3 = 6 batches
             let offset = batch * 4;
@@ -713,7 +713,7 @@ mod tests {
         .unwrap();
 
         let result = x.layer_norm(vec![3], None, None, 1e-5).unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         // Verify normalization
         for batch in 0..2 {

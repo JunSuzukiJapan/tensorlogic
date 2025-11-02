@@ -94,7 +94,7 @@ impl GradientChecker {
     where
         F: Fn(&Tensor) -> TensorResult<Tensor>,
     {
-        let input_data = input.to_vec();
+        let input_data = input.sync_and_read();
         let num_elements = input_data.len();
         let mut numerical_grad = vec![f16::ZERO; num_elements];
 
@@ -122,8 +122,8 @@ impl GradientChecker {
     where
         F: Fn(&Tensor) -> TensorResult<Tensor>,
     {
-        let mut input_plus = input.to_vec();
-        let mut input_minus = input.to_vec();
+        let mut input_plus = input.sync_and_read();
+        let mut input_minus = input.sync_and_read();
 
         let epsilon = f16::from_f32(self.config.epsilon);
 
@@ -134,7 +134,7 @@ impl GradientChecker {
 
         // For single-element output, use direct indexing; otherwise sum
         let f_plus_val = if f_plus.numel() == 1 {
-            f_plus.to_vec()[0]
+            f_plus.sync_and_read()[0]
         } else {
             f_plus.sum()?
         };
@@ -145,7 +145,7 @@ impl GradientChecker {
         let f_minus = f(&x_minus)?;
 
         let f_minus_val = if f_minus.numel() == 1 {
-            f_minus.to_vec()[0]
+            f_minus.sync_and_read()[0]
         } else {
             f_minus.sum()?
         };
@@ -166,13 +166,13 @@ impl GradientChecker {
     where
         F: Fn(&Tensor) -> TensorResult<Tensor>,
     {
-        let mut input_plus = input.to_vec();
+        let mut input_plus = input.sync_and_read();
         let epsilon = f16::from_f32(self.config.epsilon);
 
         // f(x)
         let f_x = f(input)?;
         let f_x_val = if f_x.numel() == 1 {
-            f_x.to_vec()[0]
+            f_x.sync_and_read()[0]
         } else {
             f_x.sum()?
         };
@@ -182,7 +182,7 @@ impl GradientChecker {
         let x_plus = Tensor::from_vec(input_plus.clone(), input.dims().to_vec())?;
         let f_plus = f(&x_plus)?;
         let f_plus_val = if f_plus.numel() == 1 {
-            f_plus.to_vec()[0]
+            f_plus.sync_and_read()[0]
         } else {
             f_plus.sum()?
         };
@@ -208,8 +208,8 @@ impl GradientChecker {
         let numerical_grad = self.compute_numerical_gradient(f, input)?;
 
         // Compare gradients
-        let analytical_data = analytical_grad.to_vec();
-        let numerical_data = numerical_grad.to_vec();
+        let analytical_data = analytical_grad.sync_and_read();
+        let numerical_data = numerical_grad.sync_and_read();
 
         let mut max_relative_error = 0.0f32;
         let mut sum_relative_error = 0.0f32;
@@ -316,7 +316,7 @@ mod tests {
             &x,
         ).unwrap();
 
-        let grad_val = numerical_grad.to_vec()[0].to_f32();
+        let grad_val = numerical_grad.sync_and_read()[0].to_f32();
 
         // f'(2) = 2*2 = 4
         let expected = 4.0f32;
@@ -353,8 +353,8 @@ mod tests {
 
         // f'(3) = 3*3² = 27
         let expected = 27.0f32;
-        let central_error = (central_grad.to_vec()[0].to_f32() - expected).abs();
-        let forward_error = (forward_grad.to_vec()[0].to_f32() - expected).abs();
+        let central_error = (central_grad.sync_and_read()[0].to_f32() - expected).abs();
+        let forward_error = (forward_grad.sync_and_read()[0].to_f32() - expected).abs();
 
         // Both should be reasonably close
         assert!(central_error < 5.0,

@@ -89,8 +89,8 @@ impl<T: FloatType> ReLUBackward<T> {
 
     /// CPU fallback for ReLU backward
     fn backward_cpu(&self, grad_output: &Tensor<T>) -> TensorResult<Tensor<T>> {
-        let grad_output_data = grad_output.to_vec();
-        let input_data = self.input.to_vec();
+        let grad_output_data = grad_output.sync_and_read();
+        let input_data = self.input.sync_and_read();
 
         let grad_input_data: Vec<T> = grad_output_data
             .iter()
@@ -160,6 +160,6 @@ mod tests {
             half::f16::from_f32(1.0),
             half::f16::from_f32(1.0),
         ];
-        assert_eq!(grads[0].to_vec(), expected);
+        assert_eq!(grads[0].sync_and_read(), expected);
     }
 }

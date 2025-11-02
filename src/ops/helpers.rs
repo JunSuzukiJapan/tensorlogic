@@ -77,7 +77,7 @@ where
         ));
     }
 
-    let input = tensor.to_vec();
+    let input = tensor.sync_and_read();
     // Safety: We checked T::is_f16() above
     let input_f16: Vec<f16> = unsafe { std::mem::transmute(input) };
     let result: Vec<f16> = input_f16.iter().map(|&x| f16::from_f32(op(x.to_f32()))).collect();
@@ -184,7 +184,7 @@ pub(crate) fn execute_binary_cpu_op<T: FloatType, F>(
 where
     F: Fn(f32, f32) -> f32,
 {
-    let input = tensor.to_vec();
+    let input = tensor.sync_and_read();
     let result: Vec<T> = input
         .iter()
         .map(|&x| T::from_f32(op(x.to_f32(), scalar_value)))

@@ -205,8 +205,8 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let a = self.to_vec();
-        let b = other.to_vec();
+        let a = self.sync_and_read();
+        let b = other.sync_and_read();
         let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
         let b_f16: Vec<f16> = unsafe { std::mem::transmute(b) };
 
@@ -405,7 +405,7 @@ mod tests {
         .unwrap();
 
         let c = a.matmul(&b).unwrap();
-        let result = c.to_vec();
+        let result = c.sync_and_read();
 
         // Expected: [[1*1+2*3+3*5, 1*2+2*4+3*6], [4*1+5*3+6*5, 4*2+5*4+6*6]]
         //         = [[22, 28], [49, 64]]
@@ -448,7 +448,7 @@ mod tests {
         .unwrap();
 
         let c = a.matmul(&b).unwrap();
-        let result = c.to_vec();
+        let result = c.sync_and_read();
 
         assert_eq!(result[0], f16::from_f32(22.0));
         assert_eq!(result[1], f16::from_f32(28.0));

@@ -109,9 +109,9 @@ mod tests {
         assert_eq!(grads.len(), 2);
 
         // grad_a = grad_output * b = [1,1,1,1] * [6,7,8,9] = [6,7,8,9]
-        assert_eq!(grads[0].to_vec(), b.to_vec());
+        assert_eq!(grads[0].sync_and_read(), b.sync_and_read());
 
         // grad_b = grad_output * a = [1,1,1,1] * [2,3,4,5] = [2,3,4,5]
-        assert_eq!(grads[1].to_vec(), a.to_vec());
+        assert_eq!(grads[1].sync_and_read(), a.sync_and_read());
     }
 }

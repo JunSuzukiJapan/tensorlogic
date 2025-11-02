@@ -19,7 +19,7 @@ impl ConcatBackward {
 impl GradientFunction for ConcatBackward {
     fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
         // For simplicity, implement CPU version that splits the gradient
-        let grad_data = grad_output.to_vec();
+        let grad_data = grad_output.sync_and_read();
         let mut gradients = Vec::new();
 
         // Calculate strides

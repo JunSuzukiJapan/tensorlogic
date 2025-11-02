@@ -90,7 +90,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sum_cpu(&self) -> TensorResult<T> {
-        let data = self.to_vec();
+        let data = self.sync_and_read();
         let mut sum = T::zero();
         for &val in &data {
             sum = sum + val;
@@ -193,7 +193,7 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let input = self.to_vec();
+        let input = self.sync_and_read();
         let input_f16: Vec<f16> = unsafe { std::mem::transmute(input) };
         let input_dims = self.shape().dims();
         let input_strides = self.shape().compute_strides();
@@ -366,7 +366,7 @@ impl<T: FloatType> Tensor<T> {
         let dim_size = self.shape().dims()[dim] as f32;
 
         // Divide by dimension size
-        let data = sum_result.to_vec();
+        let data = sum_result.sync_and_read();
         let data_f16: Vec<f16> = unsafe { std::mem::transmute(data) };
         let mean_data_f16: Vec<f16> = data_f16
             .iter()
@@ -471,7 +471,7 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let data = self.to_vec();
+        let data = self.sync_and_read();
         if data.is_empty() {
             return Err(TensorError::InvalidOperation(
                 "Cannot compute max of empty tensor".to_string(),
@@ -581,7 +581,7 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let data = self.to_vec();
+        let data = self.sync_and_read();
         if data.is_empty() {
             return Err(TensorError::InvalidOperation(
                 "Cannot compute min of empty tensor".to_string(),
@@ -603,7 +603,7 @@ impl<T: FloatType> Tensor<T> {
         match dim {
             None => {
                 // Global argmax - return single index
-                let data = self.to_vec();
+                let data = self.sync_and_read();
                 let mut max_idx = 0usize;
                 let mut max_val = data[0];
 
@@ -666,7 +666,7 @@ impl<T: FloatType> Tensor<T> {
             strides[i] = strides[i + 1] * input_dims[i + 1];
         }
 
-        let data = self.to_vec();
+        let data = self.sync_and_read();
         let mut result = vec![T::zero(); output_numel];
 
         for out_idx in 0..output_numel {
@@ -716,7 +716,7 @@ impl<T: FloatType> Tensor<T> {
         match dim {
             None => {
                 // Global argmin - return single index
-                let data = self.to_vec();
+                let data = self.sync_and_read();
                 let mut min_idx = 0usize;
                 let mut min_val = data[0];
 
@@ -778,7 +778,7 @@ impl<T: FloatType> Tensor<T> {
             strides[i] = strides[i + 1] * input_dims[i + 1];
         }
 
-        let data = self.to_vec();
+        let data = self.sync_and_read();
         let mut result = vec![T::zero(); output_numel];
 
         for out_idx in 0..output_numel {
@@ -912,7 +912,7 @@ mod tests {
         // Sum along dim 0 (rows) -> [3]
         let sum0 = a.sum_dim(0, false).unwrap();
         assert_eq!(sum0.shape().dims(), &[3]);
-        let result0 = sum0.to_vec();
+        let result0 = sum0.sync_and_read();
         assert_eq!(result0[0], f16::from_f32(5.0)); // 1+4
         assert_eq!(result0[1], f16::from_f32(7.0)); // 2+5
         assert_eq!(result0[2], f16::from_f32(9.0)); // 3+6
@@ -920,7 +920,7 @@ mod tests {
         // Sum along dim 1 (columns) -> [2]
         let sum1 = a.sum_dim(1, false).unwrap();
         assert_eq!(sum1.shape().dims(), &[2]);
-        let result1 = sum1.to_vec();
+        let result1 = sum1.sync_and_read();
         assert_eq!(result1[0], f16::from_f32(6.0)); // 1+2+3
         assert_eq!(result1[1], f16::from_f32(15.0)); // 4+5+6
     }
@@ -941,7 +941,7 @@ mod tests {
         // Mean along dim 1
         let mean1 = a.mean_dim(1, false).unwrap();
         assert_eq!(mean1.shape().dims(), &[2]);
-        let result = mean1.to_vec();
+        let result = mean1.sync_and_read();
         assert_eq!(result[0], f16::from_f32(3.0)); // (2+4)/2
         assert_eq!(result[1], f16::from_f32(7.0)); // (6+8)/2
     }
@@ -970,7 +970,7 @@ mod tests {
         // Sum along dim 0 (rows) -> [3]
         let sum0 = a.sum_dim(0, false).unwrap();
         assert_eq!(sum0.shape().dims(), &[3]);
-        let result0 = sum0.to_vec();
+        let result0 = sum0.sync_and_read();
         assert_eq!(result0[0], f16::from_f32(5.0)); // 1+4
         assert_eq!(result0[1], f16::from_f32(7.0)); // 2+5
         assert_eq!(result0[2], f16::from_f32(9.0)); // 3+6
@@ -978,7 +978,7 @@ mod tests {
         // Sum along dim 1 (columns) -> [2]
         let sum1 = a.sum_dim(1, false).unwrap();
         assert_eq!(sum1.shape().dims(), &[2]);
-        let result1 = sum1.to_vec();
+        let result1 = sum1.sync_and_read();
         assert_eq!(result1[0], f16::from_f32(6.0)); // 1+2+3
         assert_eq!(result1[1], f16::from_f32(15.0)); // 4+5+6
     }
@@ -1004,7 +1004,7 @@ mod tests {
         // Mean along dim 1
         let mean1 = a.mean_dim(1, false).unwrap();
         assert_eq!(mean1.shape().dims(), &[2]);
-        let result = mean1.to_vec();
+        let result = mean1.sync_and_read();
         assert_eq!(result[0], f16::from_f32(3.0)); // (2+4)/2
         assert_eq!(result[1], f16::from_f32(7.0)); // (6+8)/2
     }

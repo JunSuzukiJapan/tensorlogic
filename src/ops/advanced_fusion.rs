@@ -394,7 +394,7 @@ mod tests {
         assert_eq!(result.shape().dims(), &[2, 2]);
 
         // Values should be positive (ReLU applied)
-        let data = result.to_vec();
+        let data = result.sync_and_read();
         for &val in &data {
             assert!(val >= f16::ZERO);
         }
@@ -437,7 +437,7 @@ mod tests {
         assert_eq!(result.shape().dims(), &[2, 2]);
 
         // GELU should produce positive values for positive inputs
-        let data = result.to_vec();
+        let data = result.sync_and_read();
         for &val in &data {
             assert!(val > f16::ZERO);
         }

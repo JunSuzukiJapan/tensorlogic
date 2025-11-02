@@ -186,8 +186,8 @@ mod tests {
 
         // Second derivative of addition is zero
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0].to_vec()[0].to_f32(), 0.0);
-        assert_eq!(result[1].to_vec()[0].to_f32(), 0.0);
+        assert_eq!(result[0].sync_and_read()[0].to_f32(), 0.0);
+        assert_eq!(result[1].sync_and_read()[0].to_f32(), 0.0);
     }
 
     #[test]
@@ -209,7 +209,7 @@ mod tests {
         // d/dx (df/dx) = d/dx (y) = 0
         // d/dy (df/dx) = d/dy (y) = 1
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0].to_vec()[0].to_f32(), 0.0); // grad_x = 0
-        assert_eq!(result[1].to_vec()[0].to_f32(), 1.0); // grad_y = 1
+        assert_eq!(result[0].sync_and_read()[0].to_f32(), 0.0); // grad_x = 0
+        assert_eq!(result[1].sync_and_read()[0].to_f32(), 1.0); // grad_y = 1
     }
 }

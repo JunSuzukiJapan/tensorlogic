@@ -121,7 +121,7 @@ mod tests {
             half::f16::from_f32(11.0),
             half::f16::from_f32(15.0),
         ];
-        assert_eq!(grads[0].to_vec(), grad_a_expected);
+        assert_eq!(grads[0].sync_and_read(), grad_a_expected);
 
         // grad_b = A^T @ grad_output = [[1,3],[2,4]] @ [[1,1],[1,1]]
         //        = [[4, 4], [6, 6]]
@@ -131,6 +131,6 @@ mod tests {
             half::f16::from_f32(6.0),
             half::f16::from_f32(6.0),
         ];
-        assert_eq!(grads[1].to_vec(), grad_b_expected);
+        assert_eq!(grads[1].sync_and_read(), grad_b_expected);
     }
 }
