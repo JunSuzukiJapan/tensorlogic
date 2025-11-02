@@ -1269,10 +1269,8 @@ impl Interpreter {
                                     RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
                                 )?;
 
-                                let device = crate::device::MetalDevice::new()
-                                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                                cache.update(layer_idx, k, v, &device)
+                                // Use shared device instance (no need to create new device every time!)
+                                cache.update(layer_idx, k, v, &self.device)
                                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                                 Ok(Value::Void)

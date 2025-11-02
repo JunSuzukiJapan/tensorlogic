@@ -145,6 +145,8 @@ pub struct Interpreter {
     // Track learnable tensors declared with 'learnable' keyword
     // These are the only tensors that should be optimized in learn blocks
     learnable_params: HashSet<String>,
+    // Shared Metal device for GPU operations (singleton per interpreter)
+    device: crate::device::MetalDevice,
 }
 
 impl Interpreter {
@@ -166,6 +168,8 @@ impl Interpreter {
             functions: HashMap::new(),
             call_stack: Vec::new(),
             learnable_params: HashSet::new(),
+            device: crate::device::MetalDevice::new()
+                .expect("Failed to create Metal device - Metal may not be available on this system"),
         }
     }
 
