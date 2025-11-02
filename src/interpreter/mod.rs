@@ -807,9 +807,9 @@ impl Interpreter {
                 Ok(Some(value))
             }
             Statement::Expr { expr } => {
-                // Expression statement: evaluate and discard result (for side effects like method calls)
-                self.eval_expr(expr)?;
-                Ok(None)
+                // Expression statement as last statement: return its value (implicit return)
+                let value = self.eval_expr(expr)?;
+                Ok(Some(value))
             }
             // All other statement types: execute and return None
             _ => {

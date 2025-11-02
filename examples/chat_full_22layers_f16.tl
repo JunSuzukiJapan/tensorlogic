@@ -77,13 +77,20 @@ fn transformer_layer(
     K_cache: float16[?, ?],
     V_cache: float16[?, ?]
 ) -> float16[?, ?] {
+    print("[TL] Starting transformer_layer", "")
     let normed = rms_norm(x, W_attn_norm)
+    print(" -> rms_norm", "")
     let Q = linear(normed, W_q)
+    print(" -> Q linear", "")
     let attn_out = attention_with_cache(Q, K_cache, V_cache, W_o)
+    print(" -> attention", "")
     let after_attn = x + attn_out
+    print(" -> residual1", "")
     let normed2 = rms_norm(after_attn, W_ffn_norm)
+    print(" -> rms_norm2", "")
     let ffn_out = swiglu_ffn(normed2, W_gate, W_up, W_down)
-    result = after_attn + ffn_out
+    print(" -> ffn done")
+    after_attn + ffn_out
 }
 main {
     print("=== TensorLogic Chat: FULL 22-Layer System ===")
