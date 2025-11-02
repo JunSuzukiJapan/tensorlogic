@@ -46,7 +46,7 @@ mod tests {
     #[test]
     fn test_command_buffer_provides_encoder() {
         let device = MetalDevice::new().unwrap();
-        let command_buffer = device.command_buffer().unwrap();
+        let (_flushed, command_buffer) = device.command_buffer().unwrap();
 
         // Should be able to get encoder from command buffer
         let encoder = command_buffer.encoder();
