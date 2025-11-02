@@ -453,7 +453,6 @@ impl<T: FloatType> Tensor<T> {
         bias: Option<&Tensor>,
         eps: f32,
     ) -> TensorResult<Self> {
-        panic!("src/ops/normalization.rs:456:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(

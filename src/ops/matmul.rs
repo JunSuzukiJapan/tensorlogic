@@ -198,7 +198,6 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU fallback for matmul
     fn matmul_cpu(&self, other: &Tensor<T>, m: usize, k: usize, n: usize) -> TensorResult<Self> {
-        panic!("src/ops/matmul.rs:194:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(

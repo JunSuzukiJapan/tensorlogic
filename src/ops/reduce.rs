@@ -70,7 +70,10 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_threads(grid_size, tg_size);
         encoder.end_encoding();
 
-        // Commands manager will flush and commit when needed
+        // CRITICAL: Flush pending operations before wait to prevent deadlock
+        device.flush_if_needed()
+            .map_err(|e| TensorError::MetalError(format!("Failed to flush: {}", e)))?;
+
         // Since we need results immediately for stage 2, wait for completion
         device.wait_until_completed()?;
 
@@ -87,7 +90,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sum_cpu(&self) -> TensorResult<T> {
-        panic!("src/ops/reduce.rs:86:5");
         let data = self.to_vec();
         let mut sum = T::zero();
         for &val in &data {
@@ -105,7 +107,6 @@ impl<T: FloatType> Tensor<T> {
         match self.device() {
             Device::Metal(_) => self.sum_dim_metal(dim, keepdim),
             Device::NeuralEngine => {
-                panic!("src/ops/reduce.rs:103:13");
                 self.to_cpu()?.sum_dim_cpu(dim, keepdim)
             },
             Device::CPU => self.sum_dim_cpu(dim, keepdim),
@@ -185,7 +186,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sum_dim_cpu(&self, dim: usize, keepdim: bool) -> TensorResult<Self> {
-        panic!("src/ops/reduce.rs:185:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -277,7 +277,6 @@ impl<T: FloatType> Tensor<T> {
         match self.device() {
             Device::Metal(_) => self.mean_dim_metal(dim, keepdim),
             Device::NeuralEngine => {
-                panic!("src/ops/reduce.rs:273:13");
                 self.to_cpu()?.mean_dim_cpu(dim, keepdim)
             },
             Device::CPU => self.mean_dim_cpu(dim, keepdim),
@@ -356,7 +355,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn mean_dim_cpu(&self, dim: usize, keepdim: bool) -> TensorResult<Self> {
-        panic!("src/ops/reduce.rs:359:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -384,7 +382,6 @@ impl<T: FloatType> Tensor<T> {
         match self.device() {
             Device::Metal(_) => self.max_metal(),
             Device::NeuralEngine => {
-                panic!("src/ops/reduce.rs:378:13");
                 self.to_cpu()?.max_cpu()
             },
             Device::CPU => self.max_cpu(),
@@ -447,7 +444,10 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_threads(grid_size, tg_size);
         encoder.end_encoding();
 
-        // Commands manager will flush and commit when needed
+        // CRITICAL: Flush pending operations before wait to prevent deadlock
+        device.flush_if_needed()
+            .map_err(|e| TensorError::MetalError(format!("Failed to flush: {}", e)))?;
+
         // Since we need results immediately for stage 2, wait for completion
         device.wait_until_completed()?;
 
@@ -464,7 +464,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn max_cpu(&self) -> TensorResult<T> {
-        panic!("src/ops/reduce.rs:462:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -493,7 +492,6 @@ impl<T: FloatType> Tensor<T> {
         match self.device() {
             Device::Metal(_) => self.min_metal(),
             Device::NeuralEngine => {
-                panic!("src/ops/reduce.rs:479:13");
                 self.to_cpu()?.min_cpu()
             },
             Device::CPU => self.min_cpu(),
@@ -556,7 +554,10 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_threads(grid_size, tg_size);
         encoder.end_encoding();
 
-        // Commands manager will flush and commit when needed
+        // CRITICAL: Flush pending operations before wait to prevent deadlock
+        device.flush_if_needed()
+            .map_err(|e| TensorError::MetalError(format!("Failed to flush: {}", e)))?;
+
         // Since we need results immediately for stage 2, wait for completion
         device.wait_until_completed()?;
 
@@ -573,7 +574,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn min_cpu(&self) -> TensorResult<T> {
-        panic!("src/ops/reduce.rs:566:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(

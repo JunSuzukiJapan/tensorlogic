@@ -91,7 +91,9 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU fallback for ReLU
     fn relu_cpu(&self) -> TensorResult<Self> {
-        panic!("RELU CPU FALLBACK: GPU kernel must be used - CPU implementation disabled");
+        Err(TensorError::InvalidOperation(
+            "ReLU CPU fallback not implemented - use Metal GPU".to_string()
+        ))
     }
 
     /// GELU activation (approximation): f(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
@@ -151,7 +153,9 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU fallback for GELU
     fn gelu_cpu(&self) -> TensorResult<Self> {
-        panic!("GELU CPU FALLBACK: GPU kernel must be used - CPU implementation disabled");
+        Err(TensorError::InvalidOperation(
+            "GELU CPU fallback not implemented - use Metal GPU".to_string()
+        ))
     }
 
     /// Softmax activation: softmax(x)_i = exp(x_i) / sum(exp(x))
@@ -290,7 +294,9 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of softmax
     fn softmax_cpu(&self) -> TensorResult<Self> {
-        panic!("SOFTMAX CPU FALLBACK: GPU kernel must be used - CPU implementation disabled");
+        Err(TensorError::InvalidOperation(
+            "Softmax CPU fallback not implemented - use Metal GPU".to_string()
+        ))
     }
 
     /// Sigmoid activation: σ(x) = 1 / (1 + exp(-x))
@@ -314,7 +320,9 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sigmoid_cpu(&self) -> TensorResult<Self> {
-        panic!("SIGMOID CPU FALLBACK: GPU kernel must be used - CPU implementation disabled");
+        Err(TensorError::InvalidOperation(
+            "Sigmoid CPU fallback not implemented - use Metal GPU".to_string()
+        ))
     }
 
     /// Hyperbolic tangent activation: tanh(x)
@@ -338,7 +346,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn tanh_cpu(&self) -> TensorResult<Self> {
-        panic!("src/ops/activations.rs:452:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(

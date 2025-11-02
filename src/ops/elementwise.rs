@@ -120,7 +120,6 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU fallback for addition
     fn add_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
-        panic!("src/ops/elementwise.rs:128:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -203,7 +202,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sub_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
-        panic!("src/ops/elementwise.rs:210:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -287,7 +285,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn mul_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
-        panic!("src/ops/elementwise.rs:299:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -371,7 +368,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn div_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
-        panic!("src/ops/elementwise.rs:388:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -415,7 +411,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn exp_cpu(&self) -> TensorResult<Self> {
-        panic!("src/ops/elementwise.rs:431:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -447,7 +442,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn log_cpu(&self) -> TensorResult<Self> {
-        panic!("src/ops/elementwise.rs:462:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -479,7 +473,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sqrt_cpu(&self) -> TensorResult<Self> {
-        panic!("src/ops/elementwise.rs:493:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -516,7 +509,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn pow_cpu(&self, exponent: f32) -> TensorResult<Self> {
-        panic!("src/ops/elementwise.rs:529:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -548,7 +540,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sin_cpu(&self) -> TensorResult<Self> {
-        panic!("src/ops/elementwise.rs:560:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -580,7 +571,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn cos_cpu(&self) -> TensorResult<Self> {
-        panic!("src/ops/elementwise.rs:591:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -612,7 +602,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn tan_cpu(&self) -> TensorResult<Self> {
-        panic!("src/ops/elementwise.rs:622:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
@@ -677,7 +666,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn add_scalar_cpu(&self, scalar: T) -> TensorResult<Self> {
-        panic!("src/ops/elementwise.rs:652:5");
         let data = self.to_vec();
         let result: Vec<T> = data.iter().map(|&x| x + scalar).collect();
 
@@ -741,7 +729,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sub_scalar_cpu(&self, scalar: T) -> TensorResult<Self> {
-        panic!("src/ops/elementwise.rs:681:5");
         let data = self.to_vec();
         let result: Vec<T> = data.iter().map(|&x| x - scalar).collect();
 
@@ -815,7 +802,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn mul_scalar_cpu(&self, scalar: T) -> TensorResult<Self> {
-        panic!("src/ops/elementwise.rs:710:5");
         let data = self.to_vec();
         let result: Vec<T> = data.iter().map(|&x| x * scalar).collect();
 
@@ -879,7 +865,6 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn div_scalar_cpu(&self, scalar: T) -> TensorResult<Self> {
-        panic!("src/ops/elementwise.rs:739:5");
         let data = self.to_vec();
         let result: Vec<T> = data.iter().map(|&x| x / scalar).collect();
 
