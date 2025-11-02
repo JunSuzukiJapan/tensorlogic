@@ -99,6 +99,8 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
         // This is the ONLY sync point - buffer.to_cpu_vec() doesn't wait
         use crate::tensor::TensorAccessors;
         if let crate::device::Device::Metal(ref device) = self.device() {
+            // CRITICAL: Flush pending operations before sync to prevent deadlock
+            device.flush_if_needed().ok();
             device.wait_until_completed().ok();
         }
         self.buffer.to_cpu_vec()
@@ -109,6 +111,8 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
         // This is the ONLY sync point - buffer.to_cpu_vec() doesn't wait
         use crate::tensor::TensorAccessors;
         if let crate::device::Device::Metal(ref device) = self.device() {
+            // CRITICAL: Flush pending operations before sync to prevent deadlock
+            device.flush_if_needed().ok();
             device.wait_until_completed().ok();
         }
         self.buffer.to_cpu_vec().iter().map(|x| x.to_f32()).collect()

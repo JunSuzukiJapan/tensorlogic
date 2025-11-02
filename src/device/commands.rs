@@ -114,6 +114,37 @@ impl Commands {
         Ok((flushed, command_buffer.clone()))
     }
 
+    /// Flush pending operations if there are any
+    ///
+    /// This ensures that any pending GPU operations are committed to the command queue.
+    /// Called before sync operations to prevent deadlock from unflushed encoders.
+    pub fn flush_if_needed(&mut self) -> TensorResult<()> {
+        if self.command_buffer_index > 0 {
+            if std::env::var("TL_DEBUG_BATCHING").is_ok() {
+                eprintln!("[BATCH] Flushing {} pending operations", self.command_buffer_index);
+            }
+
+            let mut command_buffers = self
+                .command_buffers
+                .lock()
+                .map_err(|e| TensorError::InvalidOperation(format!("Mutex poison: {}", e)))?;
+
+            if let Some(cb) = command_buffers.get_mut() {
+                // Commit current buffer
+                cb.commit();
+
+                // Create new buffer
+                let raw_cb = self.command_queue.new_command_buffer().to_owned();
+                let new_cb = CommandBuffer::new(raw_cb);
+                *cb = new_cb;
+
+                // Reset index
+                self.command_buffer_index = 0;
+            }
+        }
+        Ok(())
+    }
+
     /// Wait for all pending command buffers to complete
     ///
     /// This is called when we need results from the GPU:

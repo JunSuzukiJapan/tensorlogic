@@ -150,6 +150,16 @@ impl MetalDevice {
             .command_buffer()
     }
 
+    /// Flush any pending GPU operations
+    ///
+    /// This ensures pending operations are committed to the command queue.
+    /// Called before sync operations to prevent deadlock from unflushed encoders.
+    pub fn flush_if_needed(&self) -> TensorResult<()> {
+        self.commands.lock()
+            .map_err(|e| TensorError::InvalidOperation(format!("Commands lock failed: {}", e)))?
+            .flush_if_needed()
+    }
+
     /// Wait for all GPU operations to complete
     ///
     /// This should be called:
