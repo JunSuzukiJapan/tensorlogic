@@ -44,11 +44,32 @@ pub(crate) fn execute_unary_metal_op<T: FloatType>(
     // Create output buffer from pool
     let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), tensor.numel())?;
 
-    // Execute kernel
+    // Execute kernel using new EncoderProvider pattern
     let input_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(input_buf) };
     let result_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(&result_buf) };
-    let mut executor = KernelExecutor::new(device);
-    executor.execute_unary_op(kernel_name, input_buf_f16, result_buf_f16)?;
+
+    // Get or compile pipeline
+    let mut executor = KernelExecutor::new(device.clone());
+    let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
+
+    // Create command buffer and encoder (EncoderProvider pattern)
+    let (_flushed, command_buffer) = device.command_buffer()?;
+    let encoder = command_buffer.encoder();
+
+    // Set pipeline and buffers
+    encoder.set_compute_pipeline_state(&pipeline);
+    encoder.set_buffer(0, Some(input_buf_f16.metal_buffer()), 0);
+    encoder.set_buffer(1, Some(result_buf_f16.metal_buffer()), 0);
+
+    // Configure thread groups
+    let grid_size = metal::MTLSize::new(tensor.numel() as u64, 1, 1);
+    let thread_group_size = metal::MTLSize::new(256, 1, 1);
+
+    encoder.dispatch_threads(grid_size, thread_group_size);
+    encoder.end_encoding();
+
+    // Note: wait_until_completed() is NOT called here (matches candle pattern).
+    // Commands manager handles batching and will commit when batch size is exceeded.
 
     // Return new tensor
     Tensor::new(
@@ -129,35 +150,34 @@ pub(crate) fn execute_binary_metal_op<T: FloatType>(
     // Create output buffer from pool
     let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), tensor.numel())?;
 
-    // Execute kernel (note: binary ops use a different executor pattern)
+    // Execute kernel using new EncoderProvider pattern
     let input_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(input_buf) };
     let scalar_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(scalar_buf) };
+    let result_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(&result_buf) };
 
-    let library_ref = device.library();
-    let library = library_ref
-        .as_ref()
-        .ok_or_else(|| TensorError::MetalError("Library not loaded".to_string()))?;
-    let pipeline = library
-        .get_function(kernel_name, None)
-        .map_err(|e| TensorError::MetalError(format!("Failed to get kernel {}: {:?}", kernel_name, e)))?;
+    // Get or compile pipeline
+    let mut executor = KernelExecutor::new(device.clone());
+    let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
 
-    let pipeline_state = device.metal_device()
-        .new_compute_pipeline_state_with_function(&pipeline)
-        .map_err(|e| TensorError::MetalError(format!("Failed to create pipeline: {:?}", e)))?;
-
+    // Create command buffer and encoder (EncoderProvider pattern)
     let (_flushed, command_buffer) = device.command_buffer()?;
     let encoder = command_buffer.encoder();
 
-    encoder.set_compute_pipeline_state(&pipeline_state);
+    // Set pipeline and buffers
+    encoder.set_compute_pipeline_state(&pipeline);
     encoder.set_buffer(0, Some(input_buf_f16.metal_buffer()), 0);
     encoder.set_buffer(1, Some(scalar_buf_f16.metal_buffer()), 0);
-    encoder.set_buffer(2, Some(result_buf.metal_buffer()), 0);
+    encoder.set_buffer(2, Some(result_buf_f16.metal_buffer()), 0);
 
+    // Configure thread groups
     let grid_size = metal::MTLSize::new(tensor.numel() as u64, 1, 1);
     let thread_group_size = metal::MTLSize::new(256, 1, 1);
 
     encoder.dispatch_threads(grid_size, thread_group_size);
     encoder.end_encoding();
+
+    // Note: wait_until_completed() is NOT called here (matches candle pattern).
+    // Commands manager handles batching and will commit when batch size is exceeded.
 
     // Return new tensor
     Tensor::new(

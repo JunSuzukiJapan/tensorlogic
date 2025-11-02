@@ -60,33 +60,7 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let input_buf = self.buffer().as_metal()?;
-
-        let mut device = match self.device() {
-            Device::Metal(dev) => dev.clone(),
-            _ => {
-                return Err(TensorError::DeviceConversionError(
-                    "Not on Metal device".to_string(),
-                ))
-            }
-        };
-
-        if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/unified.metal");
-            device.load_library(shader_source)?;
-        }
-
-        let result_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
-        let input_buf_f16: &MetalBuffer<f16> = unsafe { std::mem::transmute(input_buf) };
-
-        let mut executor = crate::device::KernelExecutor::new(device);
-        executor.execute_unary_op("relu_f16", input_buf_f16, &result_buf_f16)?;
-
-        let result_buf: MetalBuffer<T> = unsafe { std::mem::transmute(result_buf_f16) };
-        self.new_from_pool(
-            BufferHandle::Metal(result_buf),
-            self.shape().clone(),
-        )
+        super::helpers::execute_unary_metal_op(self, "relu_f16")
     }
 
     /// CPU fallback for ReLU
@@ -122,33 +96,7 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        let input_buf = self.buffer().as_metal()?;
-
-        let mut device = match self.device() {
-            Device::Metal(dev) => dev.clone(),
-            _ => {
-                return Err(TensorError::DeviceConversionError(
-                    "Not on Metal device".to_string(),
-                ))
-            }
-        };
-
-        if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/unified.metal");
-            device.load_library(shader_source)?;
-        }
-
-        let result_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
-        let input_buf_f16: &MetalBuffer<f16> = unsafe { std::mem::transmute(input_buf) };
-
-        let mut executor = crate::device::KernelExecutor::new(device);
-        executor.execute_unary_op("gelu_f16", input_buf_f16, &result_buf_f16)?;
-
-        let result_buf: MetalBuffer<T> = unsafe { std::mem::transmute(result_buf_f16) };
-        self.new_from_pool(
-            BufferHandle::Metal(result_buf),
-            self.shape().clone(),
-        )
+        super::helpers::execute_unary_metal_op(self, "gelu_f16")
     }
 
     /// CPU fallback for GELU
@@ -320,9 +268,19 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sigmoid_cpu(&self) -> TensorResult<Self> {
-        Err(TensorError::InvalidOperation(
-            "Sigmoid CPU fallback not implemented - use Metal GPU".to_string()
-        ))
+        use crate::tensor::TensorIO;
+
+        let data = self.sync_and_read();
+        let sigmoid_data: Vec<T> = data
+            .iter()
+            .map(|&x| {
+                let x_f32 = x.to_f32();
+                let sigmoid = 1.0 / (1.0 + (-x_f32).exp());
+                T::from_f32(sigmoid)
+            })
+            .collect();
+
+        Tensor::from_vec(sigmoid_data, self.dims().to_vec())
     }
 
     /// Hyperbolic tangent activation: tanh(x)
