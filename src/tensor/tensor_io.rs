@@ -95,20 +95,20 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
     }
 
     fn sync_and_read(&self) -> Vec<T> {
-        // Sync all pending GPU operations before reading (candle-style)
+        // Candle-style: Single GPU sync before reading (like candle's to_cpu())
+        // This is the ONLY sync point - buffer.to_cpu_vec() doesn't wait
         use crate::tensor::TensorAccessors;
         if let crate::device::Device::Metal(ref device) = self.device() {
-            // Wait for all GPU operations to complete
             device.wait_until_completed().ok();
         }
         self.buffer.to_cpu_vec()
     }
 
     fn sync_and_read_f32(&self) -> Vec<f32> {
-        // Sync all pending GPU operations before reading (candle-style)
+        // Candle-style: Single GPU sync before reading (like candle's to_cpu())
+        // This is the ONLY sync point - buffer.to_cpu_vec() doesn't wait
         use crate::tensor::TensorAccessors;
         if let crate::device::Device::Metal(ref device) = self.device() {
-            // Wait for all GPU operations to complete
             device.wait_until_completed().ok();
         }
         self.buffer.to_cpu_vec().iter().map(|x| x.to_f32()).collect()

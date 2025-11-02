@@ -100,15 +100,18 @@ impl Interpreter {
         }
     }
 
-    /// GPU-accelerated temperature sampling implementation
+    /// Temperature sampling implementation (Candle-style: always use CPU)
+    ///
+    /// Following candle's approach, we always transfer logits to CPU and sample there.
+    /// This is simpler and faster than GPU sampling for vocabulary-sized tensors,
+    /// and critically, it maintains batching efficiency by minimizing command buffer operations.
     fn temperature_sample_gpu<T: FloatType>(&self, logits: &crate::tensor::Tensor<T>, temperature: f32) -> RuntimeResult<Value> {
-        use crate::device::Device;
         use crate::tensor::TensorAccessors;
 
         let dims = logits.dims();
 
         // For 2D tensors [seq_len, vocab_size], we'll pass the full tensor
-        // and let the Metal kernel handle slicing to the last position
+        // and let the CPU sampling handle slicing to the last position
         let vocab_size = if dims.len() == 2 {
             dims[1]  // vocab_size is second dimension
         } else if dims.len() == 1 {
@@ -119,21 +122,8 @@ impl Interpreter {
             ));
         };
 
-        // OPTIMIZATION: Use argmax for temperature=0 (greedy sampling)
-        // This skips expensive softmax computation entirely
-        if temperature == 0.0 {
-            match logits.device() {
-                Device::Metal(_) => return self.argmax_sample_metal(logits, vocab_size),
-                _ => {} // Fall through to CPU sampling
-            }
-        }
-
-        // Use GPU sampling to avoid sync_and_read() bottleneck on every token
-        // This keeps logits on GPU and performs sampling async
-        match logits.device() {
-            Device::Metal(_) => self.temperature_sample_metal(logits, temperature, vocab_size),
-            _ => self.temperature_sample_cpu(logits, temperature, vocab_size),
-        }
+        // Candle-style: Always use CPU sampling (simpler, faster, batching-friendly)
+        self.temperature_sample_cpu(logits, temperature, vocab_size)
     }
 
     /// CPU sampling implementation (following llama.cpp and candle approach)
