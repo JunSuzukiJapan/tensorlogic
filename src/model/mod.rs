@@ -8,6 +8,7 @@
 pub mod metadata;
 pub mod convert;
 pub mod formats;
+pub mod llama;
 
 use crate::tensor::Tensor;
 use crate::tensor::{FloatType, TensorCreation, TensorIO};
