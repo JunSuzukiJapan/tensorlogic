@@ -50,7 +50,7 @@ impl Default for LlamaConfig {
 pub struct Cache {
     /// K and V tensors for each layer: Vec<Option<(K, V)>>
     /// None for prefill, Some((K, V)) after first forward pass
-    kvs: Vec<Option<(Tensor<half::f16>, Tensor<half::f16>)>>,
+    pub kvs: Vec<Option<(Tensor<half::f16>, Tensor<half::f16>)>>,
 
     /// Whether to use KV caching (true after prefill)
     pub use_kv_cache: bool,

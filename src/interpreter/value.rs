@@ -114,6 +114,8 @@ pub enum Value {
     TokenIdArray(TokenIdArray),
     /// Meta-type: represents an entity type
     Type(String),
+    /// KV Cache for transformer attention layers
+    KVCache(std::sync::Arc<std::sync::Mutex<crate::model::llama::Cache>>),
     Void,
 }
 
@@ -139,6 +141,7 @@ impl Value {
             Value::TokenIds(_) => "TokenIds",
             Value::TokenIdArray(_) => "TokenIdArray",
             Value::Type(_) => "Type",
+            Value::KVCache(_) => "KVCache",
             Value::Void => "Void",
         }
     }
@@ -273,6 +276,10 @@ impl std::fmt::Display for Value {
                 }
             }
             Value::Type(type_name) => write!(f, "Type({})", type_name),
+            Value::KVCache(cache) => {
+                let c = cache.lock().unwrap();
+                write!(f, "KVCache(layers={})", c.kvs.len())
+            }
             Value::Void => write!(f, "()"),
         }
     }

@@ -1177,6 +1177,164 @@ impl Interpreter {
                                 self.eval_append_cache(&method_args)
                             }
 
+                            // KVCache methods
+                            (Value::KVCache(_), "set") => {
+                                // kv_cache.set(layer_idx: int, k: Tensor, v: Tensor) -> Void
+                                if args.len() != 3 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("KVCache.set() expects 3 arguments, got {}", args.len())
+                                    ));
+                                }
+
+                                let cache_arc = match obj_value {
+                                    Value::KVCache(cache) => cache,
+                                    _ => unreachable!()
+                                };
+
+                                let layer_idx = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.set() expects Integer as first argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let k = match self.eval_expr(&args[1])? {
+                                    Value::TensorF16(t) => t,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.set() expects TensorF16 as second argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let v = match self.eval_expr(&args[2])? {
+                                    Value::TensorF16(t) => t,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.set() expects TensorF16 as third argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let mut cache = cache_arc.lock().map_err(|e|
+                                    RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
+                                )?;
+
+                                if layer_idx >= cache.kvs.len() {
+                                    return Err(RuntimeError::InvalidOperation(
+                                        format!("Layer index {} out of bounds (cache has {} layers)", layer_idx, cache.kvs.len())
+                                    ));
+                                }
+
+                                cache.kvs[layer_idx] = Some((k, v));
+                                Ok(Value::Void)
+                            }
+
+                            (Value::KVCache(_), "append") => {
+                                // kv_cache.append(layer_idx: int, k: Tensor, v: Tensor) -> Void
+                                if args.len() != 3 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("KVCache.append() expects 3 arguments, got {}", args.len())
+                                    ));
+                                }
+
+                                let cache_arc = match obj_value {
+                                    Value::KVCache(cache) => cache,
+                                    _ => unreachable!()
+                                };
+
+                                let layer_idx = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.append() expects Integer as first argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let k = match self.eval_expr(&args[1])? {
+                                    Value::TensorF16(t) => t,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.append() expects TensorF16 as second argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let v = match self.eval_expr(&args[2])? {
+                                    Value::TensorF16(t) => t,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.append() expects TensorF16 as third argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let mut cache = cache_arc.lock().map_err(|e|
+                                    RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
+                                )?;
+
+                                let device = crate::device::MetalDevice::new()
+                                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                                cache.update(layer_idx, k, v, &device)
+                                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                                Ok(Value::Void)
+                            }
+
+                            (Value::KVCache(_), "get_k") => {
+                                // kv_cache.get_k(layer_idx: int) -> Tensor
+                                if args.len() != 1 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("KVCache.get_k() expects 1 argument, got {}", args.len())
+                                    ));
+                                }
+
+                                let cache_arc = match obj_value {
+                                    Value::KVCache(cache) => cache,
+                                    _ => unreachable!()
+                                };
+
+                                let layer_idx = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.get_k() expects Integer, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let cache = cache_arc.lock().map_err(|e|
+                                    RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
+                                )?;
+
+                                let (k, _v) = cache.get(layer_idx).ok_or_else(||
+                                    RuntimeError::InvalidOperation(format!("No cache entry for layer {}", layer_idx))
+                                )?;
+
+                                Ok(Value::TensorF16(k.clone()))
+                            }
+
+                            (Value::KVCache(_), "get_v") => {
+                                // kv_cache.get_v(layer_idx: int) -> Tensor
+                                if args.len() != 1 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("KVCache.get_v() expects 1 argument, got {}", args.len())
+                                    ));
+                                }
+
+                                let cache_arc = match obj_value {
+                                    Value::KVCache(cache) => cache,
+                                    _ => unreachable!()
+                                };
+
+                                let layer_idx = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.get_v() expects Integer, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let cache = cache_arc.lock().map_err(|e|
+                                    RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
+                                )?;
+
+                                let (_k, v) = cache.get(layer_idx).ok_or_else(||
+                                    RuntimeError::InvalidOperation(format!("No cache entry for layer {}", layer_idx))
+                                )?;
+
+                                Ok(Value::TensorF16(v.clone()))
+                            }
+
                             _ => Err(RuntimeError::TypeError(
                                 format!("Type {:?} has no method '{}'", obj_value.type_name(), method)
                             ))
@@ -2172,6 +2330,10 @@ impl Interpreter {
             Value::TokenIds(ids) => format!("{:?}", ids),
             Value::TokenIdArray(arr) => format!("{:?}", arr.data()),
             Value::Type(t) => format!("<Type: {}>", t),
+            Value::KVCache(cache) => {
+                let c = cache.lock().unwrap();
+                format!("<KVCache: {} layers>", c.kvs.len())
+            }
         })
     }
 
@@ -2201,6 +2363,10 @@ impl Interpreter {
             Value::TokenIds(ids) => format!("{:?}", ids),
             Value::TokenIdArray(arr) => format!("{:?}", arr.data()),
             Value::Type(t) => format!("<Type: {}>", t),
+            Value::KVCache(cache) => {
+                let c = cache.lock().unwrap();
+                format!("<KVCache: {} layers>", c.kvs.len())
+            }
         }
     }
 }

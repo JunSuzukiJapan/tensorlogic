@@ -1025,6 +1025,32 @@ impl Interpreter {
                     ))
                 }
             }
+            "KVCache" => {
+                // KVCache static methods
+                match name {
+                    "new" => {
+                        // KVCache::new(num_layers: int) -> KVCache
+                        if args.len() != 1 {
+                            return Err(RuntimeError::TypeError(
+                                format!("KVCache::new() expects 1 argument, got {}", args.len())
+                            ));
+                        }
+
+                        let num_layers = match self.eval_expr(&args[0])? {
+                            Value::Integer(n) => n as usize,
+                            v => return Err(RuntimeError::TypeError(
+                                format!("KVCache::new() expects Integer, got {}", v.type_name())
+                            )),
+                        };
+
+                        let cache = crate::model::llama::Cache::new(num_layers);
+                        Ok(Value::KVCache(std::sync::Arc::new(std::sync::Mutex::new(cache))))
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        format!("KVCache::{} is not implemented", name)
+                    ))
+                }
+            }
             _ => Err(RuntimeError::TypeError(
                 format!("Unknown type namespace: {}", type_namespace)
             ))
