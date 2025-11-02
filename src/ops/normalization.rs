@@ -195,7 +195,6 @@ impl<T: FloatType> Tensor<T> {
         weight: &Tensor<T>,
         eps: f32,
     ) -> TensorResult<Self> {
-        panic!("src/ops/normalization.rs:198:5");
         // Currently only f16 is supported
         if false {
             return Err(TensorError::InvalidOperation(
