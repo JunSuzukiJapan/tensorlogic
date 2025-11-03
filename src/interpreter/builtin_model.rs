@@ -15,8 +15,6 @@ impl Interpreter {
             "load_weight_cache_f32" => Some(self.eval_load_weight_cache_f32(args)),
             "load_weight_cache_gguf_f16" => Some(self.eval_load_weight_cache_gguf_f16(args)),
             "load_weight_cache_gguf_f32" => Some(self.eval_load_weight_cache_gguf_f32(args)),
-            "get_weight" => Some(self.eval_get_weight(args)),
-            "get_tensor" => Some(self.eval_get_tensor(args)),
 
             "print" => Some(self.eval_print(args)),
             "assert" => Some(self.eval_assert(args)),
@@ -364,57 +362,6 @@ impl Interpreter {
         Ok(Value::GGUFWeightCacheF32(cache))
     }
 
-    /// get_weight(weight_cache, "weight_name")
-    /// Get a weight tensor from the cache (loads lazily from mmap if needed)
-    fn eval_get_weight(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
-        if args.len() != 2 {
-            return Err(RuntimeError::TypeError(
-                format!("get_weight() expects 2 arguments (weight_cache, weight_name), got {}", args.len())
-            ));
-        }
-
-        // Evaluate cache argument
-        let cache_val = self.eval_expr(&args[0])?;
-
-        // Evaluate weight name argument
-        let name_val = self.eval_expr(&args[1])?;
-        let weight_name = match name_val {
-            Value::String(s) => s,
-            _ => return Err(RuntimeError::TypeError(
-                "get_weight() second argument must be a string (weight name)".to_string()
-            )),
-        };
-
-        // Get weight from cache (f16 or f32, SafeTensors or GGUF)
-        match cache_val {
-            Value::WeightCacheF16(cache) => {
-                let tensor = cache.get_weight(&weight_name)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(tensor))
-            }
-            Value::WeightCacheF32(cache) => {
-                let tensor = cache.get_weight(&weight_name)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(tensor))
-            }
-            Value::GGUFWeightCacheF16(cache) => {
-                let tensor = cache.get_weight(&weight_name)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(tensor))
-            }
-            Value::GGUFWeightCacheF32(cache) => {
-                let tensor = cache.get_weight(&weight_name)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(tensor))
-            }
-            _ => Err(RuntimeError::TypeError(
-                "get_weight() first argument must be a WeightCache or GGUFWeightCache".to_string()
-            )),
-        }
-    }
-
-
-
     /// print(args...)
     /// Print values to stdout
     fn eval_print(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
@@ -691,49 +638,6 @@ impl Interpreter {
         let token_ids = vec![token_id];
 
         Ok(Value::TokenIds(token_ids))
-    }
-
-    /// get_tensor(model, "tensor_name")
-    /// Get a tensor from a model by name
-    fn eval_get_tensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
-        if args.len() != 2 {
-            return Err(RuntimeError::TypeError(
-                format!("get_tensor() expects 2 arguments (model, tensor_name), got {}", args.len())
-            ));
-        }
-
-        // Evaluate model argument
-        let model_val = self.eval_expr(&args[0])?;
-
-        // Evaluate tensor name argument
-        let name_val = self.eval_expr(&args[1])?;
-        let tensor_name = match name_val {
-            Value::String(s) => s,
-            _ => return Err(RuntimeError::TypeError(
-                "get_tensor() second argument must be a string (tensor name)".to_string()
-            )),
-        };
-
-        // Get tensor from model (f16 or f32)
-        match model_val {
-            Value::ModelF16(model) => {
-                let tensor = model.get_tensor(&tensor_name)
-                    .ok_or_else(|| RuntimeError::InvalidOperation(
-                        format!("Tensor '{}' not found in model", tensor_name)
-                    ))?;
-                Ok(Value::TensorF16(tensor.clone()))
-            }
-            Value::ModelF32(model) => {
-                let tensor = model.get_tensor(&tensor_name)
-                    .ok_or_else(|| RuntimeError::InvalidOperation(
-                        format!("Tensor '{}' not found in model", tensor_name)
-                    ))?;
-                Ok(Value::TensorF32(tensor.clone()))
-            }
-            _ => Err(RuntimeError::TypeError(
-                "get_tensor() first argument must be a Model".to_string()
-            )),
-        }
     }
 
     /// append_token(token_ids, token_id)
