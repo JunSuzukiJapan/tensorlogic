@@ -9,6 +9,7 @@ pub mod metadata;
 pub mod convert;
 pub mod formats;
 pub mod llama;
+pub mod weight_cache;
 
 use crate::tensor::Tensor;
 use crate::tensor::{FloatType, TensorCreation, TensorIO};
@@ -19,6 +20,7 @@ use std::path::Path;
 
 pub use metadata::{ModelMetadata, ModelFormat, QuantizationType};
 pub use convert::TypeConverter;
+pub use weight_cache::WeightCache;
 
 /// Result type for model operations
 pub type ModelResult<T> = Result<T, TensorError>;

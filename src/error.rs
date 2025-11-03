@@ -37,4 +37,7 @@ pub enum TensorError {
 
     #[error("Index out of bounds: index {index}, size {size}")]
     IndexOutOfBounds { index: usize, size: usize },
+
+    #[error("Model loading error: {0}")]
+    LoadError(String),
 }
