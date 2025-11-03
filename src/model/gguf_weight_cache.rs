@@ -46,6 +46,9 @@ pub struct GGUFWeightCache<T: FloatType> {
     /// Path to the GGUF file
     path: PathBuf,
 
+    /// GGUF file reader (wrapped in Arc<Mutex> for thread-safe access)
+    reader: Arc<Mutex<GGUFFileReader<File>>>,
+
     /// LRU cache of loaded and dequantized tensors
     cache: Arc<Mutex<LruCache<String, Tensor<T>>>>,
 
@@ -87,7 +90,10 @@ impl<T: FloatType> GGUFWeightCache<T> {
         let tensor_infos = reader.tensor_infos().to_vec();
 
         for tensor_info in tensor_infos {
-            let shape: Vec<usize> = tensor_info.shape.dimensions.iter().map(|&d| d as usize).collect();
+            // GGUF stores dimensions in reverse order compared to TensorLogic
+            // GGUF: [dim0, dim1, ...] → TensorLogic expects: [..., dim1, dim0]
+            let mut shape: Vec<usize> = tensor_info.shape.dimensions.iter().map(|&d| d as usize).collect();
+            shape.reverse();
 
             metadata.insert(
                 tensor_info.name.clone(),
@@ -104,6 +110,7 @@ impl<T: FloatType> GGUFWeightCache<T> {
 
         Ok(Self {
             path: path.to_path_buf(),
+            reader: Arc::new(Mutex::new(reader)),
             cache: Arc::new(Mutex::new(LruCache::new(
                 NonZeroUsize::new(cache_capacity).unwrap(),
             ))),
@@ -140,19 +147,17 @@ impl<T: FloatType> GGUFWeightCache<T> {
             TensorError::LoadError(format!("Weight not found: {}", name))
         })?;
 
-        // Open file and reader (fresh for each load)
-        let file = File::open(&self.path).map_err(|e| {
-            TensorError::LoadError(format!("Failed to open GGUF file: {}", e))
-        })?;
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[GGUFWeightCache]   Shape: {:?}, Quantization: {:?}", meta.shape, meta.quantization);
+        }
 
-        let mut reader = GGUFFileReader::new(file).map_err(|e| {
-            TensorError::LoadError(format!("Failed to create GGUF reader: {}", e))
-        })?;
-
-        // Load tensor data
-        let data = reader.load_tensor_data(name)
-            .map_err(|e| TensorError::LoadError(format!("Failed to load tensor data: {}", e)))?
-            .ok_or_else(|| TensorError::LoadError(format!("Tensor data not found for {}", name)))?;
+        // Load tensor data using the shared reader
+        let data = {
+            let mut reader = self.reader.lock().unwrap();
+            reader.load_tensor_data(name)
+                .map_err(|e| TensorError::LoadError(format!("Failed to load tensor data: {}", e)))?
+                .ok_or_else(|| TensorError::LoadError(format!("Tensor data not found for {}", name)))?
+        };
 
         // Get bytes from TensorData enum
         let bytes = match data {
@@ -164,6 +169,11 @@ impl<T: FloatType> GGUFWeightCache<T> {
 
         // Dequantize based on type
         let num_elements: usize = meta.shape.iter().product();
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[GGUFWeightCache]   Data bytes: {}, Expected elements: {}", bytes.len(), num_elements);
+        }
+
         let values: Vec<T> = match meta.quantization {
             GGUFTensorType::Q4_0 => {
                 let f16_values = Self::dequantize_q4_0(bytes, num_elements);
@@ -218,8 +228,18 @@ impl<T: FloatType> GGUFWeightCache<T> {
             )),
         };
 
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[GGUFWeightCache]   Dequantized to {} elements", values.len());
+        }
+
         // Create tensor on GPU
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[GGUFWeightCache]   Creating tensor with shape: {:?}", meta.shape);
+        }
         let tensor = Tensor::from_vec_gpu(&self.device, values, meta.shape.clone())?;
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[GGUFWeightCache]   Created tensor shape: {:?}", tensor.shape);
+        }
 
         // Store in cache
         {
@@ -319,7 +339,7 @@ impl<T: FloatType> GGUFWeightCache<T> {
     fn dequantize_q6_k(data: &[u8], num_elements: usize) -> Vec<f16> {
         // Q6_K block structure:
         // - 256 6-bit values (packed)
-        // - 16 scales (f16)
+        // - 16 scales (int8_t, quantized)
         // - 1 global scale d (f16)
         const BLOCK_SIZE: usize = 256;
         const SCALES_COUNT: usize = 16;
@@ -328,9 +348,9 @@ impl<T: FloatType> GGUFWeightCache<T> {
         // Block layout:
         // ql[128]  : lower 4 bits of 6-bit values
         // qh[64]   : upper 2 bits of 6-bit values
-        // scales[16*2]: 16 f16 scales
+        // scales[16]: 16 int8_t quantized scales
         // d[2]     : 1 f16 global scale
-        const BLOCK_BYTES: usize = 128 + 64 + 32 + 2; // = 226 bytes
+        const BLOCK_BYTES: usize = 128 + 64 + 16 + 2; // = 210 bytes
 
         let num_blocks = (num_elements + BLOCK_SIZE - 1) / BLOCK_SIZE;
         let mut result = Vec::with_capacity(num_elements);
@@ -345,19 +365,18 @@ impl<T: FloatType> GGUFWeightCache<T> {
             let ql_offset = block_offset;
             // Read qh (upper 2 bits)
             let qh_offset = block_offset + 128;
-            // Read scales
+            // Read scales (int8_t, quantized)
             let scales_offset = block_offset + 128 + 64;
-            // Read global scale d
-            let d_offset = block_offset + 128 + 64 + 32;
+            // Read global scale d (f16)
+            let d_offset = block_offset + 128 + 64 + 16;
 
             let d_bytes = [data[d_offset], data[d_offset + 1]];
             let d = f16::from_le_bytes(d_bytes);
 
-            // Read 16 scales
-            let mut scales = [f16::ZERO; SCALES_COUNT];
+            // Read 16 quantized scales (int8_t)
+            let mut scales = [0i8; SCALES_COUNT];
             for i in 0..SCALES_COUNT {
-                let scale_bytes = [data[scales_offset + i * 2], data[scales_offset + i * 2 + 1]];
-                scales[i] = f16::from_le_bytes(scale_bytes);
+                scales[i] = data[scales_offset + i] as i8;
             }
 
             // Dequantize 256 values
@@ -382,8 +401,10 @@ impl<T: FloatType> GGUFWeightCache<T> {
                 // Combine to 6-bit value (0..63) and center to (-32..31)
                 let q6 = ((qh << 4) | ql) - 32;
 
-                // Dequantize: value = d * scale[i/16] * q6
-                let value = d * scales[scale_idx] * f16::from_f32(q6 as f32);
+                // Dequantize: value = d * (scale[i/16] as f32) * q6
+                // Scales are quantized int8_t values
+                let scale = f16::from_f32(scales[scale_idx] as f32);
+                let value = d * scale * f16::from_f32(q6 as f32);
                 result.push(value);
             }
         }
@@ -422,6 +443,7 @@ impl<T: FloatType> Clone for GGUFWeightCache<T> {
     fn clone(&self) -> Self {
         Self {
             path: self.path.clone(),
+            reader: Arc::clone(&self.reader),
             cache: Arc::clone(&self.cache),
             metadata: self.metadata.clone(),
             device: self.device.clone(),
