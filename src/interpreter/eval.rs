@@ -2558,6 +2558,14 @@ impl Interpreter {
                 let c = cache.lock().unwrap();
                 format!("<KVCache: {} layers>", c.kvs.len())
             }
+            Value::WeightCacheF16(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                format!("<WeightCache<f16>: {}/{} cached>", cached, capacity)
+            }
+            Value::WeightCacheF32(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                format!("<WeightCache<f32>: {}/{} cached>", cached, capacity)
+            }
         })
     }
 
@@ -2594,6 +2602,14 @@ impl Interpreter {
             Value::KVCacheF32(cache) => {
                 let c = cache.lock().unwrap();
                 format!("<KVCache: {} layers>", c.kvs.len())
+            }
+            Value::WeightCacheF16(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                format!("<WeightCache<f16>: {}/{} cached>", cached, capacity)
+            }
+            Value::WeightCacheF32(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                format!("<WeightCache<f32>: {}/{} cached>", cached, capacity)
             }
         }
     }

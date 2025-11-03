@@ -44,6 +44,7 @@ struct WeightMetadata {
 /// // Weight is cached for subsequent access
 /// let weight2 = cache.get_weight("layer.0.weight")?; // Fast: from cache
 /// ```
+#[derive(Debug)]
 pub struct WeightCache<T: FloatType> {
     /// Memory-mapped safetensors file (zero-copy, OS managed)
     mmap: Arc<Mmap>,

@@ -1,7 +1,7 @@
 //! Runtime value types for TensorLogic interpreter
 
 use crate::tensor::{Tensor, TokenIdArray, TensorAccessors};
-use crate::model::Model;
+use crate::model::{Model, WeightCache};
 use half::f16;
 use super::{RuntimeError, RuntimeResult, DISPLAY_LIMIT};
 
@@ -118,6 +118,10 @@ pub enum Value {
     KVCacheF16(std::sync::Arc<std::sync::Mutex<crate::model::llama::Cache<half::f16>>>),
     /// KV Cache for transformer attention layers (f32)
     KVCacheF32(std::sync::Arc<std::sync::Mutex<crate::model::llama::Cache<f32>>>),
+    /// Weight cache for lazy loading (f16)
+    WeightCacheF16(WeightCache<f16>),
+    /// Weight cache for lazy loading (f32)
+    WeightCacheF32(WeightCache<f32>),
     Void,
 }
 
@@ -145,6 +149,8 @@ impl Value {
             Value::Type(_) => "Type",
             Value::KVCacheF16(_) => "KVCache",
             Value::KVCacheF32(_) => "KVCache",
+            Value::WeightCacheF16(_) => "WeightCacheF16",
+            Value::WeightCacheF32(_) => "WeightCacheF32",
             Value::Void => "Void",
         }
     }
@@ -286,6 +292,16 @@ impl std::fmt::Display for Value {
             Value::KVCacheF32(cache) => {
                 let c = cache.lock().unwrap();
                 write!(f, "KVCache(layers={})", c.kvs.len())
+            }
+            Value::WeightCacheF16(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                write!(f, "WeightCache<f16>(cached={}/{}, weights={})",
+                       cached, capacity, cache.weight_names().len())
+            }
+            Value::WeightCacheF32(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                write!(f, "WeightCache<f32>(cached={}/{}, weights={})",
+                       cached, capacity, cache.weight_names().len())
             }
             Value::Void => write!(f, "()"),
         }

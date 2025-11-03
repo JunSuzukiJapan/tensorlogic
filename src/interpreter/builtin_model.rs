@@ -11,6 +11,9 @@ impl Interpreter {
             "load_model" => Some(self.eval_load_model(args)),
             "load_model_f16" => Some(self.eval_load_model_f16(args)),
             "load_model_f32" => Some(self.eval_load_model_f32(args)),
+            "load_weight_cache_f16" => Some(self.eval_load_weight_cache_f16(args)),
+            "load_weight_cache_f32" => Some(self.eval_load_weight_cache_f32(args)),
+            "get_weight" => Some(self.eval_get_weight(args)),
             "get_tensor" => Some(self.eval_get_tensor(args)),
 
             "print" => Some(self.eval_print(args)),
@@ -191,7 +194,128 @@ impl Interpreter {
         Ok(Value::ModelF32(model))
     }
 
-    
+    /// load_weight_cache_f16("path/to/model.safetensors", cache_capacity)
+    /// Create a lazy-loading weight cache for f16 weights
+    /// Uses memory mapping + LRU cache for efficient memory usage
+    fn eval_load_weight_cache_f16(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::model::WeightCache;
+
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("load_weight_cache_f16() expects 2 arguments (path, cache_capacity), got {}", args.len())
+            ));
+        }
+
+        // Evaluate path argument
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "load_weight_cache_f16() first argument must be a string (path)".to_string()
+            )),
+        };
+
+        // Evaluate cache_capacity argument
+        let capacity_val = self.eval_expr(&args[1])?;
+        let capacity = match capacity_val {
+            Value::Integer(i) => i as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "load_weight_cache_f16() second argument must be an integer (cache_capacity)".to_string()
+            )),
+        };
+
+        // Create weight cache with mmap
+        let device = self.env.metal_device();
+        let cache = WeightCache::<half::f16>::new(&path, device.clone(), capacity)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        println!("Created weight cache for: {} (f16, capacity={})", path, capacity);
+        println!("  Weights available: {}", cache.weight_names().len());
+
+        Ok(Value::WeightCacheF16(cache))
+    }
+
+    /// load_weight_cache_f32("path/to/model.safetensors", cache_capacity)
+    /// Create a lazy-loading weight cache for f32 weights
+    /// Uses memory mapping + LRU cache for efficient memory usage
+    fn eval_load_weight_cache_f32(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::model::WeightCache;
+
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("load_weight_cache_f32() expects 2 arguments (path, cache_capacity), got {}", args.len())
+            ));
+        }
+
+        // Evaluate path argument
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "load_weight_cache_f32() first argument must be a string (path)".to_string()
+            )),
+        };
+
+        // Evaluate cache_capacity argument
+        let capacity_val = self.eval_expr(&args[1])?;
+        let capacity = match capacity_val {
+            Value::Integer(i) => i as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "load_weight_cache_f32() second argument must be an integer (cache_capacity)".to_string()
+            )),
+        };
+
+        // Create weight cache with mmap
+        let device = self.env.metal_device();
+        let cache = WeightCache::<f32>::new(&path, device.clone(), capacity)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        println!("Created weight cache for: {} (f32, capacity={})", path, capacity);
+        println!("  Weights available: {}", cache.weight_names().len());
+
+        Ok(Value::WeightCacheF32(cache))
+    }
+
+    /// get_weight(weight_cache, "weight_name")
+    /// Get a weight tensor from the cache (loads lazily from mmap if needed)
+    fn eval_get_weight(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("get_weight() expects 2 arguments (weight_cache, weight_name), got {}", args.len())
+            ));
+        }
+
+        // Evaluate cache argument
+        let cache_val = self.eval_expr(&args[0])?;
+
+        // Evaluate weight name argument
+        let name_val = self.eval_expr(&args[1])?;
+        let weight_name = match name_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "get_weight() second argument must be a string (weight name)".to_string()
+            )),
+        };
+
+        // Get weight from cache (f16 or f32)
+        match cache_val {
+            Value::WeightCacheF16(cache) => {
+                let tensor = cache.get_weight(&weight_name)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(tensor))
+            }
+            Value::WeightCacheF32(cache) => {
+                let tensor = cache.get_weight(&weight_name)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(tensor))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "get_weight() first argument must be a WeightCache".to_string()
+            )),
+        }
+    }
+
+
 
     /// print(args...)
     /// Print values to stdout
