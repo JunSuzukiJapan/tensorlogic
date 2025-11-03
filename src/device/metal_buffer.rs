@@ -14,6 +14,10 @@ pub struct MetalBuffer<T: FloatType> {
     pub(crate) buffer: Arc<Buffer>,
     pub(crate) length: usize, // number of T elements
     pub(crate) _phantom: PhantomData<T>,
+    /// Optional reference to BufferPool for automatic return on drop
+    pub(crate) pool: Option<BufferPool>,
+    /// Size class for pool return (only used when pool is Some)
+    pub(crate) size_class: Option<usize>,
 }
 
 impl<T: FloatType> MetalBuffer<T> {
@@ -31,6 +35,8 @@ impl<T: FloatType> MetalBuffer<T> {
             buffer: Arc::new(buffer),
             length: data.len(),
             _phantom: PhantomData,
+            pool: None,
+            size_class: None,
         })
     }
 
@@ -47,6 +53,8 @@ impl<T: FloatType> MetalBuffer<T> {
             buffer: Arc::new(buffer),
             length,
             _phantom: PhantomData,
+            pool: None,
+            size_class: None,
         })
     }
 
@@ -189,6 +197,31 @@ impl<T: FloatType> MetalBuffer<T> {
         let mut buffer = pool.allocate::<T>(data.len())?;
         buffer.write_from_slice(data)?;
         Ok(buffer)
+    }
+}
+
+impl<T: FloatType> Drop for MetalBuffer<T> {
+    fn drop(&mut self) {
+        // Return buffer to pool if this is a pooled buffer and we're the last reference
+        if let (Some(pool), Some(size_class)) = (&self.pool, self.size_class) {
+            let ref_count = Arc::strong_count(&self.buffer);
+            // Only return to pool if this is the last Arc reference
+            if ref_count == 1 {
+                if std::env::var("TL_DEBUG").is_ok() {
+                    eprintln!(
+                        "[DEBUG_RS] MetalBuffer::drop: Returning buffer to pool (size_class={}, length={})",
+                        size_class, self.length
+                    );
+                }
+                // Use try_return_buffer to avoid deadlock if pool is locked
+                pool.try_return_buffer(self.buffer.clone(), size_class, self.length);
+            } else if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+                eprintln!(
+                    "[BufferPool] Buffer NOT returned (ref_count={}, length={}, size_class={})",
+                    ref_count, self.length, size_class
+                );
+            }
+        }
     }
 }
 

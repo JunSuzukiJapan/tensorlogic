@@ -6,6 +6,7 @@ use crate::tensor::FloatType;
 use half::f16;
 use metal::{Buffer, Device as MTLDevice, MTLResourceOptions};
 use std::collections::HashMap;
+use std::io::Write;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -47,6 +48,17 @@ pub struct BufferPool {
 
     /// Statistics
     stats: Arc<Mutex<PoolStats>>,
+}
+
+impl Clone for BufferPool {
+    fn clone(&self) -> Self {
+        Self {
+            device: Arc::clone(&self.device),
+            pools: Arc::clone(&self.pools),
+            max_buffers_per_size: self.max_buffers_per_size,
+            stats: Arc::clone(&self.stats),
+        }
+    }
 }
 
 impl std::fmt::Debug for BufferPool {
@@ -142,10 +154,32 @@ impl BufferPool {
         // Try to reuse an existing buffer from the size class
         if std::env::var("TL_DEBUG").is_ok() {
             eprintln!("[DEBUG_RS] BufferPool::allocate: checking pool for reuse...");
+            std::io::stderr().flush().ok();
         }
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: about to calculate total_pooled...");
+            std::io::stderr().flush().ok();
+        }
+
+        // Check if BufferPool is full
+        let total_pooled: usize = pools.values().map(|v| v.len()).sum();
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: total_pooled={}, max_per_size={}",
+                     total_pooled, self.max_buffers_per_size);
+            std::io::stderr().flush().ok();
+        }
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: calling pools.get_mut(size_class={})...", size_class);
+            std::io::stderr().flush().ok();
+        }
+
         if let Some(buffers) = pools.get_mut(&size_class) {
             if std::env::var("TL_DEBUG").is_ok() {
-                eprintln!("[DEBUG_RS] BufferPool::allocate: size class exists, {} buffers available", buffers.len());
+                eprintln!("[DEBUG_RS] BufferPool::allocate: size class {} exists, {} buffers available",
+                         size_class, buffers.len());
+                std::io::stderr().flush().ok();
             }
             if let Some((buffer, _last_used)) = buffers.pop() {
                 if std::env::var("TL_DEBUG").is_ok() {
@@ -180,19 +214,48 @@ impl BufferPool {
                     buffer,
                     length,  // Store requested length, not size_class
                     _phantom: PhantomData,
+                    pool: Some(self.clone()),
+                    size_class: Some(size_class),
                 });
+            } else {
+                if std::env::var("TL_DEBUG").is_ok() {
+                    eprintln!("[DEBUG_RS] BufferPool::allocate: size class {} exists but no buffers available", size_class);
+                    std::io::stderr().flush().ok();
+                }
+            }
+        } else {
+            if std::env::var("TL_DEBUG").is_ok() {
+                eprintln!("[DEBUG_RS] BufferPool::allocate: size class {} does not exist yet", size_class);
+                std::io::stderr().flush().ok();
             }
         }
 
         if std::env::var("TL_DEBUG").is_ok() {
             eprintln!("[DEBUG_RS] BufferPool::allocate: no reusable buffer, creating new one");
+            std::io::stderr().flush().ok();
         }
 
         // Create a new buffer with size_class capacity
         stats.allocation_count += 1;
 
         if std::env::var("TL_DEBUG").is_ok() {
-            eprintln!("[DEBUG_RS] BufferPool::allocate: allocation_count incremented");
+            eprintln!("[DEBUG_RS] BufferPool::allocate: allocation_count incremented to {}", stats.allocation_count);
+        }
+
+        // Warn if BufferPool is getting full (many allocations with no reuse)
+        // Since buffers are not returned to pool on drop, this indicates memory pressure
+        const WARN_THRESHOLD: usize = 1000;
+        const ERROR_THRESHOLD: usize = 5000;
+
+        if stats.allocation_count > ERROR_THRESHOLD && stats.reuse_count < stats.allocation_count / 10 {
+            eprintln!("[BufferPool] CRITICAL: Too many allocations ({}) with minimal reuse ({})",
+                     stats.allocation_count, stats.reuse_count);
+            eprintln!("[BufferPool] This indicates memory leak - buffers are not being returned to pool");
+            eprintln!("[BufferPool] System may run out of memory soon!");
+        } else if stats.allocation_count > WARN_THRESHOLD && stats.reuse_count < stats.allocation_count / 5 {
+            eprintln!("[BufferPool] WARNING: High allocation count ({}) with low reuse ({})",
+                     stats.allocation_count, stats.reuse_count);
+            eprintln!("[BufferPool] Buffers may not be returned to pool properly");
         }
 
         // Periodically check and shrink (every 100 allocations)
@@ -255,6 +318,8 @@ impl BufferPool {
             buffer: Arc::new(buffer),
             length,  // Store requested length, not size_class
             _phantom: PhantomData,
+            pool: Some(self.clone()),
+            size_class: Some(size_class),
         })
     }
 
@@ -295,7 +360,7 @@ impl BufferPool {
         // Only add if we haven't reached the limit
         if buffers.len() < self.max_buffers_per_size {
             // Record current time as last access time
-            buffers.push((buffer.buffer, Instant::now()));
+            buffers.push((buffer.buffer.clone(), Instant::now()));
 
             if std::env::var("TL_BUFFER_DEBUG").is_ok() {
                 eprintln!("[BufferPool::recycle] ✓ added to pool, size_class={}, pool_size={}",
@@ -309,6 +374,57 @@ impl BufferPool {
                          size_class, self.max_buffers_per_size);
             }
             false
+        }
+    }
+
+    /// Try to return a buffer to the pool (called automatically by MetalBuffer::drop)
+    ///
+    /// Uses try_lock() to avoid deadlock - if the pool is already locked, the buffer
+    /// is simply dropped and freed by the OS. This is safe and prevents hangs.
+    pub fn try_return_buffer(&self, buffer: Arc<Buffer>, size_class: usize, length: usize) {
+        // Try to lock without blocking - if we can't get the lock, just drop the buffer
+        let mut pools = match self.pools.try_lock() {
+            Ok(pools) => pools,
+            Err(_) => {
+                if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+                    eprintln!(
+                        "[BufferPool::try_return_buffer] ✗ pool locked, dropping buffer (size_class={}, length={})",
+                        size_class, length
+                    );
+                }
+                return; // Buffer will be dropped and freed
+            }
+        };
+
+        if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+            eprintln!(
+                "[BufferPool::try_return_buffer] length={}, size_class={}",
+                length, size_class
+            );
+        }
+
+        let buffers = pools.entry(size_class).or_insert_with(Vec::new);
+
+        // Only add if we haven't reached the limit
+        if buffers.len() < self.max_buffers_per_size {
+            // Record current time as last access time
+            buffers.push((buffer, Instant::now()));
+
+            if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+                eprintln!(
+                    "[BufferPool::try_return_buffer] ✓ returned to pool, size_class={}, pool_size={}",
+                    size_class,
+                    buffers.len()
+                );
+            }
+        } else {
+            if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+                eprintln!(
+                    "[BufferPool::try_return_buffer] ✗ pool full, size_class={}, limit={}, dropping buffer",
+                    size_class, self.max_buffers_per_size
+                );
+            }
+            // Buffer will be dropped and freed
         }
     }
 
@@ -463,17 +579,6 @@ impl BufferPool {
             eprintln!("  Reuse rate: {:.1}%", reuse_rate);
         }
         eprintln!("================================\n");
-    }
-}
-
-impl Clone for BufferPool {
-    fn clone(&self) -> Self {
-        Self {
-            device: self.device.clone(),
-            pools: self.pools.clone(),
-            max_buffers_per_size: self.max_buffers_per_size,
-            stats: self.stats.clone(),
-        }
     }
 }
 
