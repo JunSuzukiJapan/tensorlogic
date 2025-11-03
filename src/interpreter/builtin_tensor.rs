@@ -498,6 +498,7 @@ impl Interpreter {
     /// ```
     fn eval_rope(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         use crate::interpreter::value::ToValue;
+        let _start = std::time::Instant::now();
 
         if args.len() < 1 || args.len() > 2 {
             return Err(RuntimeError::TypeError(
@@ -524,15 +525,25 @@ impl Interpreter {
             0  // Default to 0 if not provided
         };
 
-        Ok(match tensor_val {
+        let result = match tensor_val {
             Value::TensorF16(tensor) => {
-                tensor.rope(position_offset).map_err(|e| RuntimeError::TensorError(e))?.to_value()
+                Ok(tensor.rope(position_offset).map_err(|e| RuntimeError::TensorError(e))?.to_value())
             }
             Value::TensorF32(tensor) => {
-                tensor.rope(position_offset).map_err(|e| RuntimeError::TensorError(e))?.to_value()
+                Ok(tensor.rope(position_offset).map_err(|e| RuntimeError::TensorError(e))?.to_value())
             }
-            _ => return Err(RuntimeError::TypeError("Expected tensor".to_string()))
-        })
+            _ => Err(RuntimeError::TypeError("Expected tensor".to_string()))
+        };
+
+        if std::env::var("TL_PERF").is_ok() {
+            let dtype = match &result {
+                Ok(Value::TensorF16(_)) => "f16",
+                Ok(Value::TensorF32(_)) => "f32",
+                _ => "unknown",
+            };
+            eprintln!("[PERF] rope({}, pos={}): {:.3}ms", dtype, position_offset, _start.elapsed().as_secs_f64() * 1000.0);
+        }
+        result
     }
 
     /// slice(tensor, row, col_start, col_end) -> tensor
@@ -752,6 +763,7 @@ impl Interpreter {
     /// add(tensor1, tensor2) -> tensor
     /// Adds two tensors element-wise (supports method chaining)
     fn eval_add_method(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        let _start = std::time::Instant::now();
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("add() expects 2 arguments, got {}", args.len())
@@ -761,7 +773,7 @@ impl Interpreter {
         let left = self.eval_expr(&args[0])?;
         let right = self.eval_expr(&args[1])?;
 
-        match (left, right) {
+        let result = match (left, right) {
             (Value::TensorF16(t1), Value::TensorF16(t2)) => {
                 let result = t1.add(&t2).map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF16(result))
@@ -773,7 +785,17 @@ impl Interpreter {
             _ => Err(RuntimeError::TypeError(
                 "add() requires two tensors of the same type".to_string()
             ))
+        };
+
+        if std::env::var("TL_PERF").is_ok() {
+            let dtype = match &result {
+                Ok(Value::TensorF16(_)) => "f16",
+                Ok(Value::TensorF32(_)) => "f32",
+                _ => "unknown",
+            };
+            eprintln!("[PERF] add({}): {:.3}ms", dtype, _start.elapsed().as_secs_f64() * 1000.0);
         }
+        result
     }
 
     /// sub(tensor1, tensor2) -> tensor
@@ -806,6 +828,7 @@ impl Interpreter {
     /// mul(tensor1, tensor2_or_scalar) -> tensor
     /// Multiplies tensors element-wise or by scalar (supports method chaining)
     fn eval_mul_method(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        let _start = std::time::Instant::now();
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("mul() expects 2 arguments, got {}", args.len())
@@ -815,7 +838,7 @@ impl Interpreter {
         let left = self.eval_expr(&args[0])?;
         let right = self.eval_expr(&args[1])?;
 
-        match (left, right) {
+        let result = match (left, right) {
             (Value::TensorF16(t1), Value::TensorF16(t2)) => {
                 let result = t1.mul(&t2).map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF16(result))
@@ -838,7 +861,17 @@ impl Interpreter {
             _ => Err(RuntimeError::TypeError(
                 "mul() requires two tensors or a tensor and a scalar".to_string()
             ))
+        };
+
+        if std::env::var("TL_PERF").is_ok() {
+            let dtype = match &result {
+                Ok(Value::TensorF16(_)) => "f16",
+                Ok(Value::TensorF32(_)) => "f32",
+                _ => "unknown",
+            };
+            eprintln!("[PERF] mul({}): {:.3}ms", dtype, _start.elapsed().as_secs_f64() * 1000.0);
         }
+        result
     }
 
     /// div(tensor1, tensor2_or_scalar) -> tensor

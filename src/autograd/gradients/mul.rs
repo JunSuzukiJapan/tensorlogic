@@ -22,20 +22,11 @@ pub struct MulBackward<T: FloatType> {
 
 impl<T: FloatType> MulBackward<T> {
     pub fn new(a: Tensor<T>, b: Tensor<T>) -> Self {
-        use crate::device::Device;
-
         let a_shape = a.shape().clone();
         let b_shape = b.shape().clone();
 
-        // Ensure GPU operations complete before storing tensors
-        if let Device::Metal(ref device) = a.device() {
-            device.flush_if_needed().ok();
-            device.wait_until_completed().ok();
-        }
-        if let Device::Metal(ref device) = b.device() {
-            device.flush_if_needed().ok();
-            device.wait_until_completed().ok();
-        }
+        // No GPU sync needed - tensors store Arc<Buffer> references,
+        // not copied data. Backward pass will sync when needed.
 
         Self {
             a,

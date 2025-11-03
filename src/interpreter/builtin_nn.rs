@@ -80,6 +80,14 @@ impl Interpreter {
         // eprintln!("[TIMING] rms_norm: computation: {:.3}ms, total: {:.3}ms",
         //           compute_start.elapsed().as_secs_f64() * 1000.0,
         //           _start.elapsed().as_secs_f64() * 1000.0);
+        if std::env::var("TL_PERF").is_ok() {
+            let dtype = match &result {
+                Ok(Value::TensorF16(_)) => "f16",
+                Ok(Value::TensorF32(_)) => "f32",
+                _ => "unknown",
+            };
+            eprintln!("[PERF] rms_norm({}): {:.3}ms", dtype, _start.elapsed().as_secs_f64() * 1000.0);
+        }
         result
     }
 
@@ -976,6 +984,9 @@ impl Interpreter {
         let result = attn_out.matmul_transposed_b(&w_o).map_err(|e| RuntimeError::TensorError(e))?;
         // eprintln!("[TIMING]   attention_f32: output projection: {:.3}ms", output_start.elapsed().as_secs_f64() * 1000.0);
         // eprintln!("[TIMING]   attention_f32: TOTAL: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
+        if std::env::var("TL_PERF").is_ok() {
+            eprintln!("[PERF] attention_with_cache(f32): {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
+        }
 
         Ok(Value::TensorF32(result))
     }
@@ -986,6 +997,8 @@ impl Interpreter {
         v: Tensor<f16>,
         w_o: Tensor<f16>,
     ) -> RuntimeResult<Value> {
+        let _fn_start = Instant::now();
+
         // Q shape: [seq_len, n_embd]
         // K shape: [cache_len, n_embd]
         // V shape: [cache_len, n_embd]
@@ -1155,6 +1168,10 @@ impl Interpreter {
             if nan_count > 0 || inf_count > 0 {
                 eprintln!("  ⚠️  WARNING: NaN={}, Inf={}", nan_count, inf_count);
             }
+        }
+
+        if std::env::var("TL_PERF").is_ok() {
+            eprintln!("[PERF] attention_with_cache(f16): {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
         }
 
         Ok(Value::TensorF16(result))

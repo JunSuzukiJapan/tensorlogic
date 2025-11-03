@@ -84,16 +84,10 @@ impl<T: FloatType> Tensor<T> {
         let b_buf = other.buffer().as_metal()?;
 
         // Get device
-        let mut device = match self.device() {
+        let device = match self.device() {
             Device::Metal(dev) => dev.clone(),
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
-
-        // Load shaders if not already loaded
-        if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/unified.metal");
-            device.load_library(shader_source)?;
-        }
 
         // Safety: We checked T::is_f16() above, so we can safely transmute to MetalBuffer<f16>
         let a_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(a_buf) };
@@ -102,11 +96,17 @@ impl<T: FloatType> Tensor<T> {
         // Create result buffer (f16)
         let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
-        // Create local executor for this operation
-        let mut executor = crate::device::KernelExecutor::new(device);
+        // Use global kernel executor to share pipeline cache
+        let executor_mutex = crate::device::get_kernel_executor()?;
+        let mut executor_guard = executor_mutex.lock().unwrap();
+        let executor = executor_guard.as_mut().ok_or_else(||
+            TensorError::MetalError("Kernel executor not initialized".to_string())
+        )?;
+
         let suffix = T::kernel_suffix();
         let kernel_name = format!("add{}", suffix);
         executor.execute_binary_op(&kernel_name, a_buf_f16, b_buf_f16, &result_buf)?;
+        drop(executor_guard);
 
         // Safety: We're working with f16, so transmute back to T (which is f16)
         let result_buf_t: MetalBuffer<T> = unsafe { std::mem::transmute(result_buf) };
@@ -178,22 +178,26 @@ impl<T: FloatType> Tensor<T> {
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
-        let mut device = match self.device() {
+        let device = match self.device() {
             Device::Metal(dev) => dev.clone(),
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
 
-        if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/unified.metal");
-            device.load_library(shader_source)?;
-        }
-
         let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
-        let mut executor = crate::device::KernelExecutor::new(device);
+        // Use global kernel executor to share pipeline cache
+        let executor_mutex = crate::device::get_kernel_executor()?;
+        let mut executor_guard = executor_mutex.lock().unwrap();
+        let executor = executor_guard.as_mut().ok_or_else(||
+            TensorError::MetalError("Kernel executor not initialized".to_string())
+        )?;
+
         let a_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(a_buf) };
         let b_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(b_buf) };
-        executor.execute_binary_op("sub_f16", a_buf_f16, b_buf_f16, &result_buf)?;
+        let suffix = T::kernel_suffix();
+        let kernel_name = format!("sub{}", suffix);
+        executor.execute_binary_op(&kernel_name, a_buf_f16, b_buf_f16, &result_buf)?;
+        drop(executor_guard);
 
         self.new_from_pool(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -249,6 +253,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn mul_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        let _total_start = std::time::Instant::now();
         // Currently only f16 is supported for Metal operations
         if false {
             return Err(TensorError::InvalidOperation(
@@ -259,24 +264,41 @@ impl<T: FloatType> Tensor<T> {
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
-        let mut device = match self.device() {
+        let device = match self.device() {
             Device::Metal(dev) => dev.clone(),
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
 
-        if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/unified.metal");
-            device.load_library(shader_source)?;
+        let _buf_start = std::time::Instant::now();
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        if std::env::var("TL_PERF").is_ok() {
+            eprintln!("[PERF]   mul_metal: buffer_alloc={:.3}ms, numel={}",
+                     _buf_start.elapsed().as_secs_f64() * 1000.0, self.numel());
         }
 
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        // Use global kernel executor to share pipeline cache
+        let _executor_start = std::time::Instant::now();
+        let executor_mutex = crate::device::get_kernel_executor()?;
+        let mut executor_guard = executor_mutex.lock().unwrap();
+        let executor = executor_guard.as_mut().ok_or_else(||
+            TensorError::MetalError("Kernel executor not initialized".to_string())
+        )?;
 
-        let mut executor = crate::device::KernelExecutor::new(device);
         let a_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(a_buf) };
         let b_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(b_buf) };
         let suffix = T::kernel_suffix();
         let kernel_name = format!("mul{}", suffix);
+
+        let _exec_start = std::time::Instant::now();
         executor.execute_binary_op(&kernel_name, a_buf_f16, b_buf_f16, &result_buf)?;
+        if std::env::var("TL_PERF").is_ok() {
+            eprintln!("[PERF]   mul_metal: execute={:.3}ms", _exec_start.elapsed().as_secs_f64() * 1000.0);
+        }
+        drop(executor_guard);
+
+        if std::env::var("TL_PERF").is_ok() {
+            eprintln!("[PERF]   mul_metal: TOTAL={:.3}ms", _total_start.elapsed().as_secs_f64() * 1000.0);
+        }
 
         self.new_from_pool(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -342,24 +364,26 @@ impl<T: FloatType> Tensor<T> {
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
-        let mut device = match self.device() {
+        let device = match self.device() {
             Device::Metal(dev) => dev.clone(),
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
 
-        if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/unified.metal");
-            device.load_library(shader_source)?;
-        }
-
         let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
-        let mut executor = crate::device::KernelExecutor::new(device);
+        // Use global kernel executor to share pipeline cache
+        let executor_mutex = crate::device::get_kernel_executor()?;
+        let mut executor_guard = executor_mutex.lock().unwrap();
+        let executor = executor_guard.as_mut().ok_or_else(||
+            TensorError::MetalError("Kernel executor not initialized".to_string())
+        )?;
+
         let a_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(a_buf) };
         let b_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(b_buf) };
         let suffix = T::kernel_suffix();
         let kernel_name = format!("div{}", suffix);
         executor.execute_binary_op(&kernel_name, a_buf_f16, b_buf_f16, &result_buf)?;
+        drop(executor_guard);
 
         self.new_from_pool(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),

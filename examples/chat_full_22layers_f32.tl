@@ -192,6 +192,7 @@ main {
     // PREFILL PHASE: Build initial KV caches for all 22 layers
     // Apply RoPE to K before caching (builtin attention expects pre-RoPE'd cache)
     // ============================================================
+    print("[DEBUG] Starting PREFILL phase - building KV caches for all 22 layers...")
     let K0_raw = linear(x, L0.attn_k.weight)
     let K0 = apply_rope_k(K0_raw, seq_len, 0.0)
     let V0 = linear(x, L0.attn_v.weight)
@@ -262,10 +263,34 @@ main {
     // ============================================================
     // PREFILL: Run prompt through all 22 transformer layers
     // ============================================================
+    print("[DEBUG] KV caches built, running prompt through all transformer layers...")
+    print("[DEBUG] Processing layer 0...")
     let h0 = transformer_layer(x, L0.attn_norm.weight, L0.attn_q.weight, L0.attn_k.weight, L0.attn_v.weight, L0.attn_output.weight, L0.ffn_norm.weight, L0.ffn_gate.weight, L0.ffn_up.weight, L0.ffn_down.weight, K0, V0)
+    print("[DEBUG] Layer 0 completed!")
+    print("[DEBUG] Processing layer 1...")
     let h1 = transformer_layer(h0, L1.attn_norm.weight, L1.attn_q.weight, L1.attn_k.weight, L1.attn_v.weight, L1.attn_output.weight, L1.ffn_norm.weight, L1.ffn_gate.weight, L1.ffn_up.weight, L1.ffn_down.weight, K1, V1)
-    let h2 = transformer_layer(h1, L2.attn_norm.weight, L2.attn_q.weight, L2.attn_k.weight, L2.attn_v.weight, L2.attn_output.weight, L2.ffn_norm.weight, L2.ffn_gate.weight, L2.ffn_up.weight, L2.ffn_down.weight, K2, V2)
+    print("[DEBUG] Layer 1 completed!")
+    print("[DEBUG] Processing layer 2...")
+    // Inline transformer_layer for Layer 2 with debug logs
+    print("[DEBUG]   L2: Starting rms_norm (attention)...")
+    let normed2 = rms_norm(h1, L2.attn_norm.weight)
+    print("[DEBUG]   L2: rms_norm done, computing Q...")
+    let Q2 = linear(normed2, L2.attn_q.weight)
+    print("[DEBUG]   L2: Q done, calling attention_with_cache...")
+    let attn_out2 = attention_with_cache(Q2, K2, V2, L2.attn_output.weight)
+    print("[DEBUG]   L2: attention done, adding residual...")
+    let after_attn2 = h1 + attn_out2
+    print("[DEBUG]   L2: residual added, rms_norm (ffn)...")
+    let normed2_ffn = rms_norm(after_attn2, L2.ffn_norm.weight)
+    print("[DEBUG]   L2: ffn_norm done, calling swiglu_ffn...")
+    let ffn_out2 = swiglu_ffn(normed2_ffn, L2.ffn_gate.weight, L2.ffn_up.weight, L2.ffn_down.weight)
+    print("[DEBUG]   L2: swiglu_ffn done, final residual...")
+    let h2 = after_attn2 + ffn_out2
+    print("[DEBUG] Layer 2 completed!")
+    print("[DEBUG] Processing layer 3...")
     let h3 = transformer_layer(h2, L3.attn_norm.weight, L3.attn_q.weight, L3.attn_k.weight, L3.attn_v.weight, L3.attn_output.weight, L3.ffn_norm.weight, L3.ffn_gate.weight, L3.ffn_up.weight, L3.ffn_down.weight, K3, V3)
+    print("[DEBUG] Layer 3 completed!")
+    print("[DEBUG] Processing layer 4...")
     let h4 = transformer_layer(h3, L4.attn_norm.weight, L4.attn_q.weight, L4.attn_k.weight, L4.attn_v.weight, L4.attn_output.weight, L4.ffn_norm.weight, L4.ffn_gate.weight, L4.ffn_up.weight, L4.ffn_down.weight, K4, V4)
     let h5 = transformer_layer(h4, L5.attn_norm.weight, L5.attn_q.weight, L5.attn_k.weight, L5.attn_v.weight, L5.attn_output.weight, L5.ffn_norm.weight, L5.ffn_gate.weight, L5.ffn_up.weight, L5.ffn_down.weight, K5, V5)
     let h6 = transformer_layer(h5, L6.attn_norm.weight, L6.attn_q.weight, L6.attn_k.weight, L6.attn_v.weight, L6.attn_output.weight, L6.ffn_norm.weight, L6.ffn_gate.weight, L6.ffn_up.weight, L6.ffn_down.weight, K6, V6)
@@ -329,16 +354,20 @@ main {
     kv_cache.set(21, K21, V21)
 
     print("Prefill complete, starting token generation...")
+    print("[DEBUG] Entering token generation loop (max 50 tokens)")
 
     // Token-by-token generation (max 50 tokens)
     for i in range(50) {
+        print("[DEBUG] Loop iteration: {}", i)
         if continue_generation {
+            print("[DEBUG] continue_generation=true, sampling token...")
             // Sample next token using temperature sampling
             let token_id = temperature_sample(current_logits, temperature)
             let text = detokenize_single(tokenizer, token_id, false)
             print(text, "")
 
             token_count = token_count + 1
+            print("[DEBUG] Token generated: token_id={}, token_count={}", token_id, token_count)
 
             // Check for EOS
             if token_id == EOS_TOKEN {
@@ -346,6 +375,7 @@ main {
                 print(" <EOS>")
             }
 
+            print("[DEBUG] Starting DECODE step (all 22 layers)...")
             // ========================================================
             // DECODE STEP: Update KV caches and process new token
             // Each step processes through all 22 layers sequentially
@@ -353,6 +383,7 @@ main {
             // ========================================================
             let token_ids_single = int_to_tokenids(token_id)
             let new_token_emb = embedding(tok_embd, token_ids_single)
+            print("[DEBUG] Embedding done, processing Layer 0...")
 
             // Layer 0: Update KV cache and transform
             // Use CPU-tracked position (Candle-style: no shape() sync)
@@ -447,6 +478,7 @@ main {
 
             let nh9 = transformer_layer(nh8, L9.attn_norm.weight, L9.attn_q.weight, L9.attn_k.weight, L9.attn_v.weight, L9.attn_output.weight, L9.ffn_norm.weight, L9.ffn_gate.weight, L9.ffn_up.weight, L9.ffn_down.weight, KV9, KV9_V)
 
+            print("[DEBUG] Reached Layer 10 (midpoint)...")
             // Layer 10 (midpoint)
             let nK10_raw = linear(nh9, L10.attn_k.weight)
             let nK10 = apply_rope_k(nK10_raw, 1.0, current_pos)
@@ -547,6 +579,7 @@ main {
 
             let nh20 = transformer_layer(nh19, L20.attn_norm.weight, L20.attn_q.weight, L20.attn_k.weight, L20.attn_v.weight, L20.attn_output.weight, L20.ffn_norm.weight, L20.ffn_gate.weight, L20.ffn_up.weight, L20.ffn_down.weight, KV20, KV20_V)
 
+            print("[DEBUG] Reached Layer 21 (final layer)...")
             // Layer 21 (final layer)
             let nK21_raw = linear(nh20, L21.attn_k.weight)
             let nK21 = apply_rope_k(nK21_raw, 1.0, current_pos)
@@ -563,8 +596,10 @@ main {
             // Final output projection to vocabulary logits
             let norm_new = rms_norm(nh21, output_norm)
             current_logits = linear(norm_new, output)  // [1, vocab_size]
+            print("[DEBUG] Token iteration complete, logits computed")
         }
     }
+    print("[DEBUG] Exited token generation loop")
 
     print("")
     print("")

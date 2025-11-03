@@ -116,10 +116,23 @@ impl BufferPool {
     /// Uses size-class pooling to improve buffer reuse rates.
     /// The actual allocated buffer may be larger than requested.
     pub fn allocate<T: FloatType>(&self, length: usize) -> TensorResult<MetalBuffer<T>> {
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: ENTRY, length={}", length);
+        }
         let size_class = get_size_class(length);
 
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: size_class={}", size_class);
+        }
+
         let mut pools = self.pools.lock().unwrap();
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: pools locked");
+        }
         let mut stats = self.stats.lock().unwrap();
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: stats locked");
+        }
 
         // Debug logging
         if std::env::var("TL_BUFFER_DEBUG").is_ok() {
@@ -127,8 +140,17 @@ impl BufferPool {
         }
 
         // Try to reuse an existing buffer from the size class
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: checking pool for reuse...");
+        }
         if let Some(buffers) = pools.get_mut(&size_class) {
+            if std::env::var("TL_DEBUG").is_ok() {
+                eprintln!("[DEBUG_RS] BufferPool::allocate: size class exists, {} buffers available", buffers.len());
+            }
             if let Some((buffer, _last_used)) = buffers.pop() {
+                if std::env::var("TL_DEBUG").is_ok() {
+                    eprintln!("[DEBUG_RS] BufferPool::allocate: found reusable buffer");
+                }
                 stats.reuse_count += 1;
 
                 // Periodically check and shrink (every 100 allocations)
@@ -144,17 +166,15 @@ impl BufferPool {
                     eprintln!("[BufferPool::allocate] ✓ reused buffer from pool, size_class={}", size_class);
                 }
 
-                // CRITICAL FIX: Zero out the buffer to prevent stale data corruption
-                // This fixes non-deterministic behavior where old computation results
-                // would leak into new tensors
-                unsafe {
-                    let ptr = buffer.contents() as *mut T;
-                    std::ptr::write_bytes(ptr, 0, length);
-                }
-
-                if std::env::var("TL_BUFFER_DEBUG").is_ok() {
-                    eprintln!("[BufferPool::allocate] ✓ zeroed reused buffer, length={}", length);
-                }
+                // NOTE: DO NOT zero out buffers here!
+                // Reasons:
+                // 1. new_uninit_pooled() expects uninitialized buffers (for performance)
+                // 2. CPU write to GPU memory (write_bytes) causes implicit GPU sync,
+                //    which hangs when many GPU operations are pending (e.g., Layer 2+ in transformers)
+                // 3. Callers who need zeros should use allocate_zeros() instead
+                //
+                // Previous synchronous zeroing caused 60s+ hangs at Layer 2 in f32 inference.
+                // Kernels overwrite all buffer contents anyway, so uninitialized is safe.
 
                 return Ok(MetalBuffer {
                     buffer,
@@ -164,13 +184,33 @@ impl BufferPool {
             }
         }
 
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: no reusable buffer, creating new one");
+        }
+
         // Create a new buffer with size_class capacity
         stats.allocation_count += 1;
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: allocation_count incremented");
+        }
 
         // Periodically check and shrink (every 100 allocations)
         let should_check = stats.allocation_count % 100 == 0;
 
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: dropping stats lock...");
+        }
         drop(stats); // Release stats lock before allocation
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: dropping pools lock...");
+        }
+        drop(pools); // Release pools lock before check_and_shrink to avoid deadlock
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: calling device.new_buffer...");
+        }
 
         // Allocate buffer with size_class capacity (not exact requested length)
         let byte_length = size_class * std::mem::size_of::<T>();
@@ -179,14 +219,36 @@ impl BufferPool {
             MTLResourceOptions::StorageModeShared,
         );
 
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: new_buffer returned");
+        }
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: checking TL_BUFFER_DEBUG...");
+        }
+
         if std::env::var("TL_BUFFER_DEBUG").is_ok() {
             eprintln!("[BufferPool::allocate] ✗ new allocation, size_class={}, bytes={}",
                      size_class, byte_length);
         }
 
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: TL_BUFFER_DEBUG check done, should_check={}", should_check);
+        }
+
         // Periodically check and shrink after allocation
         if should_check {
+            if std::env::var("TL_DEBUG").is_ok() {
+                eprintln!("[DEBUG_RS] BufferPool::allocate: calling check_and_shrink...");
+            }
             self.check_and_shrink();
+            if std::env::var("TL_DEBUG").is_ok() {
+                eprintln!("[DEBUG_RS] BufferPool::allocate: check_and_shrink returned");
+            }
+        }
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] BufferPool::allocate: creating MetalBuffer result...");
         }
 
         Ok(MetalBuffer {

@@ -241,6 +241,9 @@ impl<T: FloatType> Tensor<T> {
     where
         Tensor<T>: TensorAutograd<T>,
     {
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b: ENTRY");
+        }
         // Validate shapes
         if self.shape().rank() != 2 || other.shape().rank() != 2 {
             return Err(TensorError::InvalidOperation(
@@ -248,10 +251,18 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b: Shape validation done");
+        }
+
         let m = self.shape().dims()[0];
         let k = self.shape().dims()[1];
         let n = other.shape().dims()[0];  // number of rows in other
         let k2 = other.shape().dims()[1]; // should match k
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b: Dimensions extracted: m={}, k={}, n={}, k2={}", m, k, n, k2);
+        }
 
         if k != k2 {
             return Err(TensorError::InvalidOperation(format!(
@@ -267,8 +278,17 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b: Dispatching to Metal");
+        }
+
         let result = match self.device() {
-            Device::Metal(_) => self.matmul_transposed_b_metal(other, m, k, n)?,
+            Device::Metal(_) => {
+                if std::env::var("TL_DEBUG").is_ok() {
+                    eprintln!("[DEBUG_RS] matmul_transposed_b: Calling matmul_transposed_b_metal...");
+                }
+                self.matmul_transposed_b_metal(other, m, k, n)?
+            },
             Device::CPU => {
                 // Fallback: transpose + matmul
                 let other_t = other.transpose()?;
@@ -281,14 +301,31 @@ impl<T: FloatType> Tensor<T> {
             }
         };
 
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b: RETURNING result");
+        }
+
         // Note: Autograd support could be added here if needed
         Ok(result)
     }
 
     /// Metal GPU implementation of fused transpose-matmul
     fn matmul_transposed_b_metal(&self, other: &Tensor<T>, m: usize, k: usize, n: usize) -> TensorResult<Self> {
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b_metal: ENTRY (m={}, k={}, n={})", m, k, n);
+        }
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b_metal: Getting buffer A...");
+        }
         let a_buf = self.buffer().as_metal()?;
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b_metal: Getting buffer B...");
+        }
         let b_buf = other.buffer().as_metal()?;
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b_metal: Buffers obtained");
+        }
 
         let mut device = match self.device() {
             Device::Metal(dev) => dev.clone(),
@@ -299,20 +336,30 @@ impl<T: FloatType> Tensor<T> {
             }
         };
 
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b_metal: Device cloned");
+        }
+
         // Load shaders if not already loaded
         if device.library().is_none() {
             let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b_metal: Library loaded");
+        }
+
         // Create result buffer
         let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), m * n)?;
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b_metal: Result buffer created");
+        }
 
         let m_u32 = m as u32;
         let n_u32 = n as u32;
         let k_u32 = k as u32;
-
-        let mut executor = crate::device::KernelExecutor::new(device.clone());
 
         // Select optimal kernel based on matrix size (same logic as regular matmul)
         let suffix = T::kernel_suffix();
@@ -331,7 +378,26 @@ impl<T: FloatType> Tensor<T> {
             (format!("matmul_transposed_b_tiled{}", suffix), 16)
         };
 
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b_metal: Getting kernel executor...");
+        }
+
+        // Use global kernel executor to share pipeline cache
+        let executor_mutex = crate::device::get_kernel_executor()?;
+        let mut executor_guard = executor_mutex.lock().unwrap();
+        let executor = executor_guard.as_mut().ok_or_else(||
+            TensorError::MetalError("Kernel executor not initialized".to_string())
+        )?;
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b_metal: Getting/compiling pipeline for '{}'...", kernel_name);
+        }
+
         let pipeline = executor.get_or_compile_pipeline(&kernel_name)?;
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b_metal: Pipeline obtained");
+        }
 
         // Commands API (candle pattern)
         let (_flushed, command_buffer) = device.command_buffer()?;
@@ -359,14 +425,25 @@ impl<T: FloatType> Tensor<T> {
 
         encoder.dispatch_thread_groups(threadgroups, threadgroup_size);
         encoder.end_encoding();
+        drop(executor_guard);
 
         // Note: wait_until_completed() is NOT called here (matches candle pattern).
 
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b_metal: Creating result tensor...");
+        }
+
         let result_shape = crate::tensor::TensorShape::new(vec![m, n]);
-        self.new_from_pool(
+        let result = self.new_from_pool(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             result_shape,
-        )
+        );
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b_metal: RETURNING");
+        }
+
+        result
     }
 }
 

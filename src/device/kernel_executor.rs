@@ -30,7 +30,14 @@ impl KernelExecutor {
     pub fn get_or_compile_pipeline(&mut self, kernel_name: &str) -> TensorResult<Arc<ComputePipelineState>> {
         // Check if already compiled
         if let Some(pipeline) = self.pipelines.get(kernel_name) {
+            if std::env::var("TL_PERF").is_ok() {
+                eprintln!("[PERF] Pipeline cache HIT: {}", kernel_name);
+            }
             return Ok(pipeline.clone());
+        }
+
+        if std::env::var("TL_PERF").is_ok() {
+            eprintln!("[PERF] Pipeline cache MISS: {} - compiling...", kernel_name);
         }
 
         // Get library
@@ -45,11 +52,16 @@ impl KernelExecutor {
             .map_err(|e| TensorError::MetalError(format!("Kernel '{}' not found: {}", kernel_name, e)))?;
 
         // Create pipeline state
+        let _compile_start = std::time::Instant::now();
         let pipeline = self
             .device
             .metal_device()
             .new_compute_pipeline_state_with_function(&function)
             .map_err(|e| TensorError::MetalError(format!("Failed to create pipeline: {}", e)))?;
+
+        if std::env::var("TL_PERF").is_ok() {
+            eprintln!("[PERF] Pipeline compiled: {} in {:.3}ms", kernel_name, _compile_start.elapsed().as_secs_f64() * 1000.0);
+        }
 
         let pipeline = Arc::new(pipeline);
         self.pipelines.insert(kernel_name.to_string(), pipeline.clone());
@@ -64,10 +76,15 @@ impl KernelExecutor {
         buffers: &[&MetalBuffer<half::f16>],
         grid_size: usize,
     ) -> TensorResult<()> {
+        let _total_start = std::time::Instant::now();
+
         // Get pipeline
+        let _pipeline_start = std::time::Instant::now();
         let pipeline = self.get_or_compile_pipeline(kernel_name)?;
+        let pipeline_time = _pipeline_start.elapsed().as_secs_f64() * 1000.0;
 
         // Create command buffer
+        let _cmdbuf_start = std::time::Instant::now();
         let command_queue = self.device.command_queue();
         let command_buffer = command_queue.new_command_buffer();
 
@@ -97,12 +114,22 @@ impl KernelExecutor {
         };
 
         // Dispatch
+        let _dispatch_start = std::time::Instant::now();
         encoder.dispatch_thread_groups(threadgroups, threadgroup_size);
         encoder.end_encoding();
+        let dispatch_time = _dispatch_start.elapsed().as_secs_f64() * 1000.0;
 
         // Commit and async submit (no wait!)
+        let _commit_start = std::time::Instant::now();
         command_buffer.commit();
         crate::ops::async_exec::submit_async(&command_buffer);
+        let commit_time = _commit_start.elapsed().as_secs_f64() * 1000.0;
+
+        if std::env::var("TL_PERF").is_ok() {
+            eprintln!("[PERF]     execute({}): pipeline={:.3}ms, dispatch={:.3}ms, commit={:.3}ms, total={:.3}ms",
+                     kernel_name, pipeline_time, dispatch_time, commit_time,
+                     _total_start.elapsed().as_secs_f64() * 1000.0);
+        }
 
         Ok(())
     }

@@ -1397,7 +1397,14 @@ impl Interpreter {
                                     RuntimeError::InvalidOperation(format!("No cache entry for layer {}", layer_idx))
                                 )?;
 
-                                Ok(Value::TensorF16(k.clone()))
+                                if std::env::var("TL_PERF").is_ok() {
+                                    let start = std::time::Instant::now();
+                                    let result = k.clone();
+                                    eprintln!("[PERF] KVCache.get_k(f16, layer={}): clone={:.3}ms", layer_idx, start.elapsed().as_secs_f64() * 1000.0);
+                                    Ok(Value::TensorF16(result))
+                                } else {
+                                    Ok(Value::TensorF16(k.clone()))
+                                }
                             }
 
                             (Value::KVCacheF32(_), "get_k") => {
@@ -1428,7 +1435,14 @@ impl Interpreter {
                                     RuntimeError::InvalidOperation(format!("No cache entry for layer {}", layer_idx))
                                 )?;
 
-                                Ok(Value::TensorF32(k.clone()))
+                                if std::env::var("TL_PERF").is_ok() {
+                                    let start = std::time::Instant::now();
+                                    let result = k.clone();
+                                    eprintln!("[PERF] KVCache.get_k(f32, layer={}): clone={:.3}ms", layer_idx, start.elapsed().as_secs_f64() * 1000.0);
+                                    Ok(Value::TensorF32(result))
+                                } else {
+                                    Ok(Value::TensorF32(k.clone()))
+                                }
                             }
 
                             (Value::KVCacheF16(_), "get_v") => {
@@ -1459,7 +1473,14 @@ impl Interpreter {
                                     RuntimeError::InvalidOperation(format!("No cache entry for layer {}", layer_idx))
                                 )?;
 
-                                Ok(Value::TensorF16(v.clone()))
+                                if std::env::var("TL_PERF").is_ok() {
+                                    let start = std::time::Instant::now();
+                                    let result = v.clone();
+                                    eprintln!("[PERF] KVCache.get_v(f16, layer={}): clone={:.3}ms", layer_idx, start.elapsed().as_secs_f64() * 1000.0);
+                                    Ok(Value::TensorF16(result))
+                                } else {
+                                    Ok(Value::TensorF16(v.clone()))
+                                }
                             }
 
                             (Value::KVCacheF32(_), "get_v") => {
@@ -1490,7 +1511,14 @@ impl Interpreter {
                                     RuntimeError::InvalidOperation(format!("No cache entry for layer {}", layer_idx))
                                 )?;
 
-                                Ok(Value::TensorF32(v.clone()))
+                                if std::env::var("TL_PERF").is_ok() {
+                                    let start = std::time::Instant::now();
+                                    let result = v.clone();
+                                    eprintln!("[PERF] KVCache.get_v(f32, layer={}): clone={:.3}ms", layer_idx, start.elapsed().as_secs_f64() * 1000.0);
+                                    Ok(Value::TensorF32(result))
+                                } else {
+                                    Ok(Value::TensorF32(v.clone()))
+                                }
                             }
 
                             _ => Err(RuntimeError::TypeError(
@@ -1688,7 +1716,13 @@ impl Interpreter {
 
     /// Evaluate a binary operation
     pub(super) fn eval_binary_op(&self, op: &BinaryOp, left: Value, right: Value) -> RuntimeResult<Value> {
-        match (left, right) {
+        let _start = std::time::Instant::now();
+
+        if std::env::var("TL_PERF").is_ok() && matches!(op, BinaryOp::Mul | BinaryOp::Add) {
+            eprintln!("[PERF]   eval_binary_op: args_received={:.3}ms", _start.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        let result = match (left, right) {
             (Value::TensorF16(l), Value::TensorF16(r)) => {
                 let result = match op {
                     BinaryOp::Add => l.add(&r),
@@ -1721,10 +1755,28 @@ impl Interpreter {
                 Ok(Value::TensorF16(result))
             }
             (Value::TensorF32(l), Value::TensorF32(r)) => {
+                let _before_match = std::time::Instant::now();
+                if std::env::var("TL_PERF").is_ok() && matches!(op, BinaryOp::Mul | BinaryOp::Add) {
+                    eprintln!("[PERF]   eval_binary_op: before_match_f32={:.3}ms, shape_l={:?}, shape_r={:?}",
+                             _start.elapsed().as_secs_f64() * 1000.0, l.dims(), r.dims());
+                }
+
                 let result = match op {
                     BinaryOp::Add => l.add(&r),
                     BinaryOp::Sub => l.sub(&r),
-                    BinaryOp::Mul => l.mul(&r),
+                    BinaryOp::Mul => {
+                        let _before_mul = std::time::Instant::now();
+                        if std::env::var("TL_PERF").is_ok() {
+                            eprintln!("[PERF]   eval_binary_op: before_mul_call={:.3}ms", _start.elapsed().as_secs_f64() * 1000.0);
+                        }
+                        let result = l.mul(&r);
+                        if std::env::var("TL_PERF").is_ok() {
+                            eprintln!("[PERF]   eval_binary_op: after_mul_call={:.3}ms (mul_call took {:.3}ms)",
+                                     _start.elapsed().as_secs_f64() * 1000.0,
+                                     _before_mul.elapsed().as_secs_f64() * 1000.0);
+                        }
+                        result
+                    }
                     BinaryOp::Div => l.div(&r),
                     BinaryOp::Mod => {
                         return Err(RuntimeError::NotImplemented("Modulo not yet implemented for tensors".to_string()));
@@ -1997,7 +2049,17 @@ impl Interpreter {
             _ => Err(RuntimeError::TypeError(
                 "Binary operation requires compatible types".to_string(),
             )),
+        };
+
+        if std::env::var("TL_PERF").is_ok() && matches!(op, BinaryOp::Mul | BinaryOp::Add) {
+            let (dtype, shape_info) = match &result {
+                Ok(Value::TensorF16(t)) => ("f16", format!("{:?}", t.dims())),
+                Ok(Value::TensorF32(t)) => ("f32", format!("{:?}", t.dims())),
+                _ => return result,
+            };
+            eprintln!("[PERF] binop_{:?}({}, shape={}): {:.3}ms", op, dtype, shape_info, _start.elapsed().as_secs_f64() * 1000.0);
         }
+        result
     }
 
     /// Evaluate a unary operation
