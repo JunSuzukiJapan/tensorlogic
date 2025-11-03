@@ -88,11 +88,11 @@ main {
 
     let EOS_TOKEN = 2
 
-    print("[1/3] Creating lazy weight cache (LRU cache: 100 weights)...")
+    print("[1/3] Creating lazy weight cache (LRU cache: 200 weights)...")
     let home = env("HOME")
     let cache = load_weight_cache_gguf_f32(
         home + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf",
-        100  // Cache 100 most recently used weights
+        200  // Cache 200 most recently used weights (all model weights)
     )
     let tokenizer = load_tokenizer(home + "/.llm/tokenizers/tinyllama-tokenizer.json")
 
