@@ -25,29 +25,29 @@ pub trait TensorTransform: Sized {
 
 impl<T: FloatType> TensorTransform for Tensor<T> {
     fn reshape(&self, new_shape: Vec<usize>) -> TensorResult<Self> {
-        eprintln!("[RESHAPE] === Entry === old_shape={:?} -> new_shape={:?}", self.dims(), new_shape);
+        // eprintln!("[RESHAPE] === Entry === old_shape={:?} -> new_shape={:?}", self.dims(), new_shape);
 
-        eprintln!("[RESHAPE] Step 1: Calling shape.reshape()...");
+        // eprintln!("[RESHAPE] Step 1: Calling shape.reshape()...");
         let new_tensor_shape = self.shape.reshape(new_shape)?;
-        eprintln!("[RESHAPE] Step 1: DONE");
+        // eprintln!("[RESHAPE] Step 1: DONE");
 
-        eprintln!("[RESHAPE] Step 2: Cloning buffer...");
+        // eprintln!("[RESHAPE] Step 2: Cloning buffer...");
         let buffer_clone = self.buffer.clone();
-        eprintln!("[RESHAPE] Step 2: DONE");
+        // eprintln!("[RESHAPE] Step 2: DONE");
 
-        eprintln!("[RESHAPE] Step 3: Computing strides...");
+        // eprintln!("[RESHAPE] Step 3: Computing strides...");
         let new_strides = new_tensor_shape.compute_strides();
-        eprintln!("[RESHAPE] Step 3: DONE, strides={:?}", new_strides);
+        // eprintln!("[RESHAPE] Step 3: DONE, strides={:?}", new_strides);
 
-        eprintln!("[RESHAPE] Step 4: Cloning device...");
+        // eprintln!("[RESHAPE] Step 4: Cloning device...");
         let device_clone = self.device.clone();
-        eprintln!("[RESHAPE] Step 4: DONE");
+        // eprintln!("[RESHAPE] Step 4: DONE");
 
-        eprintln!("[RESHAPE] Step 5: Cloning buffer_pool...");
+        // eprintln!("[RESHAPE] Step 5: Cloning buffer_pool...");
         let pool_clone = self.buffer_pool.clone();
-        eprintln!("[RESHAPE] Step 5: DONE");
+        // eprintln!("[RESHAPE] Step 5: DONE");
 
-        eprintln!("[RESHAPE] Step 6: Creating new tensor struct...");
+        // eprintln!("[RESHAPE] Step 6: Creating new tensor struct...");
         let result = Self {
             shape: new_tensor_shape.clone(),
             strides: new_strides,
@@ -60,9 +60,9 @@ impl<T: FloatType> TensorTransform for Tensor<T> {
             buffer_pool: pool_clone,
             _phantom: PhantomData,
         };
-        eprintln!("[RESHAPE] Step 6: DONE");
+        // eprintln!("[RESHAPE] Step 6: DONE");
 
-        eprintln!("[RESHAPE] === Exit ===");
+        // eprintln!("[RESHAPE] === Exit ===");
         Ok(result)
     }
 

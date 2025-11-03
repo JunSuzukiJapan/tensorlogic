@@ -36,10 +36,10 @@ impl Interpreter {
                 }
             }
             Statement::Let { target, value } => {
-                eprintln!("[DEBUG] Statement::Let: target={}", target.as_str());
-                eprintln!("[DEBUG] Statement::Let: About to eval_expr...");
+                // eprintln!("[DEBUG] Statement::Let: target={}", target.as_str());
+                // eprintln!("[DEBUG] Statement::Let: About to eval_expr...");
                 let evaluated_value = self.eval_expr(value)?;
-                eprintln!("[DEBUG] Statement::Let: eval_expr completed");
+                // eprintln!("[DEBUG] Statement::Let: eval_expr completed");
 
                 // Check if we're inside a function call
                 if let Some(frame) = self.call_stack.last_mut() {
@@ -896,7 +896,7 @@ impl Interpreter {
             TensorExpr::PropertyAccess { .. } => "PropertyAccess",
             TensorExpr::MethodCall { .. } => "MethodCall",
         };
-        eprintln!("[DEBUG] eval_expr: type={}", expr_type);
+        // eprintln!("[DEBUG] eval_expr: type={}", expr_type);
 
         match expr {
             TensorExpr::Variable(id) => {
@@ -1183,8 +1183,8 @@ impl Interpreter {
                             }
 
                             // KVCache methods
-                            (Value::KVCache(_), "set") => {
-                                // kv_cache.set(layer_idx: int, k: Tensor, v: Tensor) -> Void
+                            (Value::KVCacheF16(_), "set") => {
+                                // kv_cache.set(layer_idx: int, k: TensorF16, v: TensorF16) -> Void
                                 if args.len() != 3 {
                                     return Err(RuntimeError::TypeError(
                                         format!("KVCache.set() expects 3 arguments, got {}", args.len())
@@ -1192,7 +1192,7 @@ impl Interpreter {
                                 }
 
                                 let cache_arc = match obj_value {
-                                    Value::KVCache(cache) => cache,
+                                    Value::KVCacheF16(cache) => cache,
                                     _ => unreachable!()
                                 };
 
@@ -1231,8 +1231,56 @@ impl Interpreter {
                                 Ok(Value::Void)
                             }
 
-                            (Value::KVCache(_), "append") => {
-                                // kv_cache.append(layer_idx: int, k: Tensor, v: Tensor) -> Void
+                            (Value::KVCacheF32(_), "set") => {
+                                // kv_cache.set(layer_idx: int, k: TensorF32, v: TensorF32) -> Void
+                                if args.len() != 3 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("KVCache.set() expects 3 arguments, got {}", args.len())
+                                    ));
+                                }
+
+                                let cache_arc = match obj_value {
+                                    Value::KVCacheF32(cache) => cache,
+                                    _ => unreachable!()
+                                };
+
+                                let layer_idx = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.set() expects Integer as first argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let k = match self.eval_expr(&args[1])? {
+                                    Value::TensorF32(t) => t,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.set() expects TensorF32 as second argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let v = match self.eval_expr(&args[2])? {
+                                    Value::TensorF32(t) => t,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.set() expects TensorF32 as third argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let mut cache = cache_arc.lock().map_err(|e|
+                                    RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
+                                )?;
+
+                                if layer_idx >= cache.kvs.len() {
+                                    return Err(RuntimeError::InvalidOperation(
+                                        format!("Layer index {} out of bounds (cache has {} layers)", layer_idx, cache.kvs.len())
+                                    ));
+                                }
+
+                                cache.kvs[layer_idx] = Some((k, v));
+                                Ok(Value::Void)
+                            }
+
+                            (Value::KVCacheF16(_), "append") => {
+                                // kv_cache.append(layer_idx: int, k: TensorF16, v: TensorF16) -> Void
                                 if args.len() != 3 {
                                     return Err(RuntimeError::TypeError(
                                         format!("KVCache.append() expects 3 arguments, got {}", args.len())
@@ -1240,7 +1288,7 @@ impl Interpreter {
                                 }
 
                                 let cache_arc = match obj_value {
-                                    Value::KVCache(cache) => cache,
+                                    Value::KVCacheF16(cache) => cache,
                                     _ => unreachable!()
                                 };
 
@@ -1276,8 +1324,53 @@ impl Interpreter {
                                 Ok(Value::Void)
                             }
 
-                            (Value::KVCache(_), "get_k") => {
-                                // kv_cache.get_k(layer_idx: int) -> Tensor
+                            (Value::KVCacheF32(_), "append") => {
+                                // kv_cache.append(layer_idx: int, k: TensorF32, v: TensorF32) -> Void
+                                if args.len() != 3 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("KVCache.append() expects 3 arguments, got {}", args.len())
+                                    ));
+                                }
+
+                                let cache_arc = match obj_value {
+                                    Value::KVCacheF32(cache) => cache,
+                                    _ => unreachable!()
+                                };
+
+                                let layer_idx = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.append() expects Integer as first argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let k = match self.eval_expr(&args[1])? {
+                                    Value::TensorF32(t) => t,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.append() expects TensorF32 as second argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let v = match self.eval_expr(&args[2])? {
+                                    Value::TensorF32(t) => t,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.append() expects TensorF32 as third argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let mut cache = cache_arc.lock().map_err(|e|
+                                    RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
+                                )?;
+
+                                // Use shared device instance (no need to create new device every time!)
+                                cache.update(layer_idx, k, v, &self.device)
+                                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                                Ok(Value::Void)
+                            }
+
+                            (Value::KVCacheF16(_), "get_k") => {
+                                // kv_cache.get_k(layer_idx: int) -> TensorF16
                                 if args.len() != 1 {
                                     return Err(RuntimeError::TypeError(
                                         format!("KVCache.get_k() expects 1 argument, got {}", args.len())
@@ -1285,7 +1378,7 @@ impl Interpreter {
                                 }
 
                                 let cache_arc = match obj_value {
-                                    Value::KVCache(cache) => cache,
+                                    Value::KVCacheF16(cache) => cache,
                                     _ => unreachable!()
                                 };
 
@@ -1307,8 +1400,39 @@ impl Interpreter {
                                 Ok(Value::TensorF16(k.clone()))
                             }
 
-                            (Value::KVCache(_), "get_v") => {
-                                // kv_cache.get_v(layer_idx: int) -> Tensor
+                            (Value::KVCacheF32(_), "get_k") => {
+                                // kv_cache.get_k(layer_idx: int) -> TensorF32
+                                if args.len() != 1 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("KVCache.get_k() expects 1 argument, got {}", args.len())
+                                    ));
+                                }
+
+                                let cache_arc = match obj_value {
+                                    Value::KVCacheF32(cache) => cache,
+                                    _ => unreachable!()
+                                };
+
+                                let layer_idx = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.get_k() expects Integer, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let cache = cache_arc.lock().map_err(|e|
+                                    RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
+                                )?;
+
+                                let (k, _v) = cache.get(layer_idx).ok_or_else(||
+                                    RuntimeError::InvalidOperation(format!("No cache entry for layer {}", layer_idx))
+                                )?;
+
+                                Ok(Value::TensorF32(k.clone()))
+                            }
+
+                            (Value::KVCacheF16(_), "get_v") => {
+                                // kv_cache.get_v(layer_idx: int) -> TensorF16
                                 if args.len() != 1 {
                                     return Err(RuntimeError::TypeError(
                                         format!("KVCache.get_v() expects 1 argument, got {}", args.len())
@@ -1316,7 +1440,7 @@ impl Interpreter {
                                 }
 
                                 let cache_arc = match obj_value {
-                                    Value::KVCache(cache) => cache,
+                                    Value::KVCacheF16(cache) => cache,
                                     _ => unreachable!()
                                 };
 
@@ -1336,6 +1460,37 @@ impl Interpreter {
                                 )?;
 
                                 Ok(Value::TensorF16(v.clone()))
+                            }
+
+                            (Value::KVCacheF32(_), "get_v") => {
+                                // kv_cache.get_v(layer_idx: int) -> TensorF32
+                                if args.len() != 1 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("KVCache.get_v() expects 1 argument, got {}", args.len())
+                                    ));
+                                }
+
+                                let cache_arc = match obj_value {
+                                    Value::KVCacheF32(cache) => cache,
+                                    _ => unreachable!()
+                                };
+
+                                let layer_idx = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.get_v() expects Integer, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let cache = cache_arc.lock().map_err(|e|
+                                    RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
+                                )?;
+
+                                let (_k, v) = cache.get(layer_idx).ok_or_else(||
+                                    RuntimeError::InvalidOperation(format!("No cache entry for layer {}", layer_idx))
+                                )?;
+
+                                Ok(Value::TensorF32(v.clone()))
                             }
 
                             _ => Err(RuntimeError::TypeError(
@@ -1370,36 +1525,36 @@ impl Interpreter {
     /// Evaluate an array literal to a tensor
     pub(super) fn eval_array_literal(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Value> {
         let _fn_start = std::time::Instant::now();
-        eprintln!("[DEBUG] eval_array_literal: Entry, elements.len={}", elements.len());
+        // eprintln!("[DEBUG] eval_array_literal: Entry, elements.len={}", elements.len());
 
         // Support empty arrays - return empty Tensor
         if elements.is_empty() {
-            eprintln!("[DEBUG] eval_array_literal: Empty array, creating empty tensor");
+            // eprintln!("[DEBUG] eval_array_literal: Empty array, creating empty tensor");
             let tensor = Tensor::from_vec_gpu(self.env.metal_device(), vec![], vec![0])
                 .map_err(|e| RuntimeError::TensorError(e))?;
             return Ok(Value::TensorF16(tensor));
         }
 
         // Recursively collect all scalar values
-        eprintln!("[DEBUG] eval_array_literal: Calling collect_scalars...");
+        // eprintln!("[DEBUG] eval_array_literal: Calling collect_scalars...");
         let collect_start = std::time::Instant::now();
         let values = self.collect_scalars(elements)?;
-        eprintln!("[DEBUG] eval_array_literal: collect_scalars completed in {:.3}ms, values.len={}",
-                  collect_start.elapsed().as_secs_f64() * 1000.0, values.len());
+        // eprintln!("[DEBUG] eval_array_literal: collect_scalars completed in {:.3}ms, values.len={}",
+        //           collect_start.elapsed().as_secs_f64() * 1000.0, values.len());
 
         // Determine shape
-        eprintln!("[DEBUG] eval_array_literal: Calling infer_shape...");
+        // eprintln!("[DEBUG] eval_array_literal: Calling infer_shape...");
         let shape_start = std::time::Instant::now();
         let shape = self.infer_shape(elements)?;
-        eprintln!("[DEBUG] eval_array_literal: infer_shape completed in {:.3}ms, shape={:?}",
-                  shape_start.elapsed().as_secs_f64() * 1000.0, shape);
+        // eprintln!("[DEBUG] eval_array_literal: infer_shape completed in {:.3}ms, shape={:?}",
+        //           shape_start.elapsed().as_secs_f64() * 1000.0, shape);
 
         // Determine if array contains float literals (f32) or only integers (f16)
-        eprintln!("[DEBUG] eval_array_literal: Calling has_float_literal...");
+        // eprintln!("[DEBUG] eval_array_literal: Calling has_float_literal...");
         let float_check_start = std::time::Instant::now();
         let has_float_literal = self.has_float_literal(elements);
-        eprintln!("[DEBUG] eval_array_literal: has_float_literal={} ({:.3}ms)",
-                  has_float_literal, float_check_start.elapsed().as_secs_f64() * 1000.0);
+        // eprintln!("[DEBUG] eval_array_literal: has_float_literal={} ({:.3}ms)",
+        //           has_float_literal, float_check_start.elapsed().as_secs_f64() * 1000.0);
 
         // OPTIMIZATION: Create array literals on CPU to avoid GPU sync overhead
         // Builtin functions (ones, zeros, reshape) now support CPU tensors via to_cpu_vec()
@@ -1408,7 +1563,7 @@ impl Interpreter {
         let use_cpu = true;
 
         if has_float_literal {
-            eprintln!("[DEBUG] eval_array_literal: Creating f32 tensor (numel={}, cpu={})...", numel, use_cpu);
+            // eprintln!("[DEBUG] eval_array_literal: Creating f32 tensor (numel={}, cpu={})...", numel, use_cpu);
             let create_start = std::time::Instant::now();
             // Array contains float literals -> create f32 tensor
             let tensor = if use_cpu {
@@ -1418,15 +1573,15 @@ impl Interpreter {
                 Tensor::from_vec_gpu(self.env.metal_device(), values, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?
             };
-            eprintln!("[DEBUG] eval_array_literal: f32 tensor created in {:.3}ms", create_start.elapsed().as_secs_f64() * 1000.0);
-            eprintln!("[DEBUG] eval_array_literal: TOTAL time: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
+            // eprintln!("[DEBUG] eval_array_literal: f32 tensor created in {:.3}ms", create_start.elapsed().as_secs_f64() * 1000.0);
+            // eprintln!("[DEBUG] eval_array_literal: TOTAL time: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
             Ok(Value::TensorF32(tensor))
         } else {
-            eprintln!("[DEBUG] eval_array_literal: Creating f16 tensor (numel={}, cpu={})...", numel, use_cpu);
+            // eprintln!("[DEBUG] eval_array_literal: Creating f16 tensor (numel={}, cpu={})...", numel, use_cpu);
             let convert_start = std::time::Instant::now();
             // Array contains only integers -> create f16 tensor (backward compatibility)
             let f16_values: Vec<f16> = values.into_iter().map(f16::from_f32).collect();
-            eprintln!("[DEBUG] eval_array_literal: f16 conversion complete in {:.3}ms, creating tensor...", convert_start.elapsed().as_secs_f64() * 1000.0);
+            // eprintln!("[DEBUG] eval_array_literal: f16 conversion complete in {:.3}ms, creating tensor...", convert_start.elapsed().as_secs_f64() * 1000.0);
             let create_start = std::time::Instant::now();
             let tensor = if use_cpu {
                 Tensor::from_vec(f16_values, shape)
@@ -1435,8 +1590,8 @@ impl Interpreter {
                 Tensor::from_vec_gpu(self.env.metal_device(), f16_values, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?
             };
-            eprintln!("[DEBUG] eval_array_literal: f16 tensor created in {:.3}ms", create_start.elapsed().as_secs_f64() * 1000.0);
-            eprintln!("[DEBUG] eval_array_literal: TOTAL time: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
+            // eprintln!("[DEBUG] eval_array_literal: f16 tensor created in {:.3}ms", create_start.elapsed().as_secs_f64() * 1000.0);
+            // eprintln!("[DEBUG] eval_array_literal: TOTAL time: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
             Ok(Value::TensorF16(tensor))
         }
     }
@@ -1463,40 +1618,40 @@ impl Interpreter {
 
     /// Collect all scalar values from nested arrays
     pub(super) fn collect_scalars(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Vec<f32>> {
-        eprintln!("[DEBUG] collect_scalars: Entry, elements.len={}", elements.len());
+        // eprintln!("[DEBUG] collect_scalars: Entry, elements.len={}", elements.len());
         let mut values = Vec::new();
 
         for (i, elem) in elements.iter().enumerate() {
-            eprintln!("[DEBUG] collect_scalars: Processing element[{}]", i);
+            // eprintln!("[DEBUG] collect_scalars: Processing element[{}]", i);
             match elem {
                 ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Float(f))) => {
-                    eprintln!("[DEBUG] collect_scalars: element[{}] is Float={}", i, f);
+                    // eprintln!("[DEBUG] collect_scalars: element[{}] is Float={}", i, f);
                     values.push(*f as f32);
                 }
                 ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Integer(i_val))) => {
-                    eprintln!("[DEBUG] collect_scalars: element[{}] is Integer={}", i, i_val);
+                    // eprintln!("[DEBUG] collect_scalars: element[{}] is Integer={}", i, i_val);
                     values.push(*i_val as f32);
                 }
                 ArrayElement::Literal(TensorLiteral::Array(nested)) => {
-                    eprintln!("[DEBUG] collect_scalars: element[{}] is nested array", i);
+                    // eprintln!("[DEBUG] collect_scalars: element[{}] is nested array", i);
                     values.extend(self.collect_scalars(nested)?);
                 }
                 ArrayElement::Expression(expr) => {
-                    eprintln!("[DEBUG] collect_scalars: element[{}] is Expression, evaluating...", i);
+                    // eprintln!("[DEBUG] collect_scalars: element[{}] is Expression, evaluating...", i);
                     // Evaluate the expression (e.g., variable reference like seq_len, d_model)
                     let value = self.eval_expr(expr)?;
-                    eprintln!("[DEBUG] collect_scalars: element[{}] eval_expr returned, matching value...", i);
+                    // eprintln!("[DEBUG] collect_scalars: element[{}] eval_expr returned, matching value...", i);
                     match value {
                         Value::Float(f) => {
-                            eprintln!("[DEBUG] collect_scalars: element[{}] evaluated to Float={}", i, f);
+                            // eprintln!("[DEBUG] collect_scalars: element[{}] evaluated to Float={}", i, f);
                             values.push(f as f32);
                         }
                         Value::Integer(i_val) => {
-                            eprintln!("[DEBUG] collect_scalars: element[{}] evaluated to Integer={}", i, i_val);
+                            // eprintln!("[DEBUG] collect_scalars: element[{}] evaluated to Integer={}", i, i_val);
                             values.push(i_val as f32);
                         }
                         _ => {
-                            eprintln!("[DEBUG] collect_scalars: element[{}] evaluated to non-scalar type", i);
+                            // eprintln!("[DEBUG] collect_scalars: element[{}] evaluated to non-scalar type", i);
                             return Err(RuntimeError::TypeError(
                                 "Array element expression must evaluate to a scalar number".to_string(),
                             ));
@@ -2333,7 +2488,11 @@ impl Interpreter {
             Value::TokenIds(ids) => format!("{:?}", ids),
             Value::TokenIdArray(arr) => format!("{:?}", arr.data()),
             Value::Type(t) => format!("<Type: {}>", t),
-            Value::KVCache(cache) => {
+            Value::KVCacheF16(cache) => {
+                let c = cache.lock().unwrap();
+                format!("<KVCache: {} layers>", c.kvs.len())
+            }
+            Value::KVCacheF32(cache) => {
                 let c = cache.lock().unwrap();
                 format!("<KVCache: {} layers>", c.kvs.len())
             }
@@ -2366,7 +2525,11 @@ impl Interpreter {
             Value::TokenIds(ids) => format!("{:?}", ids),
             Value::TokenIdArray(arr) => format!("{:?}", arr.data()),
             Value::Type(t) => format!("<Type: {}>", t),
-            Value::KVCache(cache) => {
+            Value::KVCacheF16(cache) => {
+                let c = cache.lock().unwrap();
+                format!("<KVCache: {} layers>", c.kvs.len())
+            }
+            Value::KVCacheF32(cache) => {
                 let c = cache.lock().unwrap();
                 format!("<KVCache: {} layers>", c.kvs.len())
             }

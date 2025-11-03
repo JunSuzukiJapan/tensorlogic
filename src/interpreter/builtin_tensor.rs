@@ -13,25 +13,25 @@ macro_rules! extract_shape {
     ($self:expr, $value:expr) => {
         match $value {
             Value::TensorF32(ref t) => {
-                eprintln!("[DEBUG] extract_shape!: TensorF32 branch");
+                // eprintln!("[DEBUG] extract_shape!: TensorF32 branch");
                 // Transfer entire tensor from GPU to CPU at once (faster than per-element reads)
-                eprintln!("[DEBUG] extract_shape!: Calling to_cpu_vec()...");
+                // eprintln!("[DEBUG] extract_shape!: Calling to_cpu_vec()...");
                 let data = t.buffer().to_cpu_vec();
-                eprintln!("[DEBUG] extract_shape!: to_cpu_vec() completed, data.len={}", data.len());
+                // eprintln!("[DEBUG] extract_shape!: to_cpu_vec() completed, data.len={}", data.len());
                 // Convert f32 values to usize shape dimensions
                 let shape: Vec<usize> = data.iter().map(|&v| v as usize).collect();
-                eprintln!("[DEBUG] extract_shape!: shape={:?}", shape);
+                // eprintln!("[DEBUG] extract_shape!: shape={:?}", shape);
                 shape
             }
             Value::TensorF16(ref t) => {
-                eprintln!("[DEBUG] extract_shape!: TensorF16 branch");
+                // eprintln!("[DEBUG] extract_shape!: TensorF16 branch");
                 // Transfer entire tensor from GPU to CPU at once (faster than per-element reads)
-                eprintln!("[DEBUG] extract_shape!: Calling to_cpu_vec()...");
+                // eprintln!("[DEBUG] extract_shape!: Calling to_cpu_vec()...");
                 let data = t.buffer().to_cpu_vec();
-                eprintln!("[DEBUG] extract_shape!: to_cpu_vec() completed, data.len={}", data.len());
+                // eprintln!("[DEBUG] extract_shape!: to_cpu_vec() completed, data.len={}", data.len());
                 // Convert f16 values to usize shape dimensions
                 let shape: Vec<usize> = data.iter().map(|&v| v.to_f32() as usize).collect();
-                eprintln!("[DEBUG] extract_shape!: shape={:?}", shape);
+                // eprintln!("[DEBUG] extract_shape!: shape={:?}", shape);
                 shape
             }
             _ => return Err(RuntimeError::TypeError(
@@ -281,7 +281,7 @@ impl Interpreter {
         use crate::interpreter::value::ToValue;
         let _fn_start = std::time::Instant::now();
 
-        eprintln!("[DEBUG] eval_reshape: Entry, args.len={}", args.len());
+        // eprintln!("[DEBUG] eval_reshape: Entry, args.len={}", args.len());
 
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
@@ -289,19 +289,19 @@ impl Interpreter {
             ));
         }
 
-        eprintln!("[DEBUG] eval_reshape: Evaluating arg[0] (tensor)...");
+        // eprintln!("[DEBUG] eval_reshape: Evaluating arg[0] (tensor)...");
         let arg0_start = std::time::Instant::now();
         let tensor_val = self.eval_expr(&args[0])?;
-        eprintln!("[DEBUG] eval_reshape: arg[0] evaluated in {:.3}ms", arg0_start.elapsed().as_secs_f64() * 1000.0);
+        // eprintln!("[DEBUG] eval_reshape: arg[0] evaluated in {:.3}ms", arg0_start.elapsed().as_secs_f64() * 1000.0);
 
-        eprintln!("[DEBUG] eval_reshape: Evaluating arg[1] (shape)...");
+        // eprintln!("[DEBUG] eval_reshape: Evaluating arg[1] (shape)...");
         let arg1_start = std::time::Instant::now();
         let shape_val = self.eval_expr(&args[1])?;
-        eprintln!("[DEBUG] eval_reshape: arg[1] evaluated in {:.3}ms, extracting shape...", arg1_start.elapsed().as_secs_f64() * 1000.0);
+        // eprintln!("[DEBUG] eval_reshape: arg[1] evaluated in {:.3}ms, extracting shape...", arg1_start.elapsed().as_secs_f64() * 1000.0);
 
         let extract_start = std::time::Instant::now();
         let new_shape = extract_shape!(self, shape_val);
-        eprintln!("[DEBUG] eval_reshape: Shape extracted in {:.3}ms: {:?}", extract_start.elapsed().as_secs_f64() * 1000.0, new_shape);
+        // eprintln!("[DEBUG] eval_reshape: Shape extracted in {:.3}ms: {:?}", extract_start.elapsed().as_secs_f64() * 1000.0, new_shape);
 
         let reshape_start = std::time::Instant::now();
         let result = match tensor_val {
@@ -333,8 +333,8 @@ impl Interpreter {
             }
             _ => return Err(RuntimeError::TypeError("Expected tensor".to_string()))
         };
-        eprintln!("[DEBUG] eval_reshape: reshape() call completed in {:.3}ms", reshape_start.elapsed().as_secs_f64() * 1000.0);
-        eprintln!("[DEBUG] eval_reshape: TOTAL function time: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
+        // eprintln!("[DEBUG] eval_reshape: reshape() call completed in {:.3}ms", reshape_start.elapsed().as_secs_f64() * 1000.0);
+        // eprintln!("[DEBUG] eval_reshape: TOTAL function time: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
 
         Ok(result)
     }

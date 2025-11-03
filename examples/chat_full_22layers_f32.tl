@@ -52,6 +52,17 @@ fn swiglu_ffn(
 // - Fused transpose-matmul (matmul_transposed_b) for 2.89x faster output projection
 // - CommandBuffer batching for reduced GPU synchronization overhead
 
+// Helper: Apply RoPE to K for caching (optimized: no shape() call)
+fn apply_rope_k(K: float32[?, ?], seq_len: float, pos: float) -> float32[?, ?] {
+    let K_h = reshape(K, [seq_len, 4.0, 64.0])
+    let K_r = rope(K_h, pos)
+    result = reshape(K_r, [seq_len, 256.0])
+}
+
+// NOTE: Rust builtin attention_with_cache (f32) modified to NOT apply RoPE to K
+// It expects K/V cache to already have RoPE applied
+// We apply RoPE during prefill/decode before caching
+
 // Original TL implementation (kept for reference, commented out):
 // fn attention_with_cache(
 //     Q: float32[?, ?],
@@ -173,52 +184,79 @@ main {
 
     let x = embedding(tok_embd, tokens)
 
+    // Track sequence length on CPU (Candle-style: avoid shape() GPU syncs)
+    let x_shape = shape(x)
+    let seq_len = x_shape[0]
+
     // ============================================================
     // PREFILL PHASE: Build initial KV caches for all 22 layers
+    // Apply RoPE to K before caching (builtin attention expects pre-RoPE'd cache)
     // ============================================================
-    let K0 = linear(x, L0.attn_k.weight)
+    let K0_raw = linear(x, L0.attn_k.weight)
+    let K0 = apply_rope_k(K0_raw, seq_len, 0.0)
     let V0 = linear(x, L0.attn_v.weight)
-    let K1 = linear(x, L1.attn_k.weight)
+    let K1_raw = linear(x, L1.attn_k.weight)
+    let K1 = apply_rope_k(K1_raw, seq_len, 0.0)
     let V1 = linear(x, L1.attn_v.weight)
-    let K2 = linear(x, L2.attn_k.weight)
+    let K2_raw = linear(x, L2.attn_k.weight)
+    let K2 = apply_rope_k(K2_raw, seq_len, 0.0)
     let V2 = linear(x, L2.attn_v.weight)
-    let K3 = linear(x, L3.attn_k.weight)
+    let K3_raw = linear(x, L3.attn_k.weight)
+    let K3 = apply_rope_k(K3_raw, seq_len, 0.0)
     let V3 = linear(x, L3.attn_v.weight)
-    let K4 = linear(x, L4.attn_k.weight)
+    let K4_raw = linear(x, L4.attn_k.weight)
+    let K4 = apply_rope_k(K4_raw, seq_len, 0.0)
     let V4 = linear(x, L4.attn_v.weight)
-    let K5 = linear(x, L5.attn_k.weight)
+    let K5_raw = linear(x, L5.attn_k.weight)
+    let K5 = apply_rope_k(K5_raw, seq_len, 0.0)
     let V5 = linear(x, L5.attn_v.weight)
-    let K6 = linear(x, L6.attn_k.weight)
+    let K6_raw = linear(x, L6.attn_k.weight)
+    let K6 = apply_rope_k(K6_raw, seq_len, 0.0)
     let V6 = linear(x, L6.attn_v.weight)
-    let K7 = linear(x, L7.attn_k.weight)
+    let K7_raw = linear(x, L7.attn_k.weight)
+    let K7 = apply_rope_k(K7_raw, seq_len, 0.0)
     let V7 = linear(x, L7.attn_v.weight)
-    let K8 = linear(x, L8.attn_k.weight)
+    let K8_raw = linear(x, L8.attn_k.weight)
+    let K8 = apply_rope_k(K8_raw, seq_len, 0.0)
     let V8 = linear(x, L8.attn_v.weight)
-    let K9 = linear(x, L9.attn_k.weight)
+    let K9_raw = linear(x, L9.attn_k.weight)
+    let K9 = apply_rope_k(K9_raw, seq_len, 0.0)
     let V9 = linear(x, L9.attn_v.weight)
-    let K10 = linear(x, L10.attn_k.weight)
+    let K10_raw = linear(x, L10.attn_k.weight)
+    let K10 = apply_rope_k(K10_raw, seq_len, 0.0)
     let V10 = linear(x, L10.attn_v.weight)
-    let K11 = linear(x, L11.attn_k.weight)
+    let K11_raw = linear(x, L11.attn_k.weight)
+    let K11 = apply_rope_k(K11_raw, seq_len, 0.0)
     let V11 = linear(x, L11.attn_v.weight)
-    let K12 = linear(x, L12.attn_k.weight)
+    let K12_raw = linear(x, L12.attn_k.weight)
+    let K12 = apply_rope_k(K12_raw, seq_len, 0.0)
     let V12 = linear(x, L12.attn_v.weight)
-    let K13 = linear(x, L13.attn_k.weight)
+    let K13_raw = linear(x, L13.attn_k.weight)
+    let K13 = apply_rope_k(K13_raw, seq_len, 0.0)
     let V13 = linear(x, L13.attn_v.weight)
-    let K14 = linear(x, L14.attn_k.weight)
+    let K14_raw = linear(x, L14.attn_k.weight)
+    let K14 = apply_rope_k(K14_raw, seq_len, 0.0)
     let V14 = linear(x, L14.attn_v.weight)
-    let K15 = linear(x, L15.attn_k.weight)
+    let K15_raw = linear(x, L15.attn_k.weight)
+    let K15 = apply_rope_k(K15_raw, seq_len, 0.0)
     let V15 = linear(x, L15.attn_v.weight)
-    let K16 = linear(x, L16.attn_k.weight)
+    let K16_raw = linear(x, L16.attn_k.weight)
+    let K16 = apply_rope_k(K16_raw, seq_len, 0.0)
     let V16 = linear(x, L16.attn_v.weight)
-    let K17 = linear(x, L17.attn_k.weight)
+    let K17_raw = linear(x, L17.attn_k.weight)
+    let K17 = apply_rope_k(K17_raw, seq_len, 0.0)
     let V17 = linear(x, L17.attn_v.weight)
-    let K18 = linear(x, L18.attn_k.weight)
+    let K18_raw = linear(x, L18.attn_k.weight)
+    let K18 = apply_rope_k(K18_raw, seq_len, 0.0)
     let V18 = linear(x, L18.attn_v.weight)
-    let K19 = linear(x, L19.attn_k.weight)
+    let K19_raw = linear(x, L19.attn_k.weight)
+    let K19 = apply_rope_k(K19_raw, seq_len, 0.0)
     let V19 = linear(x, L19.attn_v.weight)
-    let K20 = linear(x, L20.attn_k.weight)
+    let K20_raw = linear(x, L20.attn_k.weight)
+    let K20 = apply_rope_k(K20_raw, seq_len, 0.0)
     let V20 = linear(x, L20.attn_v.weight)
-    let K21 = linear(x, L21.attn_k.weight)
+    let K21_raw = linear(x, L21.attn_k.weight)
+    let K21 = apply_rope_k(K21_raw, seq_len, 0.0)
     let V21 = linear(x, L21.attn_v.weight)
 
     // ============================================================
@@ -259,52 +297,38 @@ main {
     let current_logits = logits
     let continue_generation = true
     let token_count = 0
-    
-    // Initialize KV caches
-    let KV0 = K0
-    let KV0_V = V0
-    let KV1 = K1
-    let KV1_V = V1
-    let KV2 = K2
-    let KV2_V = V2
-    let KV3 = K3
-    let KV3_V = V3
-    let KV4 = K4
-    let KV4_V = V4
-    let KV5 = K5
-    let KV5_V = V5
-    let KV6 = K6
-    let KV6_V = V6
-    let KV7 = K7
-    let KV7_V = V7
-    let KV8 = K8
-    let KV8_V = V8
-    let KV9 = K9
-    let KV9_V = V9
-    let KV10 = K10
-    let KV10_V = V10
-    let KV11 = K11
-    let KV11_V = V11
-    let KV12 = K12
-    let KV12_V = V12
-    let KV13 = K13
-    let KV13_V = V13
-    let KV14 = K14
-    let KV14_V = V14
-    let KV15 = K15
-    let KV15_V = V15
-    let KV16 = K16
-    let KV16_V = V16
-    let KV17 = K17
-    let KV17_V = V17
-    let KV18 = K18
-    let KV18_V = V18
-    let KV19 = K19
-    let KV19_V = V19
-    let KV20 = K20
-    let KV20_V = V20
-    let KV21 = K21
-    let KV21_V = V21
+
+    // Track position on CPU (Candle-style: avoid shape() GPU syncs)
+    let current_pos = seq_len
+
+    // Initialize KV cache for f32 (builtin type manages all 22 layers)
+    let kv_cache = KVCache::new_f32(22)
+
+    // Store prefill K/V tensors in cache
+    kv_cache.set(0, K0, V0)
+    kv_cache.set(1, K1, V1)
+    kv_cache.set(2, K2, V2)
+    kv_cache.set(3, K3, V3)
+    kv_cache.set(4, K4, V4)
+    kv_cache.set(5, K5, V5)
+    kv_cache.set(6, K6, V6)
+    kv_cache.set(7, K7, V7)
+    kv_cache.set(8, K8, V8)
+    kv_cache.set(9, K9, V9)
+    kv_cache.set(10, K10, V10)
+    kv_cache.set(11, K11, V11)
+    kv_cache.set(12, K12, V12)
+    kv_cache.set(13, K13, V13)
+    kv_cache.set(14, K14, V14)
+    kv_cache.set(15, K15, V15)
+    kv_cache.set(16, K16, V16)
+    kv_cache.set(17, K17, V17)
+    kv_cache.set(18, K18, V18)
+    kv_cache.set(19, K19, V19)
+    kv_cache.set(20, K20, V20)
+    kv_cache.set(21, K21, V21)
+
+    print("Prefill complete, starting token generation...")
 
     // Token-by-token generation (max 50 tokens)
     for i in range(50) {
@@ -325,168 +349,216 @@ main {
             // ========================================================
             // DECODE STEP: Update KV caches and process new token
             // Each step processes through all 22 layers sequentially
-            // KV cache grows by 1 token per layer (concat operation)
+            // Using KVCache builtin for efficient GPU-only operations
             // ========================================================
             let token_ids_single = int_to_tokenids(token_id)
             let new_token_emb = embedding(tok_embd, token_ids_single)
 
             // Layer 0: Update KV cache and transform
-            let nK0 = linear(new_token_emb, L0.attn_k.weight)  // Optimized
+            // Use CPU-tracked position (Candle-style: no shape() sync)
+            let nK0_raw = linear(new_token_emb, L0.attn_k.weight)
+            let nK0 = apply_rope_k(nK0_raw, 1.0, current_pos)
             let nV0 = linear(new_token_emb, L0.attn_v.weight)
-            KV0 = concat(KV0, nK0, 0.0)
-            KV0_V = concat(KV0_V, nV0, 0.0)
-            
+            kv_cache.append(0, nK0, nV0)
+            let KV0 = kv_cache.get_k(0)
+            let KV0_V = kv_cache.get_v(0)
+
             let nh0 = transformer_layer(new_token_emb, L0.attn_norm.weight, L0.attn_q.weight, L0.attn_k.weight, L0.attn_v.weight, L0.attn_output.weight, L0.ffn_norm.weight, L0.ffn_gate.weight, L0.ffn_up.weight, L0.ffn_down.weight, KV0, KV0_V)
 
             // Layer 1
-            let nK1 = linear(nh0, L1.attn_k.weight)
+            let nK1_raw = linear(nh0, L1.attn_k.weight)
+            let nK1 = apply_rope_k(nK1_raw, 1.0, current_pos)
             let nV1 = linear(nh0, L1.attn_v.weight)
-            KV1 = concat(KV1, nK1, 0.0)
-            KV1_V = concat(KV1_V, nV1, 0.0)
-            
+            kv_cache.append(1, nK1, nV1)
+            let KV1 = kv_cache.get_k(1)
+            let KV1_V = kv_cache.get_v(1)
+
             let nh1 = transformer_layer(nh0, L1.attn_norm.weight, L1.attn_q.weight, L1.attn_k.weight, L1.attn_v.weight, L1.attn_output.weight, L1.ffn_norm.weight, L1.ffn_gate.weight, L1.ffn_up.weight, L1.ffn_down.weight, KV1, KV1_V)
-            
-            let nK2 = linear(nh1, L2.attn_k.weight)
+
+            let nK2_raw = linear(nh1, L2.attn_k.weight)
+            let nK2 = apply_rope_k(nK2_raw, 1.0, current_pos)
             let nV2 = linear(nh1, L2.attn_v.weight)
-            KV2 = concat(KV2, nK2, 0.0)
-            KV2_V = concat(KV2_V, nV2, 0.0)
-            
+            kv_cache.append(2, nK2, nV2)
+            let KV2 = kv_cache.get_k(2)
+            let KV2_V = kv_cache.get_v(2)
+
             let nh2 = transformer_layer(nh1, L2.attn_norm.weight, L2.attn_q.weight, L2.attn_k.weight, L2.attn_v.weight, L2.attn_output.weight, L2.ffn_norm.weight, L2.ffn_gate.weight, L2.ffn_up.weight, L2.ffn_down.weight, KV2, KV2_V)
-            
-            let nK3 = linear(nh2, L3.attn_k.weight)
+
+            let nK3_raw = linear(nh2, L3.attn_k.weight)
+            let nK3 = apply_rope_k(nK3_raw, 1.0, current_pos)
             let nV3 = linear(nh2, L3.attn_v.weight)
-            KV3 = concat(KV3, nK3, 0.0)
-            KV3_V = concat(KV3_V, nV3, 0.0)
-            
+            kv_cache.append(3, nK3, nV3)
+            let KV3 = kv_cache.get_k(3)
+            let KV3_V = kv_cache.get_v(3)
+
             let nh3 = transformer_layer(nh2, L3.attn_norm.weight, L3.attn_q.weight, L3.attn_k.weight, L3.attn_v.weight, L3.attn_output.weight, L3.ffn_norm.weight, L3.ffn_gate.weight, L3.ffn_up.weight, L3.ffn_down.weight, KV3, KV3_V)
-            
-            let nK4 = linear(nh3, L4.attn_k.weight)
+
+            let nK4_raw = linear(nh3, L4.attn_k.weight)
+            let nK4 = apply_rope_k(nK4_raw, 1.0, current_pos)
             let nV4 = linear(nh3, L4.attn_v.weight)
-            KV4 = concat(KV4, nK4, 0.0)
-            KV4_V = concat(KV4_V, nV4, 0.0)
-            
+            kv_cache.append(4, nK4, nV4)
+            let KV4 = kv_cache.get_k(4)
+            let KV4_V = kv_cache.get_v(4)
+
             let nh4 = transformer_layer(nh3, L4.attn_norm.weight, L4.attn_q.weight, L4.attn_k.weight, L4.attn_v.weight, L4.attn_output.weight, L4.ffn_norm.weight, L4.ffn_gate.weight, L4.ffn_up.weight, L4.ffn_down.weight, KV4, KV4_V)
-            
-            let nK5 = linear(nh4, L5.attn_k.weight)
+
+            let nK5_raw = linear(nh4, L5.attn_k.weight)
+            let nK5 = apply_rope_k(nK5_raw, 1.0, current_pos)
             let nV5 = linear(nh4, L5.attn_v.weight)
-            KV5 = concat(KV5, nK5, 0.0)
-            KV5_V = concat(KV5_V, nV5, 0.0)
-            
+            kv_cache.append(5, nK5, nV5)
+            let KV5 = kv_cache.get_k(5)
+            let KV5_V = kv_cache.get_v(5)
+
             let nh5 = transformer_layer(nh4, L5.attn_norm.weight, L5.attn_q.weight, L5.attn_k.weight, L5.attn_v.weight, L5.attn_output.weight, L5.ffn_norm.weight, L5.ffn_gate.weight, L5.ffn_up.weight, L5.ffn_down.weight, KV5, KV5_V)
-            
-            let nK6 = linear(nh5, L6.attn_k.weight)
+
+            let nK6_raw = linear(nh5, L6.attn_k.weight)
+            let nK6 = apply_rope_k(nK6_raw, 1.0, current_pos)
             let nV6 = linear(nh5, L6.attn_v.weight)
-            KV6 = concat(KV6, nK6, 0.0)
-            KV6_V = concat(KV6_V, nV6, 0.0)
-            
+            kv_cache.append(6, nK6, nV6)
+            let KV6 = kv_cache.get_k(6)
+            let KV6_V = kv_cache.get_v(6)
+
             let nh6 = transformer_layer(nh5, L6.attn_norm.weight, L6.attn_q.weight, L6.attn_k.weight, L6.attn_v.weight, L6.attn_output.weight, L6.ffn_norm.weight, L6.ffn_gate.weight, L6.ffn_up.weight, L6.ffn_down.weight, KV6, KV6_V)
-            
-            let nK7 = linear(nh6, L7.attn_k.weight)
+
+            let nK7_raw = linear(nh6, L7.attn_k.weight)
+            let nK7 = apply_rope_k(nK7_raw, 1.0, current_pos)
             let nV7 = linear(nh6, L7.attn_v.weight)
-            KV7 = concat(KV7, nK7, 0.0)
-            KV7_V = concat(KV7_V, nV7, 0.0)
-            
+            kv_cache.append(7, nK7, nV7)
+            let KV7 = kv_cache.get_k(7)
+            let KV7_V = kv_cache.get_v(7)
+
             let nh7 = transformer_layer(nh6, L7.attn_norm.weight, L7.attn_q.weight, L7.attn_k.weight, L7.attn_v.weight, L7.attn_output.weight, L7.ffn_norm.weight, L7.ffn_gate.weight, L7.ffn_up.weight, L7.ffn_down.weight, KV7, KV7_V)
-            
-            let nK8 = linear(nh7, L8.attn_k.weight)
+
+            let nK8_raw = linear(nh7, L8.attn_k.weight)
+            let nK8 = apply_rope_k(nK8_raw, 1.0, current_pos)
             let nV8 = linear(nh7, L8.attn_v.weight)
-            KV8 = concat(KV8, nK8, 0.0)
-            KV8_V = concat(KV8_V, nV8, 0.0)
-            
+            kv_cache.append(8, nK8, nV8)
+            let KV8 = kv_cache.get_k(8)
+            let KV8_V = kv_cache.get_v(8)
+
             let nh8 = transformer_layer(nh7, L8.attn_norm.weight, L8.attn_q.weight, L8.attn_k.weight, L8.attn_v.weight, L8.attn_output.weight, L8.ffn_norm.weight, L8.ffn_gate.weight, L8.ffn_up.weight, L8.ffn_down.weight, KV8, KV8_V)
-            
-            let nK9 = linear(nh8, L9.attn_k.weight)
+
+            let nK9_raw = linear(nh8, L9.attn_k.weight)
+            let nK9 = apply_rope_k(nK9_raw, 1.0, current_pos)
             let nV9 = linear(nh8, L9.attn_v.weight)
-            KV9 = concat(KV9, nK9, 0.0)
-            KV9_V = concat(KV9_V, nV9, 0.0)
-            
+            kv_cache.append(9, nK9, nV9)
+            let KV9 = kv_cache.get_k(9)
+            let KV9_V = kv_cache.get_v(9)
+
             let nh9 = transformer_layer(nh8, L9.attn_norm.weight, L9.attn_q.weight, L9.attn_k.weight, L9.attn_v.weight, L9.attn_output.weight, L9.ffn_norm.weight, L9.ffn_gate.weight, L9.ffn_up.weight, L9.ffn_down.weight, KV9, KV9_V)
 
             // Layer 10 (midpoint)
-            let nK10 = linear(nh9, L10.attn_k.weight)
+            let nK10_raw = linear(nh9, L10.attn_k.weight)
+            let nK10 = apply_rope_k(nK10_raw, 1.0, current_pos)
             let nV10 = linear(nh9, L10.attn_v.weight)
-            KV10 = concat(KV10, nK10, 0.0)
-            KV10_V = concat(KV10_V, nV10, 0.0)
-            
+            kv_cache.append(10, nK10, nV10)
+            let KV10 = kv_cache.get_k(10)
+            let KV10_V = kv_cache.get_v(10)
+
             let nh10 = transformer_layer(nh9, L10.attn_norm.weight, L10.attn_q.weight, L10.attn_k.weight, L10.attn_v.weight, L10.attn_output.weight, L10.ffn_norm.weight, L10.ffn_gate.weight, L10.ffn_up.weight, L10.ffn_down.weight, KV10, KV10_V)
-            
-            let nK11 = linear(nh10, L11.attn_k.weight)
+
+            let nK11_raw = linear(nh10, L11.attn_k.weight)
+            let nK11 = apply_rope_k(nK11_raw, 1.0, current_pos)
             let nV11 = linear(nh10, L11.attn_v.weight)
-            KV11 = concat(KV11, nK11, 0.0)
-            KV11_V = concat(KV11_V, nV11, 0.0)
-            
+            kv_cache.append(11, nK11, nV11)
+            let KV11 = kv_cache.get_k(11)
+            let KV11_V = kv_cache.get_v(11)
+
             let nh11 = transformer_layer(nh10, L11.attn_norm.weight, L11.attn_q.weight, L11.attn_k.weight, L11.attn_v.weight, L11.attn_output.weight, L11.ffn_norm.weight, L11.ffn_gate.weight, L11.ffn_up.weight, L11.ffn_down.weight, KV11, KV11_V)
-            
-            let nK12 = linear(nh11, L12.attn_k.weight)
+
+            let nK12_raw = linear(nh11, L12.attn_k.weight)
+            let nK12 = apply_rope_k(nK12_raw, 1.0, current_pos)
             let nV12 = linear(nh11, L12.attn_v.weight)
-            KV12 = concat(KV12, nK12, 0.0)
-            KV12_V = concat(KV12_V, nV12, 0.0)
-            
+            kv_cache.append(12, nK12, nV12)
+            let KV12 = kv_cache.get_k(12)
+            let KV12_V = kv_cache.get_v(12)
+
             let nh12 = transformer_layer(nh11, L12.attn_norm.weight, L12.attn_q.weight, L12.attn_k.weight, L12.attn_v.weight, L12.attn_output.weight, L12.ffn_norm.weight, L12.ffn_gate.weight, L12.ffn_up.weight, L12.ffn_down.weight, KV12, KV12_V)
-            
-            let nK13 = linear(nh12, L13.attn_k.weight)
+
+            let nK13_raw = linear(nh12, L13.attn_k.weight)
+            let nK13 = apply_rope_k(nK13_raw, 1.0, current_pos)
             let nV13 = linear(nh12, L13.attn_v.weight)
-            KV13 = concat(KV13, nK13, 0.0)
-            KV13_V = concat(KV13_V, nV13, 0.0)
-            
+            kv_cache.append(13, nK13, nV13)
+            let KV13 = kv_cache.get_k(13)
+            let KV13_V = kv_cache.get_v(13)
+
             let nh13 = transformer_layer(nh12, L13.attn_norm.weight, L13.attn_q.weight, L13.attn_k.weight, L13.attn_v.weight, L13.attn_output.weight, L13.ffn_norm.weight, L13.ffn_gate.weight, L13.ffn_up.weight, L13.ffn_down.weight, KV13, KV13_V)
-            
-            let nK14 = linear(nh13, L14.attn_k.weight)
+
+            let nK14_raw = linear(nh13, L14.attn_k.weight)
+            let nK14 = apply_rope_k(nK14_raw, 1.0, current_pos)
             let nV14 = linear(nh13, L14.attn_v.weight)
-            KV14 = concat(KV14, nK14, 0.0)
-            KV14_V = concat(KV14_V, nV14, 0.0)
-            
+            kv_cache.append(14, nK14, nV14)
+            let KV14 = kv_cache.get_k(14)
+            let KV14_V = kv_cache.get_v(14)
+
             let nh14 = transformer_layer(nh13, L14.attn_norm.weight, L14.attn_q.weight, L14.attn_k.weight, L14.attn_v.weight, L14.attn_output.weight, L14.ffn_norm.weight, L14.ffn_gate.weight, L14.ffn_up.weight, L14.ffn_down.weight, KV14, KV14_V)
-            
-            let nK15 = linear(nh14, L15.attn_k.weight)
+
+            let nK15_raw = linear(nh14, L15.attn_k.weight)
+            let nK15 = apply_rope_k(nK15_raw, 1.0, current_pos)
             let nV15 = linear(nh14, L15.attn_v.weight)
-            KV15 = concat(KV15, nK15, 0.0)
-            KV15_V = concat(KV15_V, nV15, 0.0)
-            
+            kv_cache.append(15, nK15, nV15)
+            let KV15 = kv_cache.get_k(15)
+            let KV15_V = kv_cache.get_v(15)
+
             let nh15 = transformer_layer(nh14, L15.attn_norm.weight, L15.attn_q.weight, L15.attn_k.weight, L15.attn_v.weight, L15.attn_output.weight, L15.ffn_norm.weight, L15.ffn_gate.weight, L15.ffn_up.weight, L15.ffn_down.weight, KV15, KV15_V)
-            
-            let nK16 = linear(nh15, L16.attn_k.weight)
+
+            let nK16_raw = linear(nh15, L16.attn_k.weight)
+            let nK16 = apply_rope_k(nK16_raw, 1.0, current_pos)
             let nV16 = linear(nh15, L16.attn_v.weight)
-            KV16 = concat(KV16, nK16, 0.0)
-            KV16_V = concat(KV16_V, nV16, 0.0)
-            
+            kv_cache.append(16, nK16, nV16)
+            let KV16 = kv_cache.get_k(16)
+            let KV16_V = kv_cache.get_v(16)
+
             let nh16 = transformer_layer(nh15, L16.attn_norm.weight, L16.attn_q.weight, L16.attn_k.weight, L16.attn_v.weight, L16.attn_output.weight, L16.ffn_norm.weight, L16.ffn_gate.weight, L16.ffn_up.weight, L16.ffn_down.weight, KV16, KV16_V)
-            
-            let nK17 = linear(nh16, L17.attn_k.weight)
+
+            let nK17_raw = linear(nh16, L17.attn_k.weight)
+            let nK17 = apply_rope_k(nK17_raw, 1.0, current_pos)
             let nV17 = linear(nh16, L17.attn_v.weight)
-            KV17 = concat(KV17, nK17, 0.0)
-            KV17_V = concat(KV17_V, nV17, 0.0)
-            
+            kv_cache.append(17, nK17, nV17)
+            let KV17 = kv_cache.get_k(17)
+            let KV17_V = kv_cache.get_v(17)
+
             let nh17 = transformer_layer(nh16, L17.attn_norm.weight, L17.attn_q.weight, L17.attn_k.weight, L17.attn_v.weight, L17.attn_output.weight, L17.ffn_norm.weight, L17.ffn_gate.weight, L17.ffn_up.weight, L17.ffn_down.weight, KV17, KV17_V)
-            
-            let nK18 = linear(nh17, L18.attn_k.weight)
+
+            let nK18_raw = linear(nh17, L18.attn_k.weight)
+            let nK18 = apply_rope_k(nK18_raw, 1.0, current_pos)
             let nV18 = linear(nh17, L18.attn_v.weight)
-            KV18 = concat(KV18, nK18, 0.0)
-            KV18_V = concat(KV18_V, nV18, 0.0)
-            
+            kv_cache.append(18, nK18, nV18)
+            let KV18 = kv_cache.get_k(18)
+            let KV18_V = kv_cache.get_v(18)
+
             let nh18 = transformer_layer(nh17, L18.attn_norm.weight, L18.attn_q.weight, L18.attn_k.weight, L18.attn_v.weight, L18.attn_output.weight, L18.ffn_norm.weight, L18.ffn_gate.weight, L18.ffn_up.weight, L18.ffn_down.weight, KV18, KV18_V)
-            
-            let nK19 = linear(nh18, L19.attn_k.weight)
+
+            let nK19_raw = linear(nh18, L19.attn_k.weight)
+            let nK19 = apply_rope_k(nK19_raw, 1.0, current_pos)
             let nV19 = linear(nh18, L19.attn_v.weight)
-            KV19 = concat(KV19, nK19, 0.0)
-            KV19_V = concat(KV19_V, nV19, 0.0)
-            
+            kv_cache.append(19, nK19, nV19)
+            let KV19 = kv_cache.get_k(19)
+            let KV19_V = kv_cache.get_v(19)
+
             let nh19 = transformer_layer(nh18, L19.attn_norm.weight, L19.attn_q.weight, L19.attn_k.weight, L19.attn_v.weight, L19.attn_output.weight, L19.ffn_norm.weight, L19.ffn_gate.weight, L19.ffn_up.weight, L19.ffn_down.weight, KV19, KV19_V)
-            
-            let nK20 = linear(nh19, L20.attn_k.weight)
+
+            let nK20_raw = linear(nh19, L20.attn_k.weight)
+            let nK20 = apply_rope_k(nK20_raw, 1.0, current_pos)
             let nV20 = linear(nh19, L20.attn_v.weight)
-            KV20 = concat(KV20, nK20, 0.0)
-            KV20_V = concat(KV20_V, nV20, 0.0)
-            
+            kv_cache.append(20, nK20, nV20)
+            let KV20 = kv_cache.get_k(20)
+            let KV20_V = kv_cache.get_v(20)
+
             let nh20 = transformer_layer(nh19, L20.attn_norm.weight, L20.attn_q.weight, L20.attn_k.weight, L20.attn_v.weight, L20.attn_output.weight, L20.ffn_norm.weight, L20.ffn_gate.weight, L20.ffn_up.weight, L20.ffn_down.weight, KV20, KV20_V)
 
             // Layer 21 (final layer)
-            let nK21 = linear(nh20, L21.attn_k.weight)
+            let nK21_raw = linear(nh20, L21.attn_k.weight)
+            let nK21 = apply_rope_k(nK21_raw, 1.0, current_pos)
             let nV21 = linear(nh20, L21.attn_v.weight)
-            KV21 = concat(KV21, nK21, 0.0)
-            KV21_V = concat(KV21_V, nV21, 0.0)
-            
+            kv_cache.append(21, nK21, nV21)
+            let KV21 = kv_cache.get_k(21)
+            let KV21_V = kv_cache.get_v(21)
+
             let nh21 = transformer_layer(nh20, L21.attn_norm.weight, L21.attn_q.weight, L21.attn_k.weight, L21.attn_v.weight, L21.attn_output.weight, L21.ffn_norm.weight, L21.ffn_gate.weight, L21.ffn_up.weight, L21.ffn_down.weight, KV21, KV21_V)
+
+            // Increment position for next token (Candle-style: CPU tracking)
+            current_pos = current_pos + 1.0
 
             // Final output projection to vocabulary logits
             let norm_new = rms_norm(nh21, output_norm)

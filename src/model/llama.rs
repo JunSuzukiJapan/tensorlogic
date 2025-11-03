@@ -47,16 +47,16 @@ impl Default for LlamaConfig {
 /// - Prefill: Creates new K/V tensors
 /// - Decode: Concatenates new K/V to existing cache
 #[derive(Debug, Clone)]
-pub struct Cache {
+pub struct Cache<T: crate::tensor::FloatType> {
     /// K and V tensors for each layer: Vec<Option<(K, V)>>
     /// None for prefill, Some((K, V)) after first forward pass
-    pub kvs: Vec<Option<(Tensor<half::f16>, Tensor<half::f16>)>>,
+    pub kvs: Vec<Option<(Tensor<T>, Tensor<T>)>>,
 
     /// Whether to use KV caching (true after prefill)
     pub use_kv_cache: bool,
 }
 
-impl Cache {
+impl<T: crate::tensor::FloatType> Cache<T> {
     /// Create a new empty cache for the given number of layers
     pub fn new(num_layers: usize) -> Self {
         Self {
@@ -66,7 +66,7 @@ impl Cache {
     }
 
     /// Get K and V for a specific layer
-    pub fn get(&self, layer_idx: usize) -> Option<&(Tensor<half::f16>, Tensor<half::f16>)> {
+    pub fn get(&self, layer_idx: usize) -> Option<&(Tensor<T>, Tensor<T>)> {
         self.kvs.get(layer_idx).and_then(|kv| kv.as_ref())
     }
 
@@ -77,8 +77,8 @@ impl Cache {
     pub fn update(
         &mut self,
         layer_idx: usize,
-        k: Tensor<half::f16>,
-        v: Tensor<half::f16>,
+        k: Tensor<T>,
+        v: Tensor<T>,
         _device: &MetalDevice,
     ) -> TensorResult<()> {
         if let Some(Some((ref k_cache, ref v_cache))) = self.kvs.get(layer_idx) {
@@ -225,7 +225,7 @@ impl LlamaModel {
         &self,
         _x: &Tensor<half::f16>,
         _index_pos: usize,
-        _cache: &mut Cache,
+        _cache: &mut Cache<half::f16>,
     ) -> TensorResult<Tensor<half::f16>> {
         // TODO: Implement forward pass
         // This will be implemented in subsequent steps

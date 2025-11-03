@@ -114,8 +114,10 @@ pub enum Value {
     TokenIdArray(TokenIdArray),
     /// Meta-type: represents an entity type
     Type(String),
-    /// KV Cache for transformer attention layers
-    KVCache(std::sync::Arc<std::sync::Mutex<crate::model::llama::Cache>>),
+    /// KV Cache for transformer attention layers (f16)
+    KVCacheF16(std::sync::Arc<std::sync::Mutex<crate::model::llama::Cache<half::f16>>>),
+    /// KV Cache for transformer attention layers (f32)
+    KVCacheF32(std::sync::Arc<std::sync::Mutex<crate::model::llama::Cache<f32>>>),
     Void,
 }
 
@@ -141,7 +143,8 @@ impl Value {
             Value::TokenIds(_) => "TokenIds",
             Value::TokenIdArray(_) => "TokenIdArray",
             Value::Type(_) => "Type",
-            Value::KVCache(_) => "KVCache",
+            Value::KVCacheF16(_) => "KVCache",
+            Value::KVCacheF32(_) => "KVCache",
             Value::Void => "Void",
         }
     }
@@ -276,7 +279,11 @@ impl std::fmt::Display for Value {
                 }
             }
             Value::Type(type_name) => write!(f, "Type({})", type_name),
-            Value::KVCache(cache) => {
+            Value::KVCacheF16(cache) => {
+                let c = cache.lock().unwrap();
+                write!(f, "KVCache(layers={})", c.kvs.len())
+            }
+            Value::KVCacheF32(cache) => {
                 let c = cache.lock().unwrap();
                 write!(f, "KVCache(layers={})", c.kvs.len())
             }

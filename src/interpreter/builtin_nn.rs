@@ -45,7 +45,7 @@ impl Interpreter {
         // Evaluate tensor and weight arguments
         let tensor_val = self.eval_expr(&args[0])?;
         let weight_val = self.eval_expr(&args[1])?;
-        eprintln!("[TIMING] rms_norm: arg evaluation: {:.3}ms", _start.elapsed().as_secs_f64() * 1000.0);
+        // eprintln!("[TIMING] rms_norm: arg evaluation: {:.3}ms", _start.elapsed().as_secs_f64() * 1000.0);
 
         // Use default epsilon value (1e-6 for LLaMA/TinyLlama) or custom value
         let eps = if args.len() >= 3 {
@@ -77,9 +77,9 @@ impl Interpreter {
                 "rms_norm() requires tensor and weight to be same type (both f16 or both f32)".to_string()
             )),
         };
-        eprintln!("[TIMING] rms_norm: computation: {:.3}ms, total: {:.3}ms",
-                  compute_start.elapsed().as_secs_f64() * 1000.0,
-                  _start.elapsed().as_secs_f64() * 1000.0);
+        // eprintln!("[TIMING] rms_norm: computation: {:.3}ms, total: {:.3}ms",
+        //           compute_start.elapsed().as_secs_f64() * 1000.0,
+        //           _start.elapsed().as_secs_f64() * 1000.0);
         result
     }
 
@@ -862,7 +862,7 @@ impl Interpreter {
 
         let q_dims = q.dims();
         let k_dims = k.dims();
-        eprintln!("[TIMING]   attention_f32: setup: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
+        // eprintln!("[TIMING]   attention_f32: setup: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
 
         if q_dims.len() != 2 || k_dims.len() != 2 {
             return Err(RuntimeError::TypeError(
@@ -909,7 +909,7 @@ impl Interpreter {
 
         let scale = (head_dim as f32).sqrt();
         let scaled_scores = scores.div_scalar(scale).map_err(|e| RuntimeError::TensorError(e))?;
-        eprintln!("[TIMING]   attention_f32: Q@K^T: {:.3}ms", qk_start.elapsed().as_secs_f64() * 1000.0);
+        // eprintln!("[TIMING]   attention_f32: Q@K^T: {:.3}ms", qk_start.elapsed().as_secs_f64() * 1000.0);
 
         // Step 2: Apply causal mask if seq_len > 1 (prefill phase)
         let masked_scores = if seq_len > 1 {
@@ -958,7 +958,7 @@ impl Interpreter {
         // Step 3: Softmax over last dimension
         let softmax_start = Instant::now();
         let attn_weights = masked_scores.softmax().map_err(|e| RuntimeError::TensorError(e))?;
-        eprintln!("[TIMING]   attention_f32: softmax: {:.3}ms", softmax_start.elapsed().as_secs_f64() * 1000.0);
+        // eprintln!("[TIMING]   attention_f32: softmax: {:.3}ms", softmax_start.elapsed().as_secs_f64() * 1000.0);
 
         // Step 4: Weighted sum: attn_weights @ V (use expanded V for GQA)
         // attn_weights: [seq_len, cache_len], V: [cache_len, n_embd] -> [seq_len, n_embd]
@@ -968,14 +968,14 @@ impl Interpreter {
         use crate::tensor::TensorTransform;
         let v_contiguous = v_expanded.contiguous().map_err(|e| RuntimeError::TensorError(e))?;
         let attn_out = attn_weights.matmul(&v_contiguous).map_err(|e| RuntimeError::TensorError(e))?;
-        eprintln!("[TIMING]   attention_f32: attn@V: {:.3}ms", attn_v_start.elapsed().as_secs_f64() * 1000.0);
+        // eprintln!("[TIMING]   attention_f32: attn@V: {:.3}ms", attn_v_start.elapsed().as_secs_f64() * 1000.0);
 
         // Step 5: Output projection: attn_out @ W_o.T (like linear layer)
         // Use fused transpose-matmul for better performance (2.89x faster than separate transpose + matmul)
         let output_start = Instant::now();
         let result = attn_out.matmul_transposed_b(&w_o).map_err(|e| RuntimeError::TensorError(e))?;
-        eprintln!("[TIMING]   attention_f32: output projection: {:.3}ms", output_start.elapsed().as_secs_f64() * 1000.0);
-        eprintln!("[TIMING]   attention_f32: TOTAL: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
+        // eprintln!("[TIMING]   attention_f32: output projection: {:.3}ms", output_start.elapsed().as_secs_f64() * 1000.0);
+        // eprintln!("[TIMING]   attention_f32: TOTAL: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
 
         Ok(Value::TensorF32(result))
     }

@@ -1037,23 +1037,42 @@ impl Interpreter {
             "KVCache" => {
                 // KVCache static methods
                 match name {
-                    "new" => {
-                        // KVCache::new(num_layers: int) -> KVCache
+                    "new" | "new_f16" => {
+                        // KVCache::new(num_layers: int) -> KVCacheF16
+                        // KVCache::new_f16(num_layers: int) -> KVCacheF16
                         if args.len() != 1 {
                             return Err(RuntimeError::TypeError(
-                                format!("KVCache::new() expects 1 argument, got {}", args.len())
+                                format!("KVCache::{}() expects 1 argument, got {}", name, args.len())
                             ));
                         }
 
                         let num_layers = match self.eval_expr(&args[0])? {
                             Value::Integer(n) => n as usize,
                             v => return Err(RuntimeError::TypeError(
-                                format!("KVCache::new() expects Integer, got {}", v.type_name())
+                                format!("KVCache::{}() expects Integer, got {}", name, v.type_name())
                             )),
                         };
 
-                        let cache = crate::model::llama::Cache::new(num_layers);
-                        Ok(Value::KVCache(std::sync::Arc::new(std::sync::Mutex::new(cache))))
+                        let cache = crate::model::llama::Cache::<half::f16>::new(num_layers);
+                        Ok(Value::KVCacheF16(std::sync::Arc::new(std::sync::Mutex::new(cache))))
+                    }
+                    "new_f32" => {
+                        // KVCache::new_f32(num_layers: int) -> KVCacheF32
+                        if args.len() != 1 {
+                            return Err(RuntimeError::TypeError(
+                                format!("KVCache::new_f32() expects 1 argument, got {}", args.len())
+                            ));
+                        }
+
+                        let num_layers = match self.eval_expr(&args[0])? {
+                            Value::Integer(n) => n as usize,
+                            v => return Err(RuntimeError::TypeError(
+                                format!("KVCache::new_f32() expects Integer, got {}", v.type_name())
+                            )),
+                        };
+
+                        let cache = crate::model::llama::Cache::<f32>::new(num_layers);
+                        Ok(Value::KVCacheF32(std::sync::Arc::new(std::sync::Mutex::new(cache))))
                     }
                     _ => Err(RuntimeError::TypeError(
                         format!("KVCache::{} is not implemented", name)
@@ -1071,11 +1090,11 @@ impl Interpreter {
     fn eval_resolved_function(&mut self, resolved: &crate::ast::ResolvedFunction, args: &[TensorExpr]) -> RuntimeResult<Value> {
         use crate::ast::{BuiltinFunctionId, ResolvedFunction};
 
-        eprintln!("[DEBUG] eval_resolved_function: Entry");
+        // eprintln!("[DEBUG] eval_resolved_function: Entry");
 
         match resolved {
             ResolvedFunction::Builtin(id) => {
-                eprintln!("[DEBUG] eval_resolved_function: Builtin function id={:?}", id);
+                // eprintln!("[DEBUG] eval_resolved_function: Builtin function id={:?}", id);
 
                 // IMPORTANT: Directly dispatch to builtin functions to avoid infinite recursion
                 // The fallback mechanism was causing hangs due to re-evaluation loops
@@ -1093,18 +1112,18 @@ impl Interpreter {
 
                     // For any other builtin, fall back to string-based dispatch
                     _ => {
-                        eprintln!("[DEBUG] eval_resolved_function: Builtin id={:?} not implemented in fast dispatch, using fallback", id);
+                        // eprintln!("[DEBUG] eval_resolved_function: Builtin id={:?} not implemented in fast dispatch, using fallback", id);
                         return Err(RuntimeError::NotImplemented(
                             format!("Fast builtin dispatch not yet implemented for {:?}", id)
                         ));
                     }
                 };
 
-                eprintln!("[DEBUG] eval_resolved_function: Builtin dispatch completed");
+                // eprintln!("[DEBUG] eval_resolved_function: Builtin dispatch completed");
                 result
             }
             ResolvedFunction::UserDefined(func_decl) => {
-                eprintln!("[DEBUG] eval_resolved_function: UserDefined function name={}", func_decl.name.as_str());
+                // eprintln!("[DEBUG] eval_resolved_function: UserDefined function name={}", func_decl.name.as_str());
                 // Direct call to user-defined function (no HashMap lookup)
                 self.call_user_defined_function(func_decl, args)
             }
@@ -1115,7 +1134,7 @@ impl Interpreter {
     fn call_user_defined_function(&mut self, func_decl: &crate::ast::FunctionDecl, args: &[TensorExpr]) -> RuntimeResult<Value> {
         let func_name = func_decl.name.as_str();
 
-        eprintln!("[DEBUG] call_user_defined_function: name={}, args.len={}", func_name, args.len());
+        // eprintln!("[DEBUG] call_user_defined_function: name={}, args.len={}", func_name, args.len());
 
         // Check argument count
         if args.len() != func_decl.params.len() {
@@ -1127,24 +1146,24 @@ impl Interpreter {
             )));
         }
 
-        eprintln!("[DEBUG] call_user_defined_function: Argument count OK");
+        // eprintln!("[DEBUG] call_user_defined_function: Argument count OK");
 
         // Create call frame
         let mut frame = crate::interpreter::environment::CallFrame::new(func_name.to_string());
 
-        eprintln!("[DEBUG] call_user_defined_function: Evaluating {} arguments...", args.len());
+        // eprintln!("[DEBUG] call_user_defined_function: Evaluating {} arguments...", args.len());
 
         // Evaluate arguments and bind to parameters
         for (i, (param, arg)) in func_decl.params.iter().zip(args.iter()).enumerate() {
-            eprintln!("[DEBUG] call_user_defined_function: Evaluating arg[{}] for param '{}'", i, param.name.as_str());
+            // eprintln!("[DEBUG] call_user_defined_function: Evaluating arg[{}] for param '{}'", i, param.name.as_str());
             let arg_value = self.eval_expr(arg)?;
-            eprintln!("[DEBUG] call_user_defined_function: Arg[{}] evaluated successfully", i);
+            // eprintln!("[DEBUG] call_user_defined_function: Arg[{}] evaluated successfully", i);
             // Note: Type checking could be optimized here in Phase 5
             self.check_type_match(&arg_value, &param.entity_type, param.name.as_str())?;
             frame.local_vars.insert(param.name.as_str().to_string(), arg_value);
         }
 
-        eprintln!("[DEBUG] call_user_defined_function: All arguments evaluated");
+        // eprintln!("[DEBUG] call_user_defined_function: All arguments evaluated");
 
         // Push call frame
         self.call_stack.push(frame);
@@ -1208,7 +1227,7 @@ impl Interpreter {
             } else {
                 name_str.to_string()
             };
-            eprintln!("[PROFILE] → {}", full_name);
+            // eprintln!("[PROFILE] → {}", full_name);
             Some((full_name, std::time::Instant::now()))
         } else {
             None
@@ -1223,7 +1242,7 @@ impl Interpreter {
                 Ok(value) => {
                     if let Some((name, start)) = start_time {
                         let elapsed = start.elapsed();
-                        eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+                        // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
                     }
                     return Ok(value);
                 }
@@ -1233,7 +1252,7 @@ impl Interpreter {
                 Err(e) => {
                     if let Some((name, start)) = start_time {
                         let elapsed = start.elapsed();
-                        eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+                        // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
                     }
                     return Err(e);
                 }
@@ -1245,7 +1264,7 @@ impl Interpreter {
             let result = self.eval_typed_function_call(type_ns, name_str, args);
             if let Some((name, start)) = start_time {
                 let elapsed = start.elapsed();
-                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
             }
             return result;
         }
@@ -1256,56 +1275,56 @@ impl Interpreter {
         if let Some(result) = self.eval_tensor_function(name_str, args) {
             if let Some((name, start)) = start_time {
                 let elapsed = start.elapsed();
-                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
             }
             return result;
         }
         if let Some(result) = self.eval_math_function(name_str, args) {
             if let Some((name, start)) = start_time {
                 let elapsed = start.elapsed();
-                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
             }
             return result;
         }
         if let Some(result) = self.eval_nn_function(name_str, args) {
             if let Some((name, start)) = start_time {
                 let elapsed = start.elapsed();
-                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
             }
             return result;
         }
         if let Some(result) = self.eval_kg_function(name_str, args) {
             if let Some((name, start)) = start_time {
                 let elapsed = start.elapsed();
-                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
             }
             return result;
         }
         if let Some(result) = self.eval_gnn_function(name_str, args) {
             if let Some((name, start)) = start_time {
                 let elapsed = start.elapsed();
-                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
             }
             return result;
         }
         if let Some(result) = self.eval_model_function(name_str, args) {
             if let Some((name, start)) = start_time {
                 let elapsed = start.elapsed();
-                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
             }
             return result;
         }
         if let Some(result) = self.eval_sampling_function(name_str, args) {
             if let Some((name, start)) = start_time {
                 let elapsed = start.elapsed();
-                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
             }
             return result;
         }
         if let Some(result) = self.eval_util_function(name_str, args) {
             if let Some((name, start)) = start_time {
                 let elapsed = start.elapsed();
-                eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
             }
             return result;
         }
