@@ -2566,6 +2566,14 @@ impl Interpreter {
                 let (cached, capacity) = cache.cache_stats();
                 format!("<WeightCache<f32>: {}/{} cached>", cached, capacity)
             }
+            Value::GGUFWeightCacheF16(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                format!("<GGUFWeightCache<f16>: {}/{} cached>", cached, capacity)
+            }
+            Value::GGUFWeightCacheF32(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                format!("<GGUFWeightCache<f32>: {}/{} cached>", cached, capacity)
+            }
         })
     }
 
@@ -2610,6 +2618,14 @@ impl Interpreter {
             Value::WeightCacheF32(cache) => {
                 let (cached, capacity) = cache.cache_stats();
                 format!("<WeightCache<f32>: {}/{} cached>", cached, capacity)
+            }
+            Value::GGUFWeightCacheF16(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                format!("<GGUFWeightCache<f16>: {}/{} cached>", cached, capacity)
+            }
+            Value::GGUFWeightCacheF32(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                format!("<GGUFWeightCache<f32>: {}/{} cached>", cached, capacity)
             }
         }
     }

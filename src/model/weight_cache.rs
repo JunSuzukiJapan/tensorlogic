@@ -253,6 +253,28 @@ impl<T: FloatType> Clone for WeightCache<T> {
     }
 }
 
+impl<T: FloatType> crate::model::LazyWeightLoader<T> for WeightCache<T> {
+    fn get_weight(&self, name: &str) -> TensorResult<Tensor<T>> {
+        self.get_weight(name)
+    }
+
+    fn cache_stats(&self) -> (usize, usize) {
+        self.cache_stats()
+    }
+
+    fn contains(&self, name: &str) -> bool {
+        self.contains(name)
+    }
+
+    fn weight_names(&self) -> Vec<String> {
+        self.weight_names()
+    }
+
+    fn clear_cache(&self) {
+        self.clear_cache()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

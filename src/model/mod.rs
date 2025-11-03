@@ -10,6 +10,8 @@ pub mod convert;
 pub mod formats;
 pub mod llama;
 pub mod weight_cache;
+pub mod gguf_weight_cache;
+pub mod lazy_weight_loader;
 
 use crate::tensor::Tensor;
 use crate::tensor::{FloatType, TensorCreation, TensorIO};
@@ -21,6 +23,8 @@ use std::path::Path;
 pub use metadata::{ModelMetadata, ModelFormat, QuantizationType};
 pub use convert::TypeConverter;
 pub use weight_cache::WeightCache;
+pub use gguf_weight_cache::GGUFWeightCache;
+pub use lazy_weight_loader::LazyWeightLoader;
 
 /// Result type for model operations
 pub type ModelResult<T> = Result<T, TensorError>;

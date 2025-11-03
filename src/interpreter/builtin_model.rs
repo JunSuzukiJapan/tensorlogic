@@ -13,6 +13,8 @@ impl Interpreter {
             "load_model_f32" => Some(self.eval_load_model_f32(args)),
             "load_weight_cache_f16" => Some(self.eval_load_weight_cache_f16(args)),
             "load_weight_cache_f32" => Some(self.eval_load_weight_cache_f32(args)),
+            "load_weight_cache_gguf_f16" => Some(self.eval_load_weight_cache_gguf_f16(args)),
+            "load_weight_cache_gguf_f32" => Some(self.eval_load_weight_cache_gguf_f32(args)),
             "get_weight" => Some(self.eval_get_weight(args)),
             "get_tensor" => Some(self.eval_get_tensor(args)),
 
@@ -276,6 +278,92 @@ impl Interpreter {
         Ok(Value::WeightCacheF32(cache))
     }
 
+    /// load_weight_cache_gguf_f16(path, cache_capacity)
+    /// Create a lazy-loading weight cache for GGUF quantized model (f16 precision)
+    ///
+    /// Uses memory mapping + LRU cache for efficient loading of quantized weights.
+    /// Weights are dequantized on-demand to f16 precision.
+    fn eval_load_weight_cache_gguf_f16(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::model::GGUFWeightCache;
+
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("load_weight_cache_gguf_f16() expects 2 arguments (path, cache_capacity), got {}", args.len())
+            ));
+        }
+
+        // Evaluate path argument
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "load_weight_cache_gguf_f16() first argument must be a string (path)".to_string()
+            )),
+        };
+
+        // Evaluate cache_capacity argument
+        let capacity_val = self.eval_expr(&args[1])?;
+        let capacity = match capacity_val {
+            Value::Integer(i) => i as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "load_weight_cache_gguf_f16() second argument must be an integer (cache_capacity)".to_string()
+            )),
+        };
+
+        // Create GGUF weight cache with mmap
+        let device = self.env.metal_device();
+        let cache = GGUFWeightCache::<half::f16>::new(&path, device.clone(), capacity)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        println!("Created GGUF weight cache for: {} (f16, capacity={})", path, capacity);
+        println!("  Weights available: {}", cache.weight_names().len());
+
+        Ok(Value::GGUFWeightCacheF16(cache))
+    }
+
+    /// load_weight_cache_gguf_f32(path, cache_capacity)
+    /// Create a lazy-loading weight cache for GGUF quantized model (f32 precision)
+    ///
+    /// Uses memory mapping + LRU cache for efficient loading of quantized weights.
+    /// Weights are dequantized on-demand to f32 precision.
+    fn eval_load_weight_cache_gguf_f32(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::model::GGUFWeightCache;
+
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("load_weight_cache_gguf_f32() expects 2 arguments (path, cache_capacity), got {}", args.len())
+            ));
+        }
+
+        // Evaluate path argument
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "load_weight_cache_gguf_f32() first argument must be a string (path)".to_string()
+            )),
+        };
+
+        // Evaluate cache_capacity argument
+        let capacity_val = self.eval_expr(&args[1])?;
+        let capacity = match capacity_val {
+            Value::Integer(i) => i as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "load_weight_cache_gguf_f32() second argument must be an integer (cache_capacity)".to_string()
+            )),
+        };
+
+        // Create GGUF weight cache with mmap
+        let device = self.env.metal_device();
+        let cache = GGUFWeightCache::<f32>::new(&path, device.clone(), capacity)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        println!("Created GGUF weight cache for: {} (f32, capacity={})", path, capacity);
+        println!("  Weights available: {}", cache.weight_names().len());
+
+        Ok(Value::GGUFWeightCacheF32(cache))
+    }
+
     /// get_weight(weight_cache, "weight_name")
     /// Get a weight tensor from the cache (loads lazily from mmap if needed)
     fn eval_get_weight(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
@@ -297,7 +385,7 @@ impl Interpreter {
             )),
         };
 
-        // Get weight from cache (f16 or f32)
+        // Get weight from cache (f16 or f32, SafeTensors or GGUF)
         match cache_val {
             Value::WeightCacheF16(cache) => {
                 let tensor = cache.get_weight(&weight_name)
@@ -309,8 +397,18 @@ impl Interpreter {
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF32(tensor))
             }
+            Value::GGUFWeightCacheF16(cache) => {
+                let tensor = cache.get_weight(&weight_name)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(tensor))
+            }
+            Value::GGUFWeightCacheF32(cache) => {
+                let tensor = cache.get_weight(&weight_name)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(tensor))
+            }
             _ => Err(RuntimeError::TypeError(
-                "get_weight() first argument must be a WeightCache".to_string()
+                "get_weight() first argument must be a WeightCache or GGUFWeightCache".to_string()
             )),
         }
     }
