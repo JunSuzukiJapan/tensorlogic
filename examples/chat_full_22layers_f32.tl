@@ -390,9 +390,9 @@ main {
         print("[DEBUG] Loop iteration: {}", i)
         if continue_generation {
             print("[DEBUG] continue_generation=true, sampling token...")
-            // Debug: Check argmax directly (greedy decoding)
-            let argmax_id = argmax(current_logits)
-            print("[DEBUG] Argmax token_id: {} (greedy choice)", argmax_id)
+            // NOTE: argmax debug output shows FLAT index (not token ID for 2D tensors)
+            // For 2D [seq_len, vocab], flat_idx = seq_pos * vocab_size + token_id
+            // temperature_sample() correctly extracts last row, so actual token is correct
             // Sample next token using temperature sampling
             let token_id = temperature_sample(current_logits, temperature)
             let text = detokenize_single(tokenizer, token_id, false)
