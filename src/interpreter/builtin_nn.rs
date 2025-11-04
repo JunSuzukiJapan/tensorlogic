@@ -893,6 +893,24 @@ impl Interpreter {
         let k_embd = k_dims[1];
         let v_embd = v.dims()[1];
 
+        // Apply RoPE to Q only
+        // K/V cache should already have RoPE applied when stored
+        // Reshape Q: [seq_len, n_embd] -> [seq_len, n_heads, head_dim]
+        let q_heads = q.reshape(vec![seq_len, n_heads, head_dim]).map_err(|e| RuntimeError::TensorError(e))?;
+        let q_rope = q_heads.rope(cache_len - seq_len).map_err(|e| RuntimeError::TensorError(e))?;  // position_offset
+        let q_flat = q_rope.reshape(vec![seq_len, n_embd]).map_err(|e| RuntimeError::TensorError(e))?;
+
+        // K cache already has RoPE applied, use as-is
+        let k_flat = k.clone();
+
+        if std::env::var("TL_DEBUG_ROPE").is_ok() {
+            eprintln!("\n=== RoPE Debug (f32) ===");
+            eprintln!("  seq_len: {}, cache_len: {}", seq_len, cache_len);
+            eprintln!("  Q position_offset: {}", cache_len - seq_len);
+            eprintln!("  K position_offset: 0");
+            eprintln!("  n_heads: {}, head_dim: {}", n_heads, head_dim);
+        }
+
         let (k_expanded, v_expanded) = if k_embd != n_embd || v_embd != n_embd {
             // GQA: repeat K/V to match Q dimension
             let n_rep = n_embd / k_embd;
@@ -903,18 +921,18 @@ impl Interpreter {
             }
 
             // Repeat K and V along the embedding dimension using broadcast
-            let k_repeated = Self::repeat_kv_for_gqa(&k, n_rep)?;
+            let k_repeated = Self::repeat_kv_for_gqa(&k_flat, n_rep)?;
             let v_repeated = Self::repeat_kv_for_gqa(&v, n_rep)?;
             (k_repeated, v_repeated)
         } else {
-            (k, v)
+            (k_flat, v)
         };
 
         // Step 1: Attention scores = Q @ K^T / sqrt(head_dim)
         // Q: [seq_len, n_embd], K: [cache_len, n_embd] -> [seq_len, cache_len]
         // Use fused transpose-matmul to avoid creating transposed copy
         let qk_start = Instant::now();
-        let scores = q.matmul_transposed_b(&k_expanded).map_err(|e| RuntimeError::TensorError(e))?;
+        let scores = q_flat.matmul_transposed_b(&k_expanded).map_err(|e| RuntimeError::TensorError(e))?;
 
         let scale = (head_dim as f32).sqrt();
         if std::env::var("TL_DEBUG").is_ok() {
