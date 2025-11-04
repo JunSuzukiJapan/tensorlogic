@@ -381,7 +381,7 @@ impl BufferPool {
     ///
     /// Uses try_lock() to avoid deadlock - if the pool is already locked, the buffer
     /// is simply dropped and freed by the OS. This is safe and prevents hangs.
-    pub fn try_return_buffer(&self, buffer: Arc<Buffer>, size_class: usize, length: usize) {
+    pub fn try_return_buffer(&self, buffer: &Arc<Buffer>, size_class: usize, length: usize) {
         // Try to lock without blocking - if we can't get the lock, just drop the buffer
         let mut pools = match self.pools.try_lock() {
             Ok(pools) => pools,
@@ -407,8 +407,9 @@ impl BufferPool {
 
         // Only add if we haven't reached the limit
         if buffers.len() < self.max_buffers_per_size {
+            // Clone the Arc here to add to pool (intentional ref count increase)
             // Record current time as last access time
-            buffers.push((buffer, Instant::now()));
+            buffers.push((buffer.clone(), Instant::now()));
 
             if std::env::var("TL_BUFFER_DEBUG").is_ok() {
                 eprintln!(

@@ -214,8 +214,9 @@ impl<T: FloatType> Drop for MetalBuffer<T> {
                     size_class, self.length, ref_count
                 );
             }
-            // Use try_return_buffer to avoid deadlock if pool is locked
-            pool.try_return_buffer(self.buffer.clone(), size_class, self.length);
+            // Pass reference to buffer - no clone here!
+            // The pool will clone it if it decides to store it
+            pool.try_return_buffer(&self.buffer, size_class, self.length);
         }
     }
 }
