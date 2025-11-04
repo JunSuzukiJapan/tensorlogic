@@ -165,10 +165,9 @@ impl Interpreter {
     }
 
     /// load_model_f32("path/to/model.gguf")
-    /// Load a GGUF model as f32 (no f16 conversion)
+    /// Load a GGUF model as f32 with lazy loading support
     fn eval_load_model_f32(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
-        
-        use crate::model::formats::GGUFLoader;
+        use crate::model::GGUFWeightCache;
 
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
@@ -185,13 +184,15 @@ impl Interpreter {
             )),
         };
 
-        // Load model as f32 using Metal device
+        // Create GGUF weight cache for lazy loading (capacity=200 for full weight retention)
         let device = self.env.metal_device();
-        let model = GGUFLoader::load_f32(&path, device)
+        let cache = GGUFWeightCache::<f32>::new(&path, device.clone(), 200)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        println!("Loaded model from: {} (f32)", path);
-        Ok(Value::ModelF32(model))
+        println!("Loaded model from: {} (f32, lazy)", path);
+        println!("  Weights available: {}", cache.weight_names().len());
+
+        Ok(Value::GGUFWeightCacheF32(cache))
     }
 
     /// load_weight_cache_f16("path/to/model.safetensors", cache_capacity)

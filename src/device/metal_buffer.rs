@@ -202,25 +202,20 @@ impl<T: FloatType> MetalBuffer<T> {
 
 impl<T: FloatType> Drop for MetalBuffer<T> {
     fn drop(&mut self) {
-        // Return buffer to pool if this is a pooled buffer and we're the last reference
+        // Return buffer to pool if this is a pooled buffer
+        // We don't check ref_count here - the pool will hold an Arc, so buffers that are
+        // still in use elsewhere will naturally stay alive. When all references are dropped,
+        // the buffer will be freed from the pool.
         if let (Some(pool), Some(size_class)) = (&self.pool, self.size_class) {
-            let ref_count = Arc::strong_count(&self.buffer);
-            // Only return to pool if this is the last Arc reference
-            if ref_count == 1 {
-                if std::env::var("TL_DEBUG").is_ok() {
-                    eprintln!(
-                        "[DEBUG_RS] MetalBuffer::drop: Returning buffer to pool (size_class={}, length={})",
-                        size_class, self.length
-                    );
-                }
-                // Use try_return_buffer to avoid deadlock if pool is locked
-                pool.try_return_buffer(self.buffer.clone(), size_class, self.length);
-            } else if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+            if std::env::var("TL_DEBUG").is_ok() {
+                let ref_count = Arc::strong_count(&self.buffer);
                 eprintln!(
-                    "[BufferPool] Buffer NOT returned (ref_count={}, length={}, size_class={})",
-                    ref_count, self.length, size_class
+                    "[DEBUG_RS] MetalBuffer::drop: Returning buffer to pool (size_class={}, length={}, ref_count={})",
+                    size_class, self.length, ref_count
                 );
             }
+            // Use try_return_buffer to avoid deadlock if pool is locked
+            pool.try_return_buffer(self.buffer.clone(), size_class, self.length);
         }
     }
 }

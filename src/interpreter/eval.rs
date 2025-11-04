@@ -1090,7 +1090,36 @@ impl Interpreter {
                             ))
                         }
                     }
-                    
+
+                    // GGUFWeightCache lazy loading support
+                    Value::GGUFWeightCacheF32(ref cache) => {
+                        use crate::interpreter::value::{LazyModelLayerCollectionF32, LazyModelFeatureF32};
+
+                        // Check if property is "blk" (layer collection)
+                        if prop_name == "blk" {
+                            Ok(Value::LazyModelLayerCollectionF32(LazyModelLayerCollectionF32::new(cache.clone(), "blk")))
+                        } else {
+                            // Single feature (e.g., token_embd, output, output_norm)
+                            Ok(Value::LazyModelFeatureF32(LazyModelFeatureF32::new(cache.clone(), prop_name)))
+                        }
+                    }
+
+                    // LazyModelLayer.property -> returns LazyModelFeature
+                    Value::LazyModelLayerF32(ref layer) => {
+                        use crate::interpreter::value::LazyModelFeatureF32;
+                        let feature_name = format!("blk.{}.{}", layer.index, prop_name);
+                        Ok(Value::LazyModelFeatureF32(LazyModelFeatureF32::new(layer.cache.clone(), &feature_name)))
+                    }
+
+                    // LazyModelFeature.property -> loads Tensor from cache
+                    Value::LazyModelFeatureF32(ref feature) => {
+                        let weight_name = format!("{}.{}", feature.name, prop_name);
+                        match feature.cache.get_weight(&weight_name) {
+                            Ok(tensor) => Ok(Value::TensorF32(tensor)),
+                            Err(e) => Err(RuntimeError::TensorError(e))
+                        }
+                    }
+
                     _ => {
                         Err(RuntimeError::TypeError(
                             format!("Property access not supported on {:?}", std::mem::discriminant(&obj_value))
@@ -2296,6 +2325,43 @@ impl Interpreter {
                     ));
                 }
             }
+            Value::LazyModelLayerCollectionF32(ref collection) => {
+                use crate::interpreter::value::LazyModelLayerF32;
+
+                if indices.len() != 1 {
+                    return Err(RuntimeError::InvalidOperation(
+                        format!("LazyModelLayerCollection indexing requires exactly 1 index, got {}", indices.len())
+                    ));
+                }
+
+                let layer_idx = match &indices[0] {
+                    IndexExpr::Int(i) => {
+                        if *i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        *i as usize
+                    }
+                    IndexExpr::Var(var) => {
+                        let val = self.env.get_variable(var.as_str())?;
+                        let i = val.as_integer()?;
+                        if i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        i as usize
+                    }
+                    IndexExpr::Slice => {
+                        return Err(RuntimeError::NotImplemented(
+                            "Slice indexing not supported on LazyModelLayerCollection".to_string()
+                        ));
+                    }
+                };
+
+                return Ok(Value::LazyModelLayerF32(LazyModelLayerF32::new(collection.cache.clone(), layer_idx)));
+            }
             _ => {}
         }
         
@@ -2574,6 +2640,9 @@ impl Interpreter {
                 let (cached, capacity) = cache.cache_stats();
                 format!("<GGUFWeightCache<f32>: {}/{} cached>", cached, capacity)
             }
+            Value::LazyModelLayerCollectionF32(_) => "<LazyModelLayerCollectionF32>".to_string(),
+            Value::LazyModelLayerF32(_) => "<LazyModelLayerF32>".to_string(),
+            Value::LazyModelFeatureF32(_) => "<LazyModelFeatureF32>".to_string(),
         })
     }
 
@@ -2627,6 +2696,9 @@ impl Interpreter {
                 let (cached, capacity) = cache.cache_stats();
                 format!("<GGUFWeightCache<f32>: {}/{} cached>", cached, capacity)
             }
+            Value::LazyModelLayerCollectionF32(_) => "<LazyModelLayerCollectionF32>".to_string(),
+            Value::LazyModelLayerF32(_) => "<LazyModelLayerF32>".to_string(),
+            Value::LazyModelFeatureF32(_) => "<LazyModelFeatureF32>".to_string(),
         }
     }
 }

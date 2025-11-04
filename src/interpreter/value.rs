@@ -81,6 +81,51 @@ impl<T: crate::tensor::FloatType> ModelFeature<T> {
     }
 }
 
+/// Lazy model layer collection - loads weights on demand from GGUFWeightCache
+#[derive(Debug, Clone)]
+pub struct LazyModelLayerCollectionF32 {
+    pub cache: GGUFWeightCache<f32>,
+    pub prefix: String,
+}
+
+impl LazyModelLayerCollectionF32 {
+    pub fn new(cache: GGUFWeightCache<f32>, prefix: &str) -> Self {
+        Self {
+            cache,
+            prefix: prefix.to_string(),
+        }
+    }
+}
+
+/// Lazy model layer - loads weights on demand from GGUFWeightCache
+#[derive(Debug, Clone)]
+pub struct LazyModelLayerF32 {
+    pub cache: GGUFWeightCache<f32>,
+    pub index: usize,
+}
+
+impl LazyModelLayerF32 {
+    pub fn new(cache: GGUFWeightCache<f32>, index: usize) -> Self {
+        Self { cache, index }
+    }
+}
+
+/// Lazy model feature - loads weights on demand from GGUFWeightCache
+#[derive(Debug, Clone)]
+pub struct LazyModelFeatureF32 {
+    pub cache: GGUFWeightCache<f32>,
+    pub name: String,
+}
+
+impl LazyModelFeatureF32 {
+    pub fn new(cache: GGUFWeightCache<f32>, name: &str) -> Self {
+        Self {
+            cache,
+            name: name.to_string(),
+        }
+    }
+}
+
 /// Runtime value
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -126,6 +171,12 @@ pub enum Value {
     GGUFWeightCacheF16(GGUFWeightCache<f16>),
     /// GGUF weight cache for lazy loading (f32)
     GGUFWeightCacheF32(GGUFWeightCache<f32>),
+    /// Lazy model layer collection (f32) - loads weights on demand
+    LazyModelLayerCollectionF32(LazyModelLayerCollectionF32),
+    /// Lazy model layer (f32) - loads weights on demand
+    LazyModelLayerF32(LazyModelLayerF32),
+    /// Lazy model feature (f32) - loads weights on demand
+    LazyModelFeatureF32(LazyModelFeatureF32),
     Void,
 }
 
@@ -157,6 +208,9 @@ impl Value {
             Value::WeightCacheF32(_) => "WeightCacheF32",
             Value::GGUFWeightCacheF16(_) => "GGUFWeightCacheF16",
             Value::GGUFWeightCacheF32(_) => "GGUFWeightCacheF32",
+            Value::LazyModelLayerCollectionF32(_) => "LazyModelLayerCollectionF32",
+            Value::LazyModelLayerF32(_) => "LazyModelLayerF32",
+            Value::LazyModelFeatureF32(_) => "LazyModelFeatureF32",
             Value::Void => "Void",
         }
     }
@@ -318,6 +372,18 @@ impl std::fmt::Display for Value {
                 let (cached, capacity) = cache.cache_stats();
                 write!(f, "GGUFWeightCache<f32>(cached={}/{}, weights={})",
                        cached, capacity, cache.weight_names().len())
+            }
+            Value::LazyModelLayerCollectionF32(c) => {
+                let (cached, capacity) = c.cache.cache_stats();
+                write!(f, "LazyModelLayerCollection<f32>(prefix={}, cache={}/{})", c.prefix, cached, capacity)
+            }
+            Value::LazyModelLayerF32(l) => {
+                let (cached, capacity) = l.cache.cache_stats();
+                write!(f, "LazyModelLayer<f32>[{}](cache={}/{})", l.index, cached, capacity)
+            }
+            Value::LazyModelFeatureF32(feat) => {
+                let (cached, capacity) = feat.cache.cache_stats();
+                write!(f, "LazyModelFeature<f32>(name={}, cache={}/{})", feat.name, cached, capacity)
             }
             Value::Void => write!(f, "()"),
         }
