@@ -134,12 +134,22 @@ main {
 
     print("[1/3] Loading model (ALL 22 layers)...")
     let home = env("HOME")
-    let model = load_model_f32(home + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf")
+    let model = load_model_f32(home + "/.llm/models/tinyllama-1.1b-chat-f16.gguf")
     let tokenizer = load_tokenizer(home + "/.llm/tokenizers/tinyllama-tokenizer.json")
 
     let tok_embd = model.token_embd.weight
     let output_norm = model.output_norm.weight
     let output = model.output.weight
+
+    // Debug: Check weight shapes and actual tensor dimensions
+    let tok_embd_shape_tensor = shape(tok_embd)
+    let output_shape_tensor = shape(output)
+    let output_norm_shape_tensor = shape(output_norm)
+    print("[DEBUG] tok_embd shape tensor: {}", tok_embd_shape_tensor)
+    print("[DEBUG] output shape tensor: {}", output_shape_tensor)
+    print("[DEBUG] output_norm shape tensor: {}", output_norm_shape_tensor)
+    print("[DEBUG] Shape tensors themselves have lengths: tok_embd={}, output={}, output_norm={}",
+          shape(tok_embd_shape_tensor), shape(output_shape_tensor), shape(output_norm_shape_tensor))
 
     print("      Loading all 22 transformer layers...")
     
@@ -380,6 +390,9 @@ main {
         print("[DEBUG] Loop iteration: {}", i)
         if continue_generation {
             print("[DEBUG] continue_generation=true, sampling token...")
+            // Debug: Check argmax directly (greedy decoding)
+            let argmax_id = argmax(current_logits)
+            print("[DEBUG] Argmax token_id: {} (greedy choice)", argmax_id)
             // Sample next token using temperature sampling
             let token_id = temperature_sample(current_logits, temperature)
             let text = detokenize_single(tokenizer, token_id, false)

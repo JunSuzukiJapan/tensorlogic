@@ -145,6 +145,15 @@ impl Interpreter {
             all_logits
         };
 
+        // Handle temperature=0.0 as greedy decoding (argmax)
+        if temperature <= 0.0001 {
+            // Greedy decoding: return argmax
+            let (max_idx, _) = logits_data.iter().enumerate()
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .unwrap();
+            return Ok(Value::Integer(max_idx as i64));
+        }
+
         // Apply temperature scaling
         let scaled: Vec<f32> = logits_data.iter().map(|&x| x / temperature).collect();
 

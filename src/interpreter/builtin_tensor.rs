@@ -1241,7 +1241,7 @@ impl Interpreter {
 
                 // If no dim specified, return as integer (backward compatibility)
                 if dim.is_none() && !keepdim {
-                    let data = result.to_vec();
+                    let data = result.sync_and_read();
                     Ok(Value::Integer(data[0].to_f32() as i64))
                 } else {
                     Ok(Value::TensorF16(result))
@@ -1253,7 +1253,7 @@ impl Interpreter {
 
                 // If no dim specified, return as integer (backward compatibility)
                 if dim.is_none() && !keepdim {
-                    let data = result.to_vec_f32();
+                    let data = result.sync_and_read_f32();
                     Ok(Value::Integer(data[0] as i64))
                 } else {
                     Ok(Value::TensorF32(result))
