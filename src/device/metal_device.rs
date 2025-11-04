@@ -50,8 +50,9 @@ impl MetalDevice {
         let command_queue = device.new_command_queue();
         let command_queue = Arc::new(command_queue);
 
-        // Increase buffer pool capacity for deep models (22+ layers)
-        let buffer_pool = BufferPool::with_capacity(&device, 100);
+        // Optimize buffer pool capacity for scope management
+        // With proper scope cleanup, we only need buffers for active layers
+        let buffer_pool = BufferPool::with_capacity(&device, 30);
 
         // Create Commands manager for efficient batching
         let commands = Commands::new(command_queue.clone())?;
@@ -76,8 +77,9 @@ impl MetalDevice {
         let command_queue = device.new_command_queue();
         let command_queue = Arc::new(command_queue);
 
-        // Increase buffer pool capacity for deep models (22+ layers)
-        let buffer_pool = BufferPool::with_capacity(&device, 100);
+        // Optimize buffer pool capacity for scope management
+        // With proper scope cleanup, we only need buffers for active layers
+        let buffer_pool = BufferPool::with_capacity(&device, 30);
 
         // Create Commands manager for efficient batching
         let commands = Commands::new(command_queue.clone())?;

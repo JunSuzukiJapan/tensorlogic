@@ -40,7 +40,7 @@ mod builtin_util;      // Utility functions
 
 // Re-export public types
 pub use value::{Value, ModelLayerCollection, ModelLayer, ModelFeature};
-pub use environment::{RuntimeEnvironment, CallFrame};
+pub use environment::{RuntimeEnvironment, CallFrame, ScopeType};
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -289,29 +289,15 @@ impl Interpreter {
     }
 
     /// Get a variable from the interpreter's environment
-    /// Checks local scope (call_stack) first, then global environment
+    /// Variables are managed by the scope stack
     pub fn get_variable(&self, name: &str) -> Option<Value> {
-        // Check local scope first (most recent call frame)
-        if let Some(frame) = self.call_stack.last() {
-            if let Some(value) = frame.local_vars.get(name) {
-                return Some(value.clone());
-            }
-        }
-
-        // Fall back to global environment
-        self.env.get_variable(name).ok().cloned()
+        self.env.get_variable(name).ok()
     }
 
     /// Set a variable in the interpreter's environment
-    /// If in a function call, sets in local scope; otherwise in global environment
+    /// Variables are managed by the scope stack
     pub fn set_variable(&mut self, name: String, value: Value) {
-        if let Some(frame) = self.call_stack.last_mut() {
-            // Inside a function: set in local scope
-            frame.local_vars.insert(name, value);
-        } else {
-            // Global scope
-            let _ = self.env.set_variable(name, value);
-        }
+        let _ = self.env.set_variable(&name, value);
     }
 
     /// List all variables in the environment
@@ -781,15 +767,12 @@ impl Interpreter {
                 // Assignment (identifier := expr) returns the right-hand side value
                 let evaluated_value = self.eval_expr(value)?;
 
-                // Also execute the statement for side effects (variable assignment)
-                if let Some(frame) = self.call_stack.last_mut() {
-                    frame.local_vars.insert(target.as_str().to_string(), evaluated_value.clone());
+                // Execute the statement for side effects (variable assignment)
+                // Scope stack handles variable assignment automatically
+                if self.env.has_variable(target.as_str()) {
+                    self.env.set_variable(target.as_str(), evaluated_value.clone())?;
                 } else {
-                    if self.env.has_variable(target.as_str()) {
-                        self.env.set_variable(target.as_str().to_string(), evaluated_value.clone())?;
-                    } else {
-                        self.env.declare_variable(target.as_str().to_string(), evaluated_value.clone())?;
-                    }
+                    self.env.declare_variable(target.as_str().to_string(), evaluated_value.clone())?;
                 }
 
                 Ok(Some(evaluated_value))
@@ -1148,29 +1131,33 @@ impl Interpreter {
 
         // eprintln!("[DEBUG] call_user_defined_function: Argument count OK");
 
-        // Create call frame
-        let mut frame = crate::interpreter::environment::CallFrame::new(func_name.to_string());
+        // Create call frame for stack trace
+        let frame = crate::interpreter::environment::CallFrame::new(func_name.to_string());
 
         // eprintln!("[DEBUG] call_user_defined_function: Evaluating {} arguments...", args.len());
 
-        // Evaluate arguments and bind to parameters
+        // Push call frame for stack trace
+        self.call_stack.push(frame);
+
+        // Push function scope
+        self.env.push_scope(ScopeType::Function(func_name.to_string()));
+
+        // Evaluate arguments and bind to parameters in function scope
         for (i, (param, arg)) in func_decl.params.iter().zip(args.iter()).enumerate() {
             // eprintln!("[DEBUG] call_user_defined_function: Evaluating arg[{}] for param '{}'", i, param.name.as_str());
             let arg_value = self.eval_expr(arg)?;
             // eprintln!("[DEBUG] call_user_defined_function: Arg[{}] evaluated successfully", i);
             // Note: Type checking could be optimized here in Phase 5
             self.check_type_match(&arg_value, &param.entity_type, param.name.as_str())?;
-            frame.local_vars.insert(param.name.as_str().to_string(), arg_value);
+            self.env.declare_variable(param.name.as_str().to_string(), arg_value)?;
         }
 
         // eprintln!("[DEBUG] call_user_defined_function: All arguments evaluated");
 
-        // Push call frame
-        self.call_stack.push(frame);
-
         // Execute function body
         let body_len = func_decl.body.len();
         if body_len == 0 {
+            self.env.pop_scope();
             self.call_stack.pop();
             return Err(RuntimeError::TypeError(format!(
                 "Function '{}' has empty body",
@@ -1183,10 +1170,12 @@ impl Interpreter {
             match self.execute_statement(stmt) {
                 Ok(_) => {}
                 Err(RuntimeError::ReturnValue(val)) => {
+                    self.env.pop_scope();
                     self.call_stack.pop();
                     return Ok(val);
                 }
                 Err(e) => {
+                    self.env.pop_scope();
                     self.call_stack.pop();
                     return Err(e);
                 }
@@ -1199,6 +1188,7 @@ impl Interpreter {
             Ok(None) => Value::Void,
             Err(RuntimeError::ReturnValue(val)) => val,
             Err(e) => {
+                self.env.pop_scope();
                 self.call_stack.pop();
                 return Err(e);
             }
@@ -1207,7 +1197,8 @@ impl Interpreter {
         // Type check return value
         self.check_return_type_match(&return_value, &func_decl.return_type, func_name)?;
 
-        // Pop call frame and return
+        // Pop function scope and call frame, then return
+        self.env.pop_scope();
         self.call_stack.pop();
         Ok(return_value)
     }
@@ -4972,21 +4963,22 @@ impl Interpreter {
                         ));
                     }
 
-                    // 2. Create new call frame
-                    let mut frame = CallFrame::new(func_name.to_string());
+                    // 2. Create new call frame for stack trace
+                    let frame = CallFrame::new(func_name.to_string());
 
-                    // 3. Evaluate arguments, check types, and bind to parameters
+                    // 3. Push call frame and function scope
+                    self.call_stack.push(frame);
+                    self.env.push_scope(ScopeType::Function(func_name.to_string()));
+
+                    // 4. Evaluate arguments, check types, and bind to parameters
                     for (param, arg) in func_decl.params.iter().zip(args.iter()) {
                         let arg_value = self.eval_expr(arg)?;
 
                         // Type check the argument
                         self.check_type_match(&arg_value, &param.entity_type, param.name.as_str())?;
 
-                        frame.local_vars.insert(param.name.as_str().to_string(), arg_value);
+                        self.env.declare_variable(param.name.as_str().to_string(), arg_value)?;
                     }
-
-                    // 4. Push call frame onto stack
-                    self.call_stack.push(frame);
 
                     // 5. Execute function body and catch explicit returns
                     let mut explicit_return = None;
@@ -5003,6 +4995,7 @@ impl Interpreter {
                                 }
                                 Err(e) => {
                                     // Other errors - propagate upward
+                                    self.env.pop_scope();
                                     self.call_stack.pop();
                                     return Err(e);
                                 }
@@ -5021,6 +5014,7 @@ impl Interpreter {
                             Ok(None) => Value::Void,
                             Err(RuntimeError::ReturnValue(val)) => val,  // Explicit return in last statement
                             Err(e) => {
+                                self.env.pop_scope();
                                 self.call_stack.pop();
                                 return Err(e);
                             }
@@ -5033,7 +5027,8 @@ impl Interpreter {
                     // 7. Check return type matches declaration
                     self.check_return_type_match(&return_value, &func_decl.return_type, func_name)?;
 
-                    // 8. Pop call frame
+                    // 8. Pop function scope and call frame
+                    self.env.pop_scope();
                     self.call_stack.pop();
 
                     Ok(return_value)
@@ -5413,7 +5408,7 @@ impl Interpreter {
                         use crate::tensor::TensorAutograd;
                         param_clone.set_grad_node(node_id);
                     }
-                    self.env.variables.insert(name.clone(), Value::TensorF16(param_clone));
+                    let _ = self.env.set_variable(name, Value::TensorF16(param_clone));
                 }
             }
 
@@ -5500,7 +5495,7 @@ impl Interpreter {
                                 // Restore the original node_id to maintain gradient connection
                                 param_with_grad.set_grad_node(*node_id);
                                 // Learning context - update parameter
-                                self.env.variables.insert(name.clone(), Value::TensorF16(param_with_grad));
+                                let _ = self.env.set_variable(name, Value::TensorF16(param_with_grad));
                             }
 
                             // Note: We don't rebuild learnable_params from the environment

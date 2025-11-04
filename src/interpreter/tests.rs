@@ -5,7 +5,9 @@ use crate::device::MetalDevice;
 #[test]
 fn test_interpreter_creation() {
     let interpreter = Interpreter::new();
-    assert!(interpreter.env.variables.is_empty());
+    // Check that only global scope exists with no variables
+    assert_eq!(interpreter.env.scope_depth(), 0);
+    assert_eq!(interpreter.env.list_variables().len(), 0);
 }
 
 #[test]

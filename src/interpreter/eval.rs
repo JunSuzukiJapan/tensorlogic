@@ -17,17 +17,9 @@ impl Interpreter {
                 if let Some(init_expr) = &decl.init_expr {
                     let value = self.eval_expr(init_expr)?;
 
-                    // Check if we're inside a function call
-                    if let Some(frame) = self.call_stack.last_mut() {
-                        // Inside function: declare in local scope
-                        frame.local_vars.insert(decl.name.as_str().to_string(), value);
-                        Ok(())
-                    } else {
-                        // Global scope: declare in environment
-                        self.env
-                            .declare_variable(decl.name.as_str().to_string(), value)?;
-                        Ok(())
-                    }
+                    // Declare in current scope (handled by scope stack)
+                    self.env.declare_variable(decl.name.as_str().to_string(), value)?;
+                    Ok(())
                 } else {
                     // No initializer - create uninitialized tensor (would need default value)
                     return Err(RuntimeError::TypeError(
@@ -36,37 +28,23 @@ impl Interpreter {
                 }
             }
             Statement::Let { target, value } => {
-                // eprintln!("[DEBUG] Statement::Let: target={}", target.as_str());
-                // eprintln!("[DEBUG] Statement::Let: About to eval_expr...");
+                // Evaluate the value
                 let evaluated_value = self.eval_expr(value)?;
-                // eprintln!("[DEBUG] Statement::Let: eval_expr completed");
 
-                // Check if we're inside a function call
-                if let Some(frame) = self.call_stack.last_mut() {
-                    // Inside function: declare in local scope
-                    frame.local_vars.insert(target.as_str().to_string(), evaluated_value);
-                    Ok(())
-                } else {
-                    // Global scope: declare in environment
-                    self.env
-                        .declare_variable(target.as_str().to_string(), evaluated_value)?;
-                    Ok(())
-                }
+                // Declare in current scope (function, block, loop, or global)
+                // Scope stack handles shadowing automatically
+                self.env.declare_variable(target.as_str().to_string(), evaluated_value)?;
+                Ok(())
             }
             Statement::Assignment { target, value } => {
                 let evaluated_value = self.eval_expr(value)?;
 
-                // Check if we're inside a function call
-                if let Some(frame) = self.call_stack.last_mut() {
-                    // Inside function: set in local scope
-                    frame.local_vars.insert(target.as_str().to_string(), evaluated_value);
+                // Assignment updates existing variable in scope chain
+                // If variable doesn't exist, declare it in current scope (TL allows this)
+                if self.env.has_variable(target.as_str()) {
+                    self.env.set_variable(target.as_str(), evaluated_value)?;
                 } else {
-                    // Global scope: assignment (:=) auto-declares if variable doesn't exist
-                    if self.env.has_variable(target.as_str()) {
-                        self.env.set_variable(target.as_str().to_string(), evaluated_value)?;
-                    } else {
-                        self.env.declare_variable(target.as_str().to_string(), evaluated_value)?;
-                    }
+                    self.env.declare_variable(target.as_str().to_string(), evaluated_value)?;
                 }
                 Ok(())
             }
@@ -225,41 +203,23 @@ impl Interpreter {
                     // Execute body for each item
                     let loop_var_name = variable.as_str().to_string();
 
-                    // Save original value if loop variable shadows an outer variable
-                    let original_loop_var = self.env.variables.get(&loop_var_name).cloned();
-
                     for item in items {
-                        // Set loop variable
-                        self.env.variables.insert(loop_var_name.clone(), item);
+                        // Push loop scope for this iteration
+                        self.env.push_scope(ScopeType::Loop);
 
-                        // Track variables before body (including loop variable)
-                        let vars_before: HashSet<String> = self.env.variables.keys().cloned().collect();
+                        // Declare loop variable in this iteration's scope
+                        self.env.declare_variable(loop_var_name.clone(), item)?;
 
                         // Execute body using centralized function (allows break)
                         let result = self.execute_block(body, true);
 
-                        // Clean up iteration variables (excluding loop variable)
-                        let vars_after: HashSet<String> = self.env.variables.keys().cloned().collect();
-                        for var in vars_after.difference(&vars_before) {
-                            self.env.variables.remove(var);
-                        }
+                        // Pop loop scope - automatically cleans up loop variable and iteration variables
+                        self.env.pop_scope();
 
                         match result {
                             Err(RuntimeError::BreakOutsideLoop) => break,
                             Err(e) => return Err(e),
                             Ok(_) => {}
-                        }
-                    }
-
-                    // Restore original loop variable value or remove it
-                    match original_loop_var {
-                        Some(val) => {
-                            // Loop variable shadowed an outer variable - restore it
-                            self.env.variables.insert(loop_var_name, val);
-                        }
-                        None => {
-                            // Loop variable didn't exist before - remove it
-                            self.env.variables.remove(&loop_var_name);
                         }
                     }
 
@@ -807,78 +767,43 @@ impl Interpreter {
     /// - statements: The statements to execute
     /// - allow_break: Whether break statements are allowed (true for loops)
     fn execute_block(&mut self, statements: &[Statement], allow_break: bool) -> RuntimeResult<()> {
-        // Save current variable state (for shadowing support)
-        // Map: variable name -> Option<Value> (None if didn't exist before)
-        let mut shadowed_vars: HashMap<String, Option<Value>> = HashMap::new();
+        use crate::interpreter::environment::ScopeType;
 
-        // Track which variables existed before the block
-        let vars_before: HashSet<String> = self.env.variables.keys().cloned().collect();
+        // Push block scope
+        self.env.push_scope(ScopeType::Block);
 
-        // Execute all statements in the block
+        // Execute statements in current scope
+        let result = self.execute_statements_in_current_scope(statements, allow_break);
+
+        // Pop block scope (all block-local variables automatically dropped)
+        self.env.pop_scope();
+
+        result
+    }
+
+    /// Execute statements in the current scope without creating a new scope
+    ///
+    /// Used by execute_block, loops, and if/else branches
+    ///
+    /// Parameters:
+    /// - statements: The statements to execute
+    /// - allow_break: Whether break statements are allowed (true for loops)
+    fn execute_statements_in_current_scope(&mut self, statements: &[Statement], allow_break: bool) -> RuntimeResult<()> {
         for stmt in statements {
-            // If this is a let statement, track shadowing
-            if let Statement::Let { target, .. } = stmt {
-                let var_name = target.as_str().to_string();
-                if !shadowed_vars.contains_key(&var_name) {
-                    // Save the old value if it exists (for restoration)
-                    shadowed_vars.insert(
-                        var_name.clone(),
-                        self.env.variables.get(&var_name).cloned()
-                    );
-                }
-            }
-
             let result = self.execute_statement(stmt);
             match result {
                 Err(RuntimeError::BreakOutsideLoop) if allow_break => {
-                    // Restore shadowed variables before breaking
-                    self.restore_shadowed_variables(&shadowed_vars, &vars_before);
                     return Err(RuntimeError::BreakOutsideLoop);
                 }
                 Err(RuntimeError::ReturnValue(_)) => {
-                    // Propagate return upward (caller will handle cleanup)
+                    // Propagate return upward (scopes will be cleaned up by caller)
                     return result;
                 }
                 Err(e) => return Err(e),
                 Ok(_) => {}
             }
         }
-
-        // Restore shadowed variables and clean up block-local variables
-        self.restore_shadowed_variables(&shadowed_vars, &vars_before);
-
         Ok(())
-    }
-
-    /// Restore shadowed variables and clean up block-local variables
-    fn restore_shadowed_variables(
-        &mut self,
-        shadowed_vars: &HashMap<String, Option<Value>>,
-        vars_before: &HashSet<String>
-    ) {
-        // Get current variables after block execution
-        let vars_after: HashSet<String> = self.env.variables.keys().cloned().collect();
-
-        // Restore shadowed variables
-        for (var_name, old_value) in shadowed_vars {
-            match old_value {
-                Some(val) => {
-                    // Variable existed before - restore old value
-                    self.env.variables.insert(var_name.clone(), val.clone());
-                }
-                None => {
-                    // Variable didn't exist before - remove it
-                    self.env.variables.remove(var_name);
-                }
-            }
-        }
-
-        // Clean up any other block-local variables (not shadowed)
-        for var in vars_after.difference(vars_before) {
-            if !shadowed_vars.contains_key(var) {
-                self.env.variables.remove(var);
-            }
-        }
     }
 
     pub(super) fn eval_expr(&mut self, expr: &TensorExpr) -> RuntimeResult<Value> {
@@ -1114,8 +1039,16 @@ impl Interpreter {
                     // LazyModelFeature.property -> loads Tensor from cache
                     Value::LazyModelFeatureF32(ref feature) => {
                         let weight_name = format!("{}.{}", feature.name, prop_name);
+                        if std::env::var("TL_DEBUG").is_ok() {
+                            eprintln!("[DEBUG_EVAL] About to load weight: {}", weight_name);
+                        }
                         match feature.cache.get_weight(&weight_name) {
-                            Ok(tensor) => Ok(Value::TensorF32(tensor)),
+                            Ok(tensor) => {
+                                if std::env::var("TL_DEBUG").is_ok() {
+                                    eprintln!("[DEBUG_EVAL] Weight loaded successfully: {}", weight_name);
+                                }
+                                Ok(Value::TensorF32(tensor))
+                            }
                             Err(e) => Err(RuntimeError::TensorError(e))
                         }
                     }
@@ -2181,13 +2114,13 @@ impl Interpreter {
                         match var_value {
                             Value::String(s) => {
                                 entity_map
-                                    .get(s)
+                                    .get(&s)
                                     .copied()
                                     .ok_or_else(|| RuntimeError::InvalidOperation(
                                         format!("Unknown entity '{}' in embedding '{}'", s, embed_name)
                                     ))?
                             }
-                            Value::Integer(idx) => *idx as usize,
+                            Value::Integer(idx) => idx as usize,
                             _ => return Err(RuntimeError::TypeError(
                                 format!("Expected String or Integer for entity, found {:?}", var_value)
                             )),
