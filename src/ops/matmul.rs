@@ -504,7 +504,7 @@ mod tests {
     }
 
     #[test]
-    fn test_matmul_gpu() {
+    fn test_matmul_gpu_f16() {
         let device = MetalDevice::new().unwrap();
 
         let a = Tensor::from_vec_gpu(
@@ -542,6 +542,37 @@ mod tests {
         assert_eq!(result[1], f16::from_f32(28.0));
         assert_eq!(result[2], f16::from_f32(49.0));
         assert_eq!(result[3], f16::from_f32(64.0));
+    }
+
+    #[test]
+    fn test_matmul_gpu_f32() {
+        let device = MetalDevice::new().unwrap();
+
+        let a = Tensor::from_vec_gpu(
+            &device,
+            vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0],
+            vec![2, 3],
+        )
+        .unwrap();
+
+        let b = Tensor::from_vec_gpu(
+            &device,
+            vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0],
+            vec![3, 2],
+        )
+        .unwrap();
+
+        let c = a.matmul(&b).unwrap();
+        let result = c.sync_and_read();
+
+        // Expected: [2x3] @ [3x2] = [2x2]
+        // [[1,2,3],   [[1,2],      [[22, 28],
+        //  [4,5,6]] @  [3,4],   =   [49, 64]]
+        //              [5,6]]
+        assert_eq!(result[0], 22.0);
+        assert_eq!(result[1], 28.0);
+        assert_eq!(result[2], 49.0);
+        assert_eq!(result[3], 64.0);
     }
 
     #[test]

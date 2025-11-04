@@ -52,7 +52,7 @@ impl<T: FloatType> Tensor<T> {
 
     /// Metal GPU implementation of apply_attention_mask
     fn apply_attention_mask_metal(&self, mask: &Tensor<T>) -> TensorResult<Self> {
-        use crate::device::{Device, KernelExecutor, MetalBuffer};
+        use crate::device::{Device, MetalBuffer};
 
         let size = self.numel();
 
@@ -67,10 +67,6 @@ impl<T: FloatType> Tensor<T> {
             device.load_library(shader_source)?;
         }
 
-        // Choose kernel based on type
-        let suffix = T::kernel_suffix();
-        let kernel_name = format!("apply_attention_mask{}", suffix);
-
         // Get input buffers
         let scores_buf = self.buffer().as_metal()?;
         let mask_buf = mask.buffer().as_metal()?;
@@ -78,13 +74,68 @@ impl<T: FloatType> Tensor<T> {
         // Create output buffer
         let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), size)?;
 
-        // Execute kernel using KernelExecutor
-        let scores_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(scores_buf) };
-        let mask_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(mask_buf) };
-        let result_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(&result_buf) };
+        // Choose kernel based on type
+        let suffix = T::kernel_suffix();
+        let kernel_name = format!("apply_attention_mask{}", suffix);
 
-        let mut executor = KernelExecutor::new(device);
-        executor.execute_binary_op(&kernel_name, scores_buf_f16, mask_buf_f16, result_buf_f16)?;
+        // Get kernel function
+        let library = device.library()
+            .ok_or_else(|| TensorError::MetalError("No shader library loaded".to_string()))?;
+        let function = library
+            .get_function(&kernel_name, None)
+            .map_err(|e| TensorError::MetalError(format!("Kernel '{}' not found: {}", kernel_name, e)))?;
+
+        // Create pipeline
+        let pipeline = device
+            .metal_device()
+            .new_compute_pipeline_state_with_function(&function)
+            .map_err(|e| TensorError::MetalError(format!("Failed to create pipeline: {}", e)))?;
+
+        // Create size parameter buffer
+        let size_u32 = size as u32;
+        let size_bytes = unsafe {
+            std::slice::from_raw_parts(
+                &size_u32 as *const u32 as *const u8,
+                std::mem::size_of::<u32>()
+            )
+        };
+        let size_buf = device
+            .metal_device()
+            .new_buffer_with_data(
+                size_bytes.as_ptr() as *const std::ffi::c_void,
+                size_bytes.len() as u64,
+                metal::MTLResourceOptions::CPUCacheModeDefaultCache,
+            );
+
+        // Execute kernel
+        let command_queue = device.command_queue();
+        let command_buffer = command_queue.new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(scores_buf.metal_buffer()), 0);
+        encoder.set_buffer(1, Some(mask_buf.metal_buffer()), 0);
+        encoder.set_buffer(2, Some(result_buf.metal_buffer()), 0);
+        encoder.set_buffer(3, Some(&size_buf), 0);
+
+        // Calculate thread group sizes
+        let max_threads = pipeline.max_total_threads_per_threadgroup().min(256);
+        let threadgroup_size = metal::MTLSize {
+            width: max_threads,
+            height: 1,
+            depth: 1,
+        };
+        let threadgroups = metal::MTLSize {
+            width: ((size as u64 + max_threads - 1) / max_threads),
+            height: 1,
+            depth: 1,
+        };
+
+        encoder.dispatch_thread_groups(threadgroups, threadgroup_size);
+        encoder.end_encoding();
+
+        command_buffer.commit();
+        crate::ops::async_exec::submit_async(&command_buffer);
 
         // Create result tensor
         self.new_from_pool(
@@ -248,7 +299,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_apply_attention_mask() {
+    fn test_apply_attention_mask_f16() {
         let scores = Tensor::from_vec(
             vec![
                 f16::from_f32(1.0), f16::from_f32(2.0),
@@ -269,6 +320,41 @@ mod tests {
         assert_eq!(data[1], f16::from_f32(-10000.0)); // masked
         assert_eq!(data[2], f16::from_f32(3.0));
         assert_eq!(data[3], f16::from_f32(4.0));
+    }
+
+    #[test]
+    fn test_apply_attention_mask_f32_gpu() {
+        use crate::device::MetalDevice;
+
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let scores = Tensor::from_vec_gpu(
+            &device,
+            vec![1.0f32, 2.0, 3.0, 4.0],
+            vec![2, 2],
+        ).unwrap();
+
+        let mask = Tensor::from_vec_gpu(
+            &device,
+            vec![1.0f32, 0.0, 1.0, 1.0],
+            vec![2, 2],
+        ).unwrap();
+
+        // Debug: verify input
+        let scores_data = scores.sync_and_read();
+        let mask_data = mask.sync_and_read();
+        println!("Scores: {:?}", scores_data);
+        println!("Mask: {:?}", mask_data);
+
+        let result = scores.apply_attention_mask(&mask).unwrap();
+        let data = result.sync_and_read();
+
+        println!("Result: {:?}", data);
+
+        assert_eq!(data[0], 1.0, "Expected scores[0]=1.0 to be kept");
+        assert_eq!(data[1], -10000.0, "Expected scores[1]=2.0 to be masked"); // masked
+        assert_eq!(data[2], 3.0, "Expected scores[2]=3.0 to be kept");
+        assert_eq!(data[3], 4.0, "Expected scores[3]=4.0 to be kept");
     }
 
     #[test]

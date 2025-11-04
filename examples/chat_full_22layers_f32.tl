@@ -415,7 +415,9 @@ main {
             // ========================================================
             let token_ids_single = int_to_tokenids(token_id)
             let new_token_emb = embedding(tok_embd, token_ids_single)
-            print("[DEBUG] Embedding done, processing Layer 0...")
+            let emb_shape = shape(new_token_emb)
+            print("[DEBUG] Embedding done, new_token_emb shape: {}", emb_shape)
+            print("[DEBUG] Processing Layer 0...")
 
             // Layer 0: Update KV cache and transform
             // Use CPU-tracked position (Candle-style: no shape() sync)
@@ -425,6 +427,9 @@ main {
             kv_cache.append(0, nK0, nV0)
             let KV0 = kv_cache.get_k(0)
             let KV0_V = kv_cache.get_v(0)
+            let kv0_shape = shape(KV0)
+            let kv0v_shape = shape(KV0_V)
+            print("[DEBUG] KV0 shape: {}, KV0_V shape: {}", kv0_shape, kv0v_shape)
 
             let nh0 = transformer_layer(new_token_emb, L0.attn_norm.weight, L0.attn_q.weight, L0.attn_k.weight, L0.attn_v.weight, L0.attn_output.weight, L0.ffn_norm.weight, L0.ffn_gate.weight, L0.ffn_up.weight, L0.ffn_down.weight, KV0, KV0_V)
 

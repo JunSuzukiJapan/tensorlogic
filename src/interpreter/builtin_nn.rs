@@ -48,6 +48,29 @@ impl Interpreter {
         let weight_val = self.eval_expr(&args[1])?;
         // eprintln!("[TIMING] rms_norm: arg evaluation: {:.3}ms", _start.elapsed().as_secs_f64() * 1000.0);
 
+        // Debug: check input and weight BEFORE moving them
+        if std::env::var("TL_DEBUG_ATTN").is_ok() {
+            if let (Value::TensorF32(ref input_t), Value::TensorF32(ref weight_t)) = (&tensor_val, &weight_val) {
+                use crate::tensor::TensorIO;
+                let input_data = input_t.sync_and_read();
+                let weight_data = weight_t.sync_and_read();
+
+                let input_mean = input_data.iter().sum::<f32>() / input_data.len() as f32;
+                let input_max = input_data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+                let weight_mean = weight_data.iter().sum::<f32>() / weight_data.len() as f32;
+                let weight_max = weight_data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+
+                if input_mean.abs() < 1e-6 && input_max.abs() < 1e-6 {
+                    eprintln!("\n=== WARNING: RMS Norm INPUT is all zeros! ===");
+                    eprintln!("Input shape: {:?}", input_t.dims());
+                }
+                if weight_mean.abs() < 1e-6 && weight_max.abs() < 1e-6 {
+                    eprintln!("\n=== WARNING: RMS Norm WEIGHT is all zeros! ===");
+                    eprintln!("Weight shape: {:?}", weight_t.dims());
+                }
+            }
+        }
+
         // Use default epsilon value (1e-6 for LLaMA/TinyLlama) or custom value
         let eps = if args.len() >= 3 {
             match self.eval_expr(&args[2])? {
@@ -89,6 +112,22 @@ impl Interpreter {
             };
             eprintln!("[PERF] rms_norm({}): {:.3}ms", dtype, _start.elapsed().as_secs_f64() * 1000.0);
         }
+
+        // Debug: output final norm values for logits debugging
+        if std::env::var("TL_DEBUG_ATTN").is_ok() {
+            if let Ok(Value::TensorF32(ref tensor)) = result {
+                use crate::tensor::TensorIO;
+                let data = tensor.sync_and_read();
+                eprintln!("\n=== RMS Norm Output (f32) ===");
+                eprintln!("Shape: {:?}", tensor.dims());
+                eprintln!("First 10: {:?}", &data[..data.len().min(10)]);
+                eprintln!("Last 10: {:?}", &data[data.len().saturating_sub(10)..]);
+                eprintln!("Mean: {}", data.iter().sum::<f32>() / data.len() as f32);
+                eprintln!("Min: {}", data.iter().fold(f32::INFINITY, |a, &b| a.min(b)));
+                eprintln!("Max: {}", data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b)));
+            }
+        }
+
         result
     }
 
@@ -595,6 +634,19 @@ impl Interpreter {
                     }
                 };
 
+                // Debug: check embedding output
+                if std::env::var("TL_DEBUG_ATTN").is_ok() {
+                    use crate::tensor::TensorIO;
+                    let data = result.sync_and_read();
+                    eprintln!("\n=== Embedding Output (f32) ===");
+                    eprintln!("Shape: {:?}", result.dims());
+                    eprintln!("First 10: {:?}", &data[..data.len().min(10)]);
+                    eprintln!("Last 10: {:?}", &data[data.len().saturating_sub(10)..]);
+                    eprintln!("Mean: {}", data.iter().sum::<f32>() / data.len() as f32);
+                    eprintln!("Min: {}", data.iter().fold(f32::INFINITY, |a, &b| a.min(b)));
+                    eprintln!("Max: {}", data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b)));
+                }
+
                 Ok(result.to_value())
             }
             _ => Err(RuntimeError::TypeError(
@@ -883,6 +935,25 @@ impl Interpreter {
         let n_embd = q_dims[1];
         let cache_len = k_dims[0];
 
+        // Debug: check input shapes
+        if std::env::var("TL_DEBUG_ATTN").is_ok() {
+            eprintln!("\n=== Attention Input Shapes (f32) ===");
+            eprintln!("Q shape: {:?}", q_dims);
+            eprintln!("K shape: {:?}", k_dims);
+            eprintln!("V shape: {:?}", v.dims());
+            eprintln!("W_o shape: {:?}", w_o.dims());
+            eprintln!("seq_len: {}, cache_len: {}, n_embd: {}", seq_len, cache_len, n_embd);
+
+            // Check if this is DECODE (seq_len=1) or PREFILL (seq_len>1)
+            if seq_len > 1 && seq_len == cache_len {
+                eprintln!(">>> PREFILL phase detected (seq_len == cache_len == {})", seq_len);
+            } else if seq_len == 1 {
+                eprintln!(">>> DECODE phase expected (seq_len=1, cache_len={})", cache_len);
+            } else {
+                eprintln!(">>> WARNING: Unexpected phase (seq_len={}, cache_len={})", seq_len, cache_len);
+            }
+        }
+
         // FIX: head_dim should be 64 (n_embd=2048 / n_heads=32 = 64) for TinyLlama
         // Using full n_embd causes incorrect attention scaling
         let n_heads = 32;
@@ -1005,6 +1076,20 @@ impl Interpreter {
             eprintln!("[DEBUG_RS] attention: About to call softmax (masked_scores shape: {:?})...", masked_scores.shape());
             std::io::stderr().flush().ok();
         }
+
+        // Debug: check scaled scores before softmax
+        if std::env::var("TL_DEBUG_ATTN").is_ok() {
+            use crate::tensor::TensorIO;
+            let scores_data = masked_scores.sync_and_read();
+            eprintln!("\n=== Pre-Softmax Scores (f32) ===");
+            eprintln!("Scores shape: {:?}", masked_scores.shape());
+            eprintln!("Scores (first 10): {:?}", &scores_data[..scores_data.len().min(10)]);
+            eprintln!("Scores (last 10): {:?}", &scores_data[scores_data.len().saturating_sub(10)..]);
+            eprintln!("Scores min: {}", scores_data.iter().fold(f32::INFINITY, |a, &b| a.min(b)));
+            eprintln!("Scores max: {}", scores_data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b)));
+            eprintln!("Scores mean: {}", scores_data.iter().sum::<f32>() / scores_data.len() as f32);
+        }
+
         let attn_weights = masked_scores.softmax().map_err(|e| RuntimeError::TensorError(e))?;
         if std::env::var("TL_DEBUG").is_ok() {
             eprintln!("[DEBUG_RS] attention: softmax returned successfully");
@@ -1030,6 +1115,24 @@ impl Interpreter {
         // eprintln!("[TIMING]   attention_f32: TOTAL: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
         if std::env::var("TL_PERF").is_ok() {
             eprintln!("[PERF] attention_with_cache(f32): {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        // Debug: dump intermediate values
+        if std::env::var("TL_DEBUG_ATTN").is_ok() {
+            use crate::tensor::TensorIO;
+            let attn_w_data = attn_weights.sync_and_read();
+            eprintln!("\n=== Attention Debug (f32) ===");
+            eprintln!("Attention weights (first 10): {:?}", &attn_w_data[..attn_w_data.len().min(10)]);
+            eprintln!("Attention weights sum: {}", attn_w_data.iter().sum::<f32>());
+            eprintln!("Attention weights max: {}", attn_w_data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b)));
+
+            let attn_out_data = attn_out.sync_and_read();
+            eprintln!("Attention output (first 10): {:?}", &attn_out_data[..attn_out_data.len().min(10)]);
+            eprintln!("Attention output mean: {}", attn_out_data.iter().sum::<f32>() / attn_out_data.len() as f32);
+
+            let result_data = result.sync_and_read();
+            eprintln!("Final output (first 10): {:?}", &result_data[..result_data.len().min(10)]);
+            eprintln!("Final output mean: {}", result_data.iter().sum::<f32>() / result_data.len() as f32);
         }
 
         Ok(Value::TensorF32(result))

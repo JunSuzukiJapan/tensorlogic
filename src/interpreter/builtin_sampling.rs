@@ -145,6 +145,28 @@ impl Interpreter {
             all_logits
         };
 
+        // Debug: dump logits distribution before sampling
+        if std::env::var("TL_DEBUG_ATTN").is_ok() {
+            eprintln!("\n=== Logits Distribution (before sampling) ===");
+            eprintln!("Logits shape: {:?}", logits.dims());
+            eprintln!("Vocab size: {}", vocab_size);
+            eprintln!("Logits (first 20): {:?}", &logits_data[..logits_data.len().min(20)]);
+            eprintln!("Logits (last 20): {:?}", &logits_data[logits_data.len().saturating_sub(20)..]);
+
+            let mean = logits_data.iter().sum::<f32>() / logits_data.len() as f32;
+            let min = logits_data.iter().fold(f32::INFINITY, |a, &b| a.min(b));
+            let max = logits_data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+            eprintln!("Logits stats: mean={:.6}, min={:.6}, max={:.6}, range={:.6}", mean, min, max, max - min);
+
+            // Find top 5 logits
+            let mut indexed: Vec<(usize, f32)> = logits_data.iter().enumerate().map(|(i, &v)| (i, v)).collect();
+            indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            eprintln!("Top 5 logits:");
+            for (idx, val) in indexed.iter().take(5) {
+                eprintln!("  token_id={}: {:.6}", idx, val);
+            }
+        }
+
         // Handle temperature=0.0 as greedy decoding (argmax)
         if temperature <= 0.0001 {
             // Greedy decoding: return argmax

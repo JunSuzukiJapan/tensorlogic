@@ -170,14 +170,20 @@ impl<T: FloatType> Tensor<T> {
         encoder.set_buffer(3, Some(normalized_size_buf.metal_buffer()), 0);
         encoder.set_buffer(4, Some(eps_buf.metal_buffer()), 0);
 
-        let grid_size = metal::MTLSize::new(batch_size as u64, 1, 1);
-        let threadgroup_size = if normalized_size <= 256 {
-            metal::MTLSize::new(1, 1, 1)
+        // For optimized kernel: each batch element gets one threadgroup (256 threads)
+        // For simple kernel: one thread per batch element
+        if normalized_size <= 256 {
+            // Simple kernel: one thread per batch element
+            let grid_size = metal::MTLSize::new(batch_size as u64, 1, 1);
+            let threadgroup_size = metal::MTLSize::new(1, 1, 1);
+            encoder.dispatch_threads(grid_size, threadgroup_size);
         } else {
-            metal::MTLSize::new(256, 1, 1)
-        };
-
-        encoder.dispatch_threads(grid_size, threadgroup_size);
+            // Optimized kernel: each batch element gets a threadgroup
+            // Use dispatch_thread_groups, not dispatch_threads
+            let threadgroups = metal::MTLSize::new(batch_size as u64, 1, 1);
+            let threadgroup_size = metal::MTLSize::new(256, 1, 1);
+            encoder.dispatch_thread_groups(threadgroups, threadgroup_size);
+        }
         encoder.end_encoding();
 
         // Note: wait_until_completed() is NOT called here (matches candle pattern).

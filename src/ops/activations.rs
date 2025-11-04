@@ -664,4 +664,287 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_softmax_f32_gpu() {
+        // Test softmax with f32 precision on GPU
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x = Tensor::from_vec_gpu(
+            &device,
+            vec![1.0f32, 2.0, 3.0, 4.0],
+            vec![4],
+        )
+        .unwrap();
+
+        let result = x.softmax().unwrap();
+        let values = result.sync_and_read();
+
+        // Verify sum equals 1.0
+        let sum: f32 = values.iter().sum();
+        assert!(
+            (sum - 1.0).abs() < 0.0001,
+            "Softmax sum should be 1.0, got {}",
+            sum
+        );
+
+        // Verify monotonic (softmax preserves ordering)
+        for i in 0..3 {
+            assert!(
+                values[i] < values[i + 1],
+                "Softmax should be monotonic: values[{}]={} >= values[{}]={}",
+                i,
+                values[i],
+                i + 1,
+                values[i + 1]
+            );
+        }
+
+        // Verify numerical accuracy (expected values for [1,2,3,4])
+        let expected = vec![0.0321, 0.0871, 0.2369, 0.6439];
+        for i in 0..4 {
+            let diff = (values[i] - expected[i]).abs();
+            assert!(
+                diff < 0.001,
+                "Softmax f32 value mismatch at index {}: expected {:.4}, got {:.4}",
+                i,
+                expected[i],
+                values[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_sigmoid_mathematical_correctness_f32() {
+        // sigmoid(x) = 1 / (1 + exp(-x))
+        // Test with f32 precision
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![-2.0f32, -1.0, 0.0, 1.0, 2.0];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![5]).unwrap();
+        let result = x.sigmoid().unwrap();
+        let values = result.sync_and_read();
+
+        // Mathematical properties of sigmoid:
+        // 1. sigmoid(0) = 0.5
+        assert!(
+            (values[2] - 0.5).abs() < 0.0001,
+            "sigmoid(0) should be 0.5, got {}",
+            values[2]
+        );
+
+        // 2. sigmoid is in range (0, 1)
+        for (i, &val) in values.iter().enumerate() {
+            assert!(
+                val > 0.0 && val < 1.0,
+                "sigmoid({}) should be in (0, 1), got {}",
+                i as f32 - 2.0,
+                val
+            );
+        }
+
+        // 3. sigmoid is monotonically increasing
+        for i in 0..4 {
+            assert!(
+                values[i] < values[i + 1],
+                "sigmoid should be monotonic: sigmoid({}) >= sigmoid({})",
+                i as f32 - 2.0,
+                i as f32 - 1.0
+            );
+        }
+
+        // 4. Verify numerical values
+        // sigmoid(-2) = 1/(1+exp(2)) ≈ 0.1192
+        // sigmoid(-1) = 1/(1+exp(1)) ≈ 0.2689
+        // sigmoid(1) = 1/(1+exp(-1)) ≈ 0.7311
+        // sigmoid(2) = 1/(1+exp(-2)) ≈ 0.8808
+        let expected = vec![0.1192, 0.2689, 0.5, 0.7311, 0.8808];
+        for i in 0..5 {
+            let actual = values[i];
+            let diff = (actual - expected[i]).abs();
+            assert!(
+                diff < 0.001,
+                "sigmoid({}) mismatch: expected {:.4}, got {:.4}, diff {:.4}",
+                i as f32 - 2.0,
+                expected[i],
+                actual,
+                diff
+            );
+        }
+    }
+
+    #[test]
+    fn test_silu_via_sigmoid_f16() {
+        // SiLU(x) = x * sigmoid(x)
+        // Test composite operation with f16
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![
+            f16::from_f32(-2.0),
+            f16::from_f32(-1.0),
+            f16::from_f32(0.0),
+            f16::from_f32(1.0),
+            f16::from_f32(2.0),
+        ];
+
+        let x = Tensor::from_vec_gpu(&device, x_data.clone(), vec![5]).unwrap();
+
+        // Compute SiLU = x * sigmoid(x)
+        let sigmoid_x = x.sigmoid().unwrap();
+
+        // Force sync to ensure no async execution overlap with previous tests
+        let _ = sigmoid_x.sync_and_read();
+
+        let silu_result = x.mul(&sigmoid_x).unwrap();
+
+        // Force sync again before reading final result
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let values = silu_result.sync_and_read();
+
+        // Mathematical properties of SiLU:
+        // 1. SiLU(0) = 0
+        assert!(
+            values[2].to_f32().abs() < 0.01,
+            "SiLU(0) should be 0, got {}",
+            values[2].to_f32()
+        );
+
+        // 2. Note: SiLU is NOT strictly monotonic - it has a non-monotonic region around x ≈ -1.3
+        // This is a known mathematical property of SiLU/Swish activation
+
+        // 3. SiLU(x) should be bounded: for negative x, it approaches 0 from below
+        //    for positive x, it approaches x asymptotically
+        assert!(values[0].to_f32() < 0.0 && values[0].to_f32() > -1.0, "SiLU(-2) should be in (-1, 0)");
+        assert!(values[1].to_f32() < 0.0 && values[1].to_f32() > -1.0, "SiLU(-1) should be in (-1, 0)");
+        assert!(values[3].to_f32() > 0.0 && values[3].to_f32() < 1.0, "SiLU(1) should be in (0, 1)");
+        assert!(values[4].to_f32() > 1.0 && values[4].to_f32() < 2.0, "SiLU(2) should be in (1, 2)");
+
+        // 4. Verify numerical values
+        // SiLU(-2) = -2 * sigmoid(-2) ≈ -0.2384
+        // SiLU(-1) = -1 * sigmoid(-1) ≈ -0.2689
+        // SiLU(1) = 1 * sigmoid(1) ≈ 0.7311
+        // SiLU(2) = 2 * sigmoid(2) ≈ 1.7616
+        let expected = vec![-0.2384, -0.2689, 0.0, 0.7311, 1.7616];
+        for i in 0..5 {
+            let actual = values[i].to_f32();
+            let diff = (actual - expected[i]).abs();
+            assert!(
+                diff < 0.02,  // f16 has lower precision
+                "SiLU({}) mismatch: expected {:.4}, got {:.4}, diff {:.4}",
+                i as f32 - 2.0,
+                expected[i],
+                actual,
+                diff
+            );
+        }
+    }
+
+    #[test]
+    fn test_silu_via_sigmoid_f32() {
+        // SiLU(x) = x * sigmoid(x)
+        // Test composite operation with f32
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![-2.0f32, -1.0, 0.0, 1.0, 2.0];
+
+        let x = Tensor::from_vec_gpu(&device, x_data.clone(), vec![5]).unwrap();
+
+        // Compute SiLU = x * sigmoid(x)
+        let sigmoid_x = x.sigmoid().unwrap();
+
+        // Force sync to ensure no async execution overlap with previous tests
+        let _ = sigmoid_x.sync_and_read();
+
+        let silu_result = x.mul(&sigmoid_x).unwrap();
+
+        // Force sync again before reading final result
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let values = silu_result.sync_and_read();
+
+        // Mathematical properties of SiLU:
+        // 1. SiLU(0) = 0
+        assert!(
+            values[2].abs() < 0.0001,
+            "SiLU(0) should be 0, got {}",
+            values[2]
+        );
+
+        // 2. Note: SiLU is NOT strictly monotonic - it has a non-monotonic region around x ≈ -1.3
+        // This is a known mathematical property of SiLU/Swish activation
+
+        // 3. SiLU(x) should be bounded: for negative x, it approaches 0 from below
+        //    for positive x, it approaches x asymptotically
+        assert!(values[0] < 0.0 && values[0] > -1.0, "SiLU(-2) should be in (-1, 0)");
+        assert!(values[1] < 0.0 && values[1] > -1.0, "SiLU(-1) should be in (-1, 0)");
+        assert!(values[3] > 0.0 && values[3] < 1.0, "SiLU(1) should be in (0, 1)");
+        assert!(values[4] > 1.0 && values[4] < 2.0, "SiLU(2) should be in (1, 2)");
+
+        // 4. Verify numerical values with f32 precision
+        let expected = vec![-0.2384, -0.2689, 0.0, 0.7311, 1.7616];
+        for i in 0..5 {
+            let actual = values[i];
+            let diff = (actual - expected[i]).abs();
+            assert!(
+                diff < 0.001,  // f32 should be more precise
+                "SiLU({}) mismatch: expected {:.4}, got {:.4}, diff {:.4}",
+                i as f32 - 2.0,
+                expected[i],
+                actual,
+                diff
+            );
+        }
+    }
+
+    #[test]
+    fn test_gelu_mathematical_correctness_f32() {
+        // GELU(x) ≈ 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
+        // Test with f32 precision
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![-2.0f32, -1.0, 0.0, 1.0, 2.0];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![5]).unwrap();
+        let result = x.gelu().unwrap();
+        let values = result.sync_and_read();
+
+        // Mathematical properties of GELU:
+        // 1. GELU(0) = 0
+        assert!(
+            values[2].abs() < 0.0001,
+            "GELU(0) should be 0, got {}",
+            values[2]
+        );
+
+        // 2. Note: The GELU tanh approximation has a non-monotonic region near x ≈ -1.5
+        // This is a known property of the approximation formula
+        // GELU(x) ≈ 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
+
+        // 3. GELU should be approximately symmetric around 0 in behavior
+        // For negative x close to 0, GELU approaches 0 from below
+        // For positive x, GELU approaches x asymptotically
+        assert!(values[0] < 0.0 && values[0] > -1.0, "GELU(-2) should be in (-1, 0)");
+        assert!(values[1] < 0.0 && values[1] > -1.0, "GELU(-1) should be in (-1, 0)");
+        assert!(values[3] > 0.0 && values[3] < 1.0, "GELU(1) should be in (0, 1)");
+        assert!(values[4] > 1.0 && values[4] < 2.0, "GELU(2) should be in (1, 2)");
+
+        // 4. Verify numerical values
+        // GELU(-2) ≈ -0.0454
+        // GELU(-1) ≈ -0.1587
+        // GELU(1) ≈ 0.8413
+        // GELU(2) ≈ 1.9545
+        let expected = vec![-0.0454, -0.1587, 0.0, 0.8413, 1.9545];
+        for i in 0..5 {
+            let actual = values[i];
+            let diff = (actual - expected[i]).abs();
+            assert!(
+                diff < 0.001,
+                "GELU({}) mismatch: expected {:.4}, got {:.4}, diff {:.4}",
+                i as f32 - 2.0,
+                expected[i],
+                actual,
+                diff
+            );
+        }
+    }
 }

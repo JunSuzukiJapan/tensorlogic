@@ -444,4 +444,48 @@ mod rope_tests {
             "RoPE should preserve shape with batch dimension"
         );
     }
+
+    #[test]
+    fn test_rope_f32_rotation_magnitude() {
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        // Test RoPE with f32 precision - verify magnitude preservation
+        let seq_len = 1;
+        let n_heads = 1;
+        let head_dim = 64;
+
+        // Create test data with known magnitudes for each pair
+        let mut data: Vec<f32> = Vec::new();
+        for _pair_idx in 0..(head_dim / 2) {
+            // Each pair: [3.0, 4.0] has magnitude 5.0
+            data.push(3.0);
+            data.push(4.0);
+        }
+
+        let input = Tensor::from_vec_gpu(&device, data.clone(), vec![seq_len, n_heads, head_dim]).unwrap();
+        let result = input.rope(0).unwrap();
+
+        let result_data = result.sync_and_read();
+
+        // Check that each dimension pair preserves its magnitude
+        let expected_pair_magnitude = (3.0f32 * 3.0 + 4.0 * 4.0).sqrt(); // = 5.0
+
+        for pair_idx in 0..(head_dim / 2) {
+            let idx0 = pair_idx * 2;
+            let idx1 = pair_idx * 2 + 1;
+
+            let x0 = result_data[idx0];
+            let x1 = result_data[idx1];
+            let actual_magnitude = (x0 * x0 + x1 * x1).sqrt();
+
+            let magnitude_error = (actual_magnitude - expected_pair_magnitude).abs();
+            let relative_error = magnitude_error / expected_pair_magnitude;
+
+            assert!(
+                relative_error < 0.001, // f32 should be more precise than f16
+                "Pair {} magnitude should be preserved. Expected: {:.6}, Got: {:.6} (x0={:.6}, x1={:.6}), Relative error: {:.6}",
+                pair_idx, expected_pair_magnitude, actual_magnitude, x0, x1, relative_error
+            );
+        }
+    }
 }
