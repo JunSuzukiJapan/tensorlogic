@@ -290,8 +290,8 @@ impl Interpreter {
 
     /// Get a variable from the interpreter's environment
     /// Variables are managed by the scope stack
-    pub fn get_variable(&self, name: &str) -> Option<Value> {
-        self.env.get_variable(name).ok()
+    pub fn get_variable(&self, name: &str) -> RuntimeResult<Value> {
+        self.env.get_variable(name)
     }
 
     /// Set a variable in the interpreter's environment

@@ -423,7 +423,7 @@ main {
             let KV1 = kv_cache.get_k(1)
             let KV1_V = kv_cache.get_v(1)
 
-            let nh = transformer_layer(nh, L1.attn_norm.weight, L1.attn_q.weight, L1.attn_k.weight, L1.attn_v.weight, L1.attn_output.weight, L1.ffn_norm.weight, L1.ffn_gate.weight, L1.ffn_up.weight, L1.ffn_down.weight, KV1, KV1_V)
+            let nh = transformer_layer(nh0, L1.attn_norm.weight, L1.attn_q.weight, L1.attn_k.weight, L1.attn_v.weight, L1.attn_output.weight, L1.ffn_norm.weight, L1.ffn_gate.weight, L1.ffn_up.weight, L1.ffn_down.weight, KV1, KV1_V)
 
             let nK2_raw = linear(nh, L2.attn_k.weight)
             let nK2 = apply_rope_k(nK2_raw, 1.0, current_pos)

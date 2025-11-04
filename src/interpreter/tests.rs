@@ -69,8 +69,8 @@ fn test_assignment_statement() {
     interpreter.execute(&program).unwrap();
 
     // Both x and y should exist
-    assert!(interpreter.get_variable("x").is_some());
-    assert!(interpreter.get_variable("y").is_some());
+    assert!(interpreter.get_variable("x").is_ok());
+    assert!(interpreter.get_variable("y").is_ok());
 }
 
 #[test]
@@ -316,9 +316,9 @@ fn test_multiple_declarations() {
     let mut interpreter = Interpreter::new();
     interpreter.execute(&program).unwrap();
 
-    assert!(interpreter.get_variable("w").is_some());
-    assert!(interpreter.get_variable("b").is_some());
-    assert!(interpreter.get_variable("x").is_some());
+    assert!(interpreter.get_variable("w").is_ok());
+    assert!(interpreter.get_variable("b").is_ok());
+    assert!(interpreter.get_variable("x").is_ok());
 }
 
 #[test]
@@ -337,8 +337,8 @@ fn test_main_block_execution() {
     let mut interpreter = Interpreter::new();
     interpreter.execute(&program).unwrap();
 
-    assert!(interpreter.get_variable("sum").is_some());
-    assert!(interpreter.get_variable("diff").is_some());
+    assert!(interpreter.get_variable("sum").is_ok());
+    assert!(interpreter.get_variable("diff").is_ok());
 }
 
 #[test]
@@ -1400,7 +1400,46 @@ fn test_save_load() {
     
     // Verify file was created
     assert!(std::path::Path::new("/tmp/test_interpreter_save.bin").exists());
-    
+
     // Cleanup
     fs::remove_file("/tmp/test_interpreter_save.bin").ok();
+}
+
+#[test]
+fn test_undefined_variable_error_propagation() {
+    // Test that get_variable properly returns an error for undefined variables
+    let interpreter = Interpreter::new();
+
+    let result = interpreter.get_variable("undefined_var");
+    assert!(result.is_err());
+
+    if let Err(RuntimeError::UndefinedVariable(var_name)) = result {
+        assert_eq!(var_name, "undefined_var");
+    } else {
+        panic!("Expected UndefinedVariable error");
+    }
+}
+
+#[test]
+fn test_undefined_variable_in_expression() {
+    // Test that undefined variables in expressions are caught early
+    let source = r#"
+        main {
+            let x = 5.0
+            let y = undefined_var
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.execute(&program);
+
+    // Should fail with UndefinedVariable error
+    assert!(result.is_err());
+
+    if let Err(RuntimeError::UndefinedVariable(var_name)) = result {
+        assert_eq!(var_name, "undefined_var");
+    } else {
+        panic!("Expected UndefinedVariable error, got: {:?}", result);
+    }
 }

@@ -11,6 +11,7 @@
 use crate::device::{CommandBuffer, CommandBufferThreadMap};
 use crate::error::{TensorError, TensorResult};
 use metal::{CommandQueue, MTLCommandBufferStatus};
+use std::io::Write;
 use std::sync::{Arc, Mutex};
 
 pub struct Commands {
@@ -45,12 +46,13 @@ impl Commands {
         command_buffers.insert(command_buffer);
 
         // Read batch size from environment or use default
-        // Increased from 50 to 500 to reduce command buffer commit overhead
-        // This reduces flushes from ~20/token to ~2/token, saving 2-6ms/token
+        // TEMPORARILY REDUCED from 500 to 50 to debug Layer 12 hang
+        // This forces more frequent command buffer commits to prevent GPU resource exhaustion
+        // Testing hypothesis: accumulated GPU state after 11 layers may be causing hang
         let compute_per_buffer = std::env::var("TL_COMPUTE_PER_BUFFER")
             .ok()
             .and_then(|val| val.parse().ok())
-            .unwrap_or(500);
+            .unwrap_or(50);
 
         Ok(Self {
             command_queue,
@@ -69,16 +71,45 @@ impl Commands {
     ///
     /// Returns (flushed, command_buffer) where flushed indicates if we committed
     pub fn command_buffer(&mut self) -> TensorResult<(bool, CommandBuffer)> {
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] Commands::command_buffer: Attempting to lock command_buffers...");
+            std::io::stderr().flush().ok();
+        }
+
         let mut command_buffers = self
             .command_buffers
             .lock()
             .map_err(|e| TensorError::InvalidOperation(format!("Mutex poison: {}", e)))?;
 
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] Commands::command_buffer: Lock acquired!");
+            std::io::stderr().flush().ok();
+        }
+
         // Get or create command buffer for this thread
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] Commands::command_buffer: About to get_mut()...");
+            std::io::stderr().flush().ok();
+        }
+
         let command_buffer = match command_buffers.get_mut() {
-            Some(cb) => cb,
+            Some(cb) => {
+                if std::env::var("TL_DEBUG").is_ok() {
+                    eprintln!("[DEBUG_RS] Commands::command_buffer: Reusing existing command buffer");
+                    std::io::stderr().flush().ok();
+                }
+                cb
+            }
             None => {
+                if std::env::var("TL_DEBUG").is_ok() {
+                    eprintln!("[DEBUG_RS] Commands::command_buffer: Creating NEW command buffer...");
+                    std::io::stderr().flush().ok();
+                }
                 let raw_cb = self.command_queue.new_command_buffer().to_owned();
+                if std::env::var("TL_DEBUG").is_ok() {
+                    eprintln!("[DEBUG_RS] Commands::command_buffer: new_command_buffer() returned");
+                    std::io::stderr().flush().ok();
+                }
                 let cb = CommandBuffer::new(raw_cb);
                 command_buffers.insert(cb);
                 command_buffers.get_mut().unwrap()
@@ -88,15 +119,37 @@ impl Commands {
         let mut flushed = false;
 
         // Check if we need to flush (exceeded batch size)
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] Commands::command_buffer: Checking batch size (index={}, limit={})",
+                     self.command_buffer_index, self.compute_per_buffer);
+            std::io::stderr().flush().ok();
+        }
+
         if self.command_buffer_index > self.compute_per_buffer {
+            if std::env::var("TL_DEBUG").is_ok() {
+                eprintln!("[DEBUG_RS] Commands::command_buffer: FLUSHING - calling commit()...");
+                std::io::stderr().flush().ok();
+            }
             if std::env::var("TL_DEBUG_BATCHING").is_ok() {
                 eprintln!("[BATCH] Flushing at index {} (limit: {})",
                          self.command_buffer_index, self.compute_per_buffer);
             }
             command_buffer.commit();
+            if std::env::var("TL_DEBUG").is_ok() {
+                eprintln!("[DEBUG_RS] Commands::command_buffer: commit() returned");
+                std::io::stderr().flush().ok();
+            }
 
             // Create new command buffer
+            if std::env::var("TL_DEBUG").is_ok() {
+                eprintln!("[DEBUG_RS] Commands::command_buffer: Creating replacement command buffer...");
+                std::io::stderr().flush().ok();
+            }
             let raw_cb = self.command_queue.new_command_buffer().to_owned();
+            if std::env::var("TL_DEBUG").is_ok() {
+                eprintln!("[DEBUG_RS] Commands::command_buffer: new_command_buffer() returned (replacement)");
+                std::io::stderr().flush().ok();
+            }
             let new_cb = CommandBuffer::new(raw_cb);
             *command_buffer = new_cb;
 
@@ -111,7 +164,20 @@ impl Commands {
                      self.command_buffer_index, self.compute_per_buffer);
         }
 
-        Ok((flushed, command_buffer.clone()))
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] Commands::command_buffer: About to clone command_buffer...");
+            std::io::stderr().flush().ok();
+        }
+
+        let result = command_buffer.clone();
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] Commands::command_buffer: clone() returned, about to release lock (via drop)...");
+            std::io::stderr().flush().ok();
+        }
+
+        Ok((flushed, result))
+        // command_buffers lock is released here when it goes out of scope
     }
 
     /// Flush pending operations if there are any

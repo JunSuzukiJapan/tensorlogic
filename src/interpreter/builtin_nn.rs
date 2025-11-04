@@ -6,6 +6,7 @@ use crate::tensor::{Tensor, TensorCreation};
 use crate::device::EncoderProvider;
 use half::f16;
 use std::time::Instant;
+use std::io::Write;
 
 impl Interpreter {
     pub(super) fn eval_nn_function(&mut self, name: &str, args: &[TensorExpr]) -> Option<RuntimeResult<Value>> {
@@ -916,7 +917,15 @@ impl Interpreter {
         let scores = q.matmul_transposed_b(&k_expanded).map_err(|e| RuntimeError::TensorError(e))?;
 
         let scale = (head_dim as f32).sqrt();
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] attention: About to call div_scalar(scale={})...", scale);
+            std::io::stderr().flush().ok();
+        }
         let scaled_scores = scores.div_scalar(scale).map_err(|e| RuntimeError::TensorError(e))?;
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] attention: div_scalar returned successfully");
+            std::io::stderr().flush().ok();
+        }
         // eprintln!("[TIMING]   attention_f32: Q@K^T: {:.3}ms", qk_start.elapsed().as_secs_f64() * 1000.0);
 
         // Step 2: Apply causal mask if seq_len > 1 (prefill phase)
@@ -956,7 +965,16 @@ impl Interpreter {
             };
 
             // Apply mask using GPU kernel (converts 0s to -1e9)
-            scaled_scores.apply_attention_mask(&mask).map_err(|e| RuntimeError::TensorError(e))?
+            if std::env::var("TL_DEBUG").is_ok() {
+                eprintln!("[DEBUG_RS] attention: About to call apply_attention_mask (mask shape: {:?})...", mask.shape());
+                std::io::stderr().flush().ok();
+            }
+            let result = scaled_scores.apply_attention_mask(&mask).map_err(|e| RuntimeError::TensorError(e))?;
+            if std::env::var("TL_DEBUG").is_ok() {
+                eprintln!("[DEBUG_RS] attention: apply_attention_mask returned successfully");
+                std::io::stderr().flush().ok();
+            }
+            result
         } else {
             // Decode phase (seq_len == 1): no masking needed
             // The single new token can attend to all previous tokens
@@ -965,7 +983,15 @@ impl Interpreter {
 
         // Step 3: Softmax over last dimension
         let softmax_start = Instant::now();
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] attention: About to call softmax (masked_scores shape: {:?})...", masked_scores.shape());
+            std::io::stderr().flush().ok();
+        }
         let attn_weights = masked_scores.softmax().map_err(|e| RuntimeError::TensorError(e))?;
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] attention: softmax returned successfully");
+            std::io::stderr().flush().ok();
+        }
         // eprintln!("[TIMING]   attention_f32: softmax: {:.3}ms", softmax_start.elapsed().as_secs_f64() * 1000.0);
 
         // Step 4: Weighted sum: attn_weights @ V (use expanded V for GQA)

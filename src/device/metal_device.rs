@@ -3,6 +3,7 @@
 use crate::device::{BufferPool, Commands};
 use crate::error::{TensorError, TensorResult};
 use metal::{Device as MTLDevice, CommandQueue, Library};
+use std::io::Write;
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// Global Metal device instance (singleton)
@@ -147,9 +148,28 @@ impl MetalDevice {
     /// This is the main entry point for GPU operations.
     /// Returns (flushed, command_buffer) where flushed indicates if a commit happened.
     pub fn command_buffer(&self) -> TensorResult<(bool, crate::device::CommandBuffer)> {
-        self.commands.lock()
-            .map_err(|e| TensorError::InvalidOperation(format!("Commands lock failed: {}", e)))?
-            .command_buffer()
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] MetalDevice::command_buffer: Attempting to lock self.commands...");
+            std::io::stderr().flush().ok();
+        }
+
+        let mut commands = self.commands.lock()
+            .map_err(|e| TensorError::InvalidOperation(format!("Commands lock failed: {}", e)))?;
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] MetalDevice::command_buffer: Lock acquired, calling Commands::command_buffer...");
+            std::io::stderr().flush().ok();
+        }
+
+        let result = commands.command_buffer();
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] MetalDevice::command_buffer: Commands::command_buffer returned, releasing lock...");
+            std::io::stderr().flush().ok();
+        }
+
+        result
+        // commands lock is released here
     }
 
     /// Flush any pending GPU operations

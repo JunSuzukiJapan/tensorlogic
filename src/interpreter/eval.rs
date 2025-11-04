@@ -826,17 +826,18 @@ impl Interpreter {
         match expr {
             TensorExpr::Variable(id) => {
                 // Use self.get_variable() to check local scope first
-                if let Some(value) = self.get_variable(id.as_str()) {
-                    return Ok(value);
+                match self.get_variable(id.as_str()) {
+                    Ok(value) => return Ok(value),
+                    Err(RuntimeError::UndefinedVariable(_)) => {
+                        // Check if it's an entity type (meta-type)
+                        if self.entity_registry.get_type_info(id.as_str()).is_some() {
+                            return Ok(Value::Type(id.as_str().to_string()));
+                        }
+                        // Re-throw the undefined variable error
+                        Err(RuntimeError::UndefinedVariable(id.as_str().to_string()))
+                    }
+                    Err(e) => Err(e), // Other errors
                 }
-
-                // Check if it's an entity type (meta-type)
-                if self.entity_registry.get_type_info(id.as_str()).is_some() {
-                    return Ok(Value::Type(id.as_str().to_string()));
-                }
-
-                // Not found as variable or type
-                Err(RuntimeError::UndefinedVariable(id.as_str().to_string()))
             }
 
             TensorExpr::Literal(lit) => self.eval_literal(lit),

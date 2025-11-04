@@ -7,6 +7,7 @@ use crate::tensor::TensorCreation;
 use crate::tensor::TensorIO;
 use crate::device::EncoderProvider;
 use std::marker::PhantomData;
+use std::io::Write;
 
 /// Trait for transforming tensor shapes
 pub trait TensorTransform: Sized {
@@ -132,7 +133,15 @@ impl<T: FloatType> Tensor<T> {
         let input_buf = self.buffer().as_metal()?;
 
         // Create output buffer (pooled allocation)
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] contiguous_metal: About to call new_uninit_pooled (numel={})...", numel);
+            std::io::stderr().flush().ok();
+        }
         let output_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), numel)?;
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] contiguous_metal: new_uninit_pooled returned successfully");
+            std::io::stderr().flush().ok();
+        }
 
         // Create shape buffer
         let shape_u32: Vec<u32> = dims.iter().map(|&d| d as u32).collect();

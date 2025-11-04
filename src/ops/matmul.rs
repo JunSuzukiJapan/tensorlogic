@@ -8,6 +8,7 @@ use crate::device::{Device, MetalBuffer, EncoderProvider};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
+use std::io::Write;
 
 impl<T: FloatType> Tensor<T> {
     /// Matrix multiplication: self @ other
@@ -351,7 +352,17 @@ impl<T: FloatType> Tensor<T> {
         }
 
         // Create result buffer
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b_metal: About to call new_uninit_pooled...");
+            std::io::stderr().flush().ok();
+        }
+
         let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), m * n)?;
+
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] matmul_transposed_b_metal: new_uninit_pooled returned successfully");
+            std::io::stderr().flush().ok();
+        }
 
         if std::env::var("TL_DEBUG").is_ok() {
             eprintln!("[DEBUG_RS] matmul_transposed_b_metal: Result buffer created");
