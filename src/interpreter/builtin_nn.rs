@@ -937,12 +937,17 @@ impl Interpreter {
 
         // Debug: check input shapes
         if std::env::var("TL_DEBUG_ATTN").is_ok() {
+            use crate::tensor::TensorIO;
             eprintln!("\n=== Attention Input Shapes (f32) ===");
             eprintln!("Q shape: {:?}", q_dims);
             eprintln!("K shape: {:?}", k_dims);
             eprintln!("V shape: {:?}", v.dims());
             eprintln!("W_o shape: {:?}", w_o.dims());
             eprintln!("seq_len: {}, cache_len: {}, n_embd: {}", seq_len, cache_len, n_embd);
+
+            // Show actual K cache values
+            let k_data = k.sync_and_read();
+            eprintln!("K cache (first 5 of last row): {:?}", &k_data[k_data.len().saturating_sub(5)..]);
 
             // Check if this is DECODE (seq_len=1) or PREFILL (seq_len>1)
             if seq_len > 1 && seq_len == cache_len {
