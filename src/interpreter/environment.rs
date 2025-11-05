@@ -57,6 +57,10 @@ impl Scope {
         self.variables.get(name)
     }
 
+    pub fn get_all_variables(&self) -> &HashMap<String, Value> {
+        &self.variables
+    }
+
     /// Set a variable in this scope (if it exists)
     pub fn set_variable(&mut self, name: &str, value: Value) -> bool {
         if self.variables.contains_key(name) {
@@ -138,6 +142,13 @@ impl RuntimeEnvironment {
         }
 
         Err(RuntimeError::UndefinedVariable(name.to_string()))
+    }
+
+    pub fn get_all_variables(&self) -> Option<&HashMap<String, Value>> {
+        if let Some(scope) = self.scope_stack.last() {
+            return Some(&scope.variables);
+        }
+        None
     }
 
     /// Set a variable by searching the scope stack (from top to bottom)

@@ -294,6 +294,10 @@ impl Interpreter {
         self.env.get_variable(name)
     }
 
+    pub fn get_all_variables(&self) -> Option<&HashMap<String, Value>> {
+        self.env.get_all_variables()
+    }
+
     /// Set a variable in the interpreter's environment
     /// Variables are managed by the scope stack
     pub fn set_variable(&mut self, name: String, value: Value) {

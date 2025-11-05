@@ -337,20 +337,9 @@ fn print_repl_help() {
     println!();
 }
 
-fn print_variables(_interpreter: &Interpreter) {
-    println!("Variables:");
-    // TODO: Implement get_all_variables() method in Interpreter
-    println!("  (method not yet implemented)");
-}
-
-fn print_final_state(_interpreter: &Interpreter) {
-    // TODO: Implement get_all_variables() method in Interpreter
-    println!("\nFinal state:");
-    println!("  (method not yet implemented)");
-    /*
+fn print_varialbes_sub(interpreter: &Interpreter) {
     let vars = interpreter.get_all_variables();
-    if !vars.is_empty() {
-        println!("\nFinal state:");
+    if let Some(vars) = vars {
         for (name, value) in vars {
             match value {
                 tensorlogic::interpreter::Value::Float(f) => {
@@ -362,14 +351,26 @@ fn print_final_state(_interpreter: &Interpreter) {
                 tensorlogic::interpreter::Value::Boolean(b) => {
                     println!("  {} = {}", name, b);
                 }
-                tensorlogic::interpreter::Value::Tensor(t) => {
-                    println!("  {} = Tensor{:?}", name, t.shape());
-                }
+                tensorlogic::interpreter::Value::TensorF16(t) => {
+                    println!("  {} = TensorF16{:?}", name, t.shape());
+                },
+                tensorlogic::interpreter::Value::TensorF32(t) => {
+                    println!("  {} = TensorF32{:?}", name, t.shape());
+                },
                 _ => {
                     println!("  {} = {:?}", name, value);
                 }
             }
         }
     }
-    */
+}
+
+fn print_variables(interpreter: &Interpreter) {
+    println!("Variables:");
+    print_varialbes_sub(interpreter);
+}
+
+fn print_final_state(interpreter: &Interpreter) {
+    println!("\nFinal state:");
+    print_varialbes_sub(interpreter);
 }

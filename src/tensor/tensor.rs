@@ -49,6 +49,12 @@ pub struct Tensor<T: FloatType = f16> {
     pub(crate) _phantom: PhantomData<T>,
 }
 
+impl<T: FloatType> Tensor<T> {
+    pub fn shape(&self) -> &TensorShape {
+        &self.shape
+    }
+}
+
 /// Automatic buffer recycling when tensor is dropped
 impl<T: FloatType> Drop for Tensor<T> {
     fn drop(&mut self) {
