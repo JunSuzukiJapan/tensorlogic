@@ -347,7 +347,7 @@ main {
     // AUTOREGRESSIVE GENERATION LOOP
     // ============================================================
     // Initialize generation state
-    let temperature = 0.8
+    let temperature = 0.8  // Temperature sampling for debugging
     let current_logits = logits
     let continue_generation = true
     let token_count = 0

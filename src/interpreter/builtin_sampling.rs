@@ -198,7 +198,9 @@ impl Interpreter {
         let mut rng = rand::thread_rng();
         let random_value: f32 = rng.gen();
         let mut cumulative = 0.0f32;
-        let mut sampled_idx = 0;
+        // Default to last token instead of 0 (<unk>) to handle floating point errors
+        // where cumulative doesn't quite reach 1.0
+        let mut sampled_idx = vocab_size - 1;
 
         for (idx, &prob) in probs.iter().enumerate() {
             cumulative += prob;
