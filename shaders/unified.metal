@@ -1788,13 +1788,13 @@ kernel void rms_norm_f16(
     device half* output [[buffer(2)]],
     device const half* normalized_size_ptr [[buffer(3)]],
     device const half* eps_ptr [[buffer(4)]],
-    uint gid [[thread_position_in_grid]],
+    uint tgid [[threadgroup_position_in_grid]],
     uint tid [[thread_position_in_threadgroup]],
     uint tgsize [[threads_per_threadgroup]]
 ) {
     uint normalized_size = uint(float(*normalized_size_ptr));
     float eps = float(*eps_ptr);
-    uint offset = gid * normalized_size;
+    uint offset = tgid * normalized_size;
 
     // Thread-local sum for reduction
     threadgroup float local_sums[256];
@@ -1995,13 +1995,13 @@ kernel void rms_norm_f32(
     device float* output [[buffer(2)]],
     device const float* normalized_size_ptr [[buffer(3)]],
     device const float* eps_ptr [[buffer(4)]],
-    uint gid [[thread_position_in_grid]],
+    uint tgid [[threadgroup_position_in_grid]],
     uint tid [[thread_position_in_threadgroup]],
     uint tgsize [[threads_per_threadgroup]]
 ) {
     uint normalized_size = uint(float(*normalized_size_ptr));
     float eps = float(*eps_ptr);
-    uint offset = gid * normalized_size;
+    uint offset = tgid * normalized_size;
 
     // Thread-local sum for reduction
     threadgroup float local_sums[256];

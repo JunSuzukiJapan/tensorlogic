@@ -126,15 +126,15 @@ impl<T: FloatType> Tensor<T> {
         // Create output buffer
         let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
-        // Create buffers for scalar parameters
-        let normalized_size_buf = MetalBuffer::<f16>::from_slice(
-            device.metal_device(),
-            &[f16::from_f32(normalized_size as f32)],
-        )?;
-        let eps_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &[f16::from_f32(eps)])?;
-
         // Get pipeline - select kernel based on size and type
         let suffix = T::kernel_suffix();
+
+        // Create buffers for scalar parameters using tensor type T
+        let normalized_size_buf = MetalBuffer::<T>::from_slice(
+            device.metal_device(),
+            &[T::from_f32(normalized_size as f32)],
+        )?;
+        let eps_buf = MetalBuffer::<T>::from_slice(device.metal_device(), &[T::from_f32(eps)])?;
 
         let kernel_name = if normalized_size <= 256 {
             format!("rms_norm_simple{}", suffix)
@@ -270,8 +270,8 @@ impl<T: FloatType> Tensor<T> {
     pub fn layer_norm(
         &self,
         normalized_shape: Vec<usize>,
-        weight: Option<&Tensor>,
-        bias: Option<&Tensor>,
+        weight: Option<&Tensor<T>>,
+        bias: Option<&Tensor<T>>,
         eps: f32,
     ) -> TensorResult<Self> {
         // Validate normalized_shape
@@ -330,8 +330,8 @@ impl<T: FloatType> Tensor<T> {
     fn layer_norm_metal(
         &self,
         normalized_shape: &[usize],
-        weight: Option<&Tensor>,
-        bias: Option<&Tensor>,
+        weight: Option<&Tensor<T>>,
+        bias: Option<&Tensor<T>>,
         eps: f32,
     ) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
@@ -366,7 +366,7 @@ impl<T: FloatType> Tensor<T> {
         let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         // Get weight and bias buffers (or create dummy buffers)
-        let dummy_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &[f16::ZERO])?;
+        let dummy_buf = MetalBuffer::<T>::from_slice(device.metal_device(), &[T::zero()])?;
         let weight_buf = if let Some(w) = weight {
             w.buffer().as_metal()?
         } else {
@@ -378,23 +378,23 @@ impl<T: FloatType> Tensor<T> {
             &dummy_buf
         };
 
-        // Create buffers for scalar parameters (using f16 buffers)
-        let normalized_size_buf = MetalBuffer::<f16>::from_slice(
-            device.metal_device(),
-            &[f16::from_f32(normalized_size as f32)],
-        )?;
-        let eps_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &[f16::from_f32(eps)])?;
-        let has_weight_buf = MetalBuffer::<f16>::from_slice(
-            device.metal_device(),
-            &[f16::from_f32(if weight.is_some() { 1.0 } else { 0.0 })],
-        )?;
-        let has_bias_buf = MetalBuffer::<f16>::from_slice(
-            device.metal_device(),
-            &[f16::from_f32(if bias.is_some() { 1.0 } else { 0.0 })],
-        )?;
-
         // Choose kernel based on normalized_size and type
         let suffix = T::kernel_suffix();
+
+        // Create buffers for scalar parameters using tensor type T
+        let normalized_size_buf = MetalBuffer::<T>::from_slice(
+            device.metal_device(),
+            &[T::from_f32(normalized_size as f32)],
+        )?;
+        let eps_buf = MetalBuffer::<T>::from_slice(device.metal_device(), &[T::from_f32(eps)])?;
+        let has_weight_buf = MetalBuffer::<T>::from_slice(
+            device.metal_device(),
+            &[T::from_f32(if weight.is_some() { 1.0 } else { 0.0 })],
+        )?;
+        let has_bias_buf = MetalBuffer::<T>::from_slice(
+            device.metal_device(),
+            &[T::from_f32(if bias.is_some() { 1.0 } else { 0.0 })],
+        )?;
         let kernel_name = if normalized_size <= 256 {
             format!("layer_norm_simple{}", suffix)
         } else {
@@ -455,8 +455,8 @@ impl<T: FloatType> Tensor<T> {
     fn layer_norm_cpu(
         &self,
         normalized_shape: &[usize],
-        weight: Option<&Tensor>,
-        bias: Option<&Tensor>,
+        weight: Option<&Tensor<T>>,
+        bias: Option<&Tensor<T>>,
         eps: f32,
     ) -> TensorResult<Self> {
         // Currently only f16 is supported
