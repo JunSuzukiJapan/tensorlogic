@@ -103,7 +103,7 @@ fn apply_rope_k(K: float32[?, ?], seq_len: float, pos: float) -> float32[?, ?] {
 // Now using Rust builtin: attention_with_cache(Q, K_cache, V_cache, W_o)
 // The builtin handles GQA expansion automatically
 
-fn transformer_layer(
+fn transformer_layer_old(
     x: float32[?, ?],
     W_attn_norm: float32[?],
     W_q: float32[?, ?],
@@ -125,6 +125,38 @@ fn transformer_layer(
     let ffn_out = swiglu_ffn(normed2, W_gate, W_up, W_down)
     result = after_attn + ffn_out
 }
+
+/*
+fn transformer_layer(
+    x: float32[?, ?],
+    W_attn_norm: float32[hidden_dim],
+    W_q: float32[hidden_dim, hidden_dim],
+    W_k: float32[hidden_dim, hidden_dim],
+    W_v: float32[hidden_dim, hidden_dim],
+    W_o: float32[hidden_dim, hidden_dim],
+    W_ffn_norm: float32[hidden_dim],
+    W_gate: float32[hidden_dim, ffn_dim],
+    W_up: float32[hidden_dim, ffn_dim],
+    W_down: float32[ffn_dim, hidden_dim],
+    K_cache: float32[seq_cache, hidden_dim],
+    V_cache: float32[seq_cache, hidden_dim]
+) -> float32[?, ?] {
+    let normed = rms_norm(x, W_attn_norm)
+
+    let Q = linear(normed, W_q)
+    let K = linear(normed, W_k)
+    let V = linear(normed, W_v)
+
+    // 更新されたキャッシュも返すようにしてもよい
+    let attn_out = attention_with_cache(Q, K, V, K_cache, V_cache, W_o)
+    let after_attn = x + attn_out
+
+    let normed2 = rms_norm(after_attn, W_ffn_norm)
+    let ffn_out = swiglu_ffn(normed2, W_gate, W_up, W_down)
+
+    return after_attn + ffn_out
+}
+*/
 
 main {
     print("=== TensorLogic Chat: FULL 22-Layer System ===")
