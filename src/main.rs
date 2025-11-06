@@ -206,7 +206,7 @@ fn run_file(
     println!("\n✅ Program executed successfully!");
 
     // Print final state
-    print_final_state(&interpreter);
+    // print_final_state(&interpreter);
 
     Ok(())
 }
