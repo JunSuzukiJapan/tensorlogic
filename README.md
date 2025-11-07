@@ -177,6 +177,28 @@ interp.execute("""
 #         Sum: [6.0000]
 ```
 
+**Option 3: Language Server** 🔧 NEW
+
+TL provides an LSP (Language Server Protocol) implementation for IDE support:
+
+```bash
+# Build the language server
+cargo build --release --bin tl-lsp
+
+# Binary will be at: target/release/tl-lsp
+```
+
+**Features:**
+- 🔍 Real-time error diagnostics
+- 💡 Intelligent code completion
+- 📖 Hover documentation for functions and types
+- 🎯 Go to definition
+- 📋 Document symbols/outline
+
+**Supported Editors:** VS Code, Neovim, Emacs, and any LSP-compatible editor
+
+See [Language Server Documentation](docs/language_server.md) for configuration details.
+
 ### Basic Usage
 
 TL is an interpreted language for tensor operations and neural network training.
