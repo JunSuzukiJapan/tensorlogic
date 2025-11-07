@@ -12,6 +12,7 @@ use tensorlogic::device::MetalDevice;
 use tensorlogic::error::TensorResult;
 use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO, TensorAccessors};
 use half::f16;
+use serial_test::serial;
 
 // Helper function to assert f16 tensors are close
 fn assert_tensor_close_f16(result: &[f16], expected: &[f16], epsilon: f32) {
@@ -27,6 +28,7 @@ fn assert_tensor_close_f16(result: &[f16], expected: &[f16], epsilon: f32) {
 }
 
 #[test]
+#[serial]
 fn test_rope_basic() -> TensorResult<()> {
     // Test basic RoPE application with simple input
     let device = MetalDevice::new()?;
@@ -62,6 +64,7 @@ fn test_rope_basic() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_rope_shape_preservation() -> TensorResult<()> {
     // Test that RoPE preserves tensor shape
     let test_shapes = vec![
@@ -81,6 +84,7 @@ fn test_rope_shape_preservation() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_rope_position_offset() -> TensorResult<()> {
     // Test RoPE with different position offsets
     let seq_len = 3;
@@ -119,6 +123,7 @@ fn test_rope_position_offset() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_rope_zeros_input() -> TensorResult<()> {
     // Test RoPE with all-zero input
     // RoPE of zeros should remain zeros (rotation of zero vector)
@@ -145,6 +150,7 @@ fn test_rope_zeros_input() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_rope_deterministic() -> TensorResult<()> {
     // Test that RoPE is deterministic (same input + offset -> same output)
     let seq_len = 4;
@@ -172,6 +178,7 @@ fn test_rope_deterministic() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_rope_head_dim_variations() -> TensorResult<()> {
     // Test RoPE with various head dimensions (all even)
     let head_dims = vec![2, 4, 8, 16, 32, 64, 128];
@@ -193,6 +200,7 @@ fn test_rope_head_dim_variations() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_rope_large_sequence() -> TensorResult<()> {
     // Test RoPE with large sequence length
     let seq_len = 256;  // Typical for inference
@@ -217,6 +225,7 @@ fn test_rope_large_sequence() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_rope_numerical_stability() -> TensorResult<()> {
     // Test numerical stability with various input magnitudes
     let seq_len = 4;
@@ -252,6 +261,7 @@ fn test_rope_numerical_stability() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_rope_consistency_across_positions() -> TensorResult<()> {
     // Test that RoPE with position_offset=n on seq[0] equals
     // RoPE with position_offset=0 on seq[n]
@@ -294,6 +304,7 @@ fn test_rope_consistency_across_positions() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_rope_multi_head() -> TensorResult<()> {
     // Test RoPE with multiple attention heads
     let seq_len = 4;
@@ -329,6 +340,7 @@ fn test_rope_multi_head() -> TensorResult<()> {
 // Error handling tests
 
 #[test]
+#[serial]
 #[should_panic(expected = "even head_dim")]
 fn test_rope_odd_head_dim() {
     // RoPE requires even head_dim for proper rotation
@@ -337,6 +349,7 @@ fn test_rope_odd_head_dim() {
 }
 
 #[test]
+#[serial]
 #[should_panic(expected = "at least 3D")]
 fn test_rope_insufficient_dimensions_2d() {
     // RoPE requires at least 3D tensor
@@ -345,6 +358,7 @@ fn test_rope_insufficient_dimensions_2d() {
 }
 
 #[test]
+#[serial]
 #[should_panic(expected = "at least 3D")]
 fn test_rope_insufficient_dimensions_1d() {
     // RoPE requires at least 3D tensor
@@ -353,6 +367,7 @@ fn test_rope_insufficient_dimensions_1d() {
 }
 
 #[test]
+#[serial]
 fn test_rope_4d_tensor() -> TensorResult<()> {
     // Test RoPE with 4D tensor (batch dimension)
     // Shape: [batch, seq_len, n_heads, head_dim]
@@ -373,6 +388,7 @@ fn test_rope_4d_tensor() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_rope_single_position() -> TensorResult<()> {
     // Test RoPE with single position (seq_len=1)
     // This is common in autoregressive generation
@@ -390,6 +406,7 @@ fn test_rope_single_position() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_rope_position_offset_range() -> TensorResult<()> {
     // Test RoPE with various position offset values
     let seq_len = 2;
@@ -414,6 +431,7 @@ fn test_rope_position_offset_range() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_rope_gradient_compatibility() -> TensorResult<()> {
     // Test that RoPE output can be used in gradient computation
     // (This is a prerequisite for training with RoPE)
@@ -435,6 +453,7 @@ fn test_rope_gradient_compatibility() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_rope_kv_cache_simulation() -> TensorResult<()> {
     // Simulate KV cache scenario:
     // - First, process a prompt (position_offset=0)

@@ -2,10 +2,14 @@
 //!
 //! Tests all GPU operations to ensure correctness, memory safety, and performance.
 //! Each test validates a specific GPU operation under various conditions.
+//!
+//! NOTE: All tests in this file use #[serial] to avoid GPU resource contention
+//! and prevent deadlocks when running tests in parallel.
 
 use tensorlogic::device::MetalDevice;
 use tensorlogic::tensor::{Tensor, TensorCreation, TensorAccessors, TensorIO};
 use half::f16;
+use serial_test::serial;
 
 /// Tolerance for floating point comparisons
 const EPSILON_F32: f32 = 1e-4;
@@ -53,6 +57,7 @@ fn assert_close_f16(a: &[f16], b: &[f16], epsilon: f32, msg: &str) {
 // ============================================================================
 
 #[test]
+#[serial]
 fn test_matmul_basic_2x2_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -71,6 +76,7 @@ fn test_matmul_basic_2x2_f32() {
 }
 
 #[test]
+#[serial]
 fn test_matmul_basic_2x2_f16() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -85,6 +91,7 @@ fn test_matmul_basic_2x2_f16() {
 }
 
 #[test]
+#[serial]
 fn test_matmul_rectangular_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -104,6 +111,7 @@ fn test_matmul_rectangular_f32() {
 }
 
 #[test]
+#[serial]
 fn test_matmul_identity_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -123,6 +131,7 @@ fn test_matmul_identity_f32() {
 // ============================================================================
 
 #[test]
+#[serial]
 fn test_softmax_1d_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -145,6 +154,7 @@ fn test_softmax_1d_f32() {
 }
 
 #[test]
+#[serial]
 fn test_softmax_numerical_stability_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -169,6 +179,7 @@ fn test_softmax_numerical_stability_f32() {
 // ============================================================================
 
 #[test]
+#[serial]
 fn test_rms_norm_basic_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -196,6 +207,7 @@ fn test_rms_norm_basic_f32() {
 // ============================================================================
 
 #[test]
+#[serial]
 fn test_div_scalar_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -208,6 +220,7 @@ fn test_div_scalar_f32() {
 }
 
 #[test]
+#[serial]
 fn test_mul_scalar_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -220,6 +233,7 @@ fn test_mul_scalar_f32() {
 }
 
 #[test]
+#[serial]
 fn test_add_scalar_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -236,6 +250,7 @@ fn test_add_scalar_f32() {
 // ============================================================================
 
 #[test]
+#[serial]
 fn test_elementwise_add_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -250,6 +265,7 @@ fn test_elementwise_add_f32() {
 }
 
 #[test]
+#[serial]
 fn test_elementwise_mul_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -268,6 +284,7 @@ fn test_elementwise_mul_f32() {
 // ============================================================================
 
 #[test]
+#[serial]
 fn test_relu_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -280,6 +297,7 @@ fn test_relu_f32() {
 }
 
 #[test]
+#[serial]
 fn test_gelu_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -302,6 +320,7 @@ fn test_gelu_f32() {
 // ============================================================================
 
 #[test]
+#[serial]
 fn test_large_matmul_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -319,6 +338,7 @@ fn test_large_matmul_f32() {
 }
 
 #[test]
+#[serial]
 fn test_buffer_reuse() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -333,6 +353,7 @@ fn test_buffer_reuse() {
 }
 
 #[test]
+#[serial]
 fn test_concurrent_operations_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -355,6 +376,7 @@ fn test_concurrent_operations_f32() {
 // ============================================================================
 
 #[test]
+#[serial]
 fn test_zero_tensor_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -367,6 +389,7 @@ fn test_zero_tensor_f32() {
 }
 
 #[test]
+#[serial]
 fn test_single_element_f32() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -383,6 +406,7 @@ fn test_single_element_f32() {
 // ============================================================================
 
 #[test]
+#[serial]
 fn test_f16_buffer_recycling() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -395,6 +419,7 @@ fn test_f16_buffer_recycling() {
 }
 
 #[test]
+#[serial]
 fn test_f32_buffer_recycling() {
     let device = MetalDevice::new().expect("Failed to create Metal device");
 

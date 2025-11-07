@@ -1,8 +1,10 @@
 use tensorlogic::{GGUFWeightCache, MetalDevice};
 use tensorlogic::tensor::{Tensor, TensorAccessors, TensorCreation, TensorIO, TensorTransform};
 use std::env;
+use serial_test::serial;
 
 #[test]
+#[serial]
 fn test_rope_q_application_prefill() {
     // Test 1: Verify RoPE is applied to Q during PREFILL at position 0
 
@@ -43,6 +45,7 @@ fn test_rope_q_application_prefill() {
 }
 
 #[test]
+#[serial]
 fn test_rope_q_application_decode() {
     // Test 2: Verify RoPE is applied to Q during DECODE at incrementing positions
 
@@ -98,6 +101,7 @@ fn test_rope_q_application_decode() {
 }
 
 #[test]
+#[serial]
 fn test_rope_q_k_symmetry() {
     // Test 3: Verify Q and K get RoPE at same position
 
@@ -154,6 +158,7 @@ fn test_rope_q_k_symmetry() {
 }
 
 #[test]
+#[serial]
 fn test_rope_position_zero_vs_nonzero() {
     // Test 4: Verify position 0 (PREFILL) differs from position 34 (DECODE)
 
@@ -196,6 +201,7 @@ fn test_rope_position_zero_vs_nonzero() {
 }
 
 #[test]
+#[serial]
 fn test_rope_reshape_correctness() {
     // Test 5: Verify reshape before/after RoPE preserves data correctly
 
@@ -254,6 +260,7 @@ fn test_rope_reshape_correctness() {
 }
 
 #[test]
+#[serial]
 fn test_apply_rope_q_function_simulation() {
     // Test 6: Simulate the apply_rope_q function behavior
 

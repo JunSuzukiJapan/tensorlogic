@@ -17,10 +17,12 @@ use tensorlogic::device::MetalDevice;
 use tensorlogic::error::TensorResult;
 use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO, TensorAccessors};
 use half::f16;
+use serial_test::serial;
 
 // Shape Mismatch Errors
 
 #[test]
+#[serial]
 #[should_panic(expected = "ShapeMismatch")]
 fn test_add_shape_mismatch_2x2_and_3x3() {
     let a = Tensor::<f32>::ones(vec![2, 2]).unwrap();
@@ -29,6 +31,7 @@ fn test_add_shape_mismatch_2x2_and_3x3() {
 }
 
 #[test]
+#[serial]
 #[should_panic(expected = "ShapeMismatch")]
 fn test_add_shape_mismatch_1d_and_2d() {
     let a = Tensor::<f32>::ones(vec![4]).unwrap();
@@ -37,6 +40,7 @@ fn test_add_shape_mismatch_1d_and_2d() {
 }
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_sub_shape_mismatch() {
     let a = Tensor::<f32>::ones(vec![2, 3]).unwrap();
@@ -45,6 +49,7 @@ fn test_sub_shape_mismatch() {
 }
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_mul_shape_mismatch() {
     let a = Tensor::<f32>::ones(vec![4, 5]).unwrap();
@@ -53,6 +58,7 @@ fn test_mul_shape_mismatch() {
 }
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_div_shape_mismatch() {
     let a = Tensor::<f32>::ones(vec![10]).unwrap();
@@ -63,6 +69,7 @@ fn test_div_shape_mismatch() {
 // Matrix Multiplication Errors
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_matmul_incompatible_dimensions() {
     // [2, 3] @ [5, 7] - incompatible (inner dimensions don't match)
@@ -72,6 +79,7 @@ fn test_matmul_incompatible_dimensions() {
 }
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_matmul_1d_tensors() {
     // Matmul requires at least 2D tensors
@@ -81,6 +89,7 @@ fn test_matmul_1d_tensors() {
 }
 
 #[test]
+#[serial]
 fn test_matmul_valid_dimensions() -> TensorResult<()> {
     // This should succeed: [2, 3] @ [3, 4] = [2, 4]
     let a = Tensor::<f32>::ones(vec![2, 3])?;
@@ -96,6 +105,7 @@ fn test_matmul_valid_dimensions() -> TensorResult<()> {
 // Reshape Errors
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_reshape_incompatible_size() {
     // Cannot reshape [2, 3] (6 elements) to [2, 4] (8 elements)
@@ -104,6 +114,7 @@ fn test_reshape_incompatible_size() {
 }
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_reshape_negative_dimension() {
     let a = Tensor::<f32>::ones(vec![4, 4]).unwrap();
@@ -113,6 +124,7 @@ fn test_reshape_negative_dimension() {
 }
 
 #[test]
+#[serial]
 fn test_reshape_valid() -> TensorResult<()> {
     // Valid reshape: [2, 3] (6 elements) to [3, 2] (6 elements)
     let a = Tensor::<f32>::ones(vec![2, 3])?;
@@ -127,6 +139,7 @@ fn test_reshape_valid() -> TensorResult<()> {
 // Indexing / Slicing Errors
 
 #[test]
+#[serial]
 #[should_panic(expected = "InvalidDimension")]
 fn test_slice_invalid_dimension() {
     let a = Tensor::<f32>::ones(vec![3, 4]).unwrap();
@@ -135,6 +148,7 @@ fn test_slice_invalid_dimension() {
 }
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_slice_out_of_bounds() {
     let a = Tensor::<f32>::ones(vec![3, 4]).unwrap();
@@ -145,6 +159,7 @@ fn test_slice_out_of_bounds() {
 // Reduction Errors
 
 #[test]
+#[serial]
 #[should_panic(expected = "InvalidDimension")]
 fn test_sum_invalid_dimension() {
     let a = Tensor::<f32>::ones(vec![3, 4]).unwrap();
@@ -153,6 +168,7 @@ fn test_sum_invalid_dimension() {
 }
 
 #[test]
+#[serial]
 #[should_panic(expected = "InvalidDimension")]
 fn test_softmax_invalid_dimension() {
     let a = Tensor::<f32>::ones(vec![2, 3, 4]).unwrap();
@@ -163,6 +179,7 @@ fn test_softmax_invalid_dimension() {
 // Numerical Stability Errors
 
 #[test]
+#[serial]
 fn test_division_by_zero() -> TensorResult<()> {
     // Division by zero should produce Inf, not crash
     let a = Tensor::<f32>::ones(vec![2, 2])?;
@@ -181,6 +198,7 @@ fn test_division_by_zero() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_nan_propagation_add() -> TensorResult<()> {
     // NaN should propagate through operations
     let a = Tensor::<f32>::from_vec(vec![1.0, f32::NAN, 3.0], vec![3])?;
@@ -198,6 +216,7 @@ fn test_nan_propagation_add() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_nan_propagation_mul() -> TensorResult<()> {
     // NaN * anything = NaN (even 0)
     let a = Tensor::<f32>::from_vec(vec![f32::NAN, f32::NAN], vec![2])?;
@@ -214,6 +233,7 @@ fn test_nan_propagation_mul() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_inf_propagation() -> TensorResult<()> {
     // Inf should propagate appropriately
     let a = Tensor::<f32>::from_vec(vec![f32::INFINITY, f32::NEG_INFINITY], vec![2])?;
@@ -230,6 +250,7 @@ fn test_inf_propagation() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_inf_minus_inf() -> TensorResult<()> {
     // Inf - Inf = NaN
     let a = Tensor::<f32>::from_vec(vec![f32::INFINITY], vec![1])?;
@@ -245,6 +266,7 @@ fn test_inf_minus_inf() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_exp_overflow() -> TensorResult<()> {
     // exp of large number should produce Inf, not crash
     let a = Tensor::<f32>::from_vec(vec![1000.0], vec![1])?;
@@ -259,6 +281,7 @@ fn test_exp_overflow() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_log_negative() -> TensorResult<()> {
     // log of negative number should produce NaN
     let a = Tensor::<f32>::from_vec(vec![-1.0, -10.0], vec![2])?;
@@ -274,6 +297,7 @@ fn test_log_negative() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_log_zero() -> TensorResult<()> {
     // log(0) = -Inf
     let a = Tensor::<f32>::from_vec(vec![0.0], vec![1])?;
@@ -291,6 +315,7 @@ fn test_log_zero() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_sqrt_negative() -> TensorResult<()> {
     // sqrt of negative should produce NaN
     let a = Tensor::<f32>::from_vec(vec![-4.0], vec![1])?;
@@ -305,6 +330,7 @@ fn test_sqrt_negative() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_pow_special_cases() -> TensorResult<()> {
     // Test special cases of pow
     let a = Tensor::<f32>::from_vec(
@@ -338,6 +364,7 @@ fn test_pow_special_cases() -> TensorResult<()> {
 // Empty Tensor Errors
 
 #[test]
+#[serial]
 fn test_empty_tensor_operations() -> TensorResult<()> {
     // Operations on empty tensors should not crash
     let a = Tensor::<f32>::zeros(vec![0, 5])?;
@@ -351,6 +378,7 @@ fn test_empty_tensor_operations() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_empty_tensor_sum() -> TensorResult<()> {
     // Sum of empty tensor should be 0
     let a = Tensor::<f32>::zeros(vec![0, 3])?;
@@ -368,6 +396,7 @@ fn test_empty_tensor_sum() -> TensorResult<()> {
 // Zero-sized Dimension Errors
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_zeros_with_zero_dimension() {
     // Creating tensor with a zero dimension should fail
@@ -375,6 +404,7 @@ fn test_zeros_with_zero_dimension() {
 }
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_ones_with_zero_dimension() {
     let _ = Tensor::<f32>::ones(vec![0, 4]).unwrap();
@@ -383,6 +413,7 @@ fn test_ones_with_zero_dimension() {
 // Autograd Errors
 
 #[test]
+#[serial]
 #[should_panic(expected = "requires_grad")]
 fn test_backward_without_requires_grad() {
     use tensorlogic::tensor::TensorAutograd;
@@ -395,6 +426,7 @@ fn test_backward_without_requires_grad() {
 // Type Conversion Errors
 
 #[test]
+#[serial]
 fn test_f16_precision_loss() -> TensorResult<()> {
     // Very large numbers may lose precision in f16
     let large_f32 = 65536.0f32; // Larger than f16 max (~65504)
@@ -415,6 +447,7 @@ fn test_f16_precision_loss() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_underflow() -> TensorResult<()> {
     // Very small numbers may underflow to 0 in f16
     let tiny_f32 = 1e-10f32; // Smaller than f16 min (~6e-8)
@@ -434,6 +467,7 @@ fn test_f16_underflow() -> TensorResult<()> {
 // Concatenation Errors
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_concat_dimension_mismatch() {
     // Cannot concat tensors with different shapes in non-concat dimensions
@@ -445,6 +479,7 @@ fn test_concat_dimension_mismatch() {
 }
 
 #[test]
+#[serial]
 #[should_panic(expected = "InvalidDimension")]
 fn test_concat_invalid_dimension() {
     let a = Tensor::<f32>::ones(vec![2, 3]).unwrap();
@@ -457,6 +492,7 @@ fn test_concat_invalid_dimension() {
 // Transpose Errors
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_transpose_1d_tensor() {
     // Transpose requires at least 2D
@@ -467,6 +503,7 @@ fn test_transpose_1d_tensor() {
 // Activation Function Edge Cases
 
 #[test]
+#[serial]
 fn test_relu_negative() -> TensorResult<()> {
     // ReLU of negative should be 0
     let a = Tensor::<f32>::from_vec(vec![-5.0, -1.0, 0.0, 1.0, 5.0], vec![5])?;
@@ -485,6 +522,7 @@ fn test_relu_negative() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_sigmoid_extreme_values() -> TensorResult<()> {
     // Sigmoid should saturate at extreme values
     let a = Tensor::<f32>::from_vec(vec![-1000.0, 0.0, 1000.0], vec![3])?;
@@ -506,6 +544,7 @@ fn test_sigmoid_extreme_values() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_softmax_overflow_safety() -> TensorResult<()> {
     // Softmax should handle large values without overflow
     let a = Tensor::<f32>::from_vec(vec![1000.0, 1001.0, 1002.0], vec![1, 3])?;
@@ -529,6 +568,7 @@ fn test_softmax_overflow_safety() -> TensorResult<()> {
 // Tensor Creation Errors
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_from_vec_size_mismatch() {
     // Vector size doesn't match shape
@@ -537,6 +577,7 @@ fn test_from_vec_size_mismatch() {
 }
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_from_vec_empty_shape() {
     let data = vec![1.0, 2.0, 3.0];
@@ -546,6 +587,7 @@ fn test_from_vec_empty_shape() {
 // Layer Normalization Errors
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_layer_norm_invalid_dimension() {
     let a = Tensor::<f32>::ones(vec![2, 3, 4]).unwrap();
@@ -557,6 +599,7 @@ fn test_layer_norm_invalid_dimension() {
 // Device Errors (if Metal is available)
 
 #[test]
+#[serial]
 fn test_device_availability() -> TensorResult<()> {
     // Check if Metal device is available
     match MetalDevice::new() {
@@ -574,6 +617,7 @@ fn test_device_availability() -> TensorResult<()> {
 // Stress Test: Multiple Errors in Sequence
 
 #[test]
+#[serial]
 fn test_error_recovery() -> TensorResult<()> {
     // Test that errors don't leave system in bad state
     let a = Tensor::<f32>::ones(vec![2, 2])?;
@@ -594,6 +638,7 @@ fn test_error_recovery() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_chain_operations_with_error() -> TensorResult<()> {
     // Test error in chain of operations
     let a = Tensor::<f32>::ones(vec![2, 2])?;
