@@ -145,6 +145,10 @@ pub struct Interpreter {
     // Track learnable tensors declared with 'learnable' keyword
     // These are the only tensors that should be optimized in learn blocks
     learnable_params: HashSet<String>,
+    // Struct definitions: struct_name -> StructDecl
+    structs: HashMap<String, StructDecl>,
+    // Drop trait implementations: struct_name -> drop method
+    drop_impls: HashMap<String, MethodDecl>,
     // Shared Metal device for GPU operations (singleton per interpreter)
     device: crate::device::MetalDevice,
 }
@@ -168,6 +172,8 @@ impl Interpreter {
             functions: HashMap::new(),
             call_stack: Vec::new(),
             learnable_params: HashSet::new(),
+            structs: HashMap::new(),
+            drop_impls: HashMap::new(),
             device: crate::device::MetalDevice::new()
                 .expect("Failed to create Metal device - Metal may not be available on this system"),
         }
@@ -395,7 +401,138 @@ impl Interpreter {
 
                 Ok(())
             }
+            Declaration::Struct(struct_decl) => {
+                // Store struct definition
+                let struct_name = struct_decl.name.as_str().to_string();
+
+                // Check for duplicate struct names
+                if self.structs.contains_key(&struct_name) {
+                    return Err(RuntimeError::InvalidOperation(
+                        format!("Struct '{}' is already defined", struct_name)
+                    ));
+                }
+
+                self.structs.insert(struct_name, struct_decl.clone());
+                Ok(())
+            }
+            Declaration::Impl(impl_block) => {
+                // Register methods as functions with qualified names
+                let struct_name = impl_block.struct_type.name.as_str().to_string();
+
+                // Check if this is a Drop trait implementation
+                let is_drop_impl = impl_block.trait_name.as_ref()
+                    .map(|t| t.as_str() == "Drop")
+                    .unwrap_or(false);
+
+                for method in &impl_block.methods {
+                    if is_drop_impl {
+                        // Store Drop implementation separately
+                        if method.name.as_str() == "drop" {
+                            self.drop_impls.insert(struct_name.clone(), method.clone());
+                        }
+                    } else {
+                        // Regular method: store as function with qualified name
+                        let qualified_name = format!("{}::{}", struct_name, method.name.as_str());
+
+                        // Convert method to function declaration
+                        let func_decl = self.method_to_function(method, &struct_name)?;
+                        self.functions.insert(qualified_name, func_decl);
+                    }
+                }
+
+                Ok(())
+            }
         }
+    }
+
+    /// Convert a method declaration to a function declaration
+    fn method_to_function(&self, method: &MethodDecl, _struct_name: &str) -> RuntimeResult<FunctionDecl> {
+        // Convert method parameters to function parameters
+        let mut params = Vec::new();
+        for param in &method.params {
+            match param {
+                MethodParam::SelfParam => {
+                    // Skip self parameter for now - we'll handle it in method calls
+                }
+                MethodParam::Regular(func_param) => {
+                    params.push(func_param.clone());
+                }
+            }
+        }
+
+        Ok(FunctionDecl {
+            name: method.name.clone(),
+            params,
+            return_type: method.return_type.clone(),
+            body: method.body.clone(),
+        })
+    }
+
+    /// Call destructors for all struct values in the current scope
+    fn call_scope_destructors(&mut self) -> RuntimeResult<()> {
+        // Get variables from current scope
+        let variables: Vec<(String, Value)> = if let Some(frame) = self.call_stack.last() {
+            // Local scope: collect from call frame
+            frame.local_vars.iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect()
+        } else {
+            // Global scope: collect from environment
+            self.env.list_variables().iter()
+                .filter_map(|name| {
+                    self.env.get_variable(name)
+                        .ok()
+                        .map(|v| (name.clone(), v.clone()))
+                })
+                .collect()
+        };
+
+        // Call destructors for struct values in reverse order (LIFO)
+        for (_name, value) in variables.iter().rev() {
+            if let Value::Struct { struct_type, .. } = value {
+                self.call_drop_method(struct_type, value)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Call the drop method for a struct value if it has a Drop implementation
+    fn call_drop_method(&mut self, struct_type: &StructType, value: &Value) -> RuntimeResult<()> {
+        let struct_name = struct_type.name.as_str();
+
+        // Check if there's a Drop implementation for this struct
+        if let Some(drop_method) = self.drop_impls.get(struct_name).cloned() {
+            // Create a new call frame for the drop method
+            let mut frame = CallFrame::new(format!("{}::drop", struct_name));
+
+            // Bind self parameter to the struct value
+            frame.local_vars.insert("self".to_string(), value.clone());
+
+            // Push call frame
+            self.call_stack.push(frame);
+
+            // Execute drop method body
+            for stmt in &drop_method.body {
+                match self.execute_statement(stmt) {
+                    Err(RuntimeError::ReturnValue(_)) => {
+                        // Early return from drop method - just stop execution
+                        break;
+                    }
+                    Err(e) => {
+                        // Error in drop method - pop frame and propagate
+                        self.call_stack.pop();
+                        return Err(e);
+                    }
+                    Ok(_) => {}
+                }
+            }
+
+            // Pop call frame
+            self.call_stack.pop();
+        }
+
+        Ok(())
     }
 
     /// Execute an import declaration
@@ -957,6 +1094,10 @@ impl Interpreter {
         for stmt in &main_block.statements {
             self.execute_statement(stmt)?;
         }
+
+        // Call destructors for all struct values in main scope before exiting
+        self.call_scope_destructors()?;
+
         Ok(())
     }
 
@@ -4998,7 +5139,8 @@ impl Interpreter {
                                     break;
                                 }
                                 Err(e) => {
-                                    // Other errors - propagate upward
+                                    // Other errors - call destructors, pop scope and propagate upward
+                                    let _ = self.call_scope_destructors();
                                     self.env.pop_scope();
                                     self.call_stack.pop();
                                     return Err(e);
@@ -5018,6 +5160,7 @@ impl Interpreter {
                             Ok(None) => Value::Void,
                             Err(RuntimeError::ReturnValue(val)) => val,  // Explicit return in last statement
                             Err(e) => {
+                                let _ = self.call_scope_destructors();
                                 self.env.pop_scope();
                                 self.call_stack.pop();
                                 return Err(e);
@@ -5031,7 +5174,10 @@ impl Interpreter {
                     // 7. Check return type matches declaration
                     self.check_return_type_match(&return_value, &func_decl.return_type, func_name)?;
 
-                    // 8. Pop function scope and call frame
+                    // 8. Call destructors for local variables before popping scope/frame
+                    self.call_scope_destructors()?;
+
+                    // 9. Pop function scope and call frame
                     self.env.pop_scope();
                     self.call_stack.pop();
 

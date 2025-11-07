@@ -19,6 +19,8 @@ declaration = {
     | relation_embedding_decl
     | embedding_decl
     | function_decl
+    | struct_decl
+    | impl_block
 }
 
 main_block = { "main" ~ "{" ~ statement* ~ "}" }
@@ -78,6 +80,7 @@ entity_type = {
   | "concept"     // Generic concept type
   | tensor_type   // Tensor type (must be before scalar_type and identifier to match correctly)
   | scalar_type   // Scalar types (int, float, bool, string)
+  | struct_type   // Struct type
   | identifier    // Named entity type (e.g., Person, City)
 }
 
@@ -138,7 +141,56 @@ function_decl = {
     ~ "->" ~ return_type ~ "{" ~ statement* ~ "}"
 }
 
-return_type = { tensor_type | scalar_type | "void" }
+return_type = { tensor_type | scalar_type | struct_type | "void" }
+
+// ============================================================================
+// Struct Declarations
+// ============================================================================
+
+struct_decl = {
+    "struct" ~ identifier ~ type_params? ~ "{" ~ field_list ~ "}"
+}
+
+type_params = { "<" ~ type_param_list ~ ">" }
+
+type_param_list = { identifier ~ ("," ~ identifier)* }
+
+field_list = { (field ~ ","?)* }
+
+field = { identifier ~ ":" ~ field_type ~ learnable? }
+
+field_type = {
+    tensor_type
+    | scalar_type
+    | struct_type
+    | identifier  // Type parameter reference
+}
+
+struct_type = { identifier ~ ("<" ~ type_arg_list ~ ">")? }
+
+type_arg_list = { type_arg ~ ("," ~ type_arg)* }
+
+type_arg = { tensor_type | scalar_type | struct_type }
+
+// ============================================================================
+// Impl Blocks
+// ============================================================================
+
+impl_block = {
+    "impl" ~ type_params? ~ trait_impl_for? ~ struct_type ~ "{" ~ method_decl* ~ "}"
+}
+
+// Optional "TraitName for" part (e.g., "Drop for")
+trait_impl_for = { identifier ~ "for" }
+
+method_decl = {
+    "fn" ~ identifier ~ "(" ~ method_param_list? ~ ")"
+    ~ ("->" ~ return_type)? ~ "{" ~ statement* ~ "}"
+}
+
+method_param_list = { method_param ~ ("," ~ method_param)* }
+
+method_param = { "self" | param }
 
 // ============================================================================
 // Tensor Expressions with Operator Precedence
@@ -176,6 +228,7 @@ tensor_term = {
     | embedding_lookup
     | einstein_sum
     | python_call
+    | struct_literal
     | tensor_literal
     | string_literal
 }
@@ -186,7 +239,8 @@ postfix_expr = {
 }
 
 primary_expr = {
-    function_call
+    associated_call
+    | function_call
     | identifier
 }
 
@@ -225,6 +279,14 @@ tensor_list = { tensor_expr ~ ("," ~ tensor_expr)* }
 function_call = { (type_namespace ~ "::")? ~ identifier ~ "(" ~ tensor_list? ~ ")" }
 
 type_namespace = { "Tensor" | "f16" | "f32" | "KVCache" }
+
+associated_call = { struct_type ~ "::" ~ identifier ~ "(" ~ tensor_list? ~ ")" }
+
+struct_literal = { struct_type ~ "{" ~ field_init_list? ~ "}" }
+
+field_init_list = { field_init ~ ("," ~ field_init)* ~ ","? }
+
+field_init = { identifier ~ ":" ~ tensor_expr }
 
 // tensor_index is now handled by postfix_expr
 // tensor_index = { identifier ~ "[" ~ index_list ~ "]" }

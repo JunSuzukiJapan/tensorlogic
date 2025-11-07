@@ -47,14 +47,29 @@ pub enum TypeError {
     #[error("Function {0} not found")]
     UndefinedFunction(String),
 
+    #[error("Struct {0} not found")]
+    UndefinedStruct(String),
+
+    #[error("Method {0}::{1} not found")]
+    UndefinedMethod(String, String),
+
+    #[error("Field {0} not found in struct {1}")]
+    UndefinedField(String, String),
+
     #[error("Wrong number of arguments: expected {expected}, found {found}")]
     ArgumentCountMismatch { expected: usize, found: usize },
+
+    #[error("Wrong number of type arguments: expected {expected}, found {found}")]
+    TypeArgumentCountMismatch { expected: usize, found: usize },
 
     #[error("Cannot infer type for expression")]
     CannotInferType,
 
     #[error("Dimension variable {0} not in scope")]
     UndefinedDimensionVariable(String),
+
+    #[error("Type parameter {0} not in scope")]
+    UndefinedTypeParameter(String),
 }
 
 pub type TypeResult<T> = Result<T, TypeError>;
@@ -122,6 +137,12 @@ pub struct TypeEnvironment {
     functions: HashMap<String, (Vec<TensorTypeInfo>, Option<TensorTypeInfo>)>,
     /// Dimension variables in scope
     dimension_vars: HashMap<String, ()>,
+    /// Struct name → (type params, fields)
+    structs: HashMap<String, StructDecl>,
+    /// (Struct name, Method name) → method declaration
+    methods: HashMap<(String, String), (Vec<TypeParam>, MethodDecl)>,
+    /// Type parameter context (scoped)
+    type_params: HashMap<String, ()>,
 }
 
 impl TypeEnvironment {
@@ -131,6 +152,9 @@ impl TypeEnvironment {
             relations: HashMap::new(),
             functions: HashMap::new(),
             dimension_vars: HashMap::new(),
+            structs: HashMap::new(),
+            methods: HashMap::new(),
+            type_params: HashMap::new(),
         }
     }
 
@@ -199,6 +223,69 @@ impl TypeEnvironment {
     pub fn has_dimension_var(&self, name: &str) -> bool {
         self.dimension_vars.contains_key(name)
     }
+
+    /// Add a struct to the environment
+    pub fn add_struct(&mut self, struct_decl: StructDecl) -> TypeResult<()> {
+        let name = struct_decl.name.as_str().to_string();
+        if self.structs.contains_key(&name) {
+            return Err(TypeError::DuplicateDeclaration(name));
+        }
+        self.structs.insert(name, struct_decl);
+        Ok(())
+    }
+
+    /// Get a struct declaration
+    pub fn get_struct(&self, name: &str) -> TypeResult<&StructDecl> {
+        self.structs
+            .get(name)
+            .ok_or_else(|| TypeError::UndefinedStruct(name.to_string()))
+    }
+
+    /// Add a method to the environment
+    pub fn add_method(
+        &mut self,
+        struct_name: String,
+        type_params: Vec<TypeParam>,
+        method: MethodDecl,
+    ) -> TypeResult<()> {
+        let method_name = method.name.as_str().to_string();
+        let key = (struct_name.clone(), method_name.clone());
+        if self.methods.contains_key(&key) {
+            return Err(TypeError::DuplicateDeclaration(format!(
+                "{}::{}",
+                struct_name, method_name
+            )));
+        }
+        self.methods.insert(key, (type_params, method));
+        Ok(())
+    }
+
+    /// Get a method declaration
+    pub fn get_method(
+        &self,
+        struct_name: &str,
+        method_name: &str,
+    ) -> TypeResult<&(Vec<TypeParam>, MethodDecl)> {
+        let key = (struct_name.to_string(), method_name.to_string());
+        self.methods
+            .get(&key)
+            .ok_or_else(|| TypeError::UndefinedMethod(struct_name.to_string(), method_name.to_string()))
+    }
+
+    /// Add a type parameter
+    pub fn add_type_param(&mut self, name: String) {
+        self.type_params.insert(name, ());
+    }
+
+    /// Check if a type parameter is in scope
+    pub fn has_type_param(&self, name: &str) -> bool {
+        self.type_params.contains_key(name)
+    }
+
+    /// Clear type parameters (when exiting a generic scope)
+    pub fn clear_type_params(&mut self) {
+        self.type_params.clear();
+    }
 }
 
 /// Type checker implementation
@@ -251,6 +338,8 @@ impl TypeChecker {
                 Ok(())
             }
             Declaration::Function(function_decl) => self.check_function_decl(function_decl),
+            Declaration::Struct(struct_decl) => self.check_struct_decl(struct_decl),
+            Declaration::Impl(impl_block) => self.check_impl_block(impl_block),
         }
     }
 
@@ -346,6 +435,142 @@ impl TypeChecker {
         )?;
 
         // TODO: Type check function body statements
+
+        Ok(())
+    }
+
+    /// Type check a struct declaration
+    fn check_struct_decl(&mut self, decl: &StructDecl) -> TypeResult<()> {
+        // Add type parameters to scope
+        for type_param in &decl.type_params {
+            self.env.add_type_param(type_param.name.as_str().to_string());
+        }
+
+        // Check that all field types are valid
+        for field in &decl.fields {
+            self.check_field_type(&field.field_type)?;
+        }
+
+        // Add struct to environment
+        self.env.add_struct(decl.clone())?;
+
+        // Clear type parameters after struct definition
+        self.env.clear_type_params();
+
+        Ok(())
+    }
+
+    /// Type check a field type
+    fn check_field_type(&self, field_type: &FieldType) -> TypeResult<()> {
+        match field_type {
+            FieldType::Scalar(_) => Ok(()),
+            FieldType::Tensor(tensor_type) => {
+                // Validate tensor dimensions
+                for dim in &tensor_type.dimensions {
+                    if let Dimension::Variable(var) = dim {
+                        if !self.env.has_dimension_var(var.as_str()) {
+                            // Dimension variables in fields are OK (they'll be checked later)
+                        }
+                    }
+                }
+                Ok(())
+            }
+            FieldType::Struct(struct_type) => {
+                // Check that the struct exists
+                self.env.get_struct(struct_type.name.as_str())?;
+                Ok(())
+            }
+            FieldType::TypeParam(type_param) => {
+                // Check that the type parameter is in scope
+                if !self.env.has_type_param(type_param.as_str()) {
+                    return Err(TypeError::UndefinedTypeParameter(
+                        type_param.as_str().to_string(),
+                    ));
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Type check an impl block
+    fn check_impl_block(&mut self, impl_block: &ImplBlock) -> TypeResult<()> {
+        // Get the struct declaration
+        let struct_name = impl_block.struct_type.name.as_str();
+        let _struct_decl = self.env.get_struct(struct_name)?;
+
+        // Add type parameters from impl block to scope
+        for type_param in &impl_block.type_params {
+            self.env.add_type_param(type_param.name.as_str().to_string());
+        }
+
+        // If this is a Drop trait implementation, perform special checks
+        if let Some(ref trait_name) = impl_block.trait_name {
+            if trait_name.as_str() == "Drop" {
+                self.check_drop_impl(impl_block)?;
+            }
+        }
+
+        // Check each method
+        for method in &impl_block.methods {
+            // Add method to environment
+            self.env.add_method(
+                struct_name.to_string(),
+                impl_block.type_params.clone(),
+                method.clone(),
+            )?;
+
+            // TODO: Type check method body
+        }
+
+        // Clear type parameters after impl block
+        self.env.clear_type_params();
+
+        Ok(())
+    }
+
+    /// Type check a Drop trait implementation
+    fn check_drop_impl(&self, impl_block: &ImplBlock) -> TypeResult<()> {
+        // Drop trait must have exactly one method named "drop"
+        if impl_block.methods.len() != 1 {
+            return Err(TypeError::TypeMismatch {
+                expected: "exactly one method named 'drop'".to_string(),
+                found: format!("{} methods", impl_block.methods.len()),
+            });
+        }
+
+        let method = &impl_block.methods[0];
+
+        // Method must be named "drop"
+        if method.name.as_str() != "drop" {
+            return Err(TypeError::TypeMismatch {
+                expected: "method named 'drop'".to_string(),
+                found: format!("method named '{}'", method.name.as_str()),
+            });
+        }
+
+        // drop method must have exactly one parameter: self
+        if method.params.len() != 1 {
+            return Err(TypeError::ArgumentCountMismatch {
+                expected: 1,
+                found: method.params.len(),
+            });
+        }
+
+        // The parameter must be self
+        if !matches!(method.params[0], MethodParam::SelfParam) {
+            return Err(TypeError::TypeMismatch {
+                expected: "self parameter".to_string(),
+                found: "regular parameter".to_string(),
+            });
+        }
+
+        // Return type must be void
+        if !matches!(method.return_type, ReturnType::Void) {
+            return Err(TypeError::TypeMismatch {
+                expected: "void return type".to_string(),
+                found: format!("{:?}", method.return_type),
+            });
+        }
 
         Ok(())
     }
@@ -495,6 +720,59 @@ impl TypeChecker {
                             vec![Dimension::Dynamic],
                         ))
                     }
+                }
+            }
+
+            TensorExpr::StructLiteral { struct_type, fields } => {
+                // Check that struct exists
+                let struct_decl = self.env.get_struct(struct_type.name.as_str())?;
+
+                // Check that all required fields are provided
+                for struct_field in &struct_decl.fields {
+                    if !fields.iter().any(|f| f.name.as_str() == struct_field.name.as_str()) {
+                        return Err(TypeError::TypeMismatch {
+                            expected: format!("field {}", struct_field.name.as_str()),
+                            found: "missing field".to_string(),
+                        });
+                    }
+                }
+
+                // For now, return a placeholder type (struct types aren't tensors)
+                // In a full implementation, we'd need a different type system
+                Ok(TensorTypeInfo::new(
+                    BaseType::Int32,
+                    vec![], // Struct as scalar placeholder
+                ))
+            }
+
+            TensorExpr::AssociatedCall { struct_type, function, args: _ } => {
+                // Check that struct exists
+                let _struct_decl = self.env.get_struct(struct_type.name.as_str())?;
+
+                // Check that method exists
+                let (_type_params, method_decl) = self.env.get_method(
+                    struct_type.name.as_str(),
+                    function.as_str(),
+                )?;
+
+                // Return the method's return type
+                match &method_decl.return_type {
+                    ReturnType::Tensor(tensor_type) => {
+                        Ok(TensorTypeInfo::from_tensor_type(tensor_type))
+                    }
+                    ReturnType::Scalar(scalar_type) => {
+                        let base_type = match scalar_type {
+                            ScalarType::Int | ScalarType::Bool => BaseType::Int32,
+                            ScalarType::Float => BaseType::Float32,
+                            ScalarType::String => BaseType::Int32,
+                        };
+                        Ok(TensorTypeInfo::new(base_type, vec![]))
+                    }
+                    ReturnType::Struct(_) => {
+                        // Struct type as placeholder
+                        Ok(TensorTypeInfo::new(BaseType::Int32, vec![]))
+                    }
+                    ReturnType::Void => Err(TypeError::CannotInferType),
                 }
             }
         }

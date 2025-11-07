@@ -1,8 +1,10 @@
 //! Runtime value types for TensorLogic interpreter
 
-use crate::tensor::{Tensor, TokenIdArray, TensorAccessors};
+use crate::tensor::{Tensor, TokenIdArray, TensorIO, TensorAccessors};
 use crate::model::{Model, WeightCache, GGUFWeightCache};
+use crate::ast::StructType;
 use half::f16;
+use std::collections::HashMap;
 use super::{RuntimeError, RuntimeResult, DISPLAY_LIMIT};
 
 /// Model layer collection (e.g., model.blk returns this)
@@ -159,6 +161,11 @@ pub enum Value {
     TokenIdArray(TokenIdArray),
     /// Meta-type: represents an entity type
     Type(String),
+    /// Struct instance with type and field values
+    Struct {
+        struct_type: StructType,
+        fields: HashMap<String, Box<Value>>,
+    },
     /// KV Cache for transformer attention layers (f16)
     KVCacheF16(std::sync::Arc<std::sync::Mutex<crate::model::llama::Cache<half::f16>>>),
     /// KV Cache for transformer attention layers (f32)
@@ -202,6 +209,7 @@ impl Value {
             Value::TokenIds(_) => "TokenIds",
             Value::TokenIdArray(_) => "TokenIdArray",
             Value::Type(_) => "Type",
+            Value::Struct { .. } => "Struct",
             Value::KVCacheF16(_) => "KVCache",
             Value::KVCacheF32(_) => "KVCache",
             Value::WeightCacheF16(_) => "WeightCacheF16",
@@ -301,6 +309,35 @@ impl Value {
             ))),
         }
     }
+
+    /// Convert to struct if possible
+    pub fn as_struct(&self) -> RuntimeResult<(&StructType, &HashMap<String, Box<Value>>)> {
+        match self {
+            Value::Struct { struct_type, fields } => Ok((struct_type, fields)),
+            _ => Err(RuntimeError::TypeError(format!(
+                "Expected struct, found {:?}",
+                self
+            ))),
+        }
+    }
+
+    /// Get field from struct
+    pub fn get_field(&self, field_name: &str) -> RuntimeResult<&Value> {
+        match self {
+            Value::Struct { fields, .. } => {
+                fields.get(field_name)
+                    .map(|v| v.as_ref())
+                    .ok_or_else(|| RuntimeError::TypeError(format!(
+                        "Field '{}' not found in struct",
+                        field_name
+                    )))
+            }
+            _ => Err(RuntimeError::TypeError(format!(
+                "Cannot access field '{}' on non-struct value",
+                field_name
+            ))),
+        }
+    }
 }
 
 // Use Display implementation for Debug as well
@@ -379,6 +416,18 @@ impl std::fmt::Display for Value {
                 }
             }
             Value::Type(type_name) => write!(f, "Type({})", type_name),
+            Value::Struct { struct_type, fields } => {
+                write!(f, "{} {{", struct_type.name.as_str())?;
+                let mut first = true;
+                for (name, value) in fields.iter() {
+                    if !first {
+                        write!(f, ", ")?;
+                    }
+                    first = false;
+                    write!(f, "{}: {}", name, value)?;
+                }
+                write!(f, "}}")
+            }
             Value::KVCacheF16(cache) => {
                 let c = cache.lock().unwrap();
                 write!(f, "KVCache(layers={})", c.kvs.len())
