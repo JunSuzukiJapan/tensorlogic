@@ -373,6 +373,57 @@ Tensors in tinyllama-1.1b-q4_0.gguf:
 
 ---
 
+### ✅ cndl_save_model_safetensor(model, path) -> void
+モデル全体（複数テンソル）をSafetensors形式で保存します。
+
+```tl
+// GGUFモデルをロード
+model := load_model_f16("model.gguf")
+
+// Safetensors形式で保存
+cndl_save_model_safetensor(model, "model.safetensors")
+```
+
+**引数:**
+- `model`: 保存するモデル（ModelF16またはModelF32）
+- `path`: 保存先ファイルパス
+
+**戻り値:** なし
+
+**サポート型:** ModelF16, ModelF32
+
+**用途:**
+- モデルフォーマット変換（GGUF → Safetensors）
+- HuggingFace互換フォーマットでの保存
+- モデルチェックポイント作成
+
+---
+
+### ✅ cndl_load_model_safetensor(path) -> model
+Safetensorsファイルからモデル全体を読み込みます。
+
+```tl
+// Safetensorsモデルをロード
+model := cndl_load_model_safetensor("model.safetensors")
+
+// モデル情報を表示
+print("Loaded model with", num_tensors(model), "tensors")
+```
+
+**引数:**
+- `path`: Safetensorsファイルパス
+
+**戻り値:** モデル（ModelF16またはModelF32、自動判別）
+
+**サポート型:** 自動判別（f16, f32）
+
+**特徴:**
+- 複数テンソルを一度に読み込み
+- テンソル名を保持
+- HuggingFaceモデルと互換性あり
+
+---
+
 ## 使用例
 
 ### 基本的な使い方

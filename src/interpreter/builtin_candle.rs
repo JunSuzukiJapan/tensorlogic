@@ -38,6 +38,10 @@ impl Interpreter {
             "cndl_load_gguf_tensor" => Some(self.eval_cndl_load_gguf_tensor(args)),
             "cndl_list_gguf_tensors" => Some(self.eval_cndl_list_gguf_tensors(args)),
 
+            // Model save/load (full models with multiple tensors)
+            "cndl_save_model_safetensor" => Some(self.eval_cndl_save_model_safetensor(args)),
+            "cndl_load_model_safetensor" => Some(self.eval_cndl_load_model_safetensor(args)),
+
             _ => None,
         }
     }
@@ -1249,5 +1253,167 @@ impl Interpreter {
         }
 
         Ok(Value::Void)
+    }
+
+    // ============================================================================
+    // Full model save/load operations
+    // ============================================================================
+
+    /// cndl_save_model_safetensor(model, path) -> void
+    /// Save an entire model (all tensors) to a Safetensors file using Candle
+    fn eval_cndl_save_model_safetensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("cndl_save_model_safetensor() expects 2 arguments (model, path), got {}", args.len())
+            ));
+        }
+
+        let model_val = self.eval_expr(&args[0])?;
+
+        let path_val = self.eval_expr(&args[1])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError("path must be a string".to_string())),
+        };
+
+        // Convert all model tensors to Candle tensors
+        let mut candle_tensors = std::collections::HashMap::new();
+
+        match model_val {
+            Value::ModelF16(ref model) => {
+                println!("Saving model with {} tensors (f16)...", model.num_tensors());
+
+                for (name, tensor) in &model.tensors {
+                    let candle_tensor = self.tl_to_candle_f16(tensor)?;
+                    candle_tensors.insert(name.clone(), candle_tensor);
+                }
+            }
+            Value::ModelF32(ref model) => {
+                println!("Saving model with {} tensors (f32)...", model.num_tensors());
+
+                for (name, tensor) in &model.tensors {
+                    let candle_tensor = self.tl_to_candle_f32(tensor)?;
+                    candle_tensors.insert(name.clone(), candle_tensor);
+                }
+            }
+            _ => {
+                return Err(RuntimeError::TypeError(
+                    "cndl_save_model_safetensor() requires a Model (ModelF16 or ModelF32)".to_string()
+                ))
+            }
+        }
+
+        // Save all tensors to file
+        candle_core::safetensors::save(&candle_tensors, &path)
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::InvalidOperation(format!("Failed to save model: {}", e))
+            ))?;
+
+        println!("✓ Saved model to {} ({} tensors)", path, candle_tensors.len());
+        Ok(Value::Void)
+    }
+
+    /// cndl_load_model_safetensor(path) -> model
+    /// Load an entire model from a Safetensors file using Candle
+    fn eval_cndl_load_model_safetensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("cndl_load_model_safetensor() expects 1 argument (path), got {}", args.len())
+            ));
+        }
+
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError("path must be a string".to_string())),
+        };
+
+        // Load the safetensors file
+        let device = CandleDevice::new_metal(0)
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::InvalidOperation(format!("Failed to create Candle Metal device: {}", e))
+            ))?;
+
+        let candle_tensors = candle_core::safetensors::load(&path, &device)
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::InvalidOperation(format!("Failed to load model: {}", e))
+            ))?;
+
+        println!("Loading model from {} ({} tensors)...", path, candle_tensors.len());
+
+        // Determine dtype from first tensor
+        if candle_tensors.is_empty() {
+            return Err(RuntimeError::TensorError(
+                crate::error::TensorError::InvalidOperation("Model file contains no tensors".to_string())
+            ));
+        }
+
+        let first_dtype = candle_tensors.values().next().unwrap().dtype();
+
+        // Convert all tensors based on first tensor's dtype
+        match first_dtype {
+            DType::F16 => {
+                let mut tl_tensors = std::collections::HashMap::new();
+
+                for (name, candle_tensor) in candle_tensors {
+                    let tl_tensor = self.candle_to_tl_f16(candle_tensor)?;
+                    tl_tensors.insert(name, tl_tensor);
+                }
+
+                // Create model with metadata
+                use crate::model::{Model, ModelMetadata, ModelFormat};
+                let metadata = ModelMetadata {
+                    format: ModelFormat::SafeTensors,
+                    quantization: None,
+                };
+                let model = Model::from_tensors(tl_tensors, metadata);
+
+                println!("✓ Loaded model (f16, {} tensors)", model.num_tensors());
+                Ok(Value::ModelF16(model))
+            }
+            DType::F32 => {
+                let mut tl_tensors = std::collections::HashMap::new();
+
+                for (name, candle_tensor) in candle_tensors {
+                    let tl_tensor = self.candle_to_tl_f32(candle_tensor)?;
+                    tl_tensors.insert(name, tl_tensor);
+                }
+
+                // Create model with metadata
+                use crate::model::{Model, ModelMetadata, ModelFormat};
+                let metadata = ModelMetadata {
+                    format: ModelFormat::SafeTensors,
+                    quantization: None,
+                };
+                let model = Model::from_tensors(tl_tensors, metadata);
+
+                println!("✓ Loaded model (f32, {} tensors)", model.num_tensors());
+                Ok(Value::ModelF32(model))
+            }
+            dtype => {
+                // Convert to f32
+                let mut tl_tensors = std::collections::HashMap::new();
+
+                for (name, candle_tensor) in candle_tensors {
+                    let tensor_f32 = candle_tensor.to_dtype(DType::F32)
+                        .map_err(|e| RuntimeError::TensorError(
+                            crate::error::TensorError::InvalidOperation(format!("Failed to convert tensor to f32: {}", e))
+                        ))?;
+                    let tl_tensor = self.candle_to_tl_f32(tensor_f32)?;
+                    tl_tensors.insert(name, tl_tensor);
+                }
+
+                // Create model with metadata
+                use crate::model::{Model, ModelMetadata, ModelFormat};
+                let metadata = ModelMetadata {
+                    format: ModelFormat::SafeTensors,
+                    quantization: None,
+                };
+                let model = Model::from_tensors(tl_tensors, metadata);
+
+                println!("✓ Loaded model (converted from {:?} to f32, {} tensors)", dtype, model.num_tensors());
+                Ok(Value::ModelF32(model))
+            }
+        }
     }
 }

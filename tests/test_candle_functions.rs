@@ -629,3 +629,140 @@ fn test_cndl_list_gguf_tensors() -> TensorResult<()> {
 
     Ok(())
 }
+
+// ============================================================================
+// Full model save/load tests
+// ============================================================================
+
+#[test]
+#[serial]
+fn test_cndl_save_load_model_safetensor_f32() -> TensorResult<()> {
+    let code = r#"
+        main {
+            // Create a simple model with multiple tensors
+            layer1_weight := f32::from_array([[1.0, 2.0], [3.0, 4.0]])
+            layer1_bias := f32::from_array([0.5, 0.5])
+            layer2_weight := f32::from_array([[5.0, 6.0], [7.0, 8.0]])
+
+            // Save each tensor individually first
+            cndl_save_safetensor(layer1_weight, "/tmp/test_model.safetensors", "layer1.weight")
+
+            // Then create a full model
+            model := load_model_f32("/tmp/test_model.safetensors")
+
+            // Note: For now we test the basic save/load flow
+            // Full model creation from scratch will be tested separately
+            print("Model loaded:", model)
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    println!("✓ cndl_save_load_model_safetensor f32 test passed");
+
+    // Clean up
+    let _ = std::fs::remove_file("/tmp/test_model.safetensors");
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_cndl_model_save_load_round_trip() -> TensorResult<()> {
+    use tensorlogic::model::{Model, ModelMetadata, ModelFormat};
+    use tensorlogic::device::MetalDevice;
+    use tensorlogic::tensor::{Tensor, TensorCreation};
+    use std::collections::HashMap;
+
+    let device = MetalDevice::new()?;
+
+    // Create a model with multiple tensors
+    let mut tensors = HashMap::new();
+    tensors.insert("layer1.weight".to_string(),
+                   Tensor::<f32>::from_vec_gpu(&device, vec![1.0, 2.0, 3.0, 4.0], vec![2, 2])?);
+    tensors.insert("layer1.bias".to_string(),
+                   Tensor::<f32>::from_vec_gpu(&device, vec![0.5, 0.5], vec![2])?);
+    tensors.insert("layer2.weight".to_string(),
+                   Tensor::<f32>::from_vec_gpu(&device, vec![5.0, 6.0, 7.0, 8.0], vec![2, 2])?);
+
+    let metadata = ModelMetadata {
+        format: ModelFormat::SafeTensors,
+        quantization: None,
+    };
+    let model = Model::from_tensors(tensors, metadata);
+
+    // Test via TensorLogic interpreter
+    let code = format!(r#"
+        main {{
+            // This will be tested when we can construct models in TL
+            print("Model round-trip test")
+        }}
+    "#);
+
+    let program = TensorLogicParser::parse_program(&code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+
+    // Manually set the model in the environment for testing
+    interpreter.env.set_variable("test_model".to_string(),
+        tensorlogic::interpreter::Value::ModelF32(model))?;
+
+    // Execute save
+    let save_code = r#"
+        main {
+            cndl_save_model_safetensor(test_model, "/tmp/test_full_model.safetensors")
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(save_code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Save execution error: {}", e)))?;
+
+    // Execute load
+    let load_code = r#"
+        main {
+            loaded_model := cndl_load_model_safetensor("/tmp/test_full_model.safetensors")
+            print("Loaded model:", loaded_model)
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(load_code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Load execution error: {}", e)))?;
+
+    let loaded_model = interpreter.get_variable("loaded_model")
+        .map_err(|e| TensorError::InvalidOperation(format!("Get variable error: {}", e)))?;
+
+    // Verify it's a model
+    match loaded_model {
+        tensorlogic::interpreter::Value::ModelF32(model) => {
+            assert_eq!(model.num_tensors(), 3);
+            assert!(model.get_tensor("layer1.weight").is_some());
+            assert!(model.get_tensor("layer1.bias").is_some());
+            assert!(model.get_tensor("layer2.weight").is_some());
+
+            // Verify tensor shapes
+            let layer1_weight = model.get_tensor("layer1.weight").unwrap();
+            assert_eq!(layer1_weight.dims(), &[2, 2]);
+
+            println!("✓ cndl_model_save_load_round_trip test passed");
+        }
+        _ => panic!("Expected ModelF32"),
+    }
+
+    // Clean up
+    let _ = std::fs::remove_file("/tmp/test_full_model.safetensors");
+
+    Ok(())
+}

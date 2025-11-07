@@ -2,7 +2,7 @@
 
 ## 完了した作業
 
-### 実装済み関数（18関数）
+### 実装済み関数（20関数）
 
 #### 1. テンソル操作（3関数）
 - ✅ `cndl_matmul(a, b)` - 行列積
@@ -27,12 +27,14 @@
 - 🚧 `cndl_embedding(indices, embeddings)` - Embedding lookup（部分実装）
 - 🚧 `cndl_rope(x, position_ids, rope_theta)` - RoPE（部分実装）
 
-#### 6. モデルI/O（5関数）
-- ✅ `cndl_save_safetensor(tensor, path, name)` - Safetensors保存
-- ✅ `cndl_load_safetensor(path, name)` - Safetensors読み込み
+#### 6. モデルI/O（7関数）
+- ✅ `cndl_save_safetensor(tensor, path, name)` - 単一テンソル保存
+- ✅ `cndl_load_safetensor(path, name)` - 単一テンソル読み込み
 - ✅ `cndl_list_safetensors(path)` - Safetensors一覧
 - ✅ `cndl_load_gguf_tensor(path, name)` - GGUF読み込み（外部ファイル必要）
 - ✅ `cndl_list_gguf_tensors(path)` - GGUF一覧（外部ファイル必要）
+- ✅ **`cndl_save_model_safetensor(model, path)` - モデル全体保存（新規）**
+- ✅ **`cndl_load_model_safetensor(path)` - モデル全体読み込み（新規）**
 
 ### コード統計
 
