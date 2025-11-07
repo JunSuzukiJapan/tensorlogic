@@ -1529,12 +1529,12 @@ impl Interpreter {
                 let qualified_name = format!("{}::{}", struct_type.name.as_str(), function.as_str());
 
                 // Try the qualified name first
-                if let Ok(result) = self.eval_function_call(&Identifier::new(&qualified_name), args) {
+                if let Ok(result) = self.eval_function_call(None, &Identifier::new(&qualified_name), args, None) {
                     return Ok(result);
                 }
 
                 // Fall back to unqualified name
-                self.eval_function_call(function, args)
+                self.eval_function_call(None, function, args, None)
             }
         }
     }

@@ -470,22 +470,15 @@ impl Interpreter {
 
     /// Call destructors for all struct values in the current scope
     fn call_scope_destructors(&mut self) -> RuntimeResult<()> {
-        // Get variables from current scope
-        let variables: Vec<(String, Value)> = if let Some(frame) = self.call_stack.last() {
-            // Local scope: collect from call frame
-            frame.local_vars.iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect()
-        } else {
-            // Global scope: collect from environment
-            self.env.list_variables().iter()
-                .filter_map(|name| {
-                    self.env.get_variable(name)
-                        .ok()
-                        .map(|v| (name.clone(), v.clone()))
-                })
-                .collect()
-        };
+        // Get variables from current scope in environment
+        // Variables are stored in env, not in call frames
+        let variables: Vec<(String, Value)> = self.env.list_variables().iter()
+            .filter_map(|name| {
+                self.env.get_variable(name)
+                    .ok()
+                    .map(|v| (name.clone(), v.clone()))
+            })
+            .collect();
 
         // Call destructors for struct values in reverse order (LIFO)
         for (_name, value) in variables.iter().rev() {
@@ -504,13 +497,14 @@ impl Interpreter {
         // Check if there's a Drop implementation for this struct
         if let Some(drop_method) = self.drop_impls.get(struct_name).cloned() {
             // Create a new call frame for the drop method
-            let mut frame = CallFrame::new(format!("{}::drop", struct_name));
+            let frame = CallFrame::new(format!("{}::drop", struct_name));
 
-            // Bind self parameter to the struct value
-            frame.local_vars.insert("self".to_string(), value.clone());
-
-            // Push call frame
+            // Push call frame and new scope
             self.call_stack.push(frame);
+            self.env.push_scope(ScopeType::Function);
+
+            // Bind self parameter to the struct value in environment
+            self.env.set_variable("self".to_string(), value.clone());
 
             // Execute drop method body
             for stmt in &drop_method.body {
@@ -520,7 +514,8 @@ impl Interpreter {
                         break;
                     }
                     Err(e) => {
-                        // Error in drop method - pop frame and propagate
+                        // Error in drop method - pop frame/scope and propagate
+                        self.env.pop_scope();
                         self.call_stack.pop();
                         return Err(e);
                     }
@@ -528,7 +523,8 @@ impl Interpreter {
                 }
             }
 
-            // Pop call frame
+            // Pop scope and call frame
+            self.env.pop_scope();
             self.call_stack.pop();
         }
 
