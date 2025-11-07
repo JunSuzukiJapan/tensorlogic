@@ -37,6 +37,7 @@ mod builtin_gnn;       // Graph neural networks
 mod builtin_model;     // Model and I/O operations
 mod builtin_sampling;  // Sampling and generation
 mod builtin_util;      // Utility functions
+mod builtin_candle;    // Candle-based operations (cndl_ prefix)
 
 // Re-export public types
 pub use value::{Value, ModelLayerCollection, ModelLayer, ModelFeature};
@@ -1482,6 +1483,13 @@ impl Interpreter {
             return result;
         }
         if let Some(result) = self.eval_util_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
+            return result;
+        }
+        if let Some(result) = self.eval_candle_function(name_str, args) {
             if let Some((name, start)) = start_time {
                 let elapsed = start.elapsed();
                 // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
