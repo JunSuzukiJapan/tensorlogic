@@ -38,7 +38,7 @@ fn assert_tensor_close_f16(result: &[f16], expected: &[f16], epsilon: f32) {
 fn test_causal_mask_small() -> TensorResult<()> {
     // Test causal mask for small sequence
     let mask = Tensor::<f16>::causal_mask(3)?;
-    let data = mask.to_vec();
+    let data = mask.sync_and_read();
 
     // Expected: [[1, 0, 0],
     //            [1, 1, 0],
@@ -66,7 +66,7 @@ fn test_causal_mask_various_sizes() -> TensorResult<()> {
     // Test causal masks of various sizes
     for seq_len in [1, 2, 4, 8, 16, 32, 64, 128] {
         let mask = Tensor::<f16>::causal_mask(seq_len)?;
-        let data = mask.to_vec();
+        let data = mask.sync_and_read();
 
         assert_eq!(mask.shape(), vec![seq_len, seq_len]);
         assert_eq!(data.len(), seq_len * seq_len);
@@ -100,7 +100,7 @@ fn test_causal_mask_various_sizes() -> TensorResult<()> {
 fn test_causal_mask_single_token() -> TensorResult<()> {
     // Test causal mask for single token (common in generation)
     let mask = Tensor::<f16>::causal_mask(1)?;
-    let data = mask.to_vec();
+    let data = mask.sync_and_read();
 
     // Should be [[1]]
     assert_eq!(data.len(), 1);
@@ -115,7 +115,7 @@ fn test_causal_mask_count_zeros_ones() -> TensorResult<()> {
     // Verify the count of zeros and ones in causal mask
     for seq_len in [3, 5, 10] {
         let mask = Tensor::<f16>::causal_mask(seq_len)?;
-        let data = mask.to_vec();
+        let data = mask.sync_and_read();
 
         let ones_count = data.iter().filter(|&&x| x == f16::ONE).count();
         let zeros_count = data.iter().filter(|&&x| x == f16::ZERO).count();
@@ -147,7 +147,7 @@ fn test_causal_mask_count_zeros_ones() -> TensorResult<()> {
 fn test_padding_mask_basic() -> TensorResult<()> {
     // Test basic padding mask
     let mask = Tensor::<f16>::padding_mask(&[2, 3], 4)?;
-    let data = mask.to_vec();
+    let data = mask.sync_and_read();
 
     // Expected: [[1, 1, 0, 0],
     //            [1, 1, 1, 0]]
@@ -174,7 +174,7 @@ fn test_padding_mask_basic() -> TensorResult<()> {
 fn test_padding_mask_no_padding() -> TensorResult<()> {
     // Test padding mask when all sequences are full length
     let mask = Tensor::<f16>::padding_mask(&[4, 4, 4], 4)?;
-    let data = mask.to_vec();
+    let data = mask.sync_and_read();
 
     // All should be ones (no padding)
     for &val in &data {
@@ -191,7 +191,7 @@ fn test_padding_mask_no_padding() -> TensorResult<()> {
 fn test_padding_mask_all_padding() -> TensorResult<()> {
     // Test padding mask with zero-length sequences
     let mask = Tensor::<f16>::padding_mask(&[0, 0], 4)?;
-    let data = mask.to_vec();
+    let data = mask.sync_and_read();
 
     // All should be zeros (all padding)
     for &val in &data {
@@ -211,7 +211,7 @@ fn test_padding_mask_various_lengths() -> TensorResult<()> {
     let max_len = 10;
 
     let mask = Tensor::<f16>::padding_mask(&lengths, max_len)?;
-    let data = mask.to_vec();
+    let data = mask.sync_and_read();
 
     assert_eq!(mask.shape(), vec![lengths.len(), max_len]);
 
@@ -243,7 +243,7 @@ fn test_padding_mask_various_lengths() -> TensorResult<()> {
 fn test_padding_mask_single_sequence() -> TensorResult<()> {
     // Test padding mask with single sequence
     let mask = Tensor::<f16>::padding_mask(&[3], 5)?;
-    let data = mask.to_vec();
+    let data = mask.sync_and_read();
 
     // Expected: [1, 1, 1, 0, 0]
     assert_eq!(data, vec![f16::ONE, f16::ONE, f16::ONE, f16::ZERO, f16::ZERO]);
@@ -272,7 +272,7 @@ fn test_apply_attention_mask_basic() -> TensorResult<()> {
     )?;
 
     let result = scores.apply_attention_mask(&mask)?;
-    let data = result.to_vec();
+    let data = result.sync_and_read();
 
     assert_eq!(data[0], f16::from_f32(1.0));
     assert_eq!(data[1], f16::from_f32(-10000.0)); // masked
@@ -297,7 +297,7 @@ fn test_apply_attention_mask_all_ones() -> TensorResult<()> {
     )?;
 
     let result = scores.apply_attention_mask(&mask)?;
-    let data = result.to_vec();
+    let data = result.sync_and_read();
 
     // Should remain unchanged
     assert_eq!(data[0], f16::from_f32(1.0));
@@ -322,7 +322,7 @@ fn test_apply_attention_mask_all_zeros() -> TensorResult<()> {
     )?;
 
     let result = scores.apply_attention_mask(&mask)?;
-    let data = result.to_vec();
+    let data = result.sync_and_read();
 
     // All should be -10000
     for &val in &data {
@@ -345,7 +345,7 @@ fn test_apply_causal_mask_to_scores() -> TensorResult<()> {
     let causal_mask = Tensor::<f16>::causal_mask(seq_len)?;
     let masked_scores = scores.apply_attention_mask(&causal_mask)?;
 
-    let data = masked_scores.to_vec();
+    let data = masked_scores.sync_and_read();
 
     // Check upper triangle is masked
     for i in 0..seq_len {
@@ -379,7 +379,7 @@ fn test_combine_masks_basic() -> TensorResult<()> {
     )?;
 
     let combined = mask1.combine_masks(&mask2)?;
-    let data = combined.to_vec();
+    let data = combined.sync_and_read();
 
     // Logical AND
     assert_eq!(data[0], f16::ONE);  // 1 & 1 = 1
@@ -400,7 +400,7 @@ fn test_combine_masks_with_itself() -> TensorResult<()> {
     )?;
 
     let combined = mask.combine_masks(&mask)?;
-    let data = combined.to_vec();
+    let data = combined.sync_and_read();
 
     // Should be same as original
     assert_eq!(data[0], f16::ONE);
@@ -432,7 +432,7 @@ fn test_combine_causal_and_padding() -> TensorResult<()> {
     )?;
 
     let combined = causal.combine_masks(&padding)?;
-    let data = combined.to_vec();
+    let data = combined.sync_and_read();
 
     // Check: causal pattern in first 3 columns, all zeros in last column
     for i in 0..seq_len {
@@ -475,7 +475,7 @@ fn test_mask_with_softmax() -> TensorResult<()> {
 
     // Apply softmax
     let softmax_output = masked_scores.softmax(1)?; // dim=1
-    let data = softmax_output.to_vec();
+    let data = softmax_output.sync_and_read();
 
     // Middle position should be very close to 0
     assert!(
@@ -510,7 +510,7 @@ fn test_causal_attention_simulation() -> TensorResult<()> {
 
     // Apply softmax
     let attn_weights = masked_scores.softmax(1)?; // softmax over keys (dim=1)
-    let data = attn_weights.to_vec();
+    let data = attn_weights.sync_and_read();
 
     // For each query position, check attention weights
     for i in 0..seq_len {
@@ -562,7 +562,7 @@ fn test_causal_mask_large_sequence() -> TensorResult<()> {
     assert_eq!(mask.shape(), vec![seq_len, seq_len]);
 
     // Spot check a few positions
-    let data = mask.to_vec();
+    let data = mask.sync_and_read();
 
     // First row: only [0,0] should be 1
     assert_eq!(data[0], f16::ONE);
@@ -600,7 +600,7 @@ fn test_padding_mask_large_batch() -> TensorResult<()> {
     assert_eq!(mask.shape(), vec![batch_size, max_len]);
 
     // Verify shape
-    let data = mask.to_vec();
+    let data = mask.sync_and_read();
     assert_eq!(data.len(), batch_size * max_len);
 
     // Spot check a few sequences

@@ -49,7 +49,7 @@ fn test_f16_addition() -> TensorResult<()> {
 
     // Add tensors
     let c = a.add(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     // Verify results
     let expected = vec![f16::from_f32(6.0), f16::from_f32(8.0), f16::from_f32(10.0), f16::from_f32(12.0)];
@@ -73,7 +73,7 @@ fn test_f16_subtraction() -> TensorResult<()> {
     )?;
 
     let c = a.sub(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     let expected = vec![f16::from_f32(9.0), f16::from_f32(18.0), f16::from_f32(27.0), f16::from_f32(36.0)];
     assert_tensor_close_f16(&result, &expected, 1e-3);
@@ -96,7 +96,7 @@ fn test_f16_multiplication() -> TensorResult<()> {
     )?;
 
     let c = a.mul(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     let expected = vec![f16::from_f32(3.0), f16::from_f32(7.5), f16::from_f32(14.0), f16::from_f32(22.5)];
     assert_tensor_close_f16(&result, &expected, 1e-2);
@@ -119,7 +119,7 @@ fn test_f16_division() -> TensorResult<()> {
     )?;
 
     let c = a.div(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     let expected = vec![f16::from_f32(5.0), f16::from_f32(5.0), f16::from_f32(6.0), f16::from_f32(5.0)];
     assert_tensor_close_f16(&result, &expected, 1e-2);
@@ -141,19 +141,19 @@ fn test_f16_scalar_operations() -> TensorResult<()> {
 
     // Scalar multiplication
     let b = a.mul_scalar(f16::from_f32(2.5))?;
-    let result = b.to_vec();
+    let result = b.sync_and_read();
     let expected = vec![f16::from_f32(2.5), f16::from_f32(5.0), f16::from_f32(7.5), f16::from_f32(10.0)];
     assert_tensor_close_f16(&result, &expected, 1e-2);
 
     // Scalar addition
     let c = a.add_scalar(f16::from_f32(10.0))?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
     let expected = vec![f16::from_f32(11.0), f16::from_f32(12.0), f16::from_f32(13.0), f16::from_f32(14.0)];
     assert_tensor_close_f16(&result, &expected, 1e-3);
 
     // Scalar division
     let d = a.div_scalar(f16::from_f32(2.0))?;
-    let result = d.to_vec();
+    let result = d.sync_and_read();
     let expected = vec![f16::from_f32(0.5), f16::from_f32(1.0), f16::from_f32(1.5), f16::from_f32(2.0)];
     assert_tensor_close_f16(&result, &expected, 1e-3);
 
@@ -196,7 +196,7 @@ fn test_f16_small_values() -> TensorResult<()> {
     )?;
 
     let c = a.add(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     // Verify results are in the right ballpark (f16 may lose some precision)
     assert!(result[0].to_f32() > 0.002 && result[0].to_f32() < 0.004);
@@ -218,7 +218,7 @@ fn test_f16_large_values() -> TensorResult<()> {
         vec![3]
     )?;
 
-    let result = a.to_vec();
+    let result = a.sync_and_read();
 
     // All should be finite (not overflow to Inf)
     for &val in &result {
@@ -275,7 +275,7 @@ fn test_f16_addition_stability() -> TensorResult<()> {
         sum = sum.add_scalar(f16::ONE)?;
     }
 
-    let result = sum.to_vec();
+    let result = sum.sync_and_read();
 
     // Each element should be approximately 101.0 (1.0 initial + 100 additions)
     for &val in &result {
@@ -303,7 +303,7 @@ fn test_f16_multiplication_stability() -> TensorResult<()> {
     )?;
 
     let c = a.mul(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     // Verify results are close to expected (with f16 precision tolerance)
     let expected = [1.1 * 0.9, 1.2 * 0.8, 1.3 * 0.7, 1.4 * 0.6];
@@ -331,7 +331,7 @@ fn test_f16_mixed_operations() -> TensorResult<()> {
              .add_scalar(f16::from_f32(3.0))?
              .sub_scalar(f16::from_f32(1.0))?;
 
-    let result = b.to_vec();
+    let result = b.sync_and_read();
 
     // Expected: (2*2)+3-1=6, (4*2)+3-1=10, (6*2)+3-1=14, (8*2)+3-1=18
     let expected = vec![f16::from_f32(6.0), f16::from_f32(10.0), f16::from_f32(14.0), f16::from_f32(18.0)];
@@ -353,14 +353,14 @@ fn test_f16_zero_operations() -> TensorResult<()> {
 
     // Add zeros
     let a = ones.add(&zeros)?;
-    let result = a.to_vec();
+    let result = a.sync_and_read();
     for &val in &result {
         assert_eq!(val, f16::ONE);
     }
 
     // Multiply by zero
     let b = ones.mul(&zeros)?;
-    let result = b.to_vec();
+    let result = b.sync_and_read();
     for &val in &result {
         assert_eq!(val, f16::ZERO);
     }
@@ -385,14 +385,14 @@ fn test_f16_negative_values() -> TensorResult<()> {
 
     // Add
     let c = a.add(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
     for &val in &result {
         assert_eq!(val, f16::ZERO);
     }
 
     // Multiply
     let d = a.mul(&b)?;
-    let result = d.to_vec();
+    let result = d.sync_and_read();
     let expected = vec![f16::from_f32(-1.0), f16::from_f32(-4.0), f16::from_f32(-9.0), f16::from_f32(-16.0)];
     assert_tensor_close_f16(&result, &expected, 1e-2);
 
@@ -441,8 +441,8 @@ fn test_f16_f32_precision_difference() -> TensorResult<()> {
     let b_f32 = a_f32.mul_scalar(2.0)?;
     let b_f16 = a_f16.mul_scalar(f16::from_f32(2.0))?;
 
-    let result_f32 = b_f32.to_vec();
-    let result_f16: Vec<f32> = b_f16.to_vec().iter().map(|&x| x.to_f32()).collect();
+    let result_f32 = b_f32.sync_and_read();
+    let result_f16: Vec<f32> = b_f16.sync_and_read().iter().map(|&x| x.to_f32()).collect();
 
     // Compare precision
     for (i, (&r32, &r16)) in result_f32.iter().zip(result_f16.iter()).enumerate() {
@@ -498,7 +498,7 @@ fn test_f16_accumulated_error() -> TensorResult<()> {
         a = a.mul_scalar(f16::from_f32(3.0))?;
     }
 
-    let result = a.to_vec();
+    let result = a.sync_and_read();
 
     // Should still be close to 1.0, but may have some error
     for &val in &result {

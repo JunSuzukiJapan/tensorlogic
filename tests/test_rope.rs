@@ -45,8 +45,8 @@ fn test_rope_basic() -> TensorResult<()> {
     assert_eq!(output.shape(), vec![seq_len, n_heads, head_dim]);
 
     // Output should be different from input (rotation applied)
-    let input_vec = input.to_vec();
-    let output_vec = output.to_vec();
+    let input_vec = input.sync_and_read();
+    let output_vec = output.sync_and_read();
 
     // At least some values should have changed
     let mut changed_count = 0;
@@ -94,9 +94,9 @@ fn test_rope_position_offset() -> TensorResult<()> {
     let output_5 = input.rope(5)?;
     let output_10 = input.rope(10)?;
 
-    let vec_0 = output_0.to_vec();
-    let vec_5 = output_5.to_vec();
-    let vec_10 = output_10.to_vec();
+    let vec_0 = output_0.sync_and_read();
+    let vec_5 = output_5.sync_and_read();
+    let vec_10 = output_10.sync_and_read();
 
     // Different offsets should produce different results
     let mut diff_count_0_5 = 0;
@@ -129,7 +129,7 @@ fn test_rope_zeros_input() -> TensorResult<()> {
     let input = Tensor::<f16>::zeros(vec![seq_len, n_heads, head_dim])?;
     let output = input.rope(0)?;
 
-    let result = output.to_vec();
+    let result = output.sync_and_read();
 
     // All outputs should be approximately zero
     for (i, &val) in result.iter().enumerate() {
@@ -162,8 +162,8 @@ fn test_rope_deterministic() -> TensorResult<()> {
     let output1 = input.rope(position_offset)?;
     let output2 = input.rope(position_offset)?;
 
-    let vec1 = output1.to_vec();
-    let vec2 = output2.to_vec();
+    let vec1 = output1.sync_and_read();
+    let vec2 = output2.sync_and_read();
 
     assert_tensor_close_f16(&vec1, &vec2, 1e-6);
 
@@ -205,7 +205,7 @@ fn test_rope_large_sequence() -> TensorResult<()> {
     assert_eq!(output.shape(), vec![seq_len, n_heads, head_dim]);
 
     // Check that output values are in reasonable range (not NaN or Inf)
-    let result = output.to_vec();
+    let result = output.sync_and_read();
     for (i, &val) in result.iter().enumerate() {
         let f = val.to_f32();
         assert!(f.is_finite(), "Non-finite value at index {}: {}", i, f);
@@ -229,7 +229,7 @@ fn test_rope_numerical_stability() -> TensorResult<()> {
         vec![seq_len, n_heads, head_dim]
     )?;
     let small_output = small_input.rope(0)?;
-    let small_result = small_output.to_vec();
+    let small_result = small_output.sync_and_read();
 
     for &val in &small_result {
         assert!(val.to_f32().is_finite(), "Small input produced non-finite value");
@@ -241,7 +241,7 @@ fn test_rope_numerical_stability() -> TensorResult<()> {
         vec![seq_len, n_heads, head_dim]
     )?;
     let large_output = large_input.rope(0)?;
-    let large_result = large_output.to_vec();
+    let large_result = large_output.sync_and_read();
 
     for &val in &large_result {
         assert!(val.to_f32().is_finite(), "Large input produced non-finite value");
@@ -268,12 +268,12 @@ fn test_rope_consistency_across_positions() -> TensorResult<()> {
 
     // Apply RoPE to the whole sequence
     let full_output = long_seq.rope(0)?;
-    let full_vec = full_output.to_vec();
+    let full_vec = full_output.sync_and_read();
 
     // Extract position 2 from the full output
     let start_idx = 2 * n_heads * head_dim;
     let end_idx = 3 * n_heads * head_dim;
-    let pos_2_from_full: Vec<f16> = full_vec[start_idx..end_idx].to_vec();
+    let pos_2_from_full: Vec<f16> = full_vec[start_idx..end_idx].sync_and_read();
 
     // Now apply RoPE to just position 0 with offset 2
     let single_pos = Tensor::<f16>::from_vec(
@@ -283,7 +283,7 @@ fn test_rope_consistency_across_positions() -> TensorResult<()> {
         vec![1, n_heads, head_dim]
     )?;
     let single_output = single_pos.rope(2)?;
-    let single_vec = single_output.to_vec();
+    let single_vec = single_output.sync_and_read();
 
     // These should be approximately equal
     // Note: May have small differences due to numerical precision
@@ -316,7 +316,7 @@ fn test_rope_multi_head() -> TensorResult<()> {
         );
 
         // Check no NaN or Inf
-        let result = output.to_vec();
+        let result = output.sync_and_read();
         for &val in &result {
             assert!(val.to_f32().is_finite());
         }
@@ -403,7 +403,7 @@ fn test_rope_position_offset_range() -> TensorResult<()> {
         let output = input.rope(offset)?;
 
         // Should not panic or produce NaN
-        let result = output.to_vec();
+        let result = output.sync_and_read();
         for &val in &result {
             assert!(val.to_f32().is_finite(), "Non-finite value at offset {}", offset);
         }
@@ -426,7 +426,7 @@ fn test_rope_gradient_compatibility() -> TensorResult<()> {
 
     // Output should be valid for further operations
     let sum = output.sum()?;
-    let sum_val = sum.to_vec()[0].to_f32();
+    let sum_val = sum.sync_and_read()[0].to_f32();
 
     assert!(sum_val.is_finite(), "RoPE output sum should be finite");
 
@@ -455,7 +455,7 @@ fn test_rope_kv_cache_simulation() -> TensorResult<()> {
         assert_eq!(token_rope.shape(), vec![1, n_heads, head_dim]);
 
         // Check no NaN
-        let result = token_rope.to_vec();
+        let result = token_rope.sync_and_read();
         for &val in &result {
             assert!(val.to_f32().is_finite());
         }

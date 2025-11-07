@@ -28,7 +28,7 @@ fn test_f32_simple_backward() -> TensorResult<()> {
 
     // Get gradient
     if let Some(grad_x) = x.grad() {
-        let grad_data = grad_x.to_vec();
+        let grad_data = grad_x.sync_and_read();
 
         // dy/dx = 2, so gradient should be [2.0, 2.0]
         assert!((grad_data[0] - 2.0).abs() < 1e-5);
@@ -64,13 +64,13 @@ fn test_f32_addition_backward() -> TensorResult<()> {
 
     // Check gradients: dc/da = 1, dc/db = 1
     if let Some(grad_a) = a.grad() {
-        let data = grad_a.to_vec();
+        let data = grad_a.sync_and_read();
         assert!((data[0] - 1.0).abs() < 1e-5);
         assert!((data[1] - 1.0).abs() < 1e-5);
     }
 
     if let Some(grad_b) = b.grad() {
-        let data = grad_b.to_vec();
+        let data = grad_b.sync_and_read();
         assert!((data[0] - 1.0).abs() < 1e-5);
         assert!((data[1] - 1.0).abs() < 1e-5);
     }
@@ -101,13 +101,13 @@ fn test_f32_multiplication_backward() -> TensorResult<()> {
 
     // Check gradients: dc/da = b, dc/db = a
     if let Some(grad_a) = a.grad() {
-        let data = grad_a.to_vec();
+        let data = grad_a.sync_and_read();
         assert!((data[0] - 4.0).abs() < 1e-5);  // b[0]
         assert!((data[1] - 5.0).abs() < 1e-5);  // b[1]
     }
 
     if let Some(grad_b) = b.grad() {
-        let data = grad_b.to_vec();
+        let data = grad_b.sync_and_read();
         assert!((data[0] - 2.0).abs() < 1e-5);  // a[0]
         assert!((data[1] - 3.0).abs() < 1e-5);  // a[1]
     }
@@ -138,14 +138,14 @@ fn test_f32_matmul_backward() -> TensorResult<()> {
 
     // Check that gradients exist and are finite
     if let Some(grad_a) = a.grad() {
-        let data = grad_a.to_vec();
+        let data = grad_a.sync_and_read();
         for val in data.iter() {
             assert!(val.is_finite());
         }
     }
 
     if let Some(grad_b) = b.grad() {
-        let data = grad_b.to_vec();
+        let data = grad_b.sync_and_read();
         for val in data.iter() {
             assert!(val.is_finite());
         }
@@ -175,7 +175,7 @@ fn test_f32_relu_backward() -> TensorResult<()> {
 
     // Check gradient: drelu/dx = 1 if x > 0, else 0
     if let Some(grad_x) = x.grad() {
-        let data = grad_x.to_vec();
+        let data = grad_x.sync_and_read();
         assert!((data[0] - 0.0).abs() < 1e-5);  // x = -1.0, grad = 0
         assert!((data[1] - 1.0).abs() < 1e-5);  // x = 2.0, grad = 1
         assert!((data[2] - 0.0).abs() < 1e-5);  // x = -3.0, grad = 0
@@ -207,7 +207,7 @@ fn test_f32_chain_rule() -> TensorResult<()> {
 
     // Check gradient: dy/dx = 2
     if let Some(grad_x) = x.grad() {
-        let data = grad_x.to_vec();
+        let data = grad_x.sync_and_read();
         assert!((data[0] - 2.0).abs() < 1e-5);
         assert!((data[1] - 2.0).abs() < 1e-5);
     }
@@ -236,7 +236,7 @@ fn test_f32_sum_backward() -> TensorResult<()> {
 
     // Check gradient: dsum/dx = 1 for all elements
     if let Some(grad_x) = x.grad() {
-        let data = grad_x.to_vec();
+        let data = grad_x.sync_and_read();
         for val in data.iter() {
             assert!((val - 1.0).abs() < 1e-5);
         }
@@ -266,7 +266,7 @@ fn test_f32_mean_backward() -> TensorResult<()> {
 
     // Check gradient: dmean/dx = 1/n for all elements
     if let Some(grad_x) = x.grad() {
-        let data = grad_x.to_vec();
+        let data = grad_x.sync_and_read();
         for val in data.iter() {
             assert!((val - 0.25).abs() < 1e-5);  // 1/4
         }
@@ -294,7 +294,7 @@ fn test_f32_gradient_accumulation() -> TensorResult<()> {
 
     // Check first gradient
     if let Some(grad_x) = x.grad() {
-        let data = grad_x.to_vec();
+        let data = grad_x.sync_and_read();
         assert!((data[0] - 2.0).abs() < 1e-5);
         assert!((data[1] - 2.0).abs() < 1e-5);
     }
@@ -306,7 +306,7 @@ fn test_f32_gradient_accumulation() -> TensorResult<()> {
 
     // Check accumulated gradient (2 + 3 = 5)
     if let Some(grad_x) = x.grad() {
-        let data = grad_x.to_vec();
+        let data = grad_x.sync_and_read();
         assert!((data[0] - 5.0).abs() < 1e-5);
         assert!((data[1] - 5.0).abs() < 1e-5);
     }

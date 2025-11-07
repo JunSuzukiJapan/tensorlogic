@@ -30,8 +30,8 @@ fn test_basic_backward() {
     x = AutogradContext::get_tensor(x_node_id).unwrap();
 
     if let Some(grad) = x.grad() {
-        println!("  x.grad() = {:?}", grad.to_vec());
-        let grad_val = grad.to_vec()[0].to_f32();
+        println!("  x.grad() = {:?}", grad.sync_and_read());
+        let grad_val = grad.sync_and_read()[0].to_f32();
         assert!((grad_val - 6.0).abs() < 0.5, "Expected gradient ~6.0, got {}", grad_val);
     } else {
         panic!("x.grad() should not be None after backward()");
@@ -56,10 +56,10 @@ fn test_backward_create_graph() {
     x = AutogradContext::get_tensor(x_node_id).unwrap();
 
     if let Some(grad) = x.grad() {
-        println!("  x.grad() = {:?}", grad.to_vec());
+        println!("  x.grad() = {:?}", grad.sync_and_read());
         println!("  x.grad().requires_grad() = {}", grad.requires_grad());
         assert!(grad.requires_grad(), "Gradient should require grad with create_graph");
-        let grad_val = grad.to_vec()[0].to_f32();
+        let grad_val = grad.sync_and_read()[0].to_f32();
         assert!((grad_val - 6.0).abs() < 0.5, "Expected gradient ~6.0, got {}", grad_val);
     } else {
         panic!("x.grad() should not be None after backward_create_graph()");

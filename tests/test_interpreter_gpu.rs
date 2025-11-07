@@ -40,7 +40,7 @@ fn test_interpreter_uses_metal_gpu() {
     }
 
     // Verify the computation result
-    let values = tensor.to_vec();
+    let values = tensor.sync_and_read();
     assert_eq!(values.len(), 3);
     assert_eq!(values[0].to_f32(), 5.0);
     assert_eq!(values[1].to_f32(), 7.0);
@@ -129,7 +129,7 @@ fn test_learnable_tensor_uses_metal_gpu() {
     }
 
     // Verify the value
-    let values = tensor.to_vec();
+    let values = tensor.sync_and_read();
     assert_eq!(values[0].to_f32(), 0.5);
     println!("✅ Learnable tensor value correct: {}", values[0].to_f32());
 }

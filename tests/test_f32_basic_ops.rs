@@ -15,7 +15,7 @@ fn test_f32_addition() -> TensorResult<()> {
 
     // Add tensors using method
     let c = a.add(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     // Verify results
     assert!((result[0] - 6.0).abs() < 1e-5);
@@ -35,7 +35,7 @@ fn test_f32_subtraction() -> TensorResult<()> {
     let b = Tensor::<f32>::from_vec(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2])?;
 
     let c = a.sub(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     assert!((result[0] - 9.0).abs() < 1e-5);
     assert!((result[1] - 18.0).abs() < 1e-5);
@@ -54,7 +54,7 @@ fn test_f32_multiplication() -> TensorResult<()> {
     let b = Tensor::<f32>::from_vec(vec![1.5, 2.5, 3.5, 4.5], vec![2, 2])?;
 
     let c = a.mul(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     assert!((result[0] - 3.0).abs() < 1e-5);
     assert!((result[1] - 7.5).abs() < 1e-5);
@@ -73,7 +73,7 @@ fn test_f32_division() -> TensorResult<()> {
     let b = Tensor::<f32>::from_vec(vec![2.0, 4.0, 5.0, 8.0], vec![2, 2])?;
 
     let c = a.div(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     assert!((result[0] - 5.0).abs() < 1e-5);
     assert!((result[1] - 5.0).abs() < 1e-5);
@@ -92,7 +92,7 @@ fn test_f32_scalar_operations() -> TensorResult<()> {
 
     // Scalar multiplication
     let b = a.mul_scalar(2.5)?;
-    let result = b.to_vec();
+    let result = b.sync_and_read();
     assert!((result[0] - 2.5).abs() < 1e-5);
     assert!((result[1] - 5.0).abs() < 1e-5);
     assert!((result[2] - 7.5).abs() < 1e-5);
@@ -100,7 +100,7 @@ fn test_f32_scalar_operations() -> TensorResult<()> {
 
     // Scalar addition
     let c = a.add_scalar(10.0)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
     assert!((result[0] - 11.0).abs() < 1e-5);
     assert!((result[1] - 12.0).abs() < 1e-5);
     assert!((result[2] - 13.0).abs() < 1e-5);
@@ -123,7 +123,7 @@ fn test_f32_combined_operations() -> TensorResult<()> {
     let temp = a.add(&b)?;  // [4.0, 6.0]
     let temp2 = temp.mul(&c)?;  // [8.0, 12.0]
     let result_tensor = temp2.sub(&d)?;  // [7.0, 11.0]
-    let result = result_tensor.to_vec();
+    let result = result_tensor.sync_and_read();
 
     assert!((result[0] - 7.0).abs() < 1e-5);
     assert!((result[1] - 11.0).abs() < 1e-5);

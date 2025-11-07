@@ -26,7 +26,7 @@ fn test_memory_usage_tensor_lifecycle() {
             let data: Vec<half::f16> = (0..size)
                 .map(|i| half::f16::from_f32((i % 256) as f32))
                 .collect();
-            let _tensor = Tensor::from_vec_metal(&device, data, vec![size]).unwrap();
+            let _tensor = Tensor::from_vec_gpu(&device, data, vec![size]).unwrap();
             // Tensor dropped here
         }
 
@@ -54,7 +54,7 @@ fn test_memory_usage_sequential_operations() {
     let start = Instant::now();
 
     // Perform chain of operations
-    let mut tensor = Tensor::from_vec_metal(&device, data.clone(), vec![size]).unwrap();
+    let mut tensor = Tensor::from_vec_gpu(&device, data.clone(), vec![size]).unwrap();
     for _ in 0..50 {
         tensor = tensor.add(&tensor).unwrap();
         // Apply ReLU as a simple operation
@@ -85,8 +85,8 @@ fn test_large_scale_matrix_operations() {
 
         let start = Instant::now();
 
-        let a = Tensor::from_vec_metal(&device, data.clone(), vec![size, size]).unwrap();
-        let b = Tensor::from_vec_metal(&device, data.clone(), vec![size, size]).unwrap();
+        let a = Tensor::from_vec_gpu(&device, data.clone(), vec![size, size]).unwrap();
+        let b = Tensor::from_vec_gpu(&device, data.clone(), vec![size, size]).unwrap();
         let _c = a.matmul(&b).unwrap();
 
         let duration = start.elapsed();
@@ -121,7 +121,7 @@ fn test_large_scale_batch_processing() {
 
         let start = Instant::now();
 
-        let batch = Tensor::from_vec_metal(&device, data.clone(), vec![batch_size, feature_dim]).unwrap();
+        let batch = Tensor::from_vec_gpu(&device, data.clone(), vec![batch_size, feature_dim]).unwrap();
 
         // Simulate batch operations
         let _processed = batch.relu().unwrap();
@@ -160,7 +160,7 @@ fn test_large_scale_4d_tensors() {
 
         let start = Instant::now();
 
-        let images = Tensor::from_vec_metal(
+        let images = Tensor::from_vec_gpu(
             &device,
             data,
             vec![batch, channels, height, width]
@@ -199,7 +199,7 @@ fn test_memory_pressure_concurrent_tensors() {
             .map(|j| half::f16::from_f32(((i * tensor_size + j) % 256) as f32))
             .collect();
 
-        let tensor = Tensor::from_vec_metal(&device, data, vec![tensor_size]).unwrap();
+        let tensor = Tensor::from_vec_gpu(&device, data, vec![tensor_size]).unwrap();
         tensors.push(tensor);
     }
 
@@ -229,8 +229,8 @@ fn test_operation_throughput_elementwise() {
         .map(|i| half::f16::from_f32((i % 256) as f32 / 256.0))
         .collect();
 
-    let a = Tensor::from_vec_metal(&device, data.clone(), vec![size]).unwrap();
-    let b = Tensor::from_vec_metal(&device, data.clone(), vec![size]).unwrap();
+    let a = Tensor::from_vec_gpu(&device, data.clone(), vec![size]).unwrap();
+    let b = Tensor::from_vec_gpu(&device, data.clone(), vec![size]).unwrap();
 
     // Test addition
     let start = Instant::now();
@@ -273,8 +273,8 @@ fn test_resource_management_buffer_pool() {
 
     // Repeated allocations should benefit from buffer pool
     for _ in 0..iterations {
-        let a = Tensor::from_vec_metal(&device, data.clone(), vec![size]).unwrap();
-        let b = Tensor::from_vec_metal(&device, data.clone(), vec![size]).unwrap();
+        let a = Tensor::from_vec_gpu(&device, data.clone(), vec![size]).unwrap();
+        let b = Tensor::from_vec_gpu(&device, data.clone(), vec![size]).unwrap();
         let _c = a.add(&b).unwrap();
         // Buffers returned to pool on drop
     }
@@ -303,8 +303,8 @@ fn test_stress_continuous_operation() {
         .map(|i| half::f16::from_f32((i % 256) as f32 / 256.0))
         .collect();
 
-    let a = Tensor::from_vec_metal(&device, data.clone(), vec![size]).unwrap();
-    let b = Tensor::from_vec_metal(&device, data.clone(), vec![size]).unwrap();
+    let a = Tensor::from_vec_gpu(&device, data.clone(), vec![size]).unwrap();
+    let b = Tensor::from_vec_gpu(&device, data.clone(), vec![size]).unwrap();
 
     let start = Instant::now();
     let mut iterations = 0;
@@ -340,8 +340,8 @@ fn test_performance_regression_baselines() {
         .map(|i| half::f16::from_f32((i % 256) as f32 / 256.0))
         .collect();
 
-    let a = Tensor::from_vec_metal(&device, data.clone(), vec![size, size]).unwrap();
-    let b = Tensor::from_vec_metal(&device, data.clone(), vec![size, size]).unwrap();
+    let a = Tensor::from_vec_gpu(&device, data.clone(), vec![size, size]).unwrap();
+    let b = Tensor::from_vec_gpu(&device, data.clone(), vec![size, size]).unwrap();
 
     let start = Instant::now();
     let _c = a.matmul(&b).unwrap();
@@ -356,7 +356,7 @@ fn test_performance_regression_baselines() {
         .map(|i| half::f16::from_f32((i % 256) as f32 / 256.0))
         .collect();
 
-    let tensor = Tensor::from_vec_metal(&device, data, vec![size]).unwrap();
+    let tensor = Tensor::from_vec_gpu(&device, data, vec![size]).unwrap();
 
     let start = Instant::now();
     let _activated = tensor.relu().unwrap();

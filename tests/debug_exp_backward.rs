@@ -21,7 +21,7 @@ fn debug_exp_backward_metal() {
     let input_values = vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)];
     println!("Input values: {:?}", input_values.iter().map(|x| x.to_f32()).collect::<Vec<_>>());
 
-    let x = Tensor::from_vec_metal(
+    let x = Tensor::from_vec_gpu(
         metal_device,
         input_values,
         vec![3],
@@ -33,11 +33,11 @@ fn debug_exp_backward_metal() {
     let output = x.exp().unwrap();
     println!("Output tensor created (exp(x)): dims={:?}", output.dims());
 
-    let output_values = output.to_vec();
+    let output_values = output.sync_and_read();
     println!("Output values: {:?}", output_values.iter().map(|x| x.to_f32()).collect::<Vec<_>>());
 
     // Grad output: [1.0, 1.0, 1.0]
-    let grad_output = Tensor::from_vec_metal(
+    let grad_output = Tensor::from_vec_gpu(
         metal_device,
         vec![f16::from_f32(1.0), f16::from_f32(1.0), f16::from_f32(1.0)],
         vec![3],
@@ -56,7 +56,7 @@ fn debug_exp_backward_metal() {
     match grad_input_result {
         Ok(grad_input) => {
             println!("Backward succeeded");
-            let grad_values = grad_input[0].to_vec();
+            let grad_values = grad_input[0].sync_and_read();
             println!("Grad input values: {:?}", grad_values.iter().map(|x| x.to_f32()).collect::<Vec<_>>());
 
             // Check for NaN
@@ -82,7 +82,7 @@ fn debug_exp_backward_metal() {
     ).unwrap();
 
     let cpu_output = cpu_x.exp().unwrap();
-    println!("CPU output: {:?}", cpu_output.to_vec().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
+    println!("CPU output: {:?}", cpu_output.sync_and_read().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
 
     let cpu_grad_output = Tensor::from_vec(
         vec![f16::from_f32(1.0), f16::from_f32(1.0), f16::from_f32(1.0)],
@@ -91,5 +91,5 @@ fn debug_exp_backward_metal() {
 
     let cpu_backward = ExpBackward::new(cpu_output);
     let cpu_grad_input = cpu_backward.backward(&cpu_grad_output, &[]).unwrap();
-    println!("CPU grad input: {:?}", cpu_grad_input[0].to_vec().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
+    println!("CPU grad input: {:?}", cpu_grad_input[0].sync_and_read().iter().map(|x| x.to_f32()).collect::<Vec<_>>());
 }

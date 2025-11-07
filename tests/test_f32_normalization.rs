@@ -25,7 +25,7 @@ fn test_f32_rms_norm() -> TensorResult<()> {
     // Verify output shape
     assert_eq!(output.shape(), &[4]);
 
-    let data = output.to_vec();
+    let data = output.sync_and_read();
 
     // Verify all values are finite
     for val in data.iter() {
@@ -66,7 +66,7 @@ fn test_f32_layer_norm() -> TensorResult<()> {
     // Verify output shape
     assert_eq!(output.shape(), &[2, 4]);
 
-    let data = output.to_vec();
+    let data = output.sync_and_read();
 
     // Verify all values are finite
     for val in data.iter() {
@@ -103,7 +103,7 @@ fn test_f32_layer_norm_with_bias() -> TensorResult<()> {
     // Apply layer norm
     let output = input.layer_norm(&weight, &bias, 1e-5)?;
 
-    let data = output.to_vec();
+    let data = output.sync_and_read();
 
     // All values should be finite
     for val in data.iter() {
@@ -137,7 +137,7 @@ fn test_f32_rms_norm_multidim() -> TensorResult<()> {
     // Verify shape preserved
     assert_eq!(output.shape(), &[2, 3, 4]);
 
-    let data = output.to_vec();
+    let data = output.sync_and_read();
 
     // All finite
     for val in data.iter() {
@@ -163,7 +163,7 @@ fn test_f32_normalization_stability() -> TensorResult<()> {
     // RMS norm should handle large values
     let output = input.rms_norm(&weight, 1e-5)?;
 
-    let data = output.to_vec();
+    let data = output.sync_and_read();
 
     // All should be finite (no overflow/underflow)
     for val in data.iter() {
@@ -191,7 +191,7 @@ fn test_f32_normalization_small_values() -> TensorResult<()> {
     // Layer norm should handle small values
     let output = input.layer_norm(&weight, &bias, 1e-5)?;
 
-    let data = output.to_vec();
+    let data = output.sync_and_read();
 
     // All should be finite
     for val in data.iter() {
@@ -218,7 +218,7 @@ fn test_f32_layer_norm_zero_mean() -> TensorResult<()> {
 
     let output = input.layer_norm(&weight, &bias, 1e-5)?;
 
-    let data = output.to_vec();
+    let data = output.sync_and_read();
 
     // Mean should be close to zero
     let mean: f32 = data.iter().sum::<f32>() / data.len() as f32;
@@ -252,8 +252,8 @@ fn test_f32_rms_norm_weight_scaling() -> TensorResult<()> {
     let weight_ones = Tensor::<f32>::ones(&device, vec![4])?;
     let output_ones = input.rms_norm(&weight_ones, 1e-5)?;
 
-    let data = output.to_vec();
-    let data_ones = output_ones.to_vec();
+    let data = output.sync_and_read();
+    let data_ones = output_ones.sync_and_read();
 
     // Output with weight=2.0 should be approximately 2x output with weight=1.0
     for i in 0..4 {

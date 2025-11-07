@@ -23,7 +23,7 @@ fn test_second_derivative_simple() {
     let grad = x.grad().unwrap();
 
     // f'(3) = 2*3 = 6
-    assert!((grad.to_vec()[0].to_f32() - 6.0).abs() < 0.1);
+    assert!((grad.sync_and_read()[0].to_f32() - 6.0).abs() < 0.1);
 
     // Gradient should have requires_grad=true
     assert!(grad.requires_grad());
@@ -50,7 +50,7 @@ fn test_gradient_requires_grad_with_create_graph() {
     let grad = x.grad().unwrap();
 
     // Gradient should be 2*x = 4.0
-    assert!((grad.to_vec()[0].to_f32() - 4.0).abs() < 0.1);
+    assert!((grad.sync_and_read()[0].to_f32() - 4.0).abs() < 0.1);
 
     // With create_graph, gradient should have requires_grad=true
     assert!(grad.requires_grad());
@@ -74,7 +74,7 @@ fn test_gradient_without_create_graph() {
     let grad = x.grad().unwrap();
 
     // Gradient value should still be correct
-    assert!((grad.to_vec()[0].to_f32() - 4.0).abs() < 0.1);
+    assert!((grad.sync_and_read()[0].to_f32() - 4.0).abs() < 0.1);
 
     // Without create_graph, gradient should NOT have requires_grad
     assert!(!grad.requires_grad());
@@ -97,5 +97,5 @@ fn test_chain_rule_first_derivative() {
     let grad = x.grad().unwrap();
 
     // f'(2) = 4 * 2³ = 4 * 8 = 32
-    assert!((grad.to_vec()[0].to_f32() - 32.0).abs() < 0.5);
+    assert!((grad.sync_and_read()[0].to_f32() - 32.0).abs() < 0.5);
 }

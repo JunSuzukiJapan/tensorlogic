@@ -10,7 +10,7 @@ fn get_test_device() -> MetalDevice {
 fn test_requires_grad_api() {
     let device = get_test_device();
 
-    let mut x = Tensor::from_vec_metal(
+    let mut x = Tensor::from_vec_gpu(
         &device,
         vec![f16::from_f32(1.0), f16::from_f32(2.0)],
         vec![2],
@@ -32,7 +32,7 @@ fn test_requires_grad_api() {
 fn test_zero_grad() {
     let device = get_test_device();
 
-    let mut x = Tensor::from_vec_metal(
+    let mut x = Tensor::from_vec_gpu(
         &device,
         vec![f16::from_f32(1.0), f16::from_f32(2.0)],
         vec![2],
@@ -50,7 +50,7 @@ fn test_zero_grad() {
 fn test_backward_requires_scalar() {
     let device = get_test_device();
 
-    let mut x = Tensor::from_vec_metal(
+    let mut x = Tensor::from_vec_gpu(
         &device,
         vec![f16::from_f32(1.0), f16::from_f32(2.0)],
         vec![2],
@@ -72,7 +72,7 @@ fn test_backward_requires_scalar() {
 fn test_backward_scalar() {
     let device = get_test_device();
 
-    let mut x = Tensor::from_vec_metal(&device, vec![f16::from_f32(3.0)], vec![1]).unwrap();
+    let mut x = Tensor::from_vec_gpu(&device, vec![f16::from_f32(3.0)], vec![1]).unwrap();
 
     x.set_requires_grad(true);
 
@@ -85,7 +85,7 @@ fn test_backward_scalar() {
 fn test_backward_requires_grad_false() {
     let device = get_test_device();
 
-    let mut x = Tensor::from_vec_metal(&device, vec![f16::from_f32(3.0)], vec![1]).unwrap();
+    let mut x = Tensor::from_vec_gpu(&device, vec![f16::from_f32(3.0)], vec![1]).unwrap();
 
     // requires_grad = false でbackward()を呼ぶとエラー
     let result = x.backward();
@@ -106,7 +106,7 @@ fn test_simple_autodiff() {
 
     // y = x^2 の微分を計算
     // dy/dx = 2x
-    let mut x = Tensor::from_vec_metal(&device, vec![f16::from_f32(3.0)], vec![1]).unwrap();
+    let mut x = Tensor::from_vec_gpu(&device, vec![f16::from_f32(3.0)], vec![1]).unwrap();
     x.set_requires_grad(true);
 
     let y = x.mul(&x).unwrap(); // y = x^2 = 9.0
@@ -119,7 +119,7 @@ fn test_simple_autodiff() {
     // Note: 勾配は計算グラフのテンソルレジストリに保存される
     let x_with_grad = AutogradContext::get_tensor(x.grad_node().unwrap()).unwrap();
     let grad = x_with_grad.grad().unwrap();
-    assert_eq!(grad.to_vec()[0], f16::from_f32(6.0));
+    assert_eq!(grad.sync_and_read()[0], f16::from_f32(6.0));
 }
 
 #[test]
@@ -130,8 +130,8 @@ fn test_chain_rule() {
     // z = (x + y)^2
     // dz/dx = 2(x + y)
     // dz/dy = 2(x + y)
-    let mut x = Tensor::from_vec_metal(&device, vec![f16::from_f32(2.0)], vec![1]).unwrap();
-    let mut y = Tensor::from_vec_metal(&device, vec![f16::from_f32(3.0)], vec![1]).unwrap();
+    let mut x = Tensor::from_vec_gpu(&device, vec![f16::from_f32(2.0)], vec![1]).unwrap();
+    let mut y = Tensor::from_vec_gpu(&device, vec![f16::from_f32(3.0)], vec![1]).unwrap();
 
     x.set_requires_grad(true);
     y.set_requires_grad(true);
@@ -143,8 +143,8 @@ fn test_chain_rule() {
     z_scalar.backward().unwrap();
 
     // dz/dx = 2(x + y) = 10.0
-    assert_eq!(x.grad().unwrap().to_vec()[0], f16::from_f32(10.0));
+    assert_eq!(x.grad().unwrap().sync_and_read()[0], f16::from_f32(10.0));
 
     // dz/dy = 2(x + y) = 10.0
-    assert_eq!(y.grad().unwrap().to_vec()[0], f16::from_f32(10.0));
+    assert_eq!(y.grad().unwrap().sync_and_read()[0], f16::from_f32(10.0));
 }

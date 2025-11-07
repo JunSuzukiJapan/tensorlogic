@@ -27,7 +27,7 @@ fn compare_cpu_metal_gradients(
 
     let cpu_backward = create_backward(&cpu_input);
     let cpu_grad_input = cpu_backward.backward(&cpu_grad_output, &[]).unwrap();
-    let cpu_results: Vec<f32> = cpu_grad_input[0].to_vec().iter().map(|x| x.to_f32()).collect();
+    let cpu_results: Vec<f32> = cpu_grad_input[0].sync_and_read().iter().map(|x| x.to_f32()).collect();
 
     println!("CPU gradients: {:?}", cpu_results);
 
@@ -38,13 +38,13 @@ fn compare_cpu_metal_gradients(
         _ => panic!("Expected Metal device"),
     };
 
-    let metal_input = Tensor::from_vec_metal(
+    let metal_input = Tensor::from_vec_gpu(
         metal_device,
         input_values.iter().map(|&x| f16::from_f32(x)).collect(),
         vec![input_values.len()],
     ).unwrap();
 
-    let metal_grad_output = Tensor::from_vec_metal(
+    let metal_grad_output = Tensor::from_vec_gpu(
         metal_device,
         grad_output_values.iter().map(|&x| f16::from_f32(x)).collect(),
         vec![grad_output_values.len()],
@@ -52,7 +52,7 @@ fn compare_cpu_metal_gradients(
 
     let metal_backward = create_backward(&metal_input);
     let metal_grad_input = metal_backward.backward(&metal_grad_output, &[]).unwrap();
-    let metal_results: Vec<f32> = metal_grad_input[0].to_vec().iter().map(|x| x.to_f32()).collect();
+    let metal_results: Vec<f32> = metal_grad_input[0].sync_and_read().iter().map(|x| x.to_f32()).collect();
 
     println!("Metal gradients: {:?}", metal_results);
 

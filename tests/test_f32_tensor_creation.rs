@@ -11,7 +11,7 @@ fn test_f32_zeros() -> TensorResult<()> {
 
     // Create zeros tensor
     let t = Tensor::<f32>::zeros(&device, vec![3, 4])?;
-    let data = t.to_vec();
+    let data = t.sync_and_read();
 
     // Verify all elements are zero
     assert_eq!(data.len(), 12);
@@ -32,7 +32,7 @@ fn test_f32_ones() -> TensorResult<()> {
 
     // Create ones tensor
     let t = Tensor::<f32>::ones(&device, vec![2, 3])?;
-    let data = t.to_vec();
+    let data = t.sync_and_read();
 
     // Verify all elements are one
     assert_eq!(data.len(), 6);
@@ -54,7 +54,7 @@ fn test_f32_from_vec() -> TensorResult<()> {
     // Create tensor from vec
     let data_in = vec![1.5, 2.5, 3.5, 4.5, 5.5, 6.5];
     let t = Tensor::<f32>::from_vec(data_in.clone(), vec![2, 3])?;
-    let data_out = t.to_vec();
+    let data_out = t.sync_and_read();
 
     // Verify data matches
     assert_eq!(data_out.len(), 6);
@@ -75,7 +75,7 @@ fn test_f32_full() -> TensorResult<()> {
 
     // Create tensor filled with specific value
     let t = Tensor::<f32>::full(&device, vec![3, 2], 7.5)?;
-    let data = t.to_vec();
+    let data = t.sync_and_read();
 
     // Verify all elements are 7.5
     assert_eq!(data.len(), 6);
@@ -100,7 +100,7 @@ fn test_f32_reshape() -> TensorResult<()> {
     let t2 = t1.reshape(&[3, 2])?;
 
     // Verify data is preserved
-    let data = t2.to_vec();
+    let data = t2.sync_and_read();
     assert_eq!(data.len(), 6);
     for i in 0..6 {
         assert!((data[i] - (i as f32 + 1.0)).abs() < 1e-6);
@@ -131,7 +131,7 @@ fn test_f32_transpose() -> TensorResult<()> {
     assert_eq!(t2.shape(), &[3, 2]);
 
     // Verify data is correctly transposed
-    let data = t2.to_vec();
+    let data = t2.sync_and_read();
     assert!((data[0] - 1.0).abs() < 1e-6);  // [0,0]
     assert!((data[1] - 4.0).abs() < 1e-6);  // [0,1]
     assert!((data[2] - 2.0).abs() < 1e-6);  // [1,0]
@@ -157,8 +157,8 @@ fn test_f32_clone() -> TensorResult<()> {
     let t2 = t1.clone();
 
     // Verify data matches
-    let data1 = t1.to_vec();
-    let data2 = t2.to_vec();
+    let data1 = t1.sync_and_read();
+    let data2 = t2.sync_and_read();
 
     assert_eq!(data1.len(), data2.len());
     for i in 0..data1.len() {
@@ -185,7 +185,7 @@ fn test_f32_slice_and_concat() -> TensorResult<()> {
 
     // Verify concatenated tensor
     assert_eq!(t3.shape(), &[6]);
-    let data = t3.to_vec();
+    let data = t3.sync_and_read();
     assert!((data[0] - 1.0).abs() < 1e-6);
     assert!((data[1] - 2.0).abs() < 1e-6);
     assert!((data[2] - 3.0).abs() < 1e-6);

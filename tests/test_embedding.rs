@@ -61,7 +61,7 @@ fn test_embedding_basic() -> TensorResult<()> {
 
     // Lookup embeddings
     let embeddings = weight.embedding(&token_ids)?;
-    let result = embeddings.to_vec();
+    let result = embeddings.sync_and_read();
 
     // Should retrieve row 2: [7.0, 8.0, 9.0]
     let expected = vec![7.0, 8.0, 9.0];
@@ -94,7 +94,7 @@ fn test_embedding_multiple_tokens() -> TensorResult<()> {
     let token_ids = Tensor::<f32>::from_vec(vec![0.0, 2.0, 1.0, 3.0], vec![4])?;
 
     let embeddings = weight.embedding(&token_ids)?;
-    let result = embeddings.to_vec();
+    let result = embeddings.sync_and_read();
 
     // Expected: [[1,2], [5,6], [3,4], [7,8]] flattened
     let expected = vec![1.0, 2.0, 5.0, 6.0, 3.0, 4.0, 7.0, 8.0];
@@ -130,7 +130,7 @@ fn test_embedding_batch() -> TensorResult<()> {
     )?;
 
     let embeddings = weight.embedding(&token_ids)?;
-    let result = embeddings.to_vec();
+    let result = embeddings.sync_and_read();
 
     // Expected:
     // Batch 0: [[1,2], [3,4], [5,6]]
@@ -170,7 +170,7 @@ fn test_embedding_f16() -> TensorResult<()> {
     )?;
 
     let embeddings = weight.embedding(&token_ids)?;
-    let result = embeddings.to_vec();
+    let result = embeddings.sync_and_read();
 
     // Expected: rows 1 and 3
     let expected = vec![
@@ -200,7 +200,7 @@ fn test_embedding_from_token_ids() -> TensorResult<()> {
     let token_ids = TokenIdArray::new(vec![0, 2, 4]);
 
     let embeddings = weight.embedding_from_token_ids(&token_ids)?;
-    let result = embeddings.to_vec();
+    let result = embeddings.sync_and_read();
 
     // Expected: rows 0, 2, 4
     let expected = vec![
@@ -237,7 +237,7 @@ fn test_embedding_large_vocabulary() -> TensorResult<()> {
     assert_eq!(embeddings.shape(), vec![4, d_model]);
 
     // Verify first embedding (token 0)
-    let result = embeddings.to_vec();
+    let result = embeddings.sync_and_read();
     for i in 0..d_model {
         assert!((result[i] - (i % 100) as f32).abs() < 1e-5);
     }
@@ -265,7 +265,7 @@ fn test_embedding_identity() -> TensorResult<()> {
 
     let token_ids = Tensor::<f32>::from_vec(vec![2.0], vec![1])?;
     let embeddings = weight.embedding(&token_ids)?;
-    let result = embeddings.to_vec();
+    let result = embeddings.sync_and_read();
 
     // Should be [0, 0, 1, 0]
     let expected = vec![0.0, 0.0, 1.0, 0.0];
@@ -297,7 +297,7 @@ fn test_embedding_repeated_tokens() -> TensorResult<()> {
     )?;
 
     let embeddings = weight.embedding(&token_ids)?;
-    let result = embeddings.to_vec();
+    let result = embeddings.sync_and_read();
 
     // Expected: [1,2], [1,2], [3,4], [1,2], [5,6], [5,6]
     let expected = vec![
@@ -322,7 +322,7 @@ fn test_embedding_single_token() -> TensorResult<()> {
 
     assert_eq!(embeddings.shape(), vec![1, d_model]);
 
-    let result = embeddings.to_vec();
+    let result = embeddings.sync_and_read();
     for &val in &result {
         assert!((val - 1.0).abs() < 1e-5);
     }
@@ -346,7 +346,7 @@ fn test_embedding_sequential_tokens() -> TensorResult<()> {
     let token_ids = Tensor::<f32>::from_vec(vec![0.0, 1.0, 2.0, 3.0, 4.0], vec![5])?;
 
     let embeddings = weight.embedding(&token_ids)?;
-    let result = embeddings.to_vec();
+    let result = embeddings.sync_and_read();
 
     // Verify each embedding
     for i in 0..5 {
@@ -445,7 +445,7 @@ fn test_embedding_token_id_array_large() -> TensorResult<()> {
     let token_ids = TokenIdArray::new(vec![0, 10000, 20000, 31999]);
 
     let embeddings = weight.embedding_from_token_ids(&token_ids)?;
-    let result = embeddings.to_vec();
+    let result = embeddings.sync_and_read();
 
     // Verify token 31999 embedding is correct
     let idx_31999 = 3 * d_model;
@@ -524,7 +524,7 @@ fn test_embedding_edge_case_token_zero() -> TensorResult<()> {
 
     let token_ids = Tensor::<f32>::from_vec(vec![0.0], vec![1])?;
     let embeddings = weight.embedding(&token_ids)?;
-    let result = embeddings.to_vec();
+    let result = embeddings.sync_and_read();
 
     // Should be first row: [0, 1, 2, 3]
     let expected = vec![0.0, 1.0, 2.0, 3.0];
@@ -547,7 +547,7 @@ fn test_embedding_edge_case_last_token() -> TensorResult<()> {
 
     let token_ids = Tensor::<f32>::from_vec(vec![9.0], vec![1])?; // Last valid token
     let embeddings = weight.embedding(&token_ids)?;
-    let result = embeddings.to_vec();
+    let result = embeddings.sync_and_read();
 
     // Should be last row: [36, 37, 38, 39]
     let expected = vec![36.0, 37.0, 38.0, 39.0];
@@ -565,13 +565,13 @@ fn test_embedding_preserves_device() -> TensorResult<()> {
     let vocab_size = 10;
     let d_model = 4;
 
-    let weight = Tensor::<f32>::from_vec_metal(
+    let weight = Tensor::<f32>::from_vec_gpu(
         &device,
         (0..vocab_size * d_model).map(|i| i as f32).collect(),
         vec![vocab_size, d_model]
     )?;
 
-    let token_ids = Tensor::<f32>::from_vec_metal(
+    let token_ids = Tensor::<f32>::from_vec_gpu(
         &device,
         vec![0.0, 1.0, 2.0],
         vec![3]
