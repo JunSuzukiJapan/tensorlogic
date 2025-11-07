@@ -130,7 +130,7 @@ fn test_model_get_tensor() -> TensorResult<()> {
     assert!(retrieved.is_some());
 
     let retrieved = retrieved.unwrap();
-    assert_eq!(retrieved.shape(), vec![2, 2]);
+    assert_eq!(retrieved.shape().dims(), &[2, 2]);
 
     let data = retrieved.sync_and_read();
     for &val in &data {
@@ -499,7 +499,7 @@ fn test_model_various_tensor_shapes() -> TensorResult<()> {
     // Verify shapes
     for (i, expected_shape) in shapes.iter().enumerate() {
         let tensor = model.get_tensor(&format!("tensor_{}", i)).unwrap();
-        assert_eq!(tensor.shape(), *expected_shape);
+        assert_eq!(tensor.shape().dims(), expected_shape.as_slice());
     }
 
     println!("✓ Model various tensor shapes test passed");
@@ -524,7 +524,7 @@ fn test_model_empty_tensor() -> TensorResult<()> {
     assert_eq!(model.num_tensors(), 1);
 
     let retrieved = model.get_tensor("empty").unwrap();
-    assert_eq!(retrieved.shape(), vec![0, 5]);
+    assert_eq!(retrieved.shape().dims(), &[0, 5]);
 
     println!("✓ Model empty tensor test passed");
     Ok(())
@@ -699,7 +699,7 @@ fn test_model_workflow_simulation() -> TensorResult<()> {
 
     let emb = model.get_tensor("embedding.weight");
     assert!(emb.is_some());
-    assert_eq!(emb.unwrap().shape(), vec![vocab_size, d_model]);
+    assert_eq!(emb.unwrap().shape().dims(), &[vocab_size, d_model]);
 
     // Step 4: Simulate tensor access during inference
     for _ in 0..10 {

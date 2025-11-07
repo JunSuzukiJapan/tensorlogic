@@ -401,8 +401,8 @@ fn test_embedding_different_dimensions() -> TensorResult<()> {
 
         let embeddings = weight.embedding(&token_ids)?;
         assert_eq!(
-            embeddings.shape(),
-            vec![2, d_model],
+            embeddings.shape().dims(),
+            &[2, d_model],
             "Failed for vocab_size={}, d_model={}",
             vocab_size, d_model
         );
@@ -434,13 +434,13 @@ fn test_embedding_batch_different_sizes() -> TensorResult<()> {
         let seq_len = shape[1];
         let num_tokens = batch_size * seq_len;
 
-        let token_ids = Tensor::<f32>::zeros(shape.clone())?;
+        let token_ids = Tensor::<f32>::zeros(&device, shape.clone())?;
         let embeddings = weight.embedding(&token_ids)?;
 
         let expected_shape = vec![batch_size, seq_len, d_model];
         assert_eq!(
-            embeddings.shape(),
-            expected_shape,
+            embeddings.shape().dims(),
+            expected_shape.as_slice(),
             "Failed for shape {:?}",
             shape
         );
@@ -512,7 +512,7 @@ fn test_embedding_token_out_of_range() {
 #[serial]
 #[should_panic(expected = "out of range")]
 fn test_embedding_negative_token_id() {
-    let device = MetalDevice::new()?;
+    let device = MetalDevice::new().unwrap();
     // Test that negative token ID causes error (if converted to large positive)
     let vocab_size = 10;
     let d_model = 4;
@@ -527,7 +527,7 @@ fn test_embedding_negative_token_id() {
 #[serial]
 #[should_panic(expected = "must be 2D")]
 fn test_embedding_wrong_weight_dimensions_1d() {
-    let device = MetalDevice::new()?;
+    let device = MetalDevice::new().unwrap();
     // Test that 1D weight causes error
     let weight = Tensor::<f32>::ones(&device, vec![10]).unwrap();
     let token_ids = Tensor::<f32>::from_vec(vec![0.0], vec![1]).unwrap();
@@ -539,7 +539,7 @@ fn test_embedding_wrong_weight_dimensions_1d() {
 #[serial]
 #[should_panic(expected = "must be 2D")]
 fn test_embedding_wrong_weight_dimensions_3d() {
-    let device = MetalDevice::new()?;
+    let device = MetalDevice::new().unwrap();
     // Test that 3D weight causes error
     let weight = Tensor::<f32>::ones(&device, vec![5, 3, 2]).unwrap();
     let token_ids = Tensor::<f32>::from_vec(vec![0.0], vec![1]).unwrap();
@@ -622,7 +622,7 @@ fn test_embedding_preserves_device() -> TensorResult<()> {
     let embeddings = weight.embedding(&token_ids)?;
 
     // Result should also be on Metal device
-    assert!(embeddings.device().is_metal(), "Embedding should preserve Metal device");
+    assert!(matches!(embeddings.device(), tensorlogic::device::Device::Metal(_)), "Embedding should preserve Metal device");
 
     println!("✓ Embedding preserves device test passed");
     Ok(())
