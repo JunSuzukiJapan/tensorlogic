@@ -15,50 +15,57 @@
 
 use tensorlogic::device::MetalDevice;
 use tensorlogic::error::TensorResult;
-use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO, TensorAccessors};
+use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO, TensorAccessors, TensorTransform};
 use half::f16;
+use serial_test::serial;
 
 // Shape Mismatch Errors
 
 #[test]
+#[serial]
 #[should_panic(expected = "ShapeMismatch")]
 fn test_add_shape_mismatch_2x2_and_3x3() {
+    let device = MetalDevice::new().unwrap();
     let a = Tensor::<f32>::ones(&device, vec![2, 2]).unwrap();
     let b = Tensor::<f32>::ones(&device, vec![3, 3]).unwrap();
     let _ = a.add(&b).unwrap();
 }
 
 #[test]
+#[serial]
 #[should_panic(expected = "ShapeMismatch")]
 fn test_add_shape_mismatch_1d_and_2d() {
-    let device = MetalDevice::new()?;
+    let device = MetalDevice::new().unwrap();
     let a = Tensor::<f32>::ones(&device, vec![4]).unwrap();
     let b = Tensor::<f32>::ones(&device, vec![4, 1]).unwrap();
     let _ = a.add(&b).unwrap();
 }
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_sub_shape_mismatch() {
-    let device = MetalDevice::new()?;
+    let device = MetalDevice::new().unwrap();
     let a = Tensor::<f32>::ones(&device, vec![2, 3]).unwrap();
     let b = Tensor::<f32>::ones(&device, vec![3, 2]).unwrap();
     let _ = a.sub(&b).unwrap();
 }
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_mul_shape_mismatch() {
-    let device = MetalDevice::new()?;
+    let device = MetalDevice::new().unwrap();
     let a = Tensor::<f32>::ones(&device, vec![4, 5]).unwrap();
     let b = Tensor::<f32>::ones(&device, vec![4, 6]).unwrap();
     let _ = a.mul(&b).unwrap();
 }
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_div_shape_mismatch() {
-    let device = MetalDevice::new()?;
+    let device = MetalDevice::new().unwrap();
     let a = Tensor::<f32>::ones(&device, vec![10]).unwrap();
     let b = Tensor::<f32>::ones(&device, vec![20]).unwrap();
     let _ = a.div(&b).unwrap();
@@ -67,9 +74,10 @@ fn test_div_shape_mismatch() {
 // Matrix Multiplication Errors
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_matmul_incompatible_dimensions() {
-    let device = MetalDevice::new()?;
+    let device = MetalDevice::new().unwrap();
     // [2, 3] @ [5, 7] - incompatible (inner dimensions don't match)
     let a = Tensor::<f32>::ones(&device, vec![2, 3]).unwrap();
     let b = Tensor::<f32>::ones(&device, vec![5, 7]).unwrap();
@@ -77,9 +85,10 @@ fn test_matmul_incompatible_dimensions() {
 }
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_matmul_1d_tensors() {
-    let device = MetalDevice::new()?;
+    let device = MetalDevice::new().unwrap();
     // Matmul requires at least 2D tensors
     let a = Tensor::<f32>::ones(&device, vec![5]).unwrap();
     let b = Tensor::<f32>::ones(&device, vec![5]).unwrap();
@@ -87,6 +96,7 @@ fn test_matmul_1d_tensors() {
 }
 
 #[test]
+#[serial]
 fn test_matmul_valid_dimensions() -> TensorResult<()> {
     let device = MetalDevice::new()?;
     // This should succeed: [2, 3] @ [3, 4] = [2, 4]
@@ -103,9 +113,10 @@ fn test_matmul_valid_dimensions() -> TensorResult<()> {
 // Reshape Errors
 
 #[test]
+#[serial]
 #[should_panic]
 fn test_reshape_incompatible_size() {
-    let device = MetalDevice::new()?;
+    let device = MetalDevice::new().unwrap();
     // Cannot reshape [2, 3] (6 elements) to [2, 4] (8 elements)
     let a = Tensor::<f32>::ones(&device, vec![2, 3]).unwrap();
     let _ = a.reshape(vec![2, 4]).unwrap();
@@ -196,7 +207,9 @@ fn test_division_by_zero() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_nan_propagation_add() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // NaN should propagate through operations
     let a = Tensor::<f32>::from_vec(vec![1.0, f32::NAN, 3.0], vec![3])?;
     let b = Tensor::<f32>::ones(&device, vec![3])?;
@@ -353,7 +366,9 @@ fn test_pow_special_cases() -> TensorResult<()> {
 // Empty Tensor Errors
 
 #[test]
+#[serial]
 fn test_empty_tensor_operations() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Operations on empty tensors should not crash
     let a = Tensor::<f32>::zeros(&device, vec![0, 5])?;
     let b = Tensor::<f32>::zeros(&device, vec![0, 5])?;
@@ -597,7 +612,9 @@ fn test_device_availability() -> TensorResult<()> {
 // Stress Test: Multiple Errors in Sequence
 
 #[test]
+#[serial]
 fn test_error_recovery() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test that errors don't leave system in bad state
     let a = Tensor::<f32>::ones(&device, vec![2, 2])?;
     let b = Tensor::<f32>::ones(&device, vec![3, 3])?;
