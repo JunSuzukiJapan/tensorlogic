@@ -459,6 +459,11 @@ pub enum TensorExpr {
         function: Identifier,
         args: Vec<TensorExpr>,
     },
+    /// Match expression: match expr { pattern => body, ... }
+    Match {
+        expr: Box<TensorExpr>,
+        arms: Vec<MatchArm>,
+    },
 }
 
 /// Index expression for tensor indexing
@@ -477,6 +482,50 @@ pub enum IndexExpr {
 pub struct FieldInit {
     pub name: Identifier,
     pub value: TensorExpr,
+}
+
+/// Match arm in match expression
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm {
+    /// Pattern to match against
+    pub pattern: Pattern,
+    /// Optional guard condition (if let Some)
+    pub guard: Option<TensorExpr>,
+    /// Expression to evaluate if pattern matches
+    pub body: TensorExpr,
+}
+
+/// Pattern for pattern matching
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    /// Wildcard pattern: _
+    Wildcard,
+    /// Integer literal pattern: 42
+    Integer(i64),
+    /// Float literal pattern: 3.14
+    Float(f64),
+    /// String literal pattern: "hello"
+    String(String),
+    /// Boolean literal pattern: true, false
+    Boolean(bool),
+    /// Variable binding pattern: x (binds matched value to variable)
+    Variable(Identifier),
+    /// Tuple pattern: (p1, p2, ...)
+    Tuple(Vec<Pattern>),
+    /// Struct pattern: StructName { field1: p1, field2: p2, ... }
+    Struct {
+        struct_type: StructType,
+        fields: Vec<FieldPattern>,
+    },
+    /// Or pattern: p1 | p2 | ...
+    Or(Vec<Pattern>),
+}
+
+/// Field pattern in struct pattern
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldPattern {
+    pub name: Identifier,
+    pub pattern: Pattern,
 }
 
 /// Binary operators

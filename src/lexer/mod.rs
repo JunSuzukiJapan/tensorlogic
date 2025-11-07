@@ -69,6 +69,7 @@ impl Lexer {
         keywords.insert("python", Token::Python);
         keywords.insert("import", Token::Import);
         keywords.insert("as", Token::As);
+        keywords.insert("match", Token::Match);
         keywords.insert("float16", Token::Float16);
         keywords.insert("int16", Token::Int16);
         keywords.insert("int32", Token::Int32);
@@ -371,6 +372,14 @@ impl Lexer {
                                 Token::ColonEq
                             } else {
                                 Token::Colon
+                            }
+                        }
+                        '|' => {
+                            if self.peek() == Some('|') {
+                                self.advance();
+                                Token::DoublePipe
+                            } else {
+                                Token::Pipe
                             }
                         }
                         '(' => Token::LParen,

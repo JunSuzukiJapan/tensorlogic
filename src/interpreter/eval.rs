@@ -823,6 +823,7 @@ impl Interpreter {
             TensorExpr::MethodCall { .. } => "MethodCall",
             TensorExpr::StructLiteral { .. } => "StructLiteral",
             TensorExpr::AssociatedCall { .. } => "AssociatedCall",
+            TensorExpr::Match { .. } => "Match",
         };
         // eprintln!("[DEBUG] eval_expr: type={}", expr_type);
 
@@ -1545,6 +1546,10 @@ impl Interpreter {
                 // Associated calls are like static methods on structs: Type::method()
                 // Dispatch to eval_typed_function_call for proper namespace handling
                 self.eval_typed_function_call(struct_type.name.as_str(), function.as_str(), args)
+            }
+
+            TensorExpr::Match { expr, arms } => {
+                self.eval_match(expr, arms)
             }
         }
     }
@@ -2738,6 +2743,156 @@ impl Interpreter {
             Value::LazyModelLayerF32(_) => "<LazyModelLayerF32>".to_string(),
             Value::LazyModelFeatureF32(_) => "<LazyModelFeatureF32>".to_string(),
             Value::Struct { struct_type, .. } => format!("<{}>", struct_type.name.as_str()),
+        }
+    }
+
+    /// Evaluate match expression
+    fn eval_match(&mut self, expr: &TensorExpr, arms: &[MatchArm]) -> RuntimeResult<Value> {
+        // Evaluate the expression to match against
+        let value = self.eval_expr(expr)?;
+
+        // Try each arm in order
+        for arm in arms {
+            // Try to match the pattern
+            if let Some(bindings) = self.match_pattern(&arm.pattern, &value)? {
+                // Pattern matched, check guard if present
+                if let Some(guard_expr) = &arm.guard {
+                    // Push a new scope for pattern bindings
+                    self.env.push_scope(crate::interpreter::environment::ScopeType::Block);
+
+                    // Bind pattern variables
+                    for (name, val) in bindings.iter() {
+                        self.env.declare_variable(name.clone(), val.clone())?;
+                    }
+
+                    // Evaluate guard
+                    let guard_result = self.eval_expr(guard_expr)?;
+                    let guard_bool = guard_result.as_bool()?;
+
+                    // Pop scope
+                    self.env.pop_scope();
+
+                    if !guard_bool {
+                        // Guard failed, try next arm
+                        continue;
+                    }
+                }
+
+                // Pattern matched (and guard passed if present), evaluate body
+                // Push a new scope for pattern bindings
+                self.env.push_scope(crate::interpreter::environment::ScopeType::Block);
+
+                // Bind pattern variables
+                for (name, val) in bindings {
+                    self.env.declare_variable(name, val)?;
+                }
+
+                // Evaluate body
+                let result = self.eval_expr(&arm.body);
+
+                // Pop scope
+                self.env.pop_scope();
+
+                return result;
+            }
+        }
+
+        // No arm matched
+        Err(RuntimeError::InvalidOperation(
+            "match expression: no arm matched".to_string()
+        ))
+    }
+
+    /// Try to match a pattern against a value
+    /// Returns Some(bindings) if the pattern matches, None otherwise
+    fn match_pattern(&self, pattern: &Pattern, value: &Value) -> RuntimeResult<Option<Vec<(String, Value)>>> {
+        match pattern {
+            Pattern::Wildcard => {
+                // Wildcard matches anything
+                Ok(Some(vec![]))
+            }
+
+            Pattern::Integer(i) => {
+                match value {
+                    Value::Integer(v) if v == i => Ok(Some(vec![])),
+                    _ => Ok(None),
+                }
+            }
+
+            Pattern::Float(f) => {
+                match value {
+                    Value::Float(v) if (v - f).abs() < f64::EPSILON => Ok(Some(vec![])),
+                    _ => Ok(None),
+                }
+            }
+
+            Pattern::String(s) => {
+                match value {
+                    Value::String(v) if v == s => Ok(Some(vec![])),
+                    _ => Ok(None),
+                }
+            }
+
+            Pattern::Boolean(b) => {
+                match value {
+                    Value::Boolean(v) if v == b => Ok(Some(vec![])),
+                    _ => Ok(None),
+                }
+            }
+
+            Pattern::Variable(ident) => {
+                // Variable pattern always matches and binds the value
+                Ok(Some(vec![(ident.as_str().to_string(), value.clone())]))
+            }
+
+            Pattern::Tuple(patterns) => {
+                // For now, tuples are not supported in TensorLogic
+                // This would require a Tuple value type
+                Err(RuntimeError::NotImplemented(
+                    "Tuple patterns not yet supported".to_string()
+                ))
+            }
+
+            Pattern::Struct { struct_type, fields } => {
+                match value {
+                    Value::Struct { struct_type: value_type, fields: value_fields } => {
+                        // Check if struct types match
+                        if struct_type.name != value_type.name {
+                            return Ok(None);
+                        }
+
+                        // Match each field pattern
+                        let mut all_bindings = Vec::new();
+                        for field_pattern in fields {
+                            let field_name = field_pattern.name.as_str();
+                            if let Some(field_value) = value_fields.get(field_name) {
+                                if let Some(bindings) = self.match_pattern(&field_pattern.pattern, field_value)? {
+                                    all_bindings.extend(bindings);
+                                } else {
+                                    // Field pattern didn't match
+                                    return Ok(None);
+                                }
+                            } else {
+                                // Field not found
+                                return Ok(None);
+                            }
+                        }
+
+                        Ok(Some(all_bindings))
+                    }
+                    _ => Ok(None),
+                }
+            }
+
+            Pattern::Or(patterns) => {
+                // Try each pattern in order
+                for p in patterns {
+                    if let Some(bindings) = self.match_pattern(p, value)? {
+                        return Ok(Some(bindings));
+                    }
+                }
+                Ok(None)
+            }
         }
     }
 }

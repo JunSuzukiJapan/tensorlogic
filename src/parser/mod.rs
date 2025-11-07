@@ -1183,6 +1183,9 @@ impl TensorLogicParser {
                 let s = Self::parse_string_literal(inner)?;
                 Ok(TensorExpr::Literal(TensorLiteral::Scalar(ScalarLiteral::String(s))))
             }
+            Rule::match_expr => {
+                Self::parse_match_expr(inner, registry)
+            }
             _ => Err(ParseError::UnexpectedRule {
                 expected: "tensor term".to_string(),
                 found: format!("{:?}", inner.as_rule()),
@@ -2551,6 +2554,203 @@ impl TensorLogicParser {
         })?, registry)?;
 
         Ok(FieldInit { name, value })
+    }
+
+    fn parse_match_expr(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
+        let mut inner = pair.into_inner();
+
+        // Parse the expression to match against
+        let expr = Box::new(Self::parse_tensor_expr(inner.next().ok_or_else(|| {
+            ParseError::MissingField("match expression".to_string())
+        })?, registry)?);
+
+        // Parse match arms
+        let mut arms = Vec::new();
+        for arm_pair in inner {
+            if arm_pair.as_rule() == Rule::match_arm {
+                arms.push(Self::parse_match_arm(arm_pair, registry)?);
+            }
+        }
+
+        if arms.is_empty() {
+            return Err(ParseError::InvalidSyntax("match expression must have at least one arm".to_string()));
+        }
+
+        Ok(TensorExpr::Match { expr, arms })
+    }
+
+    fn parse_match_arm(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<MatchArm, ParseError> {
+        let mut inner = pair.into_inner();
+
+        // Parse pattern
+        let pattern = Self::parse_pattern(inner.next().ok_or_else(|| {
+            ParseError::MissingField("pattern in match arm".to_string())
+        })?)?;
+
+        let mut guard = None;
+        let mut body = None;
+
+        // Parse guard (if present) and body
+        for item in inner {
+            match item.as_rule() {
+                Rule::tensor_expr => {
+                    if body.is_none() {
+                        // If we haven't seen a body yet, check if this is a guard or body
+                        // The grammar says: pattern ~ ("if" ~ tensor_expr)? ~ "=>" ~ tensor_expr
+                        // So if we have a guard, it comes before the body
+                        if guard.is_none() {
+                            // Try to determine if this is a guard or body
+                            // In our grammar, guards are explicitly marked with "if"
+                            // But since pest combines them, we need to check position
+                            // For now, let's assume the first tensor_expr after pattern is guard if there are 2
+                            // and the second is body, or the first is body if there's only 1
+                            guard = Some(Self::parse_tensor_expr(item, registry)?);
+                        } else {
+                            body = Some(Self::parse_tensor_expr(item, registry)?);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Actually, we need to rethink this. The grammar has:
+        // match_arm = { pattern ~ ("if" ~ tensor_expr)? ~ "=>" ~ tensor_expr }
+        // Pest will give us the pattern and one or two tensor_exprs
+        // We need to handle this more carefully
+
+        // Let's re-parse more carefully
+        let mut inner = pair.into_inner();
+        let pattern = Self::parse_pattern(inner.next().ok_or_else(|| {
+            ParseError::MissingField("pattern in match arm".to_string())
+        })?)?;
+
+        // Collect remaining tensor expressions
+        let exprs: Vec<_> = inner
+            .filter(|p| p.as_rule() == Rule::tensor_expr)
+            .collect();
+
+        let (guard, body) = match exprs.len() {
+            1 => {
+                // No guard, just body
+                (None, Self::parse_tensor_expr(exprs[0].clone(), registry)?)
+            }
+            2 => {
+                // Guard and body
+                (
+                    Some(Self::parse_tensor_expr(exprs[0].clone(), registry)?),
+                    Self::parse_tensor_expr(exprs[1].clone(), registry)?
+                )
+            }
+            _ => {
+                return Err(ParseError::InvalidSyntax(
+                    "match arm must have 1 or 2 expressions (guard and body)".to_string()
+                ));
+            }
+        };
+
+        Ok(MatchArm { pattern, guard, body })
+    }
+
+    fn parse_pattern(pair: pest::iterators::Pair<Rule>) -> Result<Pattern, ParseError> {
+        let inner = pair.into_inner().next().ok_or_else(|| {
+            ParseError::MissingField("pattern content".to_string())
+        })?;
+
+        Self::parse_pattern_or(inner)
+    }
+
+    fn parse_pattern_or(pair: pest::iterators::Pair<Rule>) -> Result<Pattern, ParseError> {
+        let terms: Vec<_> = pair.into_inner().collect();
+
+        if terms.len() == 1 {
+            // Single pattern, no OR
+            Self::parse_pattern_term(terms[0].clone())
+        } else {
+            // Multiple patterns with OR
+            let patterns: Result<Vec<_>, _> = terms
+                .into_iter()
+                .map(Self::parse_pattern_term)
+                .collect();
+            Ok(Pattern::Or(patterns?))
+        }
+    }
+
+    fn parse_pattern_term(pair: pest::iterators::Pair<Rule>) -> Result<Pattern, ParseError> {
+        let inner = pair.into_inner().next().ok_or_else(|| {
+            ParseError::MissingField("pattern term content".to_string())
+        })?;
+
+        match inner.as_rule() {
+            Rule::wildcard_pattern => Ok(Pattern::Wildcard),
+            Rule::number_pattern => {
+                let num_str = inner.as_str();
+                if num_str.contains('.') {
+                    let f = num_str.parse::<f64>().map_err(|_| {
+                        ParseError::InvalidSyntax(format!("invalid float pattern: {}", num_str))
+                    })?;
+                    Ok(Pattern::Float(f))
+                } else {
+                    let i = num_str.parse::<i64>().map_err(|_| {
+                        ParseError::InvalidSyntax(format!("invalid integer pattern: {}", num_str))
+                    })?;
+                    Ok(Pattern::Integer(i))
+                }
+            }
+            Rule::boolean_pattern => {
+                let b = inner.as_str() == "true";
+                Ok(Pattern::Boolean(b))
+            }
+            Rule::string_pattern => {
+                let s = Self::parse_string_literal(inner)?;
+                Ok(Pattern::String(s))
+            }
+            Rule::tuple_pattern => {
+                let patterns: Result<Vec<_>, _> = inner
+                    .into_inner()
+                    .map(Self::parse_pattern)
+                    .collect();
+                Ok(Pattern::Tuple(patterns?))
+            }
+            Rule::struct_pattern => {
+                let mut inner_pairs = inner.into_inner();
+
+                let struct_type = Self::parse_struct_type(inner_pairs.next().ok_or_else(|| {
+                    ParseError::MissingField("struct type in pattern".to_string())
+                })?)?;
+
+                let mut fields = Vec::new();
+                if let Some(field_list) = inner_pairs.next() {
+                    for field_pattern in field_list.into_inner() {
+                        fields.push(Self::parse_field_pattern(field_pattern)?);
+                    }
+                }
+
+                Ok(Pattern::Struct { struct_type, fields })
+            }
+            Rule::variable_pattern => {
+                let ident = Self::parse_identifier(inner)?;
+                Ok(Pattern::Variable(ident))
+            }
+            _ => Err(ParseError::UnexpectedRule {
+                expected: "pattern term".to_string(),
+                found: format!("{:?}", inner.as_rule()),
+            }),
+        }
+    }
+
+    fn parse_field_pattern(pair: pest::iterators::Pair<Rule>) -> Result<FieldPattern, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let name = Self::parse_identifier(inner.next().ok_or_else(|| {
+            ParseError::MissingField("field name in pattern".to_string())
+        })?)?;
+
+        let pattern = Self::parse_pattern(inner.next().ok_or_else(|| {
+            ParseError::MissingField("field pattern".to_string())
+        })?)?;
+
+        Ok(FieldPattern { name, pattern })
     }
 }
 
