@@ -55,7 +55,7 @@ fn test_model_insert_single_tensor() -> TensorResult<()> {
 
     let mut model = Model::new(metadata);
 
-    let tensor = Tensor::from_vec_metal(
+    let tensor = Tensor::from_vec_gpu(
         &device,
         vec![f16::from_f32(1.0); 6],
         vec![2, 3]
@@ -85,7 +85,7 @@ fn test_model_insert_multiple_tensors() -> TensorResult<()> {
 
     // Insert multiple tensors
     for i in 0..5 {
-        let tensor = Tensor::from_vec_metal(
+        let tensor = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(i as f32); 10],
             vec![2, 5]
@@ -121,7 +121,7 @@ fn test_model_get_tensor() -> TensorResult<()> {
     });
 
     let tensor_data = vec![f16::from_f32(42.0); 4];
-    let tensor = Tensor::from_vec_metal(&device, tensor_data.clone(), vec![2, 2])?;
+    let tensor = Tensor::from_vec_gpu(&device, tensor_data.clone(), vec![2, 2])?;
 
     model.insert_tensor("test_tensor".to_string(), tensor);
 
@@ -132,7 +132,7 @@ fn test_model_get_tensor() -> TensorResult<()> {
     let retrieved = retrieved.unwrap();
     assert_eq!(retrieved.shape(), vec![2, 2]);
 
-    let data = retrieved.to_vec();
+    let data = retrieved.sync_and_read();
     for &val in &data {
         assert_eq!(val, f16::from_f32(42.0));
     }
@@ -171,7 +171,7 @@ fn test_model_tensor_names() -> TensorResult<()> {
     let names = vec!["layer.0.weight", "layer.0.bias", "layer.1.weight", "layer.1.bias"];
 
     for name in &names {
-        let tensor = Tensor::from_vec_metal(&device, vec![f16::ONE; 4], vec![2, 2])?;
+        let tensor = Tensor::from_vec_gpu(&device, vec![f16::ONE; 4], vec![2, 2])?;
         model.insert_tensor(name.to_string(), tensor);
     }
 
@@ -200,11 +200,11 @@ fn test_model_from_tensors() -> TensorResult<()> {
 
     tensors.insert(
         "weight".to_string(),
-        Tensor::from_vec_metal(&device, vec![f16::ONE; 4], vec![2, 2])?
+        Tensor::from_vec_gpu(&device, vec![f16::ONE; 4], vec![2, 2])?
     );
     tensors.insert(
         "bias".to_string(),
-        Tensor::from_vec_metal(&device, vec![f16::ZERO; 2], vec![2])?
+        Tensor::from_vec_gpu(&device, vec![f16::ZERO; 2], vec![2])?
     );
 
     let metadata = ModelMetadata {
@@ -303,7 +303,7 @@ fn test_model_typical_llm_structure() -> TensorResult<()> {
     let num_layers = 2;
 
     // Token embedding
-    let embed = Tensor::from_vec_metal(
+    let embed = Tensor::from_vec_gpu(
         &device,
         vec![f16::from_f32(0.01); vocab_size * d_model],
         vec![vocab_size, d_model]
@@ -315,32 +315,32 @@ fn test_model_typical_llm_structure() -> TensorResult<()> {
         // Attention weights
         model.insert_tensor(
             format!("blk.{}.attn_q.weight", layer),
-            Tensor::from_vec_metal(&device, vec![f16::ONE; d_model * d_model], vec![d_model, d_model])?
+            Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * d_model], vec![d_model, d_model])?
         );
         model.insert_tensor(
             format!("blk.{}.attn_k.weight", layer),
-            Tensor::from_vec_metal(&device, vec![f16::ONE; d_model * d_model], vec![d_model, d_model])?
+            Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * d_model], vec![d_model, d_model])?
         );
         model.insert_tensor(
             format!("blk.{}.attn_v.weight", layer),
-            Tensor::from_vec_metal(&device, vec![f16::ONE; d_model * d_model], vec![d_model, d_model])?
+            Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * d_model], vec![d_model, d_model])?
         );
 
         // FFN weights
         model.insert_tensor(
             format!("blk.{}.ffn_up.weight", layer),
-            Tensor::from_vec_metal(&device, vec![f16::ONE; d_model * d_model * 4], vec![d_model, d_model * 4])?
+            Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * d_model * 4], vec![d_model, d_model * 4])?
         );
         model.insert_tensor(
             format!("blk.{}.ffn_down.weight", layer),
-            Tensor::from_vec_metal(&device, vec![f16::ONE; d_model * 4 * d_model], vec![d_model * 4, d_model])?
+            Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * 4 * d_model], vec![d_model * 4, d_model])?
         );
     }
 
     // Output layer
     model.insert_tensor(
         "output.weight".to_string(),
-        Tensor::from_vec_metal(&device, vec![f16::ONE; d_model * vocab_size], vec![d_model, vocab_size])?
+        Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * vocab_size], vec![d_model, vocab_size])?
     );
 
     // Verify structure
@@ -369,11 +369,11 @@ fn test_model_update_tensor() -> TensorResult<()> {
     });
 
     // Insert initial tensor
-    let tensor1 = Tensor::from_vec_metal(&device, vec![f16::ONE; 4], vec![2, 2])?;
+    let tensor1 = Tensor::from_vec_gpu(&device, vec![f16::ONE; 4], vec![2, 2])?;
     model.insert_tensor("weight".to_string(), tensor1);
 
     // Update tensor (same name, new value)
-    let tensor2 = Tensor::from_vec_metal(&device, vec![f16::from_f32(2.0); 4], vec![2, 2])?;
+    let tensor2 = Tensor::from_vec_gpu(&device, vec![f16::from_f32(2.0); 4], vec![2, 2])?;
     model.insert_tensor("weight".to_string(), tensor2);
 
     // Should still have 1 tensor
@@ -381,7 +381,7 @@ fn test_model_update_tensor() -> TensorResult<()> {
 
     // Verify new value
     let retrieved = model.get_tensor("weight").unwrap();
-    let data = retrieved.to_vec();
+    let data = retrieved.sync_and_read();
     for &val in &data {
         assert_eq!(val, f16::from_f32(2.0));
     }
@@ -404,7 +404,7 @@ fn test_model_large_number_of_tensors() -> TensorResult<()> {
     // Insert 100 tensors
     let num_tensors = 100;
     for i in 0..num_tensors {
-        let tensor = Tensor::from_vec_metal(&device, vec![f16::from_f32(i as f32); 4], vec![2, 2])?;
+        let tensor = Tensor::from_vec_gpu(&device, vec![f16::from_f32(i as f32); 4], vec![2, 2])?;
         model.insert_tensor(format!("tensor_{}", i), tensor);
     }
 
@@ -490,7 +490,7 @@ fn test_model_various_tensor_shapes() -> TensorResult<()> {
 
     for (i, shape) in shapes.iter().enumerate() {
         let size: usize = shape.iter().product();
-        let tensor = Tensor::from_vec_metal(&device, vec![f16::ONE; size], shape.clone())?;
+        let tensor = Tensor::from_vec_gpu(&device, vec![f16::ONE; size], shape.clone())?;
         model.insert_tensor(format!("tensor_{}", i), tensor);
     }
 
@@ -518,7 +518,7 @@ fn test_model_empty_tensor() -> TensorResult<()> {
     });
 
     // Empty tensor (0 elements)
-    let tensor = Tensor::from_vec_metal(&device, vec![], vec![0, 5])?;
+    let tensor = Tensor::from_vec_gpu(&device, vec![], vec![0, 5])?;
     model.insert_tensor("empty".to_string(), tensor);
 
     assert_eq!(model.num_tensors(), 1);
@@ -554,7 +554,7 @@ fn test_model_nested_tensor_names() -> TensorResult<()> {
     ];
 
     for name in &names {
-        let tensor = Tensor::from_vec_metal(&device, vec![f16::ONE; 4], vec![2, 2])?;
+        let tensor = Tensor::from_vec_gpu(&device, vec![f16::ONE; 4], vec![2, 2])?;
         model.insert_tensor(name.to_string(), tensor);
     }
 
@@ -590,7 +590,7 @@ fn test_model_special_characters_in_names() -> TensorResult<()> {
     ];
 
     for name in &names {
-        let tensor = Tensor::from_vec_metal(&device, vec![f16::ONE; 2], vec![2])?;
+        let tensor = Tensor::from_vec_gpu(&device, vec![f16::ONE; 2], vec![2])?;
         model.insert_tensor(name.to_string(), tensor);
     }
 
@@ -650,7 +650,7 @@ fn test_model_clone() -> TensorResult<()> {
         quantization: None,
     });
 
-    let tensor = Tensor::from_vec_metal(&device, vec![f16::from_f32(42.0); 4], vec![2, 2])?;
+    let tensor = Tensor::from_vec_gpu(&device, vec![f16::from_f32(42.0); 4], vec![2, 2])?;
     model.insert_tensor("weight".to_string(), tensor);
 
     // Clone model
@@ -687,7 +687,7 @@ fn test_model_workflow_simulation() -> TensorResult<()> {
     let vocab_size = 100;
     let d_model = 32;
 
-    let embedding = Tensor::from_vec_metal(
+    let embedding = Tensor::from_vec_gpu(
         &device,
         vec![f16::from_f32(0.01); vocab_size * d_model],
         vec![vocab_size, d_model]

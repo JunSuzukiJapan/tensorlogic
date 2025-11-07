@@ -26,7 +26,7 @@ fn test_arithmetic_pipeline() -> TensorResult<()> {
     let d = c.mul(&Tensor::from_vec(vec![f16::from_f32(2.0); 10], vec![10])?)?;
     let e = d.sub(&Tensor::from_vec(vec![f16::from_f32(5.0); 10], vec![10])?)?;
 
-    let result = e.to_vec();
+    let result = e.sync_and_read();
     // For i=0: ((0+2)*2)-5 = -1
     assert!((result[0].to_f32() - (-1.0)).abs() < 1e-3);
     Ok(())

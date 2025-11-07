@@ -119,7 +119,7 @@ fn test_simple_autodiff() {
     // Note: 勾配は計算グラフのテンソルレジストリに保存される
     let x_with_grad = AutogradContext::get_tensor(x.grad_node().unwrap()).unwrap();
     let grad = x_with_grad.grad().unwrap();
-    assert_eq!(grad.to_vec()[0], f16::from_f32(6.0));
+    assert_eq!(grad.sync_and_read()[0], f16::from_f32(6.0));
 }
 
 #[test]
@@ -143,8 +143,8 @@ fn test_chain_rule() {
     z_scalar.backward().unwrap();
 
     // dz/dx = 2(x + y) = 10.0
-    assert_eq!(x.grad().unwrap().to_vec()[0], f16::from_f32(10.0));
+    assert_eq!(x.grad().unwrap().sync_and_read()[0], f16::from_f32(10.0));
 
     // dz/dy = 2(x + y) = 10.0
-    assert_eq!(y.grad().unwrap().to_vec()[0], f16::from_f32(10.0));
+    assert_eq!(y.grad().unwrap().sync_and_read()[0], f16::from_f32(10.0));
 }

@@ -26,7 +26,7 @@ fn test_second_derivative_simple() {
     x = AutogradContext::get_tensor(x.grad_node().unwrap()).unwrap();
 
     let grad1 = x.grad().unwrap();
-    let grad1_val = grad1.to_vec()[0].to_f32();
+    let grad1_val = grad1.sync_and_read()[0].to_f32();
 
     // Expected: 2 * 3 = 6
     assert!((grad1_val - 6.0).abs() < 0.1, "First derivative: expected 6.0, got {}", grad1_val);
@@ -46,7 +46,7 @@ fn test_second_derivative_simple() {
     x = AutogradContext::get_tensor(x.grad_node().unwrap()).unwrap();
 
     let grad2 = x.grad().unwrap();
-    let grad2_val = grad2.to_vec()[0].to_f32();
+    let grad2_val = grad2.sync_and_read()[0].to_f32();
 
     // Expected: 2
     assert!((grad2_val - 2.0).abs() < 0.5, "Second derivative: expected 2.0, got {}", grad2_val);
@@ -73,7 +73,7 @@ fn test_second_derivative_cubic() {
     x = AutogradContext::get_tensor(x.grad_node().unwrap()).unwrap();
 
     let grad1 = x.grad().unwrap();
-    let grad1_val = grad1.to_vec()[0].to_f32();
+    let grad1_val = grad1.sync_and_read()[0].to_f32();
 
     // Expected: 3 * 2² = 12
     assert!((grad1_val - 12.0).abs() < 0.5, "First derivative: expected 12.0, got {}", grad1_val);
@@ -93,7 +93,7 @@ fn test_second_derivative_cubic() {
     x = AutogradContext::get_tensor(x.grad_node().unwrap()).unwrap();
 
     let grad2 = x.grad().unwrap();
-    let grad2_val = grad2.to_vec()[0].to_f32();
+    let grad2_val = grad2.sync_and_read()[0].to_f32();
 
     // Expected: 6 * 2 = 12
     assert!((grad2_val - 12.0).abs() < 1.0, "Second derivative: expected 12.0, got {}", grad2_val);
@@ -144,6 +144,6 @@ fn test_gradient_requires_grad_with_create_graph() {
     assert!(grad.requires_grad(), "Gradient should require grad with create_graph");
 
     // Gradient value should be 2*x = 4
-    let grad_val = grad.to_vec()[0].to_f32();
+    let grad_val = grad.sync_and_read()[0].to_f32();
     assert!((grad_val - 4.0).abs() < 0.5, "First derivative: expected 4.0, got {}", grad_val);
 }

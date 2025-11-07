@@ -27,7 +27,7 @@ fn test_f32_matmul_2x2() -> TensorResult<()> {
 
     // C = A @ B
     let c = a.matmul(&b)?;
-    let data = c.to_vec();
+    let data = c.sync_and_read();
 
     // Expected result:
     // [[1*5 + 2*7, 1*6 + 2*8],   [[19, 22],
@@ -67,7 +67,7 @@ fn test_f32_matmul_rectangular() -> TensorResult<()> {
     // Verify shape
     assert_eq!(c.shape(), &[2, 2]);
 
-    let data = c.to_vec();
+    let data = c.sync_and_read();
 
     // Expected:
     // [[1*7 + 2*9 + 3*11,  1*8 + 2*10 + 3*12],   [[58,  64],
@@ -105,7 +105,7 @@ fn test_f32_matmul_vector() -> TensorResult<()> {
 
     assert_eq!(result.shape(), &[3, 1]);
 
-    let data = result.to_vec();
+    let data = result.sync_and_read();
 
     // Expected:
     // [1*1 + 2*2 + 3*3]   [14]
@@ -152,7 +152,7 @@ fn test_f32_linear_layer() -> TensorResult<()> {
     // Verify shape: [2, 2]
     assert_eq!(output.shape(), &[2, 2]);
 
-    let data = output.to_vec();
+    let data = output.sync_and_read();
 
     // All values should be finite
     for val in data.iter() {
@@ -195,7 +195,7 @@ fn test_f32_batch_matmul() -> TensorResult<()> {
     // Verify shape: [2, 2, 2]
     assert_eq!(c.shape(), &[2, 2, 2]);
 
-    let data = c.to_vec();
+    let data = c.sync_and_read();
 
     // Verify all values are finite
     for val in data.iter() {
@@ -228,8 +228,8 @@ fn test_f32_identity_matmul() -> TensorResult<()> {
 
     // A @ I should equal A
     let result = a.matmul(&identity)?;
-    let data_a = a.to_vec();
-    let data_result = result.to_vec();
+    let data_a = a.sync_and_read();
+    let data_result = result.sync_and_read();
 
     for i in 0..9 {
         assert!((data_a[i] - data_result[i]).abs() < 1e-5);
@@ -256,7 +256,7 @@ fn test_f32_matmul_chain() -> TensorResult<()> {
     assert_eq!(abc.shape(), &[2, 2]);
 
     // Verify all finite
-    let data = abc.to_vec();
+    let data = abc.sync_and_read();
     for val in data.iter() {
         assert!(val.is_finite());
     }
@@ -280,7 +280,7 @@ fn test_f32_outer_product() -> TensorResult<()> {
 
     assert_eq!(result.shape(), &[3, 3]);
 
-    let data = result.to_vec();
+    let data = result.sync_and_read();
 
     // Expected:
     // [1*4, 1*5, 1*6]   [4,  5,  6]

@@ -37,7 +37,7 @@ fn test_einsum_matrix_multiplication() -> TensorResult<()> {
     )?;
 
     let c = Tensor::einsum("ij,jk->ik", &[&a, &b])?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     // Expected: [[1*5+2*7, 1*6+2*8], [3*5+4*7, 3*6+4*8]]
     //         = [[19, 22], [43, 50]]
@@ -57,7 +57,7 @@ fn test_einsum_transpose() -> TensorResult<()> {
     )?;
 
     let b = Tensor::einsum("ij->ji", &[&a])?;
-    let result = b.to_vec();
+    let result = b.sync_and_read();
 
     // Original: [[1, 2, 3], [4, 5, 6]]
     // Transposed: [[1, 4], [2, 5], [3, 6]]
@@ -87,7 +87,7 @@ fn test_einsum_batch_matrix_multiplication() -> TensorResult<()> {
     )?;
 
     let c = Tensor::einsum("bij,bjk->bik", &[&a, &b])?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     // Batch 0: [[1,2],[3,4]] @ [[1,0],[0,1]] = [[1,2],[3,4]]
     // Batch 1: [[5,6],[7,8]] @ [[2,0],[0,2]] = [[10,12],[14,16]]
@@ -118,7 +118,7 @@ fn test_einsum_attention_scores() -> TensorResult<()> {
     let k = Tensor::<f32>::ones(&device, vec![seq_k, heads, head_dim])?;
 
     let scores = Tensor::einsum("ihd,jhd->ihj", &[&q, &k])?;
-    let result = scores.to_vec();
+    let result = scores.sync_and_read();
     let shape = scores.shape();
 
     // Shape should be [seq_q, heads, seq_k] = [2, 2, 3]
@@ -153,7 +153,7 @@ fn test_einsum_attention_output() -> TensorResult<()> {
     let v = Tensor::<f32>::ones(vec![seq_k, heads, head_dim])?;
 
     let output = Tensor::einsum("ihj,jhd->ihd", &[&attn, &v])?;
-    let result = output.to_vec();
+    let result = output.sync_and_read();
     let shape = output.shape();
 
     // Shape should be [seq_q, heads, head_dim] = [2, 2, 4]
@@ -181,7 +181,7 @@ fn test_einsum_element_wise_product() -> TensorResult<()> {
     )?;
 
     let c = Tensor::einsum("ij,ij->ij", &[&a, &b])?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     let expected = vec![2.0, 6.0, 12.0, 20.0];
     assert_tensor_close_f32(&result, &expected, 1e-5);
@@ -197,7 +197,7 @@ fn test_einsum_outer_product() -> TensorResult<()> {
     let b = Tensor::<f32>::from_vec(vec![4.0, 5.0], vec![2])?;
 
     let c = Tensor::einsum("i,j->ij", &[&a, &b])?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     // Expected: [[1*4, 1*5], [2*4, 2*5], [3*4, 3*5]]
     let expected = vec![4.0, 5.0, 8.0, 10.0, 12.0, 15.0];
@@ -217,7 +217,7 @@ fn test_einsum_matrix_vector() -> TensorResult<()> {
     let b = Tensor::<f32>::from_vec(vec![1.0, 2.0, 3.0], vec![3])?;
 
     let c = Tensor::einsum("ij,j->i", &[&a, &b])?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     // Expected: [1*1+2*2+3*3, 4*1+5*2+6*3] = [14, 32]
     let expected = vec![14.0, 32.0];
@@ -236,7 +236,7 @@ fn test_einsum_trace() -> TensorResult<()> {
     )?;
 
     let trace = Tensor::einsum("ii->", &[&a])?;
-    let result = trace.to_vec();
+    let result = trace.sync_and_read();
 
     // Expected: 1 + 4 = 5
     assert_eq!(result.len(), 1);
@@ -255,7 +255,7 @@ fn test_einsum_diagonal() -> TensorResult<()> {
     )?;
 
     let diag = Tensor::einsum("ii->i", &[&a])?;
-    let result = diag.to_vec();
+    let result = diag.sync_and_read();
 
     // Expected diagonal: [1, 5, 9]
     let expected = vec![1.0, 5.0, 9.0];
@@ -274,7 +274,7 @@ fn test_einsum_sum_all() -> TensorResult<()> {
     )?;
 
     let sum = Tensor::einsum("ij->", &[&a])?;
-    let result = sum.to_vec();
+    let result = sum.sync_and_read();
 
     // Expected: 1 + 2 + 3 + 4 = 10
     assert_eq!(result.len(), 1);
@@ -293,7 +293,7 @@ fn test_einsum_sum_axis() -> TensorResult<()> {
     )?;
 
     let sum = Tensor::einsum("ij->i", &[&a])?;
-    let result = sum.to_vec();
+    let result = sum.sync_and_read();
 
     // Expected: [1+2+3, 4+5+6] = [6, 15]
     let expected = vec![6.0, 15.0];
@@ -329,7 +329,7 @@ fn test_einsum_bilinear() -> TensorResult<()> {
     let c = Tensor::<f32>::from_vec(vec![2.0, 3.0], vec![2, 1])?;
 
     let result = Tensor::einsum("ij,jk,kl->il", &[&a, &b, &c])?;
-    let vec = result.to_vec();
+    let vec = result.sync_and_read();
 
     // [1,2] @ [[1,0],[0,1]] @ [[2],[3]] = [1,2] @ [[2],[3]] = [8]
     let expected = vec![8.0];
@@ -356,7 +356,7 @@ fn test_einsum_f16_basic() -> TensorResult<()> {
     )?;
 
     let c = Tensor::einsum("ij,jk->ik", &[&a, &b])?;
-    let result: Vec<f32> = c.to_vec().iter().map(|&x| x.to_f32()).collect();
+    let result: Vec<f32> = c.sync_and_read().iter().map(|&x| x.to_f32()).collect();
 
     let expected = vec![19.0, 22.0, 43.0, 50.0];
     // f16 has lower precision
@@ -401,7 +401,7 @@ fn test_einsum_empty_output() -> TensorResult<()> {
 
     // "ij,jk" should infer output as "ik"
     let c = Tensor::einsum("ij,jk", &[&a, &b])?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     let expected = vec![19.0, 22.0, 43.0, 50.0];
     assert_tensor_close_f32(&result, &expected, 1e-5);
@@ -417,7 +417,7 @@ fn test_einsum_single_operand() -> TensorResult<()> {
 
     // Identity (no-op)
     let identity = Tensor::einsum("ij->ij", &[&a])?;
-    assert_tensor_close_f32(&identity.to_vec(), &a.to_vec(), 1e-5);
+    assert_tensor_close_f32(&identity.sync_and_read(), &a.sync_and_read(), 1e-5);
 
     println!("✓ einsum single operand test passed");
     Ok(())

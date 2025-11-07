@@ -31,7 +31,7 @@ fn test_gather_1d_basic() -> TensorResult<()> {
     )?;
 
     let result = x.gather(0, &indices)?;
-    let values = result.to_vec();
+    let values = result.sync_and_read();
 
     assert_eq!(values.len(), 3);
     assert!((values[0].to_f32() - 10.0).abs() < 1e-3);
@@ -59,7 +59,7 @@ fn test_gather_1d_reverse() -> TensorResult<()> {
     )?;
 
     let result = x.gather(0, &indices)?;
-    let values = result.to_vec();
+    let values = result.sync_and_read();
 
     for i in 0..5 {
         assert!((values[i].to_f32() - (9 - i) as f32).abs() < 1e-3);
@@ -97,7 +97,7 @@ fn test_gather_2d_dim0() -> TensorResult<()> {
     )?;
 
     let result = x.gather(0, &indices)?;
-    let values = result.to_vec();
+    let values = result.sync_and_read();
 
     assert_eq!(result.shape().dims(), &[2, 3]);
     assert!((values[0].to_f32() - 4.0).abs() < 1e-3); // x[1, 0]
@@ -132,7 +132,7 @@ fn test_gather_2d_dim1() -> TensorResult<()> {
     )?;
 
     let result = x.gather(1, &indices)?;
-    let values = result.to_vec();
+    let values = result.sync_and_read();
 
     assert_eq!(result.shape().dims(), &[2, 2]);
     assert!((values[0].to_f32() - 3.0).abs() < 1e-3); // x[0, 2]
@@ -196,7 +196,7 @@ fn test_gather_duplicate_indices() -> TensorResult<()> {
     )?;
 
     let result = x.gather(0, &indices)?;
-    let values = result.to_vec();
+    let values = result.sync_and_read();
 
     for val in values {
         assert!((val.to_f32() - 20.0).abs() < 1e-3);
@@ -231,7 +231,7 @@ fn test_scatter_1d_basic() -> TensorResult<()> {
     )?;
 
     let result = x.scatter(0, &indices, &src)?;
-    let values = result.to_vec();
+    let values = result.sync_and_read();
 
     assert_eq!(values.len(), 5);
     assert!((values[0].to_f32() - 10.0).abs() < 1e-3);
@@ -263,7 +263,7 @@ fn test_scatter_1d_overwrite() -> TensorResult<()> {
     )?;
 
     let result = x.scatter(0, &indices, &src)?;
-    let values = result.to_vec();
+    let values = result.sync_and_read();
 
     assert!((values[0].to_f32() - 1.0).abs() < 1e-3);
     assert!((values[1].to_f32() - 100.0).abs() < 1e-3);
@@ -295,7 +295,7 @@ fn test_scatter_1d_duplicate() -> TensorResult<()> {
     )?;
 
     let result = x.scatter(0, &indices, &src)?;
-    let values = result.to_vec();
+    let values = result.sync_and_read();
 
     assert!((values[2].to_f32() - 20.0).abs() < 1e-3); // Last write
     Ok(())
@@ -385,7 +385,7 @@ fn test_scatter_partial() -> TensorResult<()> {
     )?;
 
     let result = x.scatter(0, &indices, &src)?;
-    let values = result.to_vec();
+    let values = result.sync_and_read();
 
     // Most values should remain -1.0
     assert!((values[0].to_f32() - (-1.0)).abs() < 1e-3);
@@ -428,8 +428,8 @@ fn test_gather_scatter_roundtrip() -> TensorResult<()> {
     let zeros = Tensor::from_vec(vec![f16::ZERO; 5], vec![5])?;
     let scattered = zeros.scatter(0, &indices, &gathered)?;
 
-    let orig_vals = original.to_vec();
-    let result_vals = scattered.to_vec();
+    let orig_vals = original.sync_and_read();
+    let result_vals = scattered.sync_and_read();
 
     for i in 0..5 {
         assert!((orig_vals[i].to_f32() - result_vals[i].to_f32()).abs() < 1e-3);
@@ -461,8 +461,8 @@ fn test_scatter_gather_identity() -> TensorResult<()> {
     let scattered = zeros.scatter(0, &indices, &src)?;
     let gathered = scattered.gather(0, &indices)?;
 
-    let src_vals = src.to_vec();
-    let result_vals = gathered.to_vec();
+    let src_vals = src.sync_and_read();
+    let result_vals = gathered.sync_and_read();
 
     for i in 0..3 {
         assert!((src_vals[i].to_f32() - result_vals[i].to_f32()).abs() < 1e-3);
@@ -511,7 +511,7 @@ fn test_embedding_basic() -> TensorResult<()> {
     let embeddings = weight.embedding(&token_ids)?;
     assert_eq!(embeddings.shape().dims(), &[1, 3]);
 
-    let values = embeddings.to_vec();
+    let values = embeddings.sync_and_read();
     assert!((values[0].to_f32() - 7.0).abs() < 1e-3);
     assert!((values[1].to_f32() - 8.0).abs() < 1e-3);
     assert!((values[2].to_f32() - 9.0).abs() < 1e-3);
@@ -584,7 +584,7 @@ fn test_embedding_repeated_tokens() -> TensorResult<()> {
     )?;
 
     let embeddings = weight.embedding(&token_ids)?;
-    let values = embeddings.to_vec();
+    let values = embeddings.sync_and_read();
 
     // All should be the same (token 2's embedding)
     for i in 0..3 {
@@ -698,7 +698,7 @@ fn test_gather_large_tensor() -> TensorResult<()> {
     let result = x.gather(0, &indices_t)?;
     assert_eq!(result.shape().dims(), &[100]);
 
-    let values = result.to_vec();
+    let values = result.sync_and_read();
     for i in 0..100 {
         assert!((values[i].to_f32() - (i * 10) as f32).abs() < 1e-2);
     }
@@ -716,7 +716,7 @@ fn test_scatter_large_tensor() -> TensorResult<()> {
     let src_t = Tensor::from_vec(src, vec![100])?;
 
     let result = x.scatter(0, &indices_t, &src_t)?;
-    let values = result.to_vec();
+    let values = result.sync_and_read();
 
     for i in 0..100 {
         let idx = i * 10;
