@@ -32,7 +32,7 @@ fn test_model_create_empty() -> TensorResult<()> {
         quantization: None,
     };
 
-    let model = Model::new(metadata);
+    let model = Model::<f16>::new(metadata);
 
     assert_eq!(model.num_tensors(), 0);
     assert_eq!(model.tensor_names().len(), 0);
@@ -56,7 +56,7 @@ fn test_model_insert_single_tensor() -> TensorResult<()> {
         quantization: None,
     };
 
-    let mut model = Model::new(metadata);
+    let mut model = Model::<f16>::new(metadata);
 
     let tensor = Tensor::from_vec_gpu(
         &device,
@@ -86,7 +86,7 @@ fn test_model_insert_multiple_tensors() -> TensorResult<()> {
         quantization: Some(QuantizationType::Q4_0),
     };
 
-    let mut model = Model::new(metadata);
+    let mut model = Model::<f16>::new(metadata);
 
     // Insert multiple tensors
     for i in 0..5 {
@@ -120,7 +120,7 @@ fn test_model_get_tensor() -> TensorResult<()> {
     let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
-    let mut model = Model::new(ModelMetadata {
+    let mut model = Model::<f16>::new(ModelMetadata {
     let device = MetalDevice::new()?;
         name: "test".to_string(),
         format: ModelFormat::SafeTensors,
@@ -152,7 +152,7 @@ fn test_model_get_tensor() -> TensorResult<()> {
 #[serial]
 fn test_model_get_nonexistent_tensor() -> TensorResult<()> {
     let device = MetalDevice::new()?;
-    let model = Model::new(ModelMetadata {
+    let model = Model::<f16>::new(ModelMetadata {
         name: "empty".to_string(),
         format: ModelFormat::SafeTensors,
         quantization: None,
@@ -171,7 +171,7 @@ fn test_model_tensor_names() -> TensorResult<()> {
     let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
-    let mut model = Model::new(ModelMetadata {
+    let mut model = Model::<f16>::new(ModelMetadata {
     let device = MetalDevice::new()?;
         name: "named_model".to_string(),
         format: ModelFormat::SafeTensors,
@@ -246,7 +246,7 @@ fn test_model_metadata_safetensors() -> TensorResult<()> {
         quantization: None,
     };
 
-    let model = Model::new(metadata);
+    let model = Model::<f16>::new(metadata);
 
     assert_eq!(model.metadata.name, "safetensors_model");
     assert!(matches!(model.metadata.format, ModelFormat::SafeTensors));
@@ -266,7 +266,7 @@ fn test_model_metadata_gguf_quantized() -> TensorResult<()> {
         quantization: Some(QuantizationType::Q4_0),
     };
 
-    let model = Model::new(metadata);
+    let model = Model::<f16>::new(metadata);
 
     assert_eq!(model.metadata.name, "gguf_model");
     assert!(matches!(model.metadata.format, ModelFormat::GGUF));
@@ -289,7 +289,7 @@ fn test_model_metadata_coreml() -> TensorResult<()> {
         quantization: None,
     };
 
-    let model = Model::new(metadata);
+    let model = Model::<f16>::new(metadata);
 
     assert_eq!(model.metadata.name, "coreml_model");
     assert!(matches!(model.metadata.format, ModelFormat::CoreML));
@@ -306,7 +306,7 @@ fn test_model_typical_llm_structure() -> TensorResult<()> {
     let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
-    let mut model = Model::new(ModelMetadata {
+    let mut model = Model::<f16>::new(ModelMetadata {
     let device = MetalDevice::new()?;
         name: "tiny_llm".to_string(),
         format: ModelFormat::GGUF,
@@ -379,7 +379,7 @@ fn test_model_update_tensor() -> TensorResult<()> {
     let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
-    let mut model = Model::new(ModelMetadata {
+    let mut model = Model::<f16>::new(ModelMetadata {
     let device = MetalDevice::new()?;
         name: "updatable".to_string(),
         format: ModelFormat::SafeTensors,
@@ -414,7 +414,7 @@ fn test_model_large_number_of_tensors() -> TensorResult<()> {
     let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
-    let mut model = Model::new(ModelMetadata {
+    let mut model = Model::<f16>::new(ModelMetadata {
     let device = MetalDevice::new()?;
         name: "large_model".to_string(),
         format: ModelFormat::SafeTensors,
@@ -447,7 +447,7 @@ fn test_model_large_number_of_tensors() -> TensorResult<()> {
 #[should_panic(expected = "File has no extension")]
 fn test_model_load_no_extension() {
     let device = MetalDevice::new().unwrap();
-    let _ = Model::load("model_without_extension", &device).unwrap();
+    let _ = Model::<f16>::load("model_without_extension", &device).unwrap();
 }
 
 #[test]
@@ -455,7 +455,7 @@ fn test_model_load_no_extension() {
 #[should_panic(expected = "Unsupported file extension")]
 fn test_model_load_unsupported_extension() {
     let device = MetalDevice::new().unwrap();
-    let _ = Model::load("model.txt", &device).unwrap();
+    let _ = Model::<f16>::load("model.txt", &device).unwrap();
 }
 
 #[test]
@@ -463,7 +463,7 @@ fn test_model_load_unsupported_extension() {
 #[should_panic(expected = "Unsupported file extension")]
 fn test_model_load_unknown_format() {
     let device = MetalDevice::new().unwrap();
-    let _ = Model::load("model.xyz", &device).unwrap();
+    let _ = Model::<f16>::load("model.xyz", &device).unwrap();
 }
 
 #[test]
@@ -477,7 +477,7 @@ fn test_model_load_nonexistent_file() {
     let device = device.unwrap();
 
     // Try to load a file that doesn't exist
-    let result = Model::load("nonexistent_model.safetensors", &device);
+    let result = Model::<f16>::load("nonexistent_model.safetensors", &device);
 
     // Should fail (either file not found or parse error)
     assert!(result.is_err(), "Loading nonexistent file should fail");
@@ -493,7 +493,7 @@ fn test_model_various_tensor_shapes() -> TensorResult<()> {
     let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
-    let mut model = Model::new(ModelMetadata {
+    let mut model = Model::<f16>::new(ModelMetadata {
     let device = MetalDevice::new()?;
         name: "shapes".to_string(),
         format: ModelFormat::SafeTensors,
@@ -534,7 +534,7 @@ fn test_model_empty_tensor() -> TensorResult<()> {
     let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
-    let mut model = Model::new(ModelMetadata {
+    let mut model = Model::<f16>::new(ModelMetadata {
     let device = MetalDevice::new()?;
         name: "empty_tensors".to_string(),
         format: ModelFormat::SafeTensors,
@@ -562,7 +562,7 @@ fn test_model_nested_tensor_names() -> TensorResult<()> {
     let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
-    let mut model = Model::new(ModelMetadata {
+    let mut model = Model::<f16>::new(ModelMetadata {
     let device = MetalDevice::new()?;
         name: "nested".to_string(),
         format: ModelFormat::SafeTensors,
@@ -601,7 +601,7 @@ fn test_model_special_characters_in_names() -> TensorResult<()> {
     let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
-    let mut model = Model::new(ModelMetadata {
+    let mut model = Model::<f16>::new(ModelMetadata {
     let device = MetalDevice::new()?;
         name: "special_chars".to_string(),
         format: ModelFormat::SafeTensors,
@@ -654,7 +654,7 @@ fn test_model_quantization_types() -> TensorResult<()> {
             quantization: quant.clone(),
         };
 
-        let model = Model::new(metadata);
+        let model = Model::<f16>::new(metadata);
 
         match quant {
             None => assert!(model.metadata.quantization.is_none()),
@@ -674,7 +674,7 @@ fn test_model_clone() -> TensorResult<()> {
     let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
-    let mut model = Model::new(ModelMetadata {
+    let mut model = Model::<f16>::new(ModelMetadata {
     let device = MetalDevice::new()?;
         name: "original".to_string(),
         format: ModelFormat::SafeTensors,
@@ -709,7 +709,7 @@ fn test_model_workflow_simulation() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
     // Step 1: Create model structure
-    let mut model = Model::new(ModelMetadata {
+    let mut model = Model::<f16>::new(ModelMetadata {
     let device = MetalDevice::new()?;
         name: "workflow_test".to_string(),
         format: ModelFormat::SafeTensors,
