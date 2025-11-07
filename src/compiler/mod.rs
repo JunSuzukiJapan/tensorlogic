@@ -12,6 +12,8 @@ pub mod codegen;
 pub mod jit;
 #[cfg(feature = "llvm")]
 pub mod output;
+#[cfg(feature = "llvm")]
+pub mod linker;
 
 #[cfg(feature = "llvm")]
 pub use codegen::LLVMCodeGen;
@@ -19,6 +21,8 @@ pub use codegen::LLVMCodeGen;
 pub use jit::JITCompiler;
 #[cfg(feature = "llvm")]
 pub use output::{OutputFormat, OutputWriter};
+#[cfg(feature = "llvm")]
+pub use linker::{Linker, Platform};
 
 /// Compilation mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,6 +33,14 @@ pub enum CompilationMode {
     LLVMAssembly,
     /// Output native assembly to file
     NativeAssembly,
+    /// Output object file
+    ObjectFile,
+    /// Output static library
+    StaticLibrary,
+    /// Output shared library
+    SharedLibrary,
+    /// Output executable binary
+    Executable,
 }
 
 /// Compiler options
@@ -75,6 +87,42 @@ impl CompilerOptions {
     pub fn native_assembly(output_path: impl Into<String>) -> Self {
         CompilerOptions {
             mode: CompilationMode::NativeAssembly,
+            output_path: Some(output_path.into()),
+            opt_level: 2,
+        }
+    }
+
+    /// Create options for object file output
+    pub fn object_file(output_path: impl Into<String>) -> Self {
+        CompilerOptions {
+            mode: CompilationMode::ObjectFile,
+            output_path: Some(output_path.into()),
+            opt_level: 2,
+        }
+    }
+
+    /// Create options for static library output
+    pub fn static_library(output_path: impl Into<String>) -> Self {
+        CompilerOptions {
+            mode: CompilationMode::StaticLibrary,
+            output_path: Some(output_path.into()),
+            opt_level: 2,
+        }
+    }
+
+    /// Create options for shared library output
+    pub fn shared_library(output_path: impl Into<String>) -> Self {
+        CompilerOptions {
+            mode: CompilationMode::SharedLibrary,
+            output_path: Some(output_path.into()),
+            opt_level: 2,
+        }
+    }
+
+    /// Create options for executable output
+    pub fn executable(output_path: impl Into<String>) -> Self {
+        CompilerOptions {
+            mode: CompilationMode::Executable,
             output_path: Some(output_path.into()),
             opt_level: 2,
         }

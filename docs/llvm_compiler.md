@@ -9,6 +9,10 @@ LLVMコンパイラ機能は、TensorLogicプログラムを以下の形式で�
 1. **JIT実行**: プログラムをLLVM IRにコンパイルし、JIT(Just-In-Time)で実行することで、インタープリターよりも高速に動作
 2. **LLVM IRアセンブリ出力**: LLVM中間表現(.llファイル)をテキスト形式で出力
 3. **ネイティブアセンブリ出力**: プラットフォーム固有のアセンブリコード(.sファイル)を出力
+4. **オブジェクトファイル出力**: リンク可能なオブジェクトファイル(.o / .obj)を生成
+5. **静的ライブラリ出力**: 静的リンクライブラリ(.a / .lib)を生成
+6. **共有ライブラリ出力**: 動的リンクライブラリ(.so / .dll / .dylib)を生成
+7. **実行ファイル出力**: スタンドアロンの実行可能バイナリを生成
 
 ## ビルド方法
 
@@ -51,7 +55,53 @@ tl run program.tl --emit-asm output.s
 
 サポートされていないプラットフォームではエラーメッセージが表示されます。
 
-### 4. 最適化レベルの指定
+### 4. オブジェクトファイル出力
+
+```bash
+tl run program.tl --emit-obj output.o
+```
+
+リンク可能なオブジェクトファイルを生成します（.o on Unix、.obj on Windows）。
+
+### 5. 静的ライブラリ出力
+
+```bash
+tl run program.tl --emit-lib libmylib.a
+```
+
+静的リンクライブラリを生成します（.a on Unix、.lib on Windows）。
+
+**必要なツール**:
+- Linux/macOS: `ar` (binutilsに含まれる)
+- Windows: `lib.exe` (MSVC) または `ar` (MinGW)
+
+### 6. 共有ライブラリ出力
+
+```bash
+tl run program.tl --emit-shared libmylib.so
+```
+
+動的リンクライブラリを生成します（.so on Linux、.dll on Windows、.dylib on macOS）。
+
+**必要なツール**:
+- Linux: `gcc` または `clang`
+- macOS: `clang` (Xcode Command Line Tools)
+- Windows: `link.exe` (MSVC) または `gcc` (MinGW)
+
+### 7. 実行ファイル出力
+
+```bash
+tl run program.tl --emit-bin myprogram
+```
+
+スタンドアロンの実行可能バイナリを生成します。プログラムには`main`ブロックが必要です。
+
+**必要なツール**:
+- Linux: `gcc` または `clang`
+- macOS: `clang` (Xcode Command Line Tools)
+- Windows: `link.exe` (MSVC) または `gcc` (MinGW)
+
+### 8. 最適化レベルの指定
 
 ```bash
 tl run program.tl --jit --opt-level 3
@@ -72,7 +122,8 @@ src/compiler/
 ├── mod.rs         # モジュールエントリポイント、オプション定義
 ├── codegen.rs     # LLVM IR生成
 ├── jit.rs         # JIT実行エンジン
-└── output.rs      # ファイル出力（.ll, .s）
+├── output.rs      # ファイル出力（.ll, .s, .o, .a, .so, バイナリ）
+└── linker.rs      # クロスプラットフォームリンカーインフラ
 ```
 
 ### コンパイルフロー
@@ -86,7 +137,9 @@ LLVM IR Module
     ↓
     ├─→ JITCompiler → 実行
     ├─→ OutputWriter → .llファイル
-    └─→ OutputWriter → .sファイル
+    ├─→ OutputWriter → .sファイル
+    ├─→ OutputWriter → .oファイル
+    └─→ OutputWriter + Linker → .a / .so / バイナリ
 ```
 
 ## 現在の制限事項
@@ -116,7 +169,7 @@ LLVM IR Module
 2. **GPU統合**: LLVM PTXバックエンドを使用したGPUコード生成
 3. **より高度なJIT最適化**: ランタイムプロファイリングに基づく動的最適化
 4. **インクリメンタルコンパイル**: REPLでの使用を改善
-5. **リンク機能**: 複数のTensorLogicモジュールをリンクして単一の実行ファイルを生成
+5. **モジュールシステム**: 複数のTensorLogicモジュールをリンクして単一のライブラリ・実行ファイルを生成
 
 ## 例
 
@@ -152,6 +205,19 @@ cat factorial.ll
 # ネイティブアセンブリを生成
 tl run factorial.tl --emit-asm factorial.s
 cat factorial.s
+
+# オブジェクトファイルを生成
+tl run factorial.tl --emit-obj factorial.o
+
+# 静的ライブラリを生成
+tl run factorial.tl --emit-lib libfactorial.a
+
+# 共有ライブラリを生成
+tl run factorial.tl --emit-shared libfactorial.so
+
+# 実行可能バイナリを生成
+tl run factorial.tl --emit-bin factorial
+./factorial  # 実行
 ```
 
 ## トラブルシューティング
