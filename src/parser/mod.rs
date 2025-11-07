@@ -267,7 +267,7 @@ impl TensorLogicParser {
                 Ok(Declaration::Function(func_decl))
             },
             Rule::struct_decl => Ok(Declaration::Struct(Self::parse_struct_decl(inner)?)),
-            Rule::impl_block => Ok(Declaration::Impl(Self::parse_impl_block(inner)?)),
+            Rule::impl_block => Ok(Declaration::Impl(Self::parse_impl_block(inner, registry)?)),
             _ => Err(ParseError::UnexpectedRule {
                 expected: "declaration type".to_string(),
                 found: format!("{:?}", inner.as_rule()),
@@ -2247,7 +2247,7 @@ impl TensorLogicParser {
         })
     }
 
-    fn parse_impl_block(pair: pest::iterators::Pair<Rule>) -> Result<ImplBlock, ParseError> {
+    fn parse_impl_block(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<ImplBlock, ParseError> {
         let mut inner = pair.into_inner();
 
         let mut type_params = Vec::new();
@@ -2281,7 +2281,7 @@ impl TensorLogicParser {
                     struct_type = Some(Self::parse_struct_type(item)?);
                 }
                 Rule::method_decl => {
-                    methods.push(Self::parse_method_decl(item)?);
+                    methods.push(Self::parse_method_decl(item, registry)?);
                 }
                 _ => {}
             }
@@ -2419,7 +2419,7 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_method_decl(pair: pest::iterators::Pair<Rule>) -> Result<MethodDecl, ParseError> {
+    fn parse_method_decl(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<MethodDecl, ParseError> {
         let mut inner = pair.into_inner();
 
         // Parse method name
@@ -2440,7 +2440,7 @@ impl TensorLogicParser {
                     return_type = Self::parse_return_type(item)?;
                 }
                 Rule::statement => {
-                    body.push(Self::parse_statement(item)?);
+                    body.push(Self::parse_statement(item, registry)?);
                 }
                 _ => {}
             }
@@ -2502,7 +2502,7 @@ impl TensorLogicParser {
         })
     }
 
-    fn parse_associated_call(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+    fn parse_associated_call(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
         let mut inner = pair.into_inner();
 
         let struct_type = Self::parse_struct_type(inner.next().ok_or_else(|| {
@@ -2514,7 +2514,7 @@ impl TensorLogicParser {
         })?)?;
 
         let args = if let Some(tensor_list) = inner.next() {
-            Self::parse_tensor_list(tensor_list)?
+            Self::parse_tensor_list(tensor_list, registry)?
         } else {
             Vec::new()
         };
