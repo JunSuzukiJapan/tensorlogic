@@ -667,6 +667,17 @@ impl Interpreter {
                             ))
                         }
                     }
+                    Value::Struct { ref fields, .. } => {
+                        // Access struct field
+                        let field_name = property.as_str();
+                        if let Some(field_value) = fields.get(field_name) {
+                            Ok((**field_value).clone())
+                        } else {
+                            Err(RuntimeError::TypeError(
+                                format!("Field '{}' not found in struct", field_name)
+                            ))
+                        }
+                    }
                     _ => Err(RuntimeError::TypeError(
                         format!("Cannot access property '{}' on {:?}", property.as_str(), obj_value)
                     ))
@@ -716,6 +727,38 @@ impl Interpreter {
                         self.eval_function_call(&Identifier::new(method.as_str()), &final_args)
                     }
                 }
+            }
+
+            TensorExpr::StructLiteral { struct_type, fields } => {
+                // Evaluate all field values
+                let mut field_values = HashMap::new();
+                for field_init in fields {
+                    let field_name = field_init.name.as_str().to_string();
+                    let field_value = self.eval_expr(&field_init.value)?;
+                    field_values.insert(field_name, Box::new(field_value));
+                }
+
+                Ok(Value::Struct {
+                    struct_type: struct_type.clone(),
+                    fields: field_values,
+                })
+            }
+
+            TensorExpr::AssociatedCall { struct_type, function, args } => {
+                // Associated calls are like static methods on structs
+                // For now, we treat them as regular function calls
+                // but we could implement constructor patterns here
+
+                // The function name should be qualified with the struct name
+                let qualified_name = format!("{}::{}", struct_type.name.as_str(), function.as_str());
+
+                // Try the qualified name first
+                if let Ok(result) = self.eval_function_call(&Identifier::new(&qualified_name), args) {
+                    return Ok(result);
+                }
+
+                // Fall back to unqualified name
+                self.eval_function_call(function, args)
             }
         }
     }

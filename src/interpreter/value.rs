@@ -2,7 +2,9 @@
 
 use crate::tensor::{Tensor, TokenIdArray, TensorIO};
 use crate::model::Model;
+use crate::ast::StructType;
 use half::f16;
+use std::collections::HashMap;
 use super::{RuntimeError, RuntimeResult, DISPLAY_LIMIT};
 
 /// Runtime value
@@ -23,6 +25,11 @@ pub enum Value {
     TokenIdArray(TokenIdArray),
     /// Meta-type: represents an entity type
     Type(String),
+    /// Struct instance with type and field values
+    Struct {
+        struct_type: StructType,
+        fields: HashMap<String, Box<Value>>,
+    },
     Void,
 }
 
@@ -111,6 +118,35 @@ impl Value {
             ))),
         }
     }
+
+    /// Convert to struct if possible
+    pub fn as_struct(&self) -> RuntimeResult<(&StructType, &HashMap<String, Box<Value>>)> {
+        match self {
+            Value::Struct { struct_type, fields } => Ok((struct_type, fields)),
+            _ => Err(RuntimeError::TypeError(format!(
+                "Expected struct, found {:?}",
+                self
+            ))),
+        }
+    }
+
+    /// Get field from struct
+    pub fn get_field(&self, field_name: &str) -> RuntimeResult<&Value> {
+        match self {
+            Value::Struct { fields, .. } => {
+                fields.get(field_name)
+                    .map(|v| v.as_ref())
+                    .ok_or_else(|| RuntimeError::TypeError(format!(
+                        "Field '{}' not found in struct",
+                        field_name
+                    )))
+            }
+            _ => Err(RuntimeError::TypeError(format!(
+                "Cannot access field '{}' on non-struct value",
+                field_name
+            ))),
+        }
+    }
 }
 
 impl std::fmt::Display for Value {
@@ -174,6 +210,18 @@ impl std::fmt::Display for Value {
                 }
             }
             Value::Type(type_name) => write!(f, "Type({})", type_name),
+            Value::Struct { struct_type, fields } => {
+                write!(f, "{} {{", struct_type.name.as_str())?;
+                let mut first = true;
+                for (name, value) in fields.iter() {
+                    if !first {
+                        write!(f, ", ")?;
+                    }
+                    first = false;
+                    write!(f, "{}: {}", name, value)?;
+                }
+                write!(f, "}}")
+            }
             Value::Void => write!(f, "()"),
         }
     }
