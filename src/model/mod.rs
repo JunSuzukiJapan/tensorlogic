@@ -8,16 +8,23 @@
 pub mod metadata;
 pub mod convert;
 pub mod formats;
+pub mod llama;
+pub mod weight_cache;
+pub mod gguf_weight_cache;
+pub mod lazy_weight_loader;
 
 use crate::tensor::Tensor;
-use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO};
-use crate::device::{Device, MetalDevice};
+use crate::tensor::{FloatType, TensorCreation, TensorIO};
+use crate::device::MetalDevice;
 use crate::error::TensorError;
 use std::collections::HashMap;
 use std::path::Path;
 
 pub use metadata::{ModelMetadata, ModelFormat, QuantizationType};
 pub use convert::TypeConverter;
+pub use weight_cache::WeightCache;
+pub use gguf_weight_cache::GGUFWeightCache;
+pub use lazy_weight_loader::LazyWeightLoader;
 
 /// Result type for model operations
 pub type ModelResult<T> = Result<T, TensorError>;
@@ -25,16 +32,16 @@ pub type ModelResult<T> = Result<T, TensorError>;
 /// Model structure containing multiple named tensors
 ///
 /// Represents a complete model with all its weights and parameters.
-/// All tensors are stored in TensorLogic's native f16 format.
+/// Generic over tensor precision type (f16 or f32).
 #[derive(Debug, Clone)]
-pub struct Model {
+pub struct Model<T: FloatType = half::f16> {
     /// Named tensors (e.g., "layers.0.weight", "layers.0.bias")
-    pub tensors: HashMap<String, Tensor>,
+    pub tensors: HashMap<String, Tensor<T>>,
     /// Model metadata (format, quantization, etc.)
     pub metadata: ModelMetadata,
 }
 
-impl Model {
+impl<T: FloatType> Model<T> {
     /// Create a new empty model
     pub fn new(metadata: ModelMetadata) -> Self {
         Self {
@@ -44,22 +51,22 @@ impl Model {
     }
 
     /// Create a model from a hashmap of tensors
-    pub fn from_tensors(tensors: HashMap<String, Tensor>, metadata: ModelMetadata) -> Self {
+    pub fn from_tensors(tensors: HashMap<String, Tensor<T>>, metadata: ModelMetadata) -> Self {
         Self { tensors, metadata }
     }
 
     /// Get a tensor by name
-    pub fn get_tensor(&self, name: &str) -> Option<&Tensor> {
+    pub fn get_tensor(&self, name: &str) -> Option<&Tensor<T>> {
         self.tensors.get(name)
     }
 
     /// Get a mutable reference to a tensor by name
-    pub fn get_tensor_mut(&mut self, name: &str) -> Option<&mut Tensor> {
+    pub fn get_tensor_mut(&mut self, name: &str) -> Option<&mut Tensor<T>> {
         self.tensors.get_mut(name)
     }
 
     /// Insert a tensor with a name
-    pub fn insert_tensor(&mut self, name: String, tensor: Tensor) {
+    pub fn insert_tensor(&mut self, name: String, tensor: Tensor<T>) {
         self.tensors.insert(name, tensor);
     }
 
@@ -73,6 +80,75 @@ impl Model {
         self.tensors.len()
     }
 
+    /// Build layer collection from tensors with pattern "blk.N.feature.property"
+    /// Returns ModelLayerCollection containing parsed layer structure
+    pub fn build_layer_collection(&self, collection_name: &str) -> Option<crate::interpreter::ModelLayerCollection<T>> {
+        use std::collections::HashMap;
+        use crate::interpreter::ModelLayerCollection;
+        
+        let prefix = format!("{}.", collection_name);
+        let mut layers: HashMap<usize, HashMap<String, Tensor<T>>> = HashMap::new();
+        
+        // Parse all tensors matching pattern: "blk.N.feature.property"
+        for (name, tensor) in &self.tensors {
+            if let Some(rest) = name.strip_prefix(&prefix) {
+                // Split: "0.attn_norm.weight" -> ["0", "attn_norm", "weight"]
+                let parts: Vec<&str> = rest.split('.').collect();
+                if parts.len() >= 3 {
+                    if let Ok(layer_idx) = parts[0].parse::<usize>() {
+                        let feature_path = parts[1..].join(".");
+                        layers.entry(layer_idx)
+                            .or_insert_with(HashMap::new)
+                            .insert(feature_path, tensor.clone());
+                    }
+                }
+            }
+        }
+        
+        if layers.is_empty() {
+            return None;
+        }
+        
+        Some(ModelLayerCollection {
+            layers,
+            model_metadata: self.metadata.clone(),
+        })
+    }
+
+    /// Get a specific property from a model (non-hierarchical access)
+    /// For hierarchical properties like "token_embd.weight", directly returns the tensor
+    pub fn get_property(&self, property_name: &str) -> Option<crate::interpreter::ModelFeature<T>> {
+        use std::collections::HashMap;
+        use crate::interpreter::ModelFeature;
+        
+        let prefix = format!("{}.", property_name);
+        let mut properties: HashMap<String, Tensor<T>> = HashMap::new();
+        
+        // Collect all tensors matching "property_name.X"
+        for (name, tensor) in &self.tensors {
+            if let Some(rest) = name.strip_prefix(&prefix) {
+                properties.insert(rest.to_string(), tensor.clone());
+            } else if name == property_name {
+                // Exact match - single tensor property
+                let mut props = HashMap::new();
+                props.insert("".to_string(), tensor.clone());
+                return Some(ModelFeature {
+                    name: property_name.to_string(),
+                    properties: props,
+                });
+            }
+        }
+        
+        if properties.is_empty() {
+            None
+        } else {
+            Some(ModelFeature {
+                name: property_name.to_string(),
+                properties,
+            })
+        }
+    }
+
     /// Load a model from a file (format auto-detected from extension)
     ///
     /// Supported extensions:
@@ -81,7 +157,10 @@ impl Model {
     /// - `.mlmodel`, `.mlpackage` → CoreML format
     ///
     /// Tensors are loaded directly to Metal GPU for optimal performance.
-    pub fn load<P: AsRef<Path>>(path: P, device: &MetalDevice) -> ModelResult<Self> {
+    pub fn load<P: AsRef<Path>>(path: P, device: &MetalDevice) -> ModelResult<Model<half::f16>>
+    where
+        T: FloatType
+    {
         let path = path.as_ref();
         let extension = path.extension()
             .and_then(|ext| ext.to_str())
@@ -99,7 +178,14 @@ impl Model {
         }
     }
 
+}
+
+/// Implementation specific to Model<f16> for format-specific save operations
+impl Model<half::f16> {
     /// Save the model to a file
+    ///
+    /// Note: Save operations currently only support f16 models.
+    /// For f32 models, convert to f16 first or use format-specific savers.
     pub fn save<P: AsRef<Path>>(&self, path: P, format: ModelFormat) -> ModelResult<()> {
         let path = path.as_ref();
 
@@ -123,7 +209,7 @@ mod tests {
             quantization: None,
         };
 
-        let model = Model::new(metadata);
+        let model: Model<half::f16> = Model::new(metadata);
         assert_eq!(model.num_tensors(), 0);
     }
 
@@ -137,9 +223,9 @@ mod tests {
             quantization: None,
         };
 
-        let mut model = Model::new(metadata);
+        let mut model: Model<half::f16> = Model::new(metadata);
         let device = MetalDevice::new().unwrap();
-        let tensor = Tensor::from_vec_metal(&device, vec![half::f16::from_f32(1.0); 6], vec![2, 3]).unwrap();
+        let tensor = Tensor::from_vec_gpu(&device, vec![half::f16::from_f32(1.0); 6], vec![2, 3]).unwrap();
 
         model.insert_tensor("test_tensor".to_string(), tensor);
         assert_eq!(model.num_tensors(), 1);

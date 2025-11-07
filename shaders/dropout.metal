@@ -46,3 +46,47 @@ kernel void dropout_backward_f16(
         grad_input[gid] = half(float(grad_output[gid]) * scale);
     }
 }
+
+// F32 version
+kernel void dropout_f32(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    device const float* random [[buffer(2)]],  // Random values in [0, 1]
+    constant float& drop_prob [[buffer(3)]],
+    constant uint& size [[buffer(4)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid >= size) return;
+
+    float scale = 1.0f / (1.0f - drop_prob);
+
+    if (random[gid] < drop_prob) {
+        // Drop this element
+        output[gid] = float(0.0f);
+    } else {
+        // Keep and scale
+        output[gid] = float(float(input[gid]) * scale);
+    }
+}
+
+// F32 version
+kernel void dropout_backward_f32(
+    device const float* grad_output [[buffer(0)]],
+    device const float* random [[buffer(1)]],  // Same random values from forward
+    device float* grad_input [[buffer(2)]],
+    constant float& drop_prob [[buffer(3)]],
+    constant uint& size [[buffer(4)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid >= size) return;
+
+    float scale = 1.0f / (1.0f - drop_prob);
+
+    if (random[gid] < drop_prob) {
+        // This element was dropped
+        grad_input[gid] = float(0.0f);
+    } else {
+        // Gradient passes through with scaling
+        grad_input[gid] = float(float(grad_output[gid]) * scale);
+    }
+}

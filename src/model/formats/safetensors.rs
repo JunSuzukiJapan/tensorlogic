@@ -3,7 +3,7 @@
 //! Loads PyTorch-compatible SafeTensors files and converts to f16 format.
 
 use crate::tensor::{Tensor, TensorAccessors, TensorCreation, TensorIO};
-use crate::device::{Device, MetalDevice};
+use crate::device::MetalDevice;
 use crate::error::TensorError;
 use crate::model::{Model, ModelMetadata, ModelFormat, QuantizationType};
 use crate::model::convert::{f32_to_f16, f16_to_f32};
@@ -83,7 +83,7 @@ impl SafeTensorsLoader {
             };
 
             // Create TensorLogic tensor (on Metal GPU)
-            let tensor = Tensor::from_vec_metal(device, f16_data, shape.to_vec())?;
+            let tensor = Tensor::from_vec_gpu(device, f16_data, shape.to_vec())?;
             tensors.insert(name.to_string(), tensor);
         }
 
@@ -149,7 +149,7 @@ mod tests {
         let device = MetalDevice::new().unwrap();
         let mut tensors = HashMap::new();
         let data = vec![half::f16::from_f32(1.0), half::f16::from_f32(2.0)];
-        let tensor = Tensor::from_vec_metal(&device, data, vec![2]).unwrap();
+        let tensor = Tensor::from_vec_gpu(&device, data, vec![2]).unwrap();
         tensors.insert("test_tensor".to_string(), tensor);
 
         let metadata = ModelMetadata {
@@ -179,15 +179,15 @@ mod tests {
         // Add multiple tensors with different shapes
         tensors.insert(
             "weights".to_string(),
-            Tensor::from_vec_metal(&device, vec![half::f16::from_f32(0.5); 12], vec![3, 4]).unwrap()
+            Tensor::from_vec_gpu(&device, vec![half::f16::from_f32(0.5); 12], vec![3, 4]).unwrap()
         );
         tensors.insert(
             "bias".to_string(),
-            Tensor::from_vec_metal(&device, vec![half::f16::from_f32(0.1); 4], vec![4]).unwrap()
+            Tensor::from_vec_gpu(&device, vec![half::f16::from_f32(0.1); 4], vec![4]).unwrap()
         );
         tensors.insert(
             "scale".to_string(),
-            Tensor::from_vec_metal(&device, vec![half::f16::from_f32(1.0)], vec![1]).unwrap()
+            Tensor::from_vec_gpu(&device, vec![half::f16::from_f32(1.0)], vec![1]).unwrap()
         );
 
         let metadata = ModelMetadata {
@@ -229,7 +229,7 @@ mod tests {
 
         tensors.insert(
             "large_tensor".to_string(),
-            Tensor::from_vec_metal(&device, data, vec![size]).unwrap()
+            Tensor::from_vec_gpu(&device, data, vec![size]).unwrap()
         );
 
         let metadata = ModelMetadata {

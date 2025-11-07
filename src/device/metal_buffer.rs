@@ -4,7 +4,7 @@ use crate::device::{BufferPool, NeuralEngineBuffer};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::FloatType;
 use half::f16;
-use metal::{Buffer, Device as MTLDevice};
+use metal::{Buffer, Device as MTLDevice, NSRange};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -14,6 +14,10 @@ pub struct MetalBuffer<T: FloatType> {
     pub(crate) buffer: Arc<Buffer>,
     pub(crate) length: usize, // number of T elements
     pub(crate) _phantom: PhantomData<T>,
+    /// Optional reference to BufferPool for automatic return on drop
+    pub(crate) pool: Option<BufferPool>,
+    /// Size class for pool return (only used when pool is Some)
+    pub(crate) size_class: Option<usize>,
 }
 
 impl<T: FloatType> MetalBuffer<T> {
@@ -31,6 +35,8 @@ impl<T: FloatType> MetalBuffer<T> {
             buffer: Arc::new(buffer),
             length: data.len(),
             _phantom: PhantomData,
+            pool: None,
+            size_class: None,
         })
     }
 
@@ -47,6 +53,8 @@ impl<T: FloatType> MetalBuffer<T> {
             buffer: Arc::new(buffer),
             length,
             _phantom: PhantomData,
+            pool: None,
+            size_class: None,
         })
     }
 
@@ -62,7 +70,7 @@ impl<T: FloatType> MetalBuffer<T> {
         Self::from_slice(device, &ones)
     }
 
-    // Pool methods are f16-only, see impl MetalBuffer<f16> below
+    // Pool methods support both f16 and f32, see impl<T: FloatType> MetalBuffer<T> below
 
     /// Get the buffer length (number of T elements)
     pub fn len(&self) -> usize {
@@ -85,12 +93,23 @@ impl<T: FloatType> MetalBuffer<T> {
     }
 
     /// Read data from buffer to Vec<T>
+    /// Note: This should only be called after sync_all() to ensure GPU operations are complete
     pub fn to_vec(&self) -> Vec<T> {
+        if std::env::var("TL_DEBUG_HANG").is_ok() {
+            eprintln!("[HANG] to_vec: START reading {} elements", self.length);
+        }
         let ptr = self.buffer.contents() as *const T;
-        unsafe { std::slice::from_raw_parts(ptr, self.length).to_vec() }
+        let result = unsafe { std::slice::from_raw_parts(ptr, self.length).to_vec() };
+        if std::env::var("TL_DEBUG_HANG").is_ok() {
+            eprintln!("[HANG] to_vec: DONE");
+        }
+        result
     }
 
     /// Write data to buffer from slice
+    ///
+    /// For SharedMode buffers, notifies GPU of CPU modifications via didModifyRange.
+    /// This is required when writing directly to buffer memory (following Candle's pattern).
     pub fn write_from_slice(&mut self, data: &[T]) -> TensorResult<()> {
         if data.len() != self.length {
             return Err(TensorError::ShapeMismatch {
@@ -103,6 +122,11 @@ impl<T: FloatType> MetalBuffer<T> {
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), ptr, self.length);
         }
+
+        // Notify GPU of CPU modification (required for SharedMode buffers)
+        // See: https://developer.apple.com/documentation/metal/mtlbuffer/1515396-didmodifyrange
+        let byte_range = NSRange::new(0, self.byte_length() as u64);
+        self.buffer.did_modify_range(byte_range);
 
         Ok(())
     }
@@ -156,28 +180,44 @@ impl<T: FloatType> MetalBuffer<T> {
     }
 }
 
-// Backward compatibility and pool methods for f16
-impl MetalBuffer<f16> {
-    /// Create a new Metal buffer from f16 slice (backward compatibility)
-    pub fn from_f16_slice(device: &MTLDevice, data: &[f16]) -> TensorResult<Self> {
-        Self::from_slice(device, data)
-    }
-
-    /// Create a new uninitialized Metal buffer from pool (f16 only)
+// Pool methods supporting both f16 and f32
+impl<T: FloatType> MetalBuffer<T> {
+    /// Create a new uninitialized Metal buffer from pool
     pub fn new_uninit_pooled(pool: &BufferPool, length: usize) -> TensorResult<Self> {
-        pool.allocate(length)
+        pool.allocate::<T>(length)
     }
 
-    /// Create a new Metal buffer filled with zeros from pool (f16 only)
+    /// Create a new Metal buffer filled with zeros from pool
     pub fn zeros_pooled(pool: &BufferPool, length: usize) -> TensorResult<Self> {
-        pool.allocate_zeros(length)
+        pool.allocate_zeros::<T>(length)
     }
 
-    /// Create a new Metal buffer from slice using pool (f16 only)
-    pub fn from_vec_pooled(pool: &BufferPool, data: &[f16]) -> TensorResult<Self> {
-        let mut buffer = pool.allocate(data.len())?;
+    /// Create a new Metal buffer from slice using pool
+    pub fn from_vec_pooled(pool: &BufferPool, data: &[T]) -> TensorResult<Self> {
+        let mut buffer = pool.allocate::<T>(data.len())?;
         buffer.write_from_slice(data)?;
         Ok(buffer)
+    }
+}
+
+impl<T: FloatType> Drop for MetalBuffer<T> {
+    fn drop(&mut self) {
+        // Return buffer to pool if this is a pooled buffer
+        // We don't check ref_count here - the pool will hold an Arc, so buffers that are
+        // still in use elsewhere will naturally stay alive. When all references are dropped,
+        // the buffer will be freed from the pool.
+        if let (Some(pool), Some(size_class)) = (&self.pool, self.size_class) {
+            if std::env::var("TL_DEBUG").is_ok() {
+                let ref_count = Arc::strong_count(&self.buffer);
+                eprintln!(
+                    "[DEBUG_RS] MetalBuffer::drop: Returning buffer to pool (size_class={}, length={}, ref_count={})",
+                    size_class, self.length, ref_count
+                );
+            }
+            // Pass reference to buffer - no clone here!
+            // The pool will clone it if it decides to store it
+            pool.try_return_buffer(&self.buffer, size_class, self.length);
+        }
     }
 }
 
@@ -200,7 +240,7 @@ mod tests {
         let device = get_test_device();
         let data = vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)];
 
-        let buffer = MetalBuffer::<f16>::from_f16_slice(&device, &data).unwrap();
+        let buffer = MetalBuffer::<f16>::from_slice(&device, &data).unwrap();
         assert_eq!(buffer.len(), 3);
 
         let read_data = buffer.to_vec();
@@ -256,7 +296,7 @@ mod tests {
         let shape = vec![2, 2];
 
         // Create Metal buffer
-        let metal_buffer = MetalBuffer::<f16>::from_f16_slice(&device, &data).unwrap();
+        let metal_buffer = MetalBuffer::<f16>::from_slice(&device, &data).unwrap();
 
         // Convert to Neural Engine
         let ne_buffer = metal_buffer.to_neural_engine(&shape).unwrap();
@@ -282,7 +322,7 @@ mod tests {
         let shape = vec![3];
 
         // Metal -> Neural Engine -> Metal
-        let metal1 = MetalBuffer::<f16>::from_f16_slice(&device, &original_data).unwrap();
+        let metal1 = MetalBuffer::<f16>::from_slice(&device, &original_data).unwrap();
         let ne_buffer = metal1.to_neural_engine(&shape).unwrap();
         let metal2 = ne_buffer.to_metal_buffer(&device).unwrap();
 

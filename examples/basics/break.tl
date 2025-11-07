@@ -6,7 +6,7 @@ main {
     let counter = 0
     while counter < 100 {
         print("Counter:", counter)
-        counter := counter + 2
+        counter = counter + 2
 
         if counter >= 10 {
             print("Breaking at counter =", counter)
@@ -26,11 +26,11 @@ main {
         print("Outer loop i =", i)
 
         // Reset j for each outer loop iteration
-        j := 0
+        j = 0
 
         while j < 10 {
             print("  Inner loop j =", j)
-            j := j + 1
+            j = j + 1
 
             if j >= 3 {
                 print("  Breaking inner loop")
@@ -38,7 +38,7 @@ main {
             }
         }
 
-        i := i + 1
+        i = i + 1
     }
 
     print("✅ Nested break test complete!")

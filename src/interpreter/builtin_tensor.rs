@@ -1,10 +1,142 @@
 //! Basic tensor operations for TensorLogic interpreter
 
 use super::*;
+use crate::interpreter::value::ToValue;
 use crate::tensor::Tensor;
 use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO, TensorTransform};
 use crate::error::TensorError;
+use crate::device::Device;
 use half::f16;
+
+/// Helper macro for extracting shape from tensor value using GPU
+macro_rules! extract_shape {
+    ($self:expr, $value:expr) => {
+        match $value {
+            Value::TensorF32(ref t) => {
+                // eprintln!("[DEBUG] extract_shape!: TensorF32 branch");
+                // Transfer entire tensor from GPU to CPU at once (faster than per-element reads)
+                // eprintln!("[DEBUG] extract_shape!: Calling to_cpu_vec()...");
+                let data = t.buffer().to_cpu_vec();
+                // eprintln!("[DEBUG] extract_shape!: to_cpu_vec() completed, data.len={}", data.len());
+                // Convert f32 values to usize shape dimensions
+                let shape: Vec<usize> = data.iter().map(|&v| v as usize).collect();
+                // eprintln!("[DEBUG] extract_shape!: shape={:?}", shape);
+                shape
+            }
+            Value::TensorF16(ref t) => {
+                // eprintln!("[DEBUG] extract_shape!: TensorF16 branch");
+                // Transfer entire tensor from GPU to CPU at once (faster than per-element reads)
+                // eprintln!("[DEBUG] extract_shape!: Calling to_cpu_vec()...");
+                let data = t.buffer().to_cpu_vec();
+                // eprintln!("[DEBUG] extract_shape!: to_cpu_vec() completed, data.len={}", data.len());
+                // Convert f16 values to usize shape dimensions
+                let shape: Vec<usize> = data.iter().map(|&v| v.to_f32() as usize).collect();
+                // eprintln!("[DEBUG] extract_shape!: shape={:?}", shape);
+                shape
+            }
+            _ => return Err(RuntimeError::TypeError(
+                format!("Expected shape as tensor array")
+            ))
+        }
+    };
+}
+
+/// Helper macro for creating typed zeros/ones tensors
+macro_rules! impl_tensor_fill {
+    ($fn_name:ident, $type:ty, $value_variant:ident, $fill_value:expr, $op_name:expr) => {
+        pub(super) fn $fn_name(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value>
+        {
+            if args.len() != 1 {
+                return Err(RuntimeError::TypeError(
+                    format!("{}() expects 1 argument (shape array), got {}", $op_name, args.len())
+                ));
+            }
+
+            let shape_val = self.eval_expr(&args[0])?;
+            let device = self.env.metal_device();
+            let shape = extract_shape!(self, shape_val);
+
+            let numel: usize = shape.iter().product();
+            let data = vec![$fill_value; numel];
+            let tensor = Tensor::<$type>::from_vec_gpu(device, data, shape)
+                .map_err(|e| RuntimeError::TensorError(e))?;
+
+            Ok(Value::$value_variant(tensor))
+        }
+    };
+}
+
+/// Helper macro for creating typed arange tensors
+macro_rules! impl_arange {
+    ($fn_name:ident, $type:ty, $value_variant:ident, $convert_fn:expr) => {
+        pub(super) fn $fn_name(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value>
+        {
+            let (start, end) = match args.len() {
+                1 => {
+                    // arange(n) form
+                    let end_val = self.eval_expr(&args[0])?;
+                    let end = match end_val {
+                        Value::Float(f) => f as i32,
+                        Value::Integer(i) => i as i32,
+                        Value::TensorF16(ref t) if t.numel() == 1 => self.tensor_f16_to_scalar(t)? as i32,
+                        Value::TensorF32(ref t) if t.numel() == 1 => self.tensor_f32_to_scalar(t)? as i32,
+                        _ => return Err(RuntimeError::TypeError(
+                            "arange() expects scalar end value".to_string()
+                        )),
+                    };
+                    (0, end)
+                }
+                2 => {
+                    // arange(start, end) form
+                    let start_val = self.eval_expr(&args[0])?;
+                    let end_val = self.eval_expr(&args[1])?;
+
+                    let start = match start_val {
+                        Value::Float(f) => f as i32,
+                        Value::Integer(i) => i as i32,
+                        Value::TensorF16(ref t) if t.numel() == 1 => self.tensor_f16_to_scalar(t)? as i32,
+                        Value::TensorF32(ref t) if t.numel() == 1 => self.tensor_f32_to_scalar(t)? as i32,
+                        _ => return Err(RuntimeError::TypeError(
+                            "arange() expects scalar start value".to_string()
+                        )),
+                    };
+
+                    let end = match end_val {
+                        Value::Float(f) => f as i32,
+                        Value::Integer(i) => i as i32,
+                        Value::TensorF16(ref t) if t.numel() == 1 => self.tensor_f16_to_scalar(t)? as i32,
+                        Value::TensorF32(ref t) if t.numel() == 1 => self.tensor_f32_to_scalar(t)? as i32,
+                        _ => return Err(RuntimeError::TypeError(
+                            "arange() expects scalar end value".to_string()
+                        )),
+                    };
+
+                    (start, end)
+                }
+                _ => return Err(RuntimeError::TypeError(
+                    format!("arange() expects 1 or 2 arguments, got {}", args.len())
+                )),
+            };
+
+            if end <= start {
+                return Err(RuntimeError::TypeError(
+                    format!("arange() requires end ({}) > start ({})", end, start)
+                ));
+            }
+
+            // Create sequence [start, start+1, ..., end-1]
+            let count = (end - start) as usize;
+            let data: Vec<$type> = (start..end).map(|i| $convert_fn(i)).collect();
+
+            // Create 1D tensor on Metal device
+            let device = self.env.metal_device();
+            let tensor = Tensor::<$type>::from_vec_gpu(device, data, vec![count])
+                .map_err(|e| RuntimeError::TensorError(e))?;
+
+            Ok(Value::$value_variant(tensor))
+        }
+    };
+}
 
 impl Interpreter {
     pub(super) fn eval_tensor_function(&mut self, name: &str, args: &[TensorExpr]) -> Option<RuntimeResult<Value>> {
@@ -35,6 +167,7 @@ impl Interpreter {
 
             // Tensor shape operations
             "zeros" => Some(self.eval_zeros(args)),
+            "arange" => Some(self.eval_range(args)),
             "flatten" => Some(self.eval_flatten(args)),
             "squeeze" => Some(self.eval_squeeze(args)),
             "unsqueeze" => Some(self.eval_unsqueeze(args)),
@@ -57,42 +190,42 @@ impl Interpreter {
     /// shape(tensor) -> tensor
     /// Returns a 1D tensor containing the dimensions of the input tensor
     fn eval_shape(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
                 format!("shape() expects 1 argument (tensor), got {}", args.len())
             ));
         }
 
-        // Evaluate argument and get tensor
         let val = self.eval_expr(&args[0])?;
-        let tensor = val.as_tensor()?;
 
-        // Get dimensions
-        let dims = tensor.dims();
-
-        // Convert dimensions to f16 vector
-        let shape_data: Vec<f16> = dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
-
-        // Create 1D tensor with the dimensions
-        let device = tensor.device().clone();
-        let shape_tensor = match &device {
-            crate::device::Device::Metal(metal_device) => {
-                Tensor::from_vec_metal(metal_device, shape_data, vec![dims.len()])
+        Ok(match val {
+            Value::TensorF16(tensor) => {
+                let dims = tensor.dims();
+                let shape_data: Vec<f16> = dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
+                // OPTIMIZATION: Always create shape tensors on CPU for instant access
+                // Shape tensors are tiny (1-10 elements) and frequently indexed
+                let shape_tensor = Tensor::from_vec(shape_data, vec![dims.len()])
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                shape_tensor.to_value()
             }
-            crate::device::Device::CPU => {
-                Tensor::from_vec(shape_data, vec![dims.len()])
+            Value::TensorF32(tensor) => {
+                let dims = tensor.dims();
+                let shape_data: Vec<f32> = dims.iter().map(|&d| d as f32).collect();
+                // OPTIMIZATION: Always create shape tensors on CPU for instant access
+                // Shape tensors are tiny (1-10 elements) and frequently indexed
+                let shape_tensor = Tensor::from_vec(shape_data, vec![dims.len()])
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                shape_tensor.to_value()
             }
-            crate::device::Device::NeuralEngine => {
-                // Fallback to CPU for NeuralEngine
-                Tensor::from_vec(shape_data, vec![dims.len()])
-            }
-        }.map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(shape_tensor))
+            _ => return Err(RuntimeError::TypeError("Expected tensor".to_string()))
+        })
     }
 
     /// ones(shape) -> tensor
     /// Creates a tensor filled with ones
+    /// Returns f32 tensor if shape is f32 array, f16 tensor if shape is f16 array
     fn eval_ones(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
@@ -103,130 +236,179 @@ impl Interpreter {
         // Evaluate shape argument - should be an array literal like [4, 2048]
         let shape_val = self.eval_expr(&args[0])?;
 
-        // Extract shape from array literal
-        let shape = match shape_val {
-            Value::TensorF16(ref t) => {
-                // Extract the values and convert to usize
-                let data = t.to_vec_f32();
-                data.iter().map(|&v| v as usize).collect::<Vec<_>>()
-            }
-            _ => return Err(RuntimeError::TypeError(
-                format!("ones() expects shape as array, got {:?}", shape_val)
-            )),
-        };
-
-        // Calculate total number of elements
-        let numel: usize = shape.iter().product();
-
-        // Create vector filled with ones
-        let data = vec![f16::ONE; numel];
-
-        // Create tensor on Metal device
+        // Extract shape and determine precision from array literal
         let device = self.env.metal_device();
-        let tensor = Tensor::from_vec_metal(device, data, shape)
-            .map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(tensor))
+        match shape_val {
+            Value::TensorF32(ref t) => {
+                // f32 shape array -> create f32 ones tensor
+                // OPTIMIZATION: Transfer entire shape tensor once instead of element-by-element
+                let num_dims = t.dims()[0];
+                let shape_cpu = t.buffer().to_cpu_vec();  // Single GPU sync
+                let mut shape = Vec::with_capacity(num_dims);
+                for i in 0..num_dims {
+                    shape.push(shape_cpu[i] as usize);
+                }
+                let numel: usize = shape.iter().product();
+                let ones_data = vec![1.0f32; numel];
+                let tensor = Tensor::from_vec_gpu(device, ones_data, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(tensor))
+            }
+            Value::TensorF16(ref t) => {
+                // f16 shape array -> create f16 ones tensor
+                // OPTIMIZATION: Transfer entire shape tensor once instead of element-by-element
+                let num_dims = t.dims()[0];
+                let shape_cpu = t.buffer().to_cpu_vec();  // Single GPU sync
+                let mut shape = Vec::with_capacity(num_dims);
+                for i in 0..num_dims {
+                    shape.push(shape_cpu[i].to_f32() as usize);
+                }
+                let numel: usize = shape.iter().product();
+                let ones_data = vec![f16::ONE; numel];
+                let tensor = Tensor::from_vec_gpu(device, ones_data, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(tensor))
+            }
+            _ => Err(RuntimeError::TypeError(
+                format!("ones() expects shape as array, got {:?}", shape_val)
+            ))
+        }
     }
 
     /// reshape(tensor, new_shape) -> tensor
     /// Reshapes a tensor to a new shape
     fn eval_reshape(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+        let _fn_start = std::time::Instant::now();
+
+        // eprintln!("[DEBUG] eval_reshape: Entry, args.len={}", args.len());
+
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("reshape() expects 2 arguments (tensor, new_shape), got {}", args.len())
             ));
         }
 
-        // Evaluate tensor argument
+        // eprintln!("[DEBUG] eval_reshape: Evaluating arg[0] (tensor)...");
+        let arg0_start = std::time::Instant::now();
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?;
+        // eprintln!("[DEBUG] eval_reshape: arg[0] evaluated in {:.3}ms", arg0_start.elapsed().as_secs_f64() * 1000.0);
 
-        // Evaluate new_shape argument
+        // eprintln!("[DEBUG] eval_reshape: Evaluating arg[1] (shape)...");
+        let arg1_start = std::time::Instant::now();
         let shape_val = self.eval_expr(&args[1])?;
-        let new_shape = match shape_val {
-            Value::TensorF16(ref t) => {
-                let data = t.to_vec_f32();
-                data.iter().map(|&v| v as usize).collect::<Vec<_>>()
-            }
-            _ => return Err(RuntimeError::TypeError(
-                format!("reshape() expects new_shape as tensor, got {:?}", shape_val)
-            )),
-        };
+        // eprintln!("[DEBUG] eval_reshape: arg[1] evaluated in {:.3}ms, extracting shape...", arg1_start.elapsed().as_secs_f64() * 1000.0);
 
-        // Verify total number of elements matches
-        let old_numel: usize = tensor.dims().iter().product();
-        let new_numel: usize = new_shape.iter().product();
+        let extract_start = std::time::Instant::now();
+        let new_shape = extract_shape!(self, shape_val);
+        // eprintln!("[DEBUG] eval_reshape: Shape extracted in {:.3}ms: {:?}", extract_start.elapsed().as_secs_f64() * 1000.0, new_shape);
 
-        if old_numel != new_numel {
-            return Err(RuntimeError::TensorError(
-                TensorError::ShapeMismatch {
-                    expected: vec![old_numel],
-                    actual: vec![new_numel],
+        let reshape_start = std::time::Instant::now();
+        let result = match tensor_val {
+            Value::TensorF16(tensor) => {
+                let old_numel: usize = tensor.dims().iter().product();
+                let new_numel: usize = new_shape.iter().product();
+                if old_numel != new_numel {
+                    return Err(RuntimeError::TensorError(
+                        TensorError::ShapeMismatch {
+                            expected: vec![old_numel],
+                            actual: vec![new_numel],
+                        }
+                    ));
                 }
-            ));
-        }
+                tensor.reshape(new_shape).map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            Value::TensorF32(tensor) => {
+                let old_numel: usize = tensor.dims().iter().product();
+                let new_numel: usize = new_shape.iter().product();
+                if old_numel != new_numel {
+                    return Err(RuntimeError::TensorError(
+                        TensorError::ShapeMismatch {
+                            expected: vec![old_numel],
+                            actual: vec![new_numel],
+                        }
+                    ));
+                }
+                tensor.reshape(new_shape).map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            _ => return Err(RuntimeError::TypeError("Expected tensor".to_string()))
+        };
+        // eprintln!("[DEBUG] eval_reshape: reshape() call completed in {:.3}ms", reshape_start.elapsed().as_secs_f64() * 1000.0);
+        // eprintln!("[DEBUG] eval_reshape: TOTAL function time: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
 
-        // Reshape the tensor
-        let reshaped = tensor.reshape(new_shape)
-            .map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(reshaped))
+        Ok(result)
     }
 
     /// transpose(tensor) -> tensor
     /// Transpose a 2D tensor (swap dimensions 0 and 1)
     fn eval_transpose(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
                 format!("transpose() expects 1 argument (tensor), got {}", args.len())
             ));
         }
 
-        // Evaluate tensor argument
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?;
 
-        // Transpose the tensor
-        let transposed = tensor.transpose()
-            .map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(transposed))
+        Ok(match tensor_val {
+            Value::TensorF16(tensor) => {
+                tensor.transpose().map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            Value::TensorF32(tensor) => {
+                tensor.transpose().map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            _ => return Err(RuntimeError::TypeError("Expected tensor".to_string()))
+        })
     }
 
     /// broadcast_to(tensor, target_shape) -> tensor
     /// Broadcast tensor to target shape
     fn eval_broadcast_to(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("broadcast_to() expects 2 arguments (tensor, target_shape), got {}", args.len())
             ));
         }
 
-        // Evaluate tensor argument
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?;
-
-        // Evaluate target_shape argument
         let shape_val = self.eval_expr(&args[1])?;
+
+        // Extract target_dims from shape_val
         let target_dims = match shape_val {
             Value::TensorF16(ref t) => {
-                let data = t.to_vec_f32();
-                data.iter().map(|&v| v as usize).collect::<Vec<_>>()
+                let mut dims = Vec::with_capacity(t.dims()[0]);
+                for i in 0..t.dims()[0] {
+                    dims.push(self.read_element_f16(t, i)? as usize);
+                }
+                dims
+            }
+            Value::TensorF32(ref t) => {
+                let mut dims = Vec::with_capacity(t.dims()[0]);
+                for i in 0..t.dims()[0] {
+                    dims.push(self.read_element_f32(t, i)? as usize);
+                }
+                dims
             }
             _ => return Err(RuntimeError::TypeError(
                 format!("broadcast_to() expects target_shape as tensor, got {:?}", shape_val)
             )),
         };
 
-        // Create TensorShape from dimensions
         let target_shape = crate::tensor::TensorShape::new(target_dims);
 
-        // Broadcast the tensor
-        let broadcasted = tensor.broadcast_to(&target_shape)
-            .map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(broadcasted))
+        Ok(match tensor_val {
+            Value::TensorF16(tensor) => {
+                tensor.broadcast_to(&target_shape).map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            Value::TensorF32(tensor) => {
+                tensor.broadcast_to(&target_shape).map_err(|e| RuntimeError::TensorError(e))?.to_value()
+            }
+            _ => return Err(RuntimeError::TypeError("Expected tensor".to_string()))
+        })
     }
 
     /// concat(tensor1, tensor2, dim) -> tensor
@@ -261,44 +443,39 @@ impl Interpreter {
             return Ok(Value::TokenIdArray(result));
         }
 
-        // Handle Tensor concatenation
-        let tensor1 = match val1 {
-            Value::TensorF16(ref t) => t,
-            _ => return Err(RuntimeError::TypeError(
-                format!("concat() expects first argument to be a tensor or token array, got {:?}", val1)
-            )),
-        };
+        // Handle Tensor concatenation - support both f16 and f32
+        use crate::interpreter::value::ToValue;
 
-        let tensor2 = match val2 {
-            Value::TensorF16(ref t) => t,
-            _ => return Err(RuntimeError::TypeError(
-                format!("concat() expects second argument to be a tensor or token array, got {:?}", val2)
-            )),
-        };
-
-        // Evaluate dim argument - accept both Float and Tensor
+        // Evaluate dim argument first
         let dim_val = self.eval_expr(&args[2])?;
         let dim = match dim_val {
             Value::Float(f) => f as usize,
-            Value::TensorF16(ref t) => {
-                if t.numel() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        format!("concat() expects dim as scalar, got tensor with {} elements", t.numel())
-                    ));
-                }
-                t.to_vec_f32()[0] as usize
-            }
+            Value::Integer(i) => i as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.tensor_f16_to_scalar(t)? as usize,
+            Value::TensorF32(ref t) if t.numel() == 1 => self.tensor_f32_to_scalar(t)? as usize,
             _ => return Err(RuntimeError::TypeError(
-                format!("concat() expects dim as scalar (float or tensor), got {:?}", dim_val)
+                format!("concat() expects dim as scalar, got {:?}", dim_val)
             )),
         };
 
-        // Call Tensor::concat with two tensors
-        let tensors = vec![tensor1, tensor2];
-        let result = Tensor::concat(&tensors, dim)
-            .map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(result))
+        // Process based on tensor types
+        match (val1, val2) {
+            (Value::TensorF16(tensor1), Value::TensorF16(tensor2)) => {
+                let tensors = vec![&tensor1, &tensor2];
+                let output = crate::tensor::Tensor::concat(&tensors[..], dim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(output.to_value())
+            }
+            (Value::TensorF32(tensor1), Value::TensorF32(tensor2)) => {
+                let tensors = vec![&tensor1, &tensor2];
+                let output = crate::tensor::Tensor::concat(&tensors[..], dim)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(output.to_value())
+            }
+            _ => Err(RuntimeError::TypeError(
+                "concat() requires both tensors to be the same type (both f16 or both f32)".to_string()
+            ))
+        }
     }
 
     /// rope(tensor) -> tensor
@@ -320,15 +497,16 @@ impl Interpreter {
     /// let Q_rope = rope(Q_heads, 29)  // Apply RoPE starting at position 29 (for KV cache)
     /// ```
     fn eval_rope(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+        let _start = std::time::Instant::now();
+
         if args.len() < 1 || args.len() > 2 {
             return Err(RuntimeError::TypeError(
                 format!("rope() expects 1 or 2 arguments (tensor, [position_offset]), got {}", args.len())
             ));
         }
 
-        // Evaluate tensor argument
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?;
 
         // Get position offset (default 0 for backward compatibility)
         let position_offset = if args.len() == 2 {
@@ -336,7 +514,8 @@ impl Interpreter {
             match offset_val {
                 Value::Float(f) => f as usize,
                 Value::Integer(i) => i as usize,
-                Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+                Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
+                Value::TensorF32(ref t) if t.numel() == 1 => self.read_element_f32(t, 0)? as usize,
                 Value::TokenIdArray(ref arr) if arr.len() == 1 => arr.get(0).unwrap() as usize,
                 _ => return Err(RuntimeError::TypeError(
                     "rope() position_offset must be a scalar integer".to_string()
@@ -346,11 +525,25 @@ impl Interpreter {
             0  // Default to 0 if not provided
         };
 
-        // Apply RoPE with position offset
-        let result = tensor.rope(position_offset)
-            .map_err(|e| RuntimeError::TensorError(e))?;
+        let result = match tensor_val {
+            Value::TensorF16(tensor) => {
+                Ok(tensor.rope(position_offset).map_err(|e| RuntimeError::TensorError(e))?.to_value())
+            }
+            Value::TensorF32(tensor) => {
+                Ok(tensor.rope(position_offset).map_err(|e| RuntimeError::TensorError(e))?.to_value())
+            }
+            _ => Err(RuntimeError::TypeError("Expected tensor".to_string()))
+        };
 
-        Ok(Value::TensorF16(result))
+        if std::env::var("TL_PERF").is_ok() {
+            let dtype = match &result {
+                Ok(Value::TensorF16(_)) => "f16",
+                Ok(Value::TensorF32(_)) => "f32",
+                _ => "unknown",
+            };
+            eprintln!("[PERF] rope({}, pos={}): {:.3}ms", dtype, position_offset, _start.elapsed().as_secs_f64() * 1000.0);
+        }
+        result
     }
 
     /// slice(tensor, row, col_start, col_end) -> tensor
@@ -384,7 +577,7 @@ impl Interpreter {
 
         // Evaluate tensor argument
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?;
+        let tensor = tensor_val.as_tensor_f16()?;
 
         // Check tensor is 2D
         let dims = tensor.dims();
@@ -407,7 +600,7 @@ impl Interpreter {
                         format!("slice() expects row as scalar, got tensor with {} elements", t.numel())
                     ));
                 }
-                t.to_vec_f32()[0] as usize
+                self.read_element_f16(t, 0)? as usize
             }
             _ => return Err(RuntimeError::TypeError(
                 format!("slice() expects row as scalar, got {:?}", row_val)
@@ -424,7 +617,7 @@ impl Interpreter {
                         format!("slice() expects col_start as scalar, got tensor with {} elements", t.numel())
                     ));
                 }
-                t.to_vec_f32()[0] as usize
+                self.read_element_f16(t, 0)? as usize
             }
             _ => return Err(RuntimeError::TypeError(
                 format!("slice() expects col_start as scalar, got {:?}", col_start_val)
@@ -441,7 +634,7 @@ impl Interpreter {
                         format!("slice() expects col_end as scalar, got tensor with {} elements", t.numel())
                     ));
                 }
-                t.to_vec_f32()[0] as usize
+                self.read_element_f16(t, 0)? as usize
             }
             _ => return Err(RuntimeError::TypeError(
                 format!("slice() expects col_end as scalar, got {:?}", col_end_val)
@@ -477,7 +670,7 @@ impl Interpreter {
         let device = tensor.device().clone();
         let result_tensor = match &device {
             crate::device::Device::Metal(metal_device) => {
-                Tensor::from_vec_metal(metal_device, slice_data, vec![length])
+                Tensor::from_vec_gpu(metal_device, slice_data, vec![length])
             }
             crate::device::Device::CPU => {
                 Tensor::from_vec(slice_data, vec![length])
@@ -501,7 +694,7 @@ impl Interpreter {
         let start = match start_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             Value::TokenIdArray(ref arr) if arr.len() == 1 => arr.get(0).unwrap() as usize,
             _ => return Err(RuntimeError::TypeError(
                 format!("slice() start index must be scalar, got {:?}", start_val)
@@ -513,7 +706,7 @@ impl Interpreter {
         let end = match end_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             Value::TokenIdArray(ref arr) if arr.len() == 1 => arr.get(0).unwrap() as usize,
             _ => return Err(RuntimeError::TypeError(
                 format!("slice() end index must be scalar, got {:?}", end_val)
@@ -528,7 +721,7 @@ impl Interpreter {
         }
 
         // Handle Tensor (1D)
-        let tensor = array_val.as_tensor()?;
+        let tensor = array_val.as_tensor_f16()?;
         let dims = tensor.dims();
 
         if dims.len() != 1 {
@@ -554,7 +747,7 @@ impl Interpreter {
         // Create result tensor on same device
         let result_tensor = match tensor.device() {
             crate::device::Device::Metal(metal_device) => {
-                Tensor::from_vec_metal(metal_device, slice_data, vec![length])
+                Tensor::from_vec_gpu(metal_device, slice_data, vec![length])
             }
             crate::device::Device::CPU => {
                 Tensor::from_vec(slice_data, vec![length])
@@ -570,6 +763,7 @@ impl Interpreter {
     /// add(tensor1, tensor2) -> tensor
     /// Adds two tensors element-wise (supports method chaining)
     fn eval_add_method(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        let _start = std::time::Instant::now();
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("add() expects 2 arguments, got {}", args.len())
@@ -579,7 +773,7 @@ impl Interpreter {
         let left = self.eval_expr(&args[0])?;
         let right = self.eval_expr(&args[1])?;
 
-        match (left, right) {
+        let result = match (left, right) {
             (Value::TensorF16(t1), Value::TensorF16(t2)) => {
                 let result = t1.add(&t2).map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF16(result))
@@ -591,7 +785,17 @@ impl Interpreter {
             _ => Err(RuntimeError::TypeError(
                 "add() requires two tensors of the same type".to_string()
             ))
+        };
+
+        if std::env::var("TL_PERF").is_ok() {
+            let dtype = match &result {
+                Ok(Value::TensorF16(_)) => "f16",
+                Ok(Value::TensorF32(_)) => "f32",
+                _ => "unknown",
+            };
+            eprintln!("[PERF] add({}): {:.3}ms", dtype, _start.elapsed().as_secs_f64() * 1000.0);
         }
+        result
     }
 
     /// sub(tensor1, tensor2) -> tensor
@@ -624,6 +828,7 @@ impl Interpreter {
     /// mul(tensor1, tensor2_or_scalar) -> tensor
     /// Multiplies tensors element-wise or by scalar (supports method chaining)
     fn eval_mul_method(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        let _start = std::time::Instant::now();
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("mul() expects 2 arguments, got {}", args.len())
@@ -633,7 +838,7 @@ impl Interpreter {
         let left = self.eval_expr(&args[0])?;
         let right = self.eval_expr(&args[1])?;
 
-        match (left, right) {
+        let result = match (left, right) {
             (Value::TensorF16(t1), Value::TensorF16(t2)) => {
                 let result = t1.mul(&t2).map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF16(result))
@@ -656,7 +861,17 @@ impl Interpreter {
             _ => Err(RuntimeError::TypeError(
                 "mul() requires two tensors or a tensor and a scalar".to_string()
             ))
+        };
+
+        if std::env::var("TL_PERF").is_ok() {
+            let dtype = match &result {
+                Ok(Value::TensorF16(_)) => "f16",
+                Ok(Value::TensorF32(_)) => "f32",
+                _ => "unknown",
+            };
+            eprintln!("[PERF] mul({}): {:.3}ms", dtype, _start.elapsed().as_secs_f64() * 1000.0);
         }
+        result
     }
 
     /// div(tensor1, tensor2_or_scalar) -> tensor
@@ -744,6 +959,7 @@ impl Interpreter {
 
     /// zeros(shape) -> tensor
     /// Creates a tensor filled with zeros
+    /// Returns f32 tensor if shape is f32 array, f16 tensor if shape is f16 array
     fn eval_zeros(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
@@ -754,29 +970,48 @@ impl Interpreter {
         // Evaluate shape argument
         let shape_val = self.eval_expr(&args[0])?;
 
-        // Extract shape from array literal
-        let shape = match shape_val {
-            Value::TensorF16(ref t) => {
-                let data = t.to_vec_f32();
-                data.iter().map(|&v| v as usize).collect::<Vec<_>>()
-            }
-            _ => return Err(RuntimeError::TypeError(
-                format!("zeros() expects shape as array, got {:?}", shape_val)
-            )),
-        };
-
-        // Calculate total number of elements
-        let numel: usize = shape.iter().product();
-
-        // Create vector filled with zeros
-        let data = vec![f16::ZERO; numel];
-
-        // Create tensor on Metal device
+        // Extract shape and determine precision from array literal
         let device = self.env.metal_device();
-        let tensor = Tensor::from_vec_metal(device, data, shape)
-            .map_err(|e| RuntimeError::TensorError(e))?;
+        match shape_val {
+            Value::TensorF32(ref t) => {
+                // f32 shape array -> create f32 zeros tensor
+                let data = t.sync_and_read();
+                let shape = data.iter().map(|&v| v as usize).collect::<Vec<_>>();
+                let numel: usize = shape.iter().product();
+                let zeros_data = vec![0.0f32; numel];
+                let tensor = Tensor::from_vec_gpu(device, zeros_data, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(tensor))
+            }
+            Value::TensorF16(ref t) => {
+                // f16 shape array -> create f16 zeros tensor
+                let data = t.sync_and_read_f32();
+                let shape = data.iter().map(|&v| v as usize).collect::<Vec<_>>();
+                let numel: usize = shape.iter().product();
+                let zeros_data = vec![f16::ZERO; numel];
+                let tensor = Tensor::from_vec_gpu(device, zeros_data, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(tensor))
+            }
+            _ => Err(RuntimeError::TypeError(
+                format!("zeros() expects shape as array, got {:?}", shape_val)
+            ))
+        }
+    }
 
-        Ok(Value::TensorF16(tensor))
+    // Use macro to implement zeros/ones for f32 and f16
+    impl_tensor_fill!(eval_zeros_f32, f32, TensorF32, 0.0f32, "f32::zeros");
+    impl_tensor_fill!(eval_zeros_f16, f16, TensorF16, f16::ZERO, "f16::zeros");
+    impl_tensor_fill!(eval_ones_f32, f32, TensorF32, 1.0f32, "f32::ones");
+    impl_tensor_fill!(eval_ones_f16, f16, TensorF16, f16::ONE, "f16::ones");
+
+    // Use macro to implement arange for f32 and f16
+    impl_arange!(eval_range_f32, f32, TensorF32, |i: i32| i as f32);
+    impl_arange!(eval_range_f16, f16, TensorF16, |i: i32| f16::from_f32(i as f32));
+
+    /// Legacy arange function (calls f32 version for backward compatibility)
+    pub(super) fn eval_range(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        self.eval_range_f32(args)
     }
 
     /// flatten(tensor) -> tensor
@@ -863,7 +1098,7 @@ impl Interpreter {
         let dim = match dim_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             _ => return Err(RuntimeError::TypeError(
                 "unsqueeze() dim must be a scalar".to_string()
             )),
@@ -1006,7 +1241,7 @@ impl Interpreter {
 
                 // If no dim specified, return as integer (backward compatibility)
                 if dim.is_none() && !keepdim {
-                    let data = result.to_vec();
+                    let data = result.sync_and_read();
                     Ok(Value::Integer(data[0].to_f32() as i64))
                 } else {
                     Ok(Value::TensorF16(result))
@@ -1018,7 +1253,7 @@ impl Interpreter {
 
                 // If no dim specified, return as integer (backward compatibility)
                 if dim.is_none() && !keepdim {
-                    let data = result.to_vec_f32();
+                    let data = result.sync_and_read_f32();
                     Ok(Value::Integer(data[0] as i64))
                 } else {
                     Ok(Value::TensorF32(result))
@@ -1151,7 +1386,7 @@ impl Interpreter {
         let dim = match dim_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             _ => return Err(RuntimeError::TypeError(
                 "gather() dim must be a scalar".to_string()
             )),
@@ -1163,13 +1398,23 @@ impl Interpreter {
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF16(result))
             }
+            (Value::TensorF16(tensor), Value::TensorF32(index)) => {
+                let result = tensor.gather(dim, &index)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(tensor), Value::TensorF16(index)) => {
+                let result = tensor.gather(dim, &index)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
             (Value::TensorF32(tensor), Value::TensorF32(index)) => {
                 let result = tensor.gather(dim, &index)
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF32(result))
             }
             _ => Err(RuntimeError::TypeError(
-                "gather() requires tensor and index of the same type".to_string()
+                "gather() requires tensor and index as tensors (f16 or f32)".to_string()
             ))
         }
     }
@@ -1191,40 +1436,36 @@ impl Interpreter {
         let dim = match dim_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             _ => return Err(RuntimeError::TypeError(
                 "scatter() dim must be a scalar".to_string()
             )),
         };
 
-        // Note: scatter expects indices as &Tensor<f16> regardless of the main tensor type
-        match (val, src_val) {
-            (Value::TensorF16(tensor), Value::TensorF16(src)) => {
-                // Extract index as f16 tensor
-                let index = match index_val {
-                    Value::TensorF16(idx) => idx,
-                    _ => return Err(RuntimeError::TypeError(
-                        "scatter() requires index as f16 tensor".to_string()
-                    )),
-                };
+        // scatter now supports both f16 and f32 indices
+        match (val, src_val, index_val) {
+            (Value::TensorF16(tensor), Value::TensorF16(src), Value::TensorF16(index)) => {
                 let result = tensor.scatter(dim, &index, &src)
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF16(result))
             }
-            (Value::TensorF32(tensor), Value::TensorF32(src)) => {
-                // Extract index as f16 tensor (indices are always f16)
-                let index = match index_val {
-                    Value::TensorF16(idx) => idx,
-                    _ => return Err(RuntimeError::TypeError(
-                        "scatter() requires index as f16 tensor".to_string()
-                    )),
-                };
+            (Value::TensorF16(tensor), Value::TensorF16(src), Value::TensorF32(index)) => {
+                let result = tensor.scatter(dim, &index, &src)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(tensor), Value::TensorF32(src), Value::TensorF16(index)) => {
+                let result = tensor.scatter(dim, &index, &src)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            (Value::TensorF32(tensor), Value::TensorF32(src), Value::TensorF32(index)) => {
                 let result = tensor.scatter(dim, &index, &src)
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF32(result))
             }
             _ => Err(RuntimeError::TypeError(
-                "scatter() requires tensor and src of the same type".to_string()
+                "scatter() requires tensor, src, and index all as tensors (f16 or f32)".to_string()
             ))
         }
     }
@@ -1245,7 +1486,7 @@ impl Interpreter {
         let chunks = match chunks_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             _ => return Err(RuntimeError::TypeError(
                 "chunk() chunks must be a scalar".to_string()
             )),
@@ -1254,7 +1495,7 @@ impl Interpreter {
         let dim = match dim_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             _ => return Err(RuntimeError::TypeError(
                 "chunk() dim must be a scalar".to_string()
             )),
@@ -1302,7 +1543,7 @@ impl Interpreter {
         let split_size = match split_size_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             _ => return Err(RuntimeError::TypeError(
                 "split() split_size must be a scalar".to_string()
             )),
@@ -1311,7 +1552,7 @@ impl Interpreter {
         let dim = match dim_val {
             Value::Float(f) => f as usize,
             Value::Integer(i) => i as usize,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0] as usize,
+            Value::TensorF16(ref t) if t.numel() == 1 => self.read_element_f16(t, 0)? as usize,
             _ => return Err(RuntimeError::TypeError(
                 "split() dim must be a scalar".to_string()
             )),
@@ -1336,6 +1577,122 @@ impl Interpreter {
             }
             _ => Err(RuntimeError::TypeError(
                 "split() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// Helper: Extract scalar f32 value from 1-element f32 tensor using GPU
+    pub(super) fn tensor_f32_to_scalar(&self, tensor: &Tensor<f32>) -> RuntimeResult<f32> {
+        if tensor.numel() != 1 {
+            return Err(RuntimeError::InvalidOperation(
+                format!("Expected 1-element tensor, got {} elements", tensor.numel())
+            ));
+        }
+        self.read_element_f32(tensor, 0)
+    }
+
+    /// Helper: Extract scalar f32 value from 1-element f16 tensor using GPU
+    pub(super) fn tensor_f16_to_scalar(&self, tensor: &Tensor<half::f16>) -> RuntimeResult<f32> {
+        if tensor.numel() != 1 {
+            return Err(RuntimeError::InvalidOperation(
+                format!("Expected 1-element tensor, got {} elements", tensor.numel())
+            ));
+        }
+        self.read_element_f16(tensor, 0)
+    }
+
+    /// create_cache_tensor(max_length, shape) -> tensor
+    /// Create pre-allocated cache tensor for efficient KV cache updates
+    ///
+    /// # Arguments
+    /// * max_length - Maximum capacity along dimension 0
+    /// * shape - Remaining dimensions as tensor [num_heads, head_dim]
+    ///
+    /// # Returns
+    /// Pre-allocated tensor with shape [0, ...shape], but buffer capacity for max_length
+    ///
+    /// # Example
+    /// ```tl
+    /// let kv_cache = create_cache_tensor(512, shape(4, 128))  # [0, 4, 128] with capacity 512
+    /// ```
+    pub(super) fn eval_create_cache_tensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("create_cache_tensor() expects 2 arguments (max_length, shape), got {}", args.len())
+            ));
+        }
+
+        // Evaluate max_length argument
+        let max_length_val = self.eval_expr(&args[0])?;
+        let max_length = match max_length_val {
+            Value::Integer(n) => n as usize,
+            Value::Float(f) => f as usize,
+            Value::TensorF32(ref t) if t.numel() == 1 => {
+                self.tensor_f32_to_scalar(t)? as usize
+            }
+            Value::TensorF16(ref t) if t.numel() == 1 => {
+                self.tensor_f16_to_scalar(t)? as usize
+            }
+            _ => return Err(RuntimeError::TypeError(
+                format!("create_cache_tensor() expects max_length as scalar, got {:?}", max_length_val.type_name())
+            ))
+        };
+
+        // Evaluate shape argument
+        let shape_val = self.eval_expr(&args[1])?;
+        let shape_rest = extract_shape!(self, shape_val);
+
+        // Get device
+        let device = Device::Metal(self.env.metal_device().clone());
+
+        // Create cache tensor (use f32 by default for now, could be parameterized)
+        let result = Tensor::<f32>::create_cache_tensor(max_length, &shape_rest, &device)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(result.to_value())
+    }
+
+    /// append_cache(cache, new_data) -> tensor
+    /// Append data to pre-allocated cache tensor (zero-copy, in-place)
+    ///
+    /// # Arguments
+    /// * cache - Pre-allocated cache tensor from create_cache_tensor
+    /// * new_data - Data to append, shape [new_len, ...same_dims]
+    ///
+    /// # Returns
+    /// New view with updated shape [current_len + new_len, ...], sharing same buffer
+    ///
+    /// # Example
+    /// ```tl
+    /// let kv_cache = create_cache_tensor(512, shape(4, 128))
+    /// let new_kv = zeros(shape(1, 4, 128))
+    /// kv_cache = append_cache(kv_cache, new_kv)  # Now [1, 4, 128]
+    /// ```
+    pub(super) fn eval_append_cache(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("append_cache() expects 2 arguments (cache, new_data), got {}", args.len())
+            ));
+        }
+
+        // Evaluate arguments
+        let cache_val = self.eval_expr(&args[0])?;
+        let new_data_val = self.eval_expr(&args[1])?;
+
+        // Type-based dispatch
+        match (cache_val, new_data_val) {
+            (Value::TensorF32(cache), Value::TensorF32(new_data)) => {
+                let result = Tensor::append_cache(&cache, &new_data)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(result.to_value())
+            }
+            (Value::TensorF16(cache), Value::TensorF16(new_data)) => {
+                let result = Tensor::append_cache(&cache, &new_data)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(result.to_value())
+            }
+            _ => Err(RuntimeError::TypeError(
+                "append_cache() requires both tensors to be the same type (both f16 or both f32)".to_string()
             ))
         }
     }

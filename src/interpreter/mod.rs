@@ -39,8 +39,8 @@ mod builtin_sampling;  // Sampling and generation
 mod builtin_util;      // Utility functions
 
 // Re-export public types
-pub use value::Value;
-pub use environment::{RuntimeEnvironment, CallFrame};
+pub use value::{Value, ModelLayerCollection, ModelLayer, ModelFeature};
+pub use environment::{RuntimeEnvironment, CallFrame, ScopeType};
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -49,12 +49,11 @@ use std::fs;
 use crate::ast::*;
 use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO, TensorTransform, TensorAutograd};
 use crate::tensor::{Tensor, TensorShape};
-use crate::device::{Device, MetalDevice};
+use crate::device::MetalDevice;
 use crate::entity_registry::EntityRegistry;
 use crate::relation_registry::RelationRegistry;
 use crate::error::TensorError;
 use crate::logic::LogicEngine;
-use crate::model::Model;
 use half::f16;
 
 /// Epsilon for floating-point comparisons
@@ -133,6 +132,8 @@ pub struct Interpreter {
     imported_files: HashSet<PathBuf>,
     // Current file being executed (for resolving relative imports)
     current_file: Option<PathBuf>,
+    // Current source location (for error reporting)
+    current_span: Option<Span>,
     // Track defined relation variables: predicate_name -> set of variable names
     relation_variables: HashMap<String, HashSet<String>>,
     // Track relation entity parameters: predicate_name -> (param_index -> entity_type_name)
@@ -144,6 +145,8 @@ pub struct Interpreter {
     // Track learnable tensors declared with 'learnable' keyword
     // These are the only tensors that should be optimized in learn blocks
     learnable_params: HashSet<String>,
+    // Shared Metal device for GPU operations (singleton per interpreter)
+    device: crate::device::MetalDevice,
 }
 
 impl Interpreter {
@@ -159,11 +162,14 @@ impl Interpreter {
             python_env: None,
             imported_files: HashSet::new(),
             current_file: None,
+            current_span: None,
             relation_variables: HashMap::new(),
             relation_entity_params: HashMap::new(),
             functions: HashMap::new(),
             call_stack: Vec::new(),
             learnable_params: HashSet::new(),
+            device: crate::device::MetalDevice::new()
+                .expect("Failed to create Metal device - Metal may not be available on this system"),
         }
     }
 
@@ -174,6 +180,9 @@ impl Interpreter {
 
     /// Execute a complete program
     pub fn execute(&mut self, program: &Program) -> RuntimeResult<()> {
+        // Function references are now resolved during parsing
+        // No need for separate semantic analysis pass
+
         // Execute all declarations
         for decl in &program.declarations {
             self.execute_declaration(decl)?;
@@ -192,30 +201,107 @@ impl Interpreter {
         Ok(())
     }
 
-    /// Get a variable from the interpreter's environment
-    /// Checks local scope (call_stack) first, then global environment
-    pub fn get_variable(&self, name: &str) -> Option<Value> {
-        // Check local scope first (most recent call frame)
-        if let Some(frame) = self.call_stack.last() {
-            if let Some(value) = frame.local_vars.get(name) {
-                return Some(value.clone());
+    /// Execute test blocks
+    pub fn execute_tests(&mut self, program: &Program) -> RuntimeResult<()> {
+        // Execute all declarations first
+        for decl in &program.declarations {
+            self.execute_declaration(decl)?;
+        }
+
+        if program.test_blocks.is_empty() {
+            println!("No test blocks found");
+            return Ok(());
+        }
+
+        let mut passed = 0;
+        let mut failed = 0;
+
+        for test_block in &program.test_blocks {
+            print!("test {} ... ", test_block.name.as_str());
+            std::io::Write::flush(&mut std::io::stdout()).unwrap();
+
+            match self.execute_test_block(test_block) {
+                Ok(_) => {
+                    println!("✓ ok");
+                    passed += 1;
+                }
+                Err(e) => {
+                    println!("✗ FAILED");
+                    eprintln!("  Error: {}", e);
+                    failed += 1;
+                }
             }
         }
 
-        // Fall back to global environment
-        self.env.get_variable(name).ok().cloned()
+        println!("\ntest result: {}. {} passed; {} failed",
+            if failed == 0 { "ok" } else { "FAILED" },
+            passed,
+            failed
+        );
+
+        if failed > 0 {
+            std::process::exit(1);
+        }
+
+        Ok(())
+    }
+
+    /// Execute benchmark blocks with timing
+    pub fn execute_benchmarks(&mut self, program: &Program) -> RuntimeResult<()> {
+        // Execute all declarations first
+        for decl in &program.declarations {
+            self.execute_declaration(decl)?;
+        }
+
+        if program.bench_blocks.is_empty() {
+            println!("No benchmark blocks found");
+            return Ok(());
+        }
+
+        // Enable profiling for benchmarks
+        std::env::set_var("TL_PROFILE", "1");
+
+        for bench_block in &program.bench_blocks {
+            println!("bench {} ...", bench_block.name.as_str());
+
+            let start = std::time::Instant::now();
+            self.execute_bench_block(bench_block)?;
+            let duration = start.elapsed();
+
+            println!("  Total time: {:.3}ms\n", duration.as_secs_f64() * 1000.0);
+        }
+
+        Ok(())
+    }
+
+    fn execute_test_block(&mut self, test_block: &TestBlock) -> RuntimeResult<()> {
+        for stmt in &test_block.statements {
+            self.execute_statement(stmt)?;
+        }
+        Ok(())
+    }
+
+    fn execute_bench_block(&mut self, bench_block: &BenchBlock) -> RuntimeResult<()> {
+        for stmt in &bench_block.statements {
+            self.execute_statement(stmt)?;
+        }
+        Ok(())
+    }
+
+    /// Get a variable from the interpreter's environment
+    /// Variables are managed by the scope stack
+    pub fn get_variable(&self, name: &str) -> RuntimeResult<Value> {
+        self.env.get_variable(name)
+    }
+
+    pub fn get_all_variables(&self) -> Option<&HashMap<String, Value>> {
+        self.env.get_all_variables()
     }
 
     /// Set a variable in the interpreter's environment
-    /// If in a function call, sets in local scope; otherwise in global environment
+    /// Variables are managed by the scope stack
     pub fn set_variable(&mut self, name: String, value: Value) {
-        if let Some(frame) = self.call_stack.last_mut() {
-            // Inside a function: set in local scope
-            frame.local_vars.insert(name, value);
-        } else {
-            // Global scope
-            self.env.set_variable(name, value);
-        }
+        let _ = self.env.set_variable(&name, value);
     }
 
     /// List all variables in the environment
@@ -510,7 +596,7 @@ impl Interpreter {
                     let val: f32 = rng.random_range(-0.1..0.1);
                     data.push(half::f16::from_f32(val));
                 }
-                Tensor::from_vec_metal(device, data, vec![num_entities, decl.dimension])?
+                Tensor::from_vec_gpu(device, data, vec![num_entities, decl.dimension])?
             }
             InitMethod::Xavier => {
                 // Xavier initialization: uniform(-sqrt(6/(n+m)), sqrt(6/(n+m)))
@@ -522,7 +608,7 @@ impl Interpreter {
                     let val: f32 = rng.random_range(-limit..limit);
                     data.push(half::f16::from_f32(val));
                 }
-                Tensor::from_vec_metal(device, data, vec![num_entities, decl.dimension])?
+                Tensor::from_vec_gpu(device, data, vec![num_entities, decl.dimension])?
             }
             InitMethod::He => {
                 // He initialization: normal(0, sqrt(2/n))
@@ -535,7 +621,7 @@ impl Interpreter {
                     let val: f32 = normal.sample(&mut rng) as f32;
                     data.push(half::f16::from_f32(val));
                 }
-                Tensor::from_vec_metal(device, data, vec![num_entities, decl.dimension])?
+                Tensor::from_vec_gpu(device, data, vec![num_entities, decl.dimension])?
             }
             InitMethod::Zeros => Tensor::zeros(&device, vec![num_entities, decl.dimension])?,
             InitMethod::Ones => Tensor::ones(&device, vec![num_entities, decl.dimension])?,
@@ -591,7 +677,7 @@ impl Interpreter {
                     let val: f32 = rng.random_range(-0.1..0.1);
                     data.push(half::f16::from_f32(val));
                 }
-                Tensor::from_vec_metal(device, data, vec![num_relations, decl.dimension])?
+                Tensor::from_vec_gpu(device, data, vec![num_relations, decl.dimension])?
             }
             InitMethod::Xavier => {
                 // Xavier initialization: uniform(-sqrt(6/(n+m)), sqrt(6/(n+m)))
@@ -603,7 +689,7 @@ impl Interpreter {
                     let val: f32 = rng.random_range(-limit..limit);
                     data.push(half::f16::from_f32(val));
                 }
-                Tensor::from_vec_metal(device, data, vec![num_relations, decl.dimension])?
+                Tensor::from_vec_gpu(device, data, vec![num_relations, decl.dimension])?
             }
             InitMethod::He => {
                 // He initialization: normal(0, sqrt(2/n))
@@ -616,7 +702,7 @@ impl Interpreter {
                     let val: f32 = normal.sample(&mut rng) as f32;
                     data.push(half::f16::from_f32(val));
                 }
-                Tensor::from_vec_metal(device, data, vec![num_relations, decl.dimension])?
+                Tensor::from_vec_gpu(device, data, vec![num_relations, decl.dimension])?
             }
             InitMethod::Zeros => Tensor::zeros(&device, vec![num_relations, decl.dimension])?,
             InitMethod::Ones => Tensor::ones(&device, vec![num_relations, decl.dimension])?,
@@ -685,48 +771,31 @@ impl Interpreter {
                 // Assignment (identifier := expr) returns the right-hand side value
                 let evaluated_value = self.eval_expr(value)?;
 
-                // Also execute the statement for side effects (variable assignment)
-                if let Some(frame) = self.call_stack.last_mut() {
-                    frame.local_vars.insert(target.as_str().to_string(), evaluated_value.clone());
+                // Execute the statement for side effects (variable assignment)
+                // Scope stack handles variable assignment automatically
+                if self.env.has_variable(target.as_str()) {
+                    self.env.set_variable(target.as_str(), evaluated_value.clone())?;
                 } else {
-                    if self.env.has_variable(target.as_str()) {
-                        self.env.set_variable(target.as_str().to_string(), evaluated_value.clone())?;
-                    } else {
-                        self.env.declare_variable(target.as_str().to_string(), evaluated_value.clone())?;
-                    }
+                    self.env.declare_variable(target.as_str().to_string(), evaluated_value.clone())?;
                 }
 
                 Ok(Some(evaluated_value))
             }
-            Statement::Equation(eq) => {
-                // For assignment equations (expr := expr), return the right-hand side value
-                if eq.eq_type == EquationType::Assign {
-                    // Evaluate the right-hand side
-                    let value = self.eval_expr(&eq.right)?;
-
-                    // Also execute the statement for side effects (variable assignment)
-                    if let TensorExpr::Variable(var_name) = &eq.left {
-                        if let Some(frame) = self.call_stack.last_mut() {
-                            frame.local_vars.insert(var_name.as_str().to_string(), value.clone());
-                        } else {
-                            if self.env.has_variable(var_name.as_str()) {
-                                self.env.set_variable(var_name.as_str().to_string(), value.clone())?;
-                            } else {
-                                self.env.declare_variable(var_name.as_str().to_string(), value.clone())?;
-                            }
-                        }
-                    }
-
-                    Ok(Some(value))
-                } else {
-                    // For other equation types (=, ~), execute but don't return value
-                    self.execute_statement(stmt)?;
-                    Ok(None)
-                }
+            Statement::Equation(_eq) => {
+                // For equation types (~), execute but don't return value
+                self.execute_statement(stmt)?;
+                Ok(None)
             }
-            Statement::FunctionCall { name, args } => {
+            Statement::FunctionCall { name, args, resolved, span } => {
+                // Save span for error reporting
+                self.current_span = Some(span.clone());
                 // Function call result can be implicitly returned
-                let value = self.eval_function_call(name, args)?;
+                let value = self.eval_function_call(None, name, args, resolved.as_ref())?;
+                Ok(Some(value))
+            }
+            Statement::Expr { expr } => {
+                // Expression statement as last statement: return its value (implicit return)
+                let value = self.eval_expr(expr)?;
                 Ok(Some(value))
             }
             // All other statement types: execute and return None
@@ -777,10 +846,40 @@ impl Interpreter {
             EntityType::Tensor(tensor_type) => {
                 match value {
                     Value::TensorF16(t) => {
-                        // Note: TensorLogic uses f16 internally for all tensors
-                        // Base type checking is skipped (all tensors are f16)
-                        // Focus on shape validation
+                        // Check shape if specified (non-dynamic dimensions)
+                        let expected_dimensions = &tensor_type.dimensions;
+                        if !expected_dimensions.is_empty() {
+                            let actual_shape = t.shape().dims();
 
+                            // Check rank (number of dimensions)
+                            if expected_dimensions.len() != actual_shape.len() {
+                                return Err(RuntimeError::TypeError(
+                                    format!(
+                                        "Parameter '{}' expects rank {} tensor, got rank {}",
+                                        param_name, expected_dimensions.len(), actual_shape.len()
+                                    )
+                                ));
+                            }
+
+                            // Check each dimension (if not dynamic)
+                            for (i, expected_dim) in expected_dimensions.iter().enumerate() {
+                                if let Dimension::Fixed(expected_size) = expected_dim {
+                                    if actual_shape[i] != *expected_size {
+                                        return Err(RuntimeError::TypeError(
+                                            format!(
+                                                "Parameter '{}' dimension {} expects size {}, got {}",
+                                                param_name, i, expected_size, actual_shape[i]
+                                            )
+                                        ));
+                                    }
+                                }
+                                // Dynamic and Variable dimensions accept any size
+                            }
+                        }
+
+                        Ok(())
+                    }
+                    Value::TensorF32(t) => {
                         // Check shape if specified (non-dynamic dimensions)
                         let expected_dimensions = &tensor_type.dimensions;
                         if !expected_dimensions.is_empty() {
@@ -861,35 +960,367 @@ impl Interpreter {
         Ok(())
     }
 
+    /// Evaluate typed function call (e.g., f32::zeros, f16::ones)
+    fn eval_typed_function_call(&mut self, type_namespace: &str, name: &str, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        
+        
+
+        match type_namespace {
+            "f32" => {
+                // f32-specific function calls
+                match name {
+                    "zeros" => self.eval_zeros_f32(args),
+                    "ones" => self.eval_ones_f32(args),
+                    "arange" => self.eval_range_f32(args),
+                    // Most tensor operations already support both f16/f32, so we can call them directly
+                    _ => {
+                        // Try calling the function normally - it should handle f32 tensors
+                        if let Some(result) = self.eval_tensor_function(name, args) {
+                            result
+                        } else if let Some(result) = self.eval_math_function(name, args) {
+                            result
+                        } else if let Some(result) = self.eval_nn_function(name, args) {
+                            result
+                        } else {
+                            Err(RuntimeError::TypeError(
+                                format!("f32::{} is not implemented", name)
+                            ))
+                        }
+                    }
+                }
+            }
+            "f16" => {
+                // f16-specific function calls
+                match name {
+                    "zeros" => self.eval_zeros_f16(args),
+                    "ones" => self.eval_ones_f16(args),
+                    "arange" => self.eval_range_f16(args),
+                    // Most tensor operations already support both f16/f32, so we can call them directly
+                    _ => {
+                        // Try calling the function normally - it should handle f16 tensors
+                        if let Some(result) = self.eval_tensor_function(name, args) {
+                            result
+                        } else if let Some(result) = self.eval_math_function(name, args) {
+                            result
+                        } else if let Some(result) = self.eval_nn_function(name, args) {
+                            result
+                        } else {
+                            Err(RuntimeError::TypeError(
+                                format!("f16::{} is not implemented", name)
+                            ))
+                        }
+                    }
+                }
+            }
+            "Tensor" => {
+                // Tensor static methods
+                match name {
+                    "create_cache" => self.eval_create_cache_tensor(args),
+                    _ => Err(RuntimeError::TypeError(
+                        format!("Tensor::{} is not implemented", name)
+                    ))
+                }
+            }
+            "KVCache" => {
+                // KVCache static methods
+                match name {
+                    "new" | "new_f16" => {
+                        // KVCache::new(num_layers: int) -> KVCacheF16
+                        // KVCache::new_f16(num_layers: int) -> KVCacheF16
+                        if args.len() != 1 {
+                            return Err(RuntimeError::TypeError(
+                                format!("KVCache::{}() expects 1 argument, got {}", name, args.len())
+                            ));
+                        }
+
+                        let num_layers = match self.eval_expr(&args[0])? {
+                            Value::Integer(n) => n as usize,
+                            v => return Err(RuntimeError::TypeError(
+                                format!("KVCache::{}() expects Integer, got {}", name, v.type_name())
+                            )),
+                        };
+
+                        let cache = crate::model::llama::Cache::<half::f16>::new(num_layers);
+                        Ok(Value::KVCacheF16(std::sync::Arc::new(std::sync::Mutex::new(cache))))
+                    }
+                    "new_f32" => {
+                        // KVCache::new_f32(num_layers: int) -> KVCacheF32
+                        if args.len() != 1 {
+                            return Err(RuntimeError::TypeError(
+                                format!("KVCache::new_f32() expects 1 argument, got {}", args.len())
+                            ));
+                        }
+
+                        let num_layers = match self.eval_expr(&args[0])? {
+                            Value::Integer(n) => n as usize,
+                            v => return Err(RuntimeError::TypeError(
+                                format!("KVCache::new_f32() expects Integer, got {}", v.type_name())
+                            )),
+                        };
+
+                        let cache = crate::model::llama::Cache::<f32>::new(num_layers);
+                        Ok(Value::KVCacheF32(std::sync::Arc::new(std::sync::Mutex::new(cache))))
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        format!("KVCache::{} is not implemented", name)
+                    ))
+                }
+            }
+            _ => Err(RuntimeError::TypeError(
+                format!("Unknown type namespace: {}", type_namespace)
+            ))
+        }
+    }
+
+    /// Evaluate a resolved function (optimized dispatch without HashMap lookup)
+    /// This is called when semantic analysis has already resolved the function reference
+    fn eval_resolved_function(&mut self, resolved: &crate::ast::ResolvedFunction, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::ast::{BuiltinFunctionId, ResolvedFunction};
+
+        // eprintln!("[DEBUG] eval_resolved_function: Entry");
+
+        match resolved {
+            ResolvedFunction::Builtin(id) => {
+                // eprintln!("[DEBUG] eval_resolved_function: Builtin function id={:?}", id);
+
+                // IMPORTANT: Directly dispatch to builtin functions to avoid infinite recursion
+                // The fallback mechanism was causing hangs due to re-evaluation loops
+                use crate::ast::BuiltinFunctionId;
+
+                let result = match id {
+                    // CRITICAL FIX: Direct dispatch for reshape to avoid infinite recursion
+                    BuiltinFunctionId::TensorReshape => {
+                        if let Some(result) = self.eval_tensor_function("reshape", args) {
+                            result
+                        } else {
+                            return Err(RuntimeError::NotImplemented("reshape not found".to_string()));
+                        }
+                    }
+
+                    // For any other builtin, fall back to string-based dispatch
+                    _ => {
+                        // eprintln!("[DEBUG] eval_resolved_function: Builtin id={:?} not implemented in fast dispatch, using fallback", id);
+                        return Err(RuntimeError::NotImplemented(
+                            format!("Fast builtin dispatch not yet implemented for {:?}", id)
+                        ));
+                    }
+                };
+
+                // eprintln!("[DEBUG] eval_resolved_function: Builtin dispatch completed");
+                result
+            }
+            ResolvedFunction::UserDefined(func_decl) => {
+                // eprintln!("[DEBUG] eval_resolved_function: UserDefined function name={}", func_decl.name.as_str());
+                // Direct call to user-defined function (no HashMap lookup)
+                self.call_user_defined_function(func_decl, args)
+            }
+        }
+    }
+
+    /// Call a user-defined function directly (optimized, no HashMap lookup)
+    fn call_user_defined_function(&mut self, func_decl: &crate::ast::FunctionDecl, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        let func_name = func_decl.name.as_str();
+
+        // eprintln!("[DEBUG] call_user_defined_function: name={}, args.len={}", func_name, args.len());
+
+        // Check argument count
+        if args.len() != func_decl.params.len() {
+            return Err(RuntimeError::TypeError(format!(
+                "Function '{}' expects {} arguments, got {}",
+                func_name,
+                func_decl.params.len(),
+                args.len()
+            )));
+        }
+
+        // eprintln!("[DEBUG] call_user_defined_function: Argument count OK");
+
+        // Create call frame for stack trace
+        let frame = crate::interpreter::environment::CallFrame::new(func_name.to_string());
+
+        // eprintln!("[DEBUG] call_user_defined_function: Evaluating {} arguments...", args.len());
+
+        // Push call frame for stack trace
+        self.call_stack.push(frame);
+
+        // Push function scope
+        self.env.push_scope(ScopeType::Function(func_name.to_string()));
+
+        // Evaluate arguments and bind to parameters in function scope
+        for (i, (param, arg)) in func_decl.params.iter().zip(args.iter()).enumerate() {
+            // eprintln!("[DEBUG] call_user_defined_function: Evaluating arg[{}] for param '{}'", i, param.name.as_str());
+            let arg_value = self.eval_expr(arg)?;
+            // eprintln!("[DEBUG] call_user_defined_function: Arg[{}] evaluated successfully", i);
+            // Note: Type checking could be optimized here in Phase 5
+            self.check_type_match(&arg_value, &param.entity_type, param.name.as_str())?;
+            self.env.declare_variable(param.name.as_str().to_string(), arg_value)?;
+        }
+
+        // eprintln!("[DEBUG] call_user_defined_function: All arguments evaluated");
+
+        // Execute function body
+        let body_len = func_decl.body.len();
+        if body_len == 0 {
+            self.env.pop_scope();
+            self.call_stack.pop();
+            return Err(RuntimeError::TypeError(format!(
+                "Function '{}' has empty body",
+                func_name
+            )));
+        }
+
+        // Execute all statements except the last
+        for stmt in &func_decl.body[..body_len - 1] {
+            match self.execute_statement(stmt) {
+                Ok(_) => {}
+                Err(RuntimeError::ReturnValue(val)) => {
+                    self.env.pop_scope();
+                    self.call_stack.pop();
+                    return Ok(val);
+                }
+                Err(e) => {
+                    self.env.pop_scope();
+                    self.call_stack.pop();
+                    return Err(e);
+                }
+            }
+        }
+
+        // Handle last statement (implicit return)
+        let return_value = match self.evaluate_last_statement(&func_decl.body[body_len - 1]) {
+            Ok(Some(val)) => val,
+            Ok(None) => Value::Void,
+            Err(RuntimeError::ReturnValue(val)) => val,
+            Err(e) => {
+                self.env.pop_scope();
+                self.call_stack.pop();
+                return Err(e);
+            }
+        };
+
+        // Type check return value
+        self.check_return_type_match(&return_value, &func_decl.return_type, func_name)?;
+
+        // Pop function scope and call frame, then return
+        self.env.pop_scope();
+        self.call_stack.pop();
+        Ok(return_value)
+    }
+
     /// Execute a statement
-    fn eval_function_call(&mut self, name: &Identifier, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    fn eval_function_call(&mut self, type_namespace: Option<&str>, name: &Identifier, args: &[TensorExpr], resolved: Option<&crate::ast::ResolvedFunction>) -> RuntimeResult<Value> {
         let name_str = name.as_str();
+
+        // Profiling: check if TL_PROFILE is set OR always profile key functions
+        let key_functions = ["transformer_layer", "linear", "rope", "embedding", "attention_with_cache",
+                             "softmax", "matmul", "einsum", "concat", "reshape"];
+        let should_profile = std::env::var("TL_PROFILE").is_ok() || key_functions.contains(&name_str);
+        let profile_enabled = std::env::var("TL_PROFILE").is_ok();
+        let start_time = if should_profile {
+            let full_name = if let Some(ns) = type_namespace {
+                format!("{}::{}", ns, name_str)
+            } else {
+                name_str.to_string()
+            };
+            // eprintln!("[PROFILE] → {}", full_name);
+            Some((full_name, std::time::Instant::now()))
+        } else {
+            None
+        };
+
+        // ========================================================================
+        // OPTIMIZATION: Use resolved function reference if available
+        // This eliminates HashMap lookup and string comparison overhead (~5μs)
+        // ========================================================================
+        if let Some(resolved_func) = resolved {
+            match self.eval_resolved_function(resolved_func, args) {
+                Ok(value) => {
+                    if let Some((name, start)) = start_time {
+                        let elapsed = start.elapsed();
+                        // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+                    }
+                    return Ok(value);
+                }
+                Err(RuntimeError::NotImplemented(_)) => {
+                    // Fall through to string-based dispatch
+                }
+                Err(e) => {
+                    if let Some((name, start)) = start_time {
+                        let elapsed = start.elapsed();
+                        // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+                    }
+                    return Err(e);
+                }
+            }
+        }
+
+        // If type namespace is specified (e.g., f32::zeros), handle typed function call
+        if let Some(type_ns) = type_namespace {
+            let result = self.eval_typed_function_call(type_ns, name_str, args);
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
+            return result;
+        }
 
         // Try dispatching to category-specific builtin modules
         // Each returns Option<RuntimeResult<Value>>: Some if handled, None if not in that category
 
         if let Some(result) = self.eval_tensor_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
             return result;
         }
         if let Some(result) = self.eval_math_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
             return result;
         }
         if let Some(result) = self.eval_nn_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
             return result;
         }
         if let Some(result) = self.eval_kg_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
             return result;
         }
         if let Some(result) = self.eval_gnn_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
             return result;
         }
         if let Some(result) = self.eval_model_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
             return result;
         }
         if let Some(result) = self.eval_sampling_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
             return result;
         }
         if let Some(result) = self.eval_util_function(name_str, args) {
+            if let Some((name, start)) = start_time {
+                let elapsed = start.elapsed();
+                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
+            }
             return result;
         }
 
@@ -897,20 +1328,32 @@ impl Interpreter {
         match name_str {
             "apply_mask" => {
                 // apply_mask(scores, mask)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("apply_mask() expects 2 arguments (scores, mask), got {}", args.len())
                     ));
                 }
 
-                let scores = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let scores_val = self.eval_expr(&args[0])?;
                 let mask_val = self.eval_expr(&args[1])?;
-                let mask = mask_val.as_tensor()?;
 
-                let result = scores.apply_attention_mask(mask)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(result))
+                match (scores_val, mask_val) {
+                    (Value::TensorF16(scores), Value::TensorF16(mask)) => {
+                        let result = scores.apply_attention_mask(&mask)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    (Value::TensorF32(scores), Value::TensorF32(mask)) => {
+                        let result = scores.apply_attention_mask(&mask)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "apply_mask() requires both tensors to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "causal_mask" => {
@@ -936,53 +1379,69 @@ impl Interpreter {
             }
 
             "batch_norm" => {
-                // batch_norm(x, gamma, beta, eps)
+                // batch_norm(x, gamma, beta, eps) - f16 only
+                use crate::interpreter::value::ToValue;
                 if args.len() != 4 {
                     return Err(RuntimeError::TypeError(
                         format!("batch_norm() expects 4 arguments (x, gamma, beta, eps), got {}", args.len())
                     ));
                 }
 
-                let x = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let x_val = self.eval_expr(&args[0])?;
                 let gamma_val = self.eval_expr(&args[1])?;
-                let gamma = gamma_val.as_tensor()?;
                 let beta_val = self.eval_expr(&args[2])?;
-                let beta = beta_val.as_tensor()?;
                 let eps = self.eval_expr(&args[3])?.as_float()? as f32;
 
-                let result = x.batch_norm(gamma, beta, eps)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(result))
+                match (x_val, gamma_val, beta_val) {
+                    (Value::TensorF16(x), Value::TensorF16(gamma), Value::TensorF16(beta)) => {
+                        let result = x.batch_norm(&gamma, &beta, eps)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "batch_norm() requires all tensors to be f16 (f32 not yet supported)".to_string()
+                    ))
+                }
             }
 
             "dropout" => {
                 // dropout(x, p, training)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 3 {
                     return Err(RuntimeError::TypeError(
                         format!("dropout() expects 3 arguments (x, p, training), got {}", args.len())
                     ));
                 }
 
-                let x = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let x_val = self.eval_expr(&args[0])?;
                 let p = self.eval_expr(&args[1])?.as_float()? as f32;
                 let training = self.eval_expr(&args[2])?.as_bool()?;
 
-                let result = x.dropout(p, training)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(result))
+                match x_val {
+                    Value::TensorF16(x) => {
+                        let result = x.dropout(p, training)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    Value::TensorF32(x) => {
+                        let result = x.dropout(p, training)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("dropout() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "argmax" => {
                 // argmax(tensor, dim: int = -1, keepdim: bool = false)
+                use crate::interpreter::value::ToValue;
                 if args.is_empty() || args.len() > 3 {
                     return Err(RuntimeError::TypeError(
                         format!("argmax() expects 1-3 arguments (tensor, optional dim, optional keepdim), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
 
                 let dim = if args.len() >= 2 {
                     let dim_val = self.eval_expr(&args[1])?;
@@ -1017,21 +1476,31 @@ impl Interpreter {
                     false
                 };
 
-                let result = tensor.argmax(dim, keepdim)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(result))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let result = tensor.argmax(dim, keepdim)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let result = tensor.argmax(dim, keepdim)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("argmax() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "argmin" => {
                 // argmin(tensor, dim: int = -1, keepdim: bool = false)
+                use crate::interpreter::value::ToValue;
                 if args.is_empty() || args.len() > 3 {
                     return Err(RuntimeError::TypeError(
                         format!("argmin() expects 1-3 arguments (tensor, optional dim, optional keepdim), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
 
                 let dim = if args.len() >= 2 {
                     let dim_val = self.eval_expr(&args[1])?;
@@ -1066,398 +1535,52 @@ impl Interpreter {
                     false
                 };
 
-                let result = tensor.argmin(dim, keepdim)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(result))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let result = tensor.argmin(dim, keepdim)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let result = tensor.argmin(dim, keepdim)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(result.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("argmin() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "unsqueeze" => {
-                // unsqueeze(tensor, dim: int)
+                // unsqueeze(tensor, dim)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("unsqueeze() expects 2 arguments (tensor, dim), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let dim_val = self.eval_expr(&args[1])?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                let dim = match dim_val {
+                let dim = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
                     Value::Float(f) => f as usize,
-                    _ => return Err(RuntimeError::TypeError(
-                        "unsqueeze() dim must be a number".to_string()
-                    )),
+                    _ => return Err(RuntimeError::TypeError("unsqueeze() dim must be integer".to_string())),
                 };
 
-                let result = tensor.unsqueeze(dim)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(result))
-            }
-
-            "squeeze" => {
-                // squeeze(tensor, dim: Optional[int] = None)
-                if args.is_empty() || args.len() > 2 {
-                    return Err(RuntimeError::TypeError(
-                        format!("squeeze() expects 1-2 arguments (tensor, optional dim), got {}", args.len())
-                    ));
-                }
-
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-
-                let dim = if args.len() >= 2 {
-                    let dim_val = self.eval_expr(&args[1])?;
-                    match dim_val {
-                        Value::Integer(i) => Some(i as usize),
-                        Value::Float(f) => Some(f as usize),
-                        _ => return Err(RuntimeError::TypeError(
-                            "squeeze() dim must be a number".to_string()
-                        )),
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.unsqueeze(dim)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
                     }
-                } else {
-                    None  // Default: squeeze all dims of size 1
-                };
-
-                let result = tensor.squeeze(dim)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(result))
-            }
-
-            "split" => {
-                // split(tensor, split_size: int, dim: int) -> returns first split only (simplified)
-                if args.len() != 3 {
-                    return Err(RuntimeError::TypeError(
-                        format!("split() expects 3 arguments (tensor, split_size, dim), got {}", args.len())
-                    ));
-                }
-
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-
-                let split_size = match self.eval_expr(&args[1])? {
-                    Value::Integer(i) => i as usize,
-                    Value::Float(f) => f as usize,
-                    _ => return Err(RuntimeError::TypeError(
-                        "split() split_size must be a number".to_string()
-                    )),
-                };
-
-                let dim = match self.eval_expr(&args[2])? {
-                    Value::Integer(i) => i as usize,
-                    Value::Float(f) => f as usize,
-                    _ => return Err(RuntimeError::TypeError(
-                        "split() dim must be a number".to_string()
-                    )),
-                };
-
-                let splits = tensor.split(split_size, dim)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                // For simplicity, return first split only
-                // TODO: Add list type to return all splits
-                if splits.is_empty() {
-                    return Err(RuntimeError::InvalidOperation(
-                        "split() produced no results".to_string()
-                    ));
-                }
-
-                Ok(Value::TensorF16(splits[0].clone()))
-            }
-
-            "chunk" => {
-                // chunk(tensor, chunks: int, dim: int) -> returns first chunk only (simplified)
-                if args.len() != 3 {
-                    return Err(RuntimeError::TypeError(
-                        format!("chunk() expects 3 arguments (tensor, chunks, dim), got {}", args.len())
-                    ));
-                }
-
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-
-                let chunks = match self.eval_expr(&args[1])? {
-                    Value::Integer(i) => i as usize,
-                    Value::Float(f) => f as usize,
-                    _ => return Err(RuntimeError::TypeError(
-                        "chunk() chunks must be a number".to_string()
-                    )),
-                };
-
-                let dim = match self.eval_expr(&args[2])? {
-                    Value::Integer(i) => i as usize,
-                    Value::Float(f) => f as usize,
-                    _ => return Err(RuntimeError::TypeError(
-                        "chunk() dim must be a number".to_string()
-                    )),
-                };
-
-                let chunks_result = tensor.chunk(chunks, dim)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                // For simplicity, return first chunk only
-                // TODO: Add list type to return all chunks
-                if chunks_result.is_empty() {
-                    return Err(RuntimeError::InvalidOperation(
-                        "chunk() produced no results".to_string()
-                    ));
-                }
-
-                Ok(Value::TensorF16(chunks_result[0].clone()))
-            }
-
-            "load_model" => {
-                // load_model("path/to/model.gguf")
-                if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        format!("load_model() expects 1 argument (path), got {}", args.len())
-                    ));
-                }
-
-                let path_val = self.eval_expr(&args[0])?;
-                let path = match path_val {
-                    Value::String(s) => s,
-                    _ => return Err(RuntimeError::TypeError(
-                        "load_model() argument must be a string (path)".to_string()
-                    )),
-                };
-
-                let model = Model::load(&path, self.env.metal_device())
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                println!("Loaded model from: {} (format: {:?})", path, model.metadata.format);
-                Ok(Value::Model(model))
-            }
-
-            "load_tokenizer" => {
-                // load_tokenizer("path/to/tokenizer.json" or "model_name")
-                if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        format!("load_tokenizer() expects 1 argument (path or model name), got {}", args.len())
-                    ));
-                }
-
-                let path_val = self.eval_expr(&args[0])?;
-                let path_or_name = match path_val {
-                    Value::String(s) => s,
-                    _ => return Err(RuntimeError::TypeError(
-                        "load_tokenizer() argument must be a string".to_string()
-                    )),
-                };
-
-                // Try loading from file first, then from pretrained
-                let tokenizer = if std::path::Path::new(&path_or_name).exists() {
-                    crate::tokenizer::Tokenizer::from_file(&path_or_name)
-                        .map_err(|e| RuntimeError::TensorError(e))?
-                } else {
-                    crate::tokenizer::Tokenizer::from_pretrained(&path_or_name)
-                        .map_err(|e| RuntimeError::TensorError(e))?
-                };
-
-                println!("Loaded tokenizer: {}", path_or_name);
-                Ok(Value::Tokenizer(std::sync::Arc::new(tokenizer)))
-            }
-
-            "get_tensor" => {
-                // get_tensor(model, "tensor_name")
-                if args.len() != 2 {
-                    return Err(RuntimeError::TypeError(
-                        format!("get_tensor() expects 2 arguments (model, tensor_name), got {}", args.len())
-                    ));
-                }
-
-                let model_val = self.eval_expr(&args[0])?;
-                let model = match model_val {
-                    Value::Model(m) => m,
-                    _ => return Err(RuntimeError::TypeError(
-                        "get_tensor() first argument must be a Model".to_string()
-                    )),
-                };
-
-                let name_val = self.eval_expr(&args[1])?;
-                let tensor_name = match name_val {
-                    Value::String(s) => s,
-                    _ => return Err(RuntimeError::TypeError(
-                        "get_tensor() second argument must be a string (tensor name)".to_string()
-                    )),
-                };
-
-                let tensor = model.get_tensor(&tensor_name)
-                    .ok_or_else(|| RuntimeError::InvalidOperation(
-                        format!("Tensor '{}' not found in model", tensor_name)
-                    ))?;
-
-                Ok(Value::TensorF16(tensor.clone()))
-            }
-
-            "tokenize" => {
-                // tokenize(tokenizer, text, add_special_tokens=true)
-                if args.len() < 2 || args.len() > 3 {
-                    return Err(RuntimeError::TypeError(
-                        format!("tokenize() expects 2-3 arguments (tokenizer, text, optional add_special_tokens), got {}", args.len())
-                    ));
-                }
-
-                let tokenizer = match self.eval_expr(&args[0])? {
-                    Value::Tokenizer(t) => t.clone(),
-                    _ => return Err(RuntimeError::TypeError(
-                        "tokenize() first argument must be a tokenizer".to_string()
-                    )),
-                };
-
-                let text = match self.eval_expr(&args[1])? {
-                    Value::String(s) => s,
-                    _ => return Err(RuntimeError::TypeError(
-                        "tokenize() second argument must be a string".to_string()
-                    )),
-                };
-
-                let add_special_tokens = if args.len() >= 3 {
-                    self.eval_expr(&args[2])?.as_bool()?
-                } else {
-                    true
-                };
-
-                let token_ids = tokenizer.encode(&text, add_special_tokens)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TokenIds(token_ids))
-            }
-
-            "detokenize" => {
-                // detokenize(tokenizer, token_ids, skip_special_tokens=true)
-                if args.len() < 2 || args.len() > 3 {
-                    return Err(RuntimeError::TypeError(
-                        format!("detokenize() expects 2-3 arguments (tokenizer, token_ids, optional skip_special_tokens), got {}", args.len())
-                    ));
-                }
-
-                let tokenizer = match self.eval_expr(&args[0])? {
-                    Value::Tokenizer(t) => t.clone(),
-                    _ => return Err(RuntimeError::TypeError(
-                        "detokenize() first argument must be a tokenizer".to_string()
-                    )),
-                };
-
-                let token_ids = match self.eval_expr(&args[1])? {
-                    Value::TokenIds(ids) => ids,
-                    _ => return Err(RuntimeError::TypeError(
-                        "detokenize() second argument must be TokenIds".to_string()
-                    )),
-                };
-
-                let skip_special_tokens = if args.len() >= 3 {
-                    self.eval_expr(&args[2])?.as_bool()?
-                } else {
-                    true
-                };
-
-                let text = tokenizer.decode(&token_ids, skip_special_tokens)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::String(text))
-            }
-
-            "embedding" => {
-                // embedding(embedding_table, token_ids) -> Tensor
-                // embedding_table: [d_model, vocab_size] (GGUF format)
-                // token_ids: TokenIds, TokenIdArray, or Tensor with shape [seq_len] or [batch, seq_len]
-                // output: [seq_len, d_model] or [batch, seq_len, d_model]
-                if args.len() != 2 {
-                    return Err(RuntimeError::TypeError(
-                        format!("embedding() expects 2 arguments (embedding_table, token_ids), got {}", args.len())
-                    ));
-                }
-
-                let embedding_table = self.eval_expr(&args[0])?.as_tensor()?.clone();
-
-                // Handle different token_ids types
-                let output = match self.eval_expr(&args[1])? {
-                    Value::TokenIdArray(ref arr) => {
-                        // Use embedding_from_token_ids() to avoid f16 precision loss
-                        embedding_table.embedding_from_token_ids(arr)
-                            .map_err(|e| RuntimeError::TensorError(e))?
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.unsqueeze(dim)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
                     }
-                    Value::TokenIds(ids) => {
-                        // Convert Vec<u32> to f16 tensor (legacy support)
-                        let token_data: Vec<half::f16> = ids.iter()
-                            .map(|&id| half::f16::from_f32(id as f32))
-                            .collect();
-                        let token_ids_tensor = crate::tensor::Tensor::from_vec_metal(
-                            self.env.metal_device(),
-                            token_data,
-                            vec![ids.len()]
-                        ).map_err(|e| RuntimeError::TensorError(e))?;
-
-                        embedding_table.embedding(&token_ids_tensor)
-                            .map_err(|e| RuntimeError::TensorError(e))?
-                    }
-                    Value::TensorF16(t) => {
-                        embedding_table.embedding(&t)
-                            .map_err(|e| RuntimeError::TensorError(e))?
-                    }
-                    _ => return Err(RuntimeError::TypeError(
-                        "embedding() second argument must be TokenIdArray, TokenIds, or Tensor".to_string()
-                    )),
-                };
-
-                Ok(Value::TensorF16(output))
-            }
-
-            "positional_encoding" => {
-                // positional_encoding(seq_len, d_model) -> Tensor
-                // Generates sinusoidal positional encoding
-                // output: [seq_len, d_model]
-                if args.len() != 2 {
-                    return Err(RuntimeError::TypeError(
-                        format!("positional_encoding() expects 2 arguments (seq_len, d_model), got {}", args.len())
-                    ));
+                    _ => Err(RuntimeError::TypeError("unsqueeze() expects tensor".to_string()))
                 }
-
-                let seq_len = match self.eval_expr(&args[0])? {
-                    Value::Integer(i) => i as usize,
-                    Value::Float(f) => f as usize,
-                    v => return Err(RuntimeError::TypeError(
-                        format!("positional_encoding() first argument must be a number (seq_len), got {:?}", v)
-                    )),
-                };
-
-                let d_model = match self.eval_expr(&args[1])? {
-                    Value::Integer(i) => i as usize,
-                    Value::Float(f) => f as usize,
-                    v => return Err(RuntimeError::TypeError(
-                        format!("positional_encoding() second argument must be a number (d_model), got {:?}", v)
-                    )),
-                };
-
-                // Generate sinusoidal positional encoding
-                // PE(pos, 2i) = sin(pos / 10000^(2i/d_model))
-                // PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
-                let mut pe_data = Vec::with_capacity(seq_len * d_model);
-
-                for pos in 0..seq_len {
-                    for i in 0..d_model {
-                        let div_term = (i as f32 / d_model as f32) * 10000_f32.ln();
-                        let angle = pos as f32 / div_term.exp();
-
-                        let value = if i % 2 == 0 {
-                            angle.sin()
-                        } else {
-                            angle.cos()
-                        };
-
-                        pe_data.push(half::f16::from_f32(value));
-                    }
-                }
-
-                // Create output tensor
-                let output = crate::tensor::Tensor::from_vec_metal(
-                    self.env.metal_device(),
-                    pe_data,
-                    vec![seq_len, d_model]
-                ).map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
             }
 
             "top_k" => {
@@ -1465,13 +1588,14 @@ impl Interpreter {
                 // Keep only top-k logits, set others to -inf
                 // Input: logits [vocab_size] or [..., vocab_size]
                 // Output: same shape as input, with non-top-k values set to -inf
+                use crate::interpreter::value::ToValue;
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("top_k() expects 2 arguments (logits, k), got {}", args.len())
                     ));
                 }
 
-                let logits = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let logits_val = self.eval_expr(&args[0])?;
                 let k = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
                     Value::Float(f) => f as usize,
@@ -1480,53 +1604,107 @@ impl Interpreter {
                     )),
                 };
 
-                let shape = logits.shape();
-                let dims = shape.dims();
-                let vocab_size = dims[dims.len() - 1];
+                match logits_val {
+                    Value::TensorF16(logits) => {
+                        let shape = logits.shape();
+                        let dims = shape.dims();
+                        let vocab_size = dims[dims.len() - 1];
 
-                if k > vocab_size {
-                    return Err(RuntimeError::TensorError(
-                        crate::error::TensorError::InvalidOperation(
-                            format!("k ({}) cannot be larger than vocab_size ({})", k, vocab_size)
-                        )
-                    ));
-                }
+                        if k > vocab_size {
+                            return Err(RuntimeError::TensorError(
+                                crate::error::TensorError::InvalidOperation(
+                                    format!("k ({}) cannot be larger than vocab_size ({})", k, vocab_size)
+                                )
+                            ));
+                        }
 
-                // Get logits data
-                let data = logits.to_vec();
-                let mut output_data = data.clone();
+                        // Get logits data
+                        let data = logits.to_vec();
+                        let mut output_data = data.clone();
 
-                // Process each sequence (last dimension is vocab)
-                let batch_size = data.len() / vocab_size;
+                        // Process each sequence (last dimension is vocab)
+                        let batch_size = data.len() / vocab_size;
 
-                for batch_idx in 0..batch_size {
-                    let start_idx = batch_idx * vocab_size;
-                    let end_idx = start_idx + vocab_size;
-                    let logits_slice = &data[start_idx..end_idx];
+                        for batch_idx in 0..batch_size {
+                            let start_idx = batch_idx * vocab_size;
+                            let end_idx = start_idx + vocab_size;
+                            let logits_slice = &data[start_idx..end_idx];
 
-                    // Get indices sorted by logit value (descending)
-                    let mut indexed_logits: Vec<(usize, f32)> = logits_slice
-                        .iter()
-                        .enumerate()
-                        .map(|(i, &v)| (i, v.to_f32()))
-                        .collect();
-                    indexed_logits.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+                            // Get indices sorted by logit value (descending)
+                            let mut indexed_logits: Vec<(usize, f32)> = logits_slice
+                                .iter()
+                                .enumerate()
+                                .map(|(i, &v)| (i, v.to_f32()))
+                                .collect();
+                            indexed_logits.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
-                    // Set non-top-k to -inf
-                    for i in k..vocab_size {
-                        let idx = indexed_logits[i].0;
-                        output_data[start_idx + idx] = half::f16::from_f32(f32::NEG_INFINITY);
+                            // Set non-top-k to -inf
+                            for i in k..vocab_size {
+                                let idx = indexed_logits[i].0;
+                                output_data[start_idx + idx] = half::f16::from_f32(f32::NEG_INFINITY);
+                            }
+                        }
+
+                        // Create output tensor
+                        let output = crate::tensor::Tensor::from_vec_gpu(
+                            self.env.metal_device(),
+                            output_data,
+                            dims.to_vec()
+                        ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                        Ok(output.to_value())
                     }
+                    Value::TensorF32(logits) => {
+                        let shape = logits.shape();
+                        let dims = shape.dims();
+                        let vocab_size = dims[dims.len() - 1];
+
+                        if k > vocab_size {
+                            return Err(RuntimeError::TensorError(
+                                crate::error::TensorError::InvalidOperation(
+                                    format!("k ({}) cannot be larger than vocab_size ({})", k, vocab_size)
+                                )
+                            ));
+                        }
+
+                        // Get logits data
+                        let data = logits.to_vec();
+                        let mut output_data = data.clone();
+
+                        // Process each sequence (last dimension is vocab)
+                        let batch_size = data.len() / vocab_size;
+
+                        for batch_idx in 0..batch_size {
+                            let start_idx = batch_idx * vocab_size;
+                            let end_idx = start_idx + vocab_size;
+                            let logits_slice = &data[start_idx..end_idx];
+
+                            // Get indices sorted by logit value (descending)
+                            let mut indexed_logits: Vec<(usize, f32)> = logits_slice
+                                .iter()
+                                .enumerate()
+                                .map(|(i, &v)| (i, v))
+                                .collect();
+                            indexed_logits.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+                            // Set non-top-k to -inf
+                            for i in k..vocab_size {
+                                let idx = indexed_logits[i].0;
+                                output_data[start_idx + idx] = f32::NEG_INFINITY;
+                            }
+                        }
+
+                        // Create output tensor
+                        let output = crate::tensor::Tensor::from_vec_gpu(
+                            self.env.metal_device(),
+                            output_data,
+                            dims.to_vec()
+                        ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("top_k() expects tensor (f16 or f32)".to_string()))
                 }
-
-                // Create output tensor
-                let output = crate::tensor::Tensor::from_vec_metal(
-                    self.env.metal_device(),
-                    output_data,
-                    dims.to_vec()
-                ).map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
             }
 
             "top_p" => {
@@ -1534,13 +1712,14 @@ impl Interpreter {
                 // Nucleus sampling: keep smallest set of logits with cumulative probability >= p
                 // Input: logits [vocab_size] or [..., vocab_size]
                 // Output: same shape, with non-nucleus values set to -inf
+                use crate::interpreter::value::ToValue;
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("top_p() expects 2 arguments (logits, p), got {}", args.len())
                     ));
                 }
 
-                let logits = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let logits_val = self.eval_expr(&args[0])?;
                 let p = match self.eval_expr(&args[1])? {
                     Value::Float(f) => f as f32,
                     Value::Integer(i) => i as f32,
@@ -1557,78 +1736,105 @@ impl Interpreter {
                     ));
                 }
 
-                let shape = logits.shape();
-                let dims = shape.dims();
-                let vocab_size = dims[dims.len() - 1];
+                match logits_val {
+                    Value::TensorF16(logits) => {
+                        let shape = logits.shape();
+                        let dims = shape.dims();
+                        let vocab_size = dims[dims.len() - 1];
+                        let data = logits.to_vec();
+                        let mut output_data = data.clone();
+                        let batch_size = data.len() / vocab_size;
 
-                // Get logits data
-                let data = logits.to_vec();
-                let mut output_data = data.clone();
+                        for batch_idx in 0..batch_size {
+                            let start_idx = batch_idx * vocab_size;
+                            let end_idx = start_idx + vocab_size;
+                            let logits_slice = &data[start_idx..end_idx];
 
-                // Process each sequence
-                let batch_size = data.len() / vocab_size;
+                            let max_logit = logits_slice.iter().map(|v| v.to_f32()).fold(f32::NEG_INFINITY, f32::max);
+                            let exp_logits: Vec<f32> = logits_slice.iter().map(|v| (v.to_f32() - max_logit).exp()).collect();
+                            let sum_exp: f32 = exp_logits.iter().sum();
+                            let probs: Vec<f32> = exp_logits.iter().map(|e| e / sum_exp).collect();
 
-                for batch_idx in 0..batch_size {
-                    let start_idx = batch_idx * vocab_size;
-                    let end_idx = start_idx + vocab_size;
-                    let logits_slice = &data[start_idx..end_idx];
+                            let mut indexed_probs: Vec<(usize, f32)> = probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
+                            indexed_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
-                    // Convert to probabilities using softmax
-                    let max_logit = logits_slice.iter().map(|v| v.to_f32()).fold(f32::NEG_INFINITY, f32::max);
-                    let exp_logits: Vec<f32> = logits_slice
-                        .iter()
-                        .map(|v| (v.to_f32() - max_logit).exp())
-                        .collect();
-                    let sum_exp: f32 = exp_logits.iter().sum();
-                    let probs: Vec<f32> = exp_logits.iter().map(|e| e / sum_exp).collect();
+                            let mut cumulative_prob = 0.0;
+                            let mut nucleus_size = 0;
+                            for (_, prob) in &indexed_probs {
+                                cumulative_prob += prob;
+                                nucleus_size += 1;
+                                if cumulative_prob >= p {
+                                    break;
+                                }
+                            }
 
-                    // Sort by probability (descending)
-                    let mut indexed_probs: Vec<(usize, f32)> = probs
-                        .iter()
-                        .enumerate()
-                        .map(|(i, &p)| (i, p))
-                        .collect();
-                    indexed_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-
-                    // Find nucleus: smallest set with cumulative prob >= p
-                    let mut cumulative_prob = 0.0;
-                    let mut nucleus_size = 0;
-                    for (_, prob) in &indexed_probs {
-                        cumulative_prob += prob;
-                        nucleus_size += 1;
-                        if cumulative_prob >= p {
-                            break;
+                            for i in nucleus_size..vocab_size {
+                                let idx = indexed_probs[i].0;
+                                output_data[start_idx + idx] = half::f16::from_f32(f32::NEG_INFINITY);
+                            }
                         }
-                    }
 
-                    // Set non-nucleus to -inf
-                    for i in nucleus_size..vocab_size {
-                        let idx = indexed_probs[i].0;
-                        output_data[start_idx + idx] = half::f16::from_f32(f32::NEG_INFINITY);
+                        let output = crate::tensor::Tensor::from_vec_gpu(self.env.metal_device(), output_data, dims.to_vec())
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
                     }
+                    Value::TensorF32(logits) => {
+                        let shape = logits.shape();
+                        let dims = shape.dims();
+                        let vocab_size = dims[dims.len() - 1];
+                        let data = logits.to_vec();
+                        let mut output_data = data.clone();
+                        let batch_size = data.len() / vocab_size;
+
+                        for batch_idx in 0..batch_size {
+                            let start_idx = batch_idx * vocab_size;
+                            let end_idx = start_idx + vocab_size;
+                            let logits_slice = &data[start_idx..end_idx];
+
+                            let max_logit = logits_slice.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                            let exp_logits: Vec<f32> = logits_slice.iter().map(|&v| (v - max_logit).exp()).collect();
+                            let sum_exp: f32 = exp_logits.iter().sum();
+                            let probs: Vec<f32> = exp_logits.iter().map(|e| e / sum_exp).collect();
+
+                            let mut indexed_probs: Vec<(usize, f32)> = probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
+                            indexed_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+                            let mut cumulative_prob = 0.0;
+                            let mut nucleus_size = 0;
+                            for (_, prob) in &indexed_probs {
+                                cumulative_prob += prob;
+                                nucleus_size += 1;
+                                if cumulative_prob >= p {
+                                    break;
+                                }
+                            }
+
+                            for i in nucleus_size..vocab_size {
+                                let idx = indexed_probs[i].0;
+                                output_data[start_idx + idx] = f32::NEG_INFINITY;
+                            }
+                        }
+
+                        let output = crate::tensor::Tensor::from_vec_gpu(self.env.metal_device(), output_data, dims.to_vec())
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("top_p() expects tensor (f16 or f32)".to_string()))
                 }
-
-                // Create output tensor
-                let output = crate::tensor::Tensor::from_vec_metal(
-                    self.env.metal_device(),
-                    output_data,
-                    dims.to_vec()
-                ).map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
             }
 
             "temperature" => {
                 // temperature(logits, temp) -> Tensor
                 // Scale logits by temperature: logits / temp
                 // Higher temp = more random, lower temp = more deterministic
+                use crate::interpreter::value::ToValue;
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("temperature() expects 2 arguments (logits, temp), got {}", args.len())
                     ));
                 }
 
-                let logits = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let logits_val = self.eval_expr(&args[0])?;
                 let temp = match self.eval_expr(&args[1])? {
                     Value::Float(f) => f as f32,
                     Value::Integer(i) => i as f32,
@@ -1645,79 +1851,148 @@ impl Interpreter {
                     ));
                 }
 
-                // Scale logits by temperature
-                let data = logits.to_vec();
-                let output_data: Vec<half::f16> = data
-                    .iter()
-                    .map(|&v| half::f16::from_f32(v.to_f32() / temp))
-                    .collect();
+                match logits_val {
+                    Value::TensorF16(logits) => {
+                        let data = logits.to_vec();
+                        let output_data: Vec<half::f16> = data
+                            .iter()
+                            .map(|&v| half::f16::from_f32(v.to_f32() / temp))
+                            .collect();
 
-                // Create output tensor
-                let output = crate::tensor::Tensor::from_vec_metal(
-                    self.env.metal_device(),
-                    output_data,
-                    logits.shape().dims().to_vec()
-                ).map_err(|e| RuntimeError::TensorError(e))?;
+                        let output = crate::tensor::Tensor::from_vec_gpu(
+                            self.env.metal_device(),
+                            output_data,
+                            logits.shape().dims().to_vec()
+                        ).map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::TensorF16(output))
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(logits) => {
+                        let data = logits.to_vec();
+                        let output_data: Vec<f32> = data
+                            .iter()
+                            .map(|&v| v / temp)
+                            .collect();
+
+                        let output = crate::tensor::Tensor::from_vec_gpu(
+                            self.env.metal_device(),
+                            output_data,
+                            logits.shape().dims().to_vec()
+                        ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("temperature() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "softmax" => {
                 // softmax(logits, dim=-1) -> Tensor
                 // Convert logits to probability distribution
                 // Default: apply softmax on last dimension
+                use crate::interpreter::value::ToValue;
+
                 if args.is_empty() || args.len() > 2 {
                     return Err(RuntimeError::TypeError(
                         format!("softmax() expects 1-2 arguments (logits, optional dim), got {}", args.len())
                     ));
                 }
 
-                let logits = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let logits_val = self.eval_expr(&args[0])?;
 
-                // For now, always apply softmax on last dimension
-                // TODO: support custom dimension when needed
-                let shape = logits.shape();
-                let dims = shape.dims();
-                let last_dim_size = dims[dims.len() - 1];
+                match logits_val {
+                    Value::TensorF16(logits) => {
+                        // For now, always apply softmax on last dimension
+                        let shape = logits.shape();
+                        let dims = shape.dims();
+                        let last_dim_size = dims[dims.len() - 1];
 
-                // Get logits data
-                let data = logits.to_vec();
-                let mut output_data = Vec::with_capacity(data.len());
+                        // Get logits data
+                        let data = logits.to_vec();
+                        let mut output_data = Vec::with_capacity(data.len());
 
-                // Process each sequence (last dimension is vocab)
-                let batch_size = data.len() / last_dim_size;
+                        // Process each sequence (last dimension is vocab)
+                        let batch_size = data.len() / last_dim_size;
 
-                for batch_idx in 0..batch_size {
-                    let start_idx = batch_idx * last_dim_size;
-                    let end_idx = start_idx + last_dim_size;
-                    let logits_slice = &data[start_idx..end_idx];
+                        for batch_idx in 0..batch_size {
+                            let start_idx = batch_idx * last_dim_size;
+                            let end_idx = start_idx + last_dim_size;
+                            let logits_slice = &data[start_idx..end_idx];
 
-                    // Compute softmax with numerical stability
-                    let max_logit = logits_slice.iter()
-                        .map(|v| v.to_f32())
-                        .fold(f32::NEG_INFINITY, f32::max);
+                            // Compute softmax with numerical stability
+                            let max_logit = logits_slice.iter()
+                                .map(|v| v.to_f32())
+                                .fold(f32::NEG_INFINITY, f32::max);
 
-                    let exp_logits: Vec<f32> = logits_slice
-                        .iter()
-                        .map(|v| (v.to_f32() - max_logit).exp())
-                        .collect();
+                            let exp_logits: Vec<f32> = logits_slice
+                                .iter()
+                                .map(|v| (v.to_f32() - max_logit).exp())
+                                .collect();
 
-                    let sum_exp: f32 = exp_logits.iter().sum();
+                            let sum_exp: f32 = exp_logits.iter().sum();
 
-                    // Normalize to get probabilities
-                    for exp_val in exp_logits {
-                        output_data.push(half::f16::from_f32(exp_val / sum_exp));
+                            // Normalize to get probabilities
+                            for exp_val in exp_logits {
+                                output_data.push(half::f16::from_f32(exp_val / sum_exp));
+                            }
+                        }
+
+                        // Create output tensor
+                        let output = crate::tensor::Tensor::from_vec_gpu(
+                            self.env.metal_device(),
+                            output_data,
+                            dims.to_vec()
+                        ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                        Ok(output.to_value())
                     }
+                    Value::TensorF32(logits) => {
+                        // For now, always apply softmax on last dimension
+                        let shape = logits.shape();
+                        let dims = shape.dims();
+                        let last_dim_size = dims[dims.len() - 1];
+
+                        // Get logits data
+                        let data = logits.to_vec();
+                        let mut output_data = Vec::with_capacity(data.len());
+
+                        // Process each sequence (last dimension is vocab)
+                        let batch_size = data.len() / last_dim_size;
+
+                        for batch_idx in 0..batch_size {
+                            let start_idx = batch_idx * last_dim_size;
+                            let end_idx = start_idx + last_dim_size;
+                            let logits_slice = &data[start_idx..end_idx];
+
+                            // Compute softmax with numerical stability
+                            let max_logit = logits_slice.iter()
+                                .copied()
+                                .fold(f32::NEG_INFINITY, f32::max);
+
+                            let exp_logits: Vec<f32> = logits_slice
+                                .iter()
+                                .map(|v| (v - max_logit).exp())
+                                .collect();
+
+                            let sum_exp: f32 = exp_logits.iter().sum();
+
+                            // Normalize to get probabilities
+                            for exp_val in exp_logits {
+                                output_data.push(exp_val / sum_exp);
+                            }
+                        }
+
+                        // Create output tensor
+                        let output = crate::tensor::Tensor::from_vec_gpu(
+                            self.env.metal_device(),
+                            output_data,
+                            dims.to_vec()
+                        ).map_err(|e| RuntimeError::TensorError(e))?;
+
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("softmax() expects tensor (f16 or f32)".to_string()))
                 }
-
-                // Create output tensor
-                let output = crate::tensor::Tensor::from_vec_metal(
-                    self.env.metal_device(),
-                    output_data,
-                    dims.to_vec()
-                ).map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
             }
 
             "sample" => {
@@ -1731,22 +2006,38 @@ impl Interpreter {
                     ));
                 }
 
-                let probs_tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let shape = probs_tensor.shape();
-                let dims = shape.dims();
+                let probs_val = self.eval_expr(&args[0])?;
 
-                // For now, only support 1D probability distributions
-                if dims.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        format!("sample() currently only supports 1D probability distributions, got shape {:?}", dims)
-                    ));
-                }
+                let probs_f32: Vec<f32> = match probs_val {
+                    Value::TensorF16(probs_tensor) => {
+                        let shape = probs_tensor.shape();
+                        let dims = shape.dims();
 
-                let vocab_size = dims[0];
-                let probs = probs_tensor.to_vec();
+                        // For now, only support 1D probability distributions
+                        if dims.len() != 1 {
+                            return Err(RuntimeError::TypeError(
+                                format!("sample() currently only supports 1D probability distributions, got shape {:?}", dims)
+                            ));
+                        }
 
-                // Convert to f32 probabilities
-                let probs_f32: Vec<f32> = probs.iter().map(|v| v.to_f32()).collect();
+                        let probs = probs_tensor.to_vec();
+                        probs.iter().map(|v| v.to_f32()).collect()
+                    }
+                    Value::TensorF32(probs_tensor) => {
+                        let shape = probs_tensor.shape();
+                        let dims = shape.dims();
+
+                        // For now, only support 1D probability distributions
+                        if dims.len() != 1 {
+                            return Err(RuntimeError::TypeError(
+                                format!("sample() currently only supports 1D probability distributions, got shape {:?}", dims)
+                            ));
+                        }
+
+                        probs_tensor.to_vec()
+                    }
+                    _ => return Err(RuntimeError::TypeError("sample() expects tensor (f16 or f32)".to_string()))
+                };
 
                 // Verify it's a valid probability distribution
                 let sum: f32 = probs_f32.iter().sum();
@@ -1788,7 +2079,7 @@ impl Interpreter {
                     ));
                 }
 
-                let logits_tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let logits_val = self.eval_expr(&args[0])?;
                 let temperature = match self.eval_expr(&args[1])? {
                     Value::Float(f) => f as f32,
                     Value::Integer(i) => i as f32,
@@ -1803,26 +2094,45 @@ impl Interpreter {
                     ));
                 }
 
-                let shape = logits_tensor.shape();
-                let dims = shape.dims();
+                let logits_f32: Vec<f32> = match logits_val {
+                    Value::TensorF16(logits_tensor) => {
+                        let shape = logits_tensor.shape();
+                        let dims = shape.dims();
 
-                // Support both 1D and 2D tensors
-                // For 2D [seq_len, vocab_size], use the last row (last token's logits)
-                let logits_f32: Vec<f32> = if dims.len() == 1 {
-                    // 1D: [vocab_size]
-                    let logits = logits_tensor.to_vec();
-                    logits.iter().map(|v| v.to_f32()).collect()
-                } else if dims.len() == 2 {
-                    // 2D: [seq_len, vocab_size] - extract last row
-                    let seq_len = dims[0];
-                    let vocab_size = dims[1];
-                    let logits = logits_tensor.to_vec();
-                    let start_idx = (seq_len - 1) * vocab_size;
-                    logits[start_idx..].iter().map(|v| v.to_f32()).collect()
-                } else {
-                    return Err(RuntimeError::TypeError(
-                        format!("temperature_sample() expects 1D or 2D logits, got shape {:?}", dims)
-                    ));
+                        if dims.len() == 1 {
+                            let logits = logits_tensor.to_vec();
+                            logits.iter().map(|v| v.to_f32()).collect()
+                        } else if dims.len() == 2 {
+                            let seq_len = dims[0];
+                            let vocab_size = dims[1];
+                            let logits = logits_tensor.to_vec();
+                            let start_idx = (seq_len - 1) * vocab_size;
+                            logits[start_idx..].iter().map(|v| v.to_f32()).collect()
+                        } else {
+                            return Err(RuntimeError::TypeError(
+                                format!("temperature_sample() expects 1D or 2D logits, got shape {:?}", dims)
+                            ));
+                        }
+                    }
+                    Value::TensorF32(logits_tensor) => {
+                        let shape = logits_tensor.shape();
+                        let dims = shape.dims();
+
+                        if dims.len() == 1 {
+                            logits_tensor.to_vec()
+                        } else if dims.len() == 2 {
+                            let seq_len = dims[0];
+                            let vocab_size = dims[1];
+                            let logits = logits_tensor.to_vec();
+                            let start_idx = (seq_len - 1) * vocab_size;
+                            logits[start_idx..].to_vec()
+                        } else {
+                            return Err(RuntimeError::TypeError(
+                                format!("temperature_sample() expects 1D or 2D logits, got shape {:?}", dims)
+                            ));
+                        }
+                    }
+                    _ => return Err(RuntimeError::TypeError("temperature_sample() expects tensor (f16 or f32)".to_string()))
                 };
 
                 // Apply temperature scaling
@@ -1862,7 +2172,7 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
                 let k = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
                     _ => return Err(RuntimeError::TypeError(
@@ -1870,19 +2180,40 @@ impl Interpreter {
                     )),
                 };
 
-                let dims = tensor.shape().dims();
-                let logits_f32: Vec<f32> = if dims.len() == 1 {
-                    tensor.to_vec().iter().map(|v| v.to_f32()).collect()
-                } else if dims.len() == 2 {
-                    let seq_len = dims[0];
-                    let vocab_size = dims[1];
-                    let logits = tensor.to_vec();
-                    let start_idx = (seq_len - 1) * vocab_size;
-                    logits[start_idx..].iter().map(|v| v.to_f32()).collect()
-                } else {
-                    return Err(RuntimeError::TypeError(
-                        format!("print_top_k() expects 1D or 2D tensor, got shape {:?}", dims)
-                    ));
+                let logits_f32: Vec<f32> = match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let dims = tensor.shape().dims();
+                        if dims.len() == 1 {
+                            tensor.to_vec().iter().map(|v| v.to_f32()).collect()
+                        } else if dims.len() == 2 {
+                            let seq_len = dims[0];
+                            let vocab_size = dims[1];
+                            let logits = tensor.to_vec();
+                            let start_idx = (seq_len - 1) * vocab_size;
+                            logits[start_idx..].iter().map(|v| v.to_f32()).collect()
+                        } else {
+                            return Err(RuntimeError::TypeError(
+                                format!("print_top_k() expects 1D or 2D tensor, got shape {:?}", dims)
+                            ));
+                        }
+                    }
+                    Value::TensorF32(tensor) => {
+                        let dims = tensor.shape().dims();
+                        if dims.len() == 1 {
+                            tensor.to_vec()
+                        } else if dims.len() == 2 {
+                            let seq_len = dims[0];
+                            let vocab_size = dims[1];
+                            let logits = tensor.to_vec();
+                            let start_idx = (seq_len - 1) * vocab_size;
+                            logits[start_idx..].to_vec()
+                        } else {
+                            return Err(RuntimeError::TypeError(
+                                format!("print_top_k() expects 1D or 2D tensor, got shape {:?}", dims)
+                            ));
+                        }
+                    }
+                    _ => return Err(RuntimeError::TypeError("print_top_k() expects tensor (f16 or f32)".to_string()))
                 };
 
                 // Get top k indices
@@ -1911,7 +2242,7 @@ impl Interpreter {
                     ));
                 }
 
-                let logits_tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let logits_val = self.eval_expr(&args[0])?;
                 let p = match self.eval_expr(&args[1])? {
                     Value::Float(f) => f as f32,
                     Value::Integer(i) => i as f32,
@@ -1926,26 +2257,49 @@ impl Interpreter {
                     ));
                 }
 
-                let shape = logits_tensor.shape();
-                let dims = shape.dims();
-
                 // Support both 1D and 2D tensors
                 // For 2D [seq_len, vocab_size], use the last row (last token's logits)
-                let logits_f32: Vec<f32> = if dims.len() == 1 {
-                    // 1D: [vocab_size]
-                    let logits = logits_tensor.to_vec();
-                    logits.iter().map(|v| v.to_f32()).collect()
-                } else if dims.len() == 2 {
-                    // 2D: [seq_len, vocab_size] - extract last row
-                    let seq_len = dims[0];
-                    let vocab_size = dims[1];
-                    let logits = logits_tensor.to_vec();
-                    let start_idx = (seq_len - 1) * vocab_size;
-                    logits[start_idx..].iter().map(|v| v.to_f32()).collect()
-                } else {
-                    return Err(RuntimeError::TypeError(
-                        format!("top_p_sample() expects 1D or 2D logits, got shape {:?}", dims)
-                    ));
+                let logits_f32: Vec<f32> = match logits_val {
+                    Value::TensorF16(logits_tensor) => {
+                        let shape = logits_tensor.shape();
+                        let dims = shape.dims();
+
+                        if dims.len() == 1 {
+                            // 1D: [vocab_size]
+                            let logits = logits_tensor.to_vec();
+                            logits.iter().map(|v| v.to_f32()).collect()
+                        } else if dims.len() == 2 {
+                            // 2D: [seq_len, vocab_size] - extract last row
+                            let seq_len = dims[0];
+                            let vocab_size = dims[1];
+                            let logits = logits_tensor.to_vec();
+                            let start_idx = (seq_len - 1) * vocab_size;
+                            logits[start_idx..].iter().map(|v| v.to_f32()).collect()
+                        } else {
+                            return Err(RuntimeError::TypeError(
+                                format!("top_p_sample() expects 1D or 2D logits, got shape {:?}", dims)
+                            ));
+                        }
+                    }
+                    Value::TensorF32(logits_tensor) => {
+                        let shape = logits_tensor.shape();
+                        let dims = shape.dims();
+
+                        if dims.len() == 1 {
+                            logits_tensor.to_vec()
+                        } else if dims.len() == 2 {
+                            let seq_len = dims[0];
+                            let vocab_size = dims[1];
+                            let logits = logits_tensor.to_vec();
+                            let start_idx = (seq_len - 1) * vocab_size;
+                            logits[start_idx..].to_vec()
+                        } else {
+                            return Err(RuntimeError::TypeError(
+                                format!("top_p_sample() expects 1D or 2D logits, got shape {:?}", dims)
+                            ));
+                        }
+                    }
+                    _ => return Err(RuntimeError::TypeError("top_p_sample() expects tensor (f16 or f32)".to_string()))
                 };
 
                 // Compute softmax
@@ -2001,59 +2355,70 @@ impl Interpreter {
             "relu" => {
                 // relu(tensor) -> Tensor
                 // Apply ReLU activation: max(0, x)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("relu() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let output = tensor.relu().map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.relu().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.relu().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("relu() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "matmul" => {
                 // matmul(a, b) -> Tensor
                 // Matrix multiplication: a @ b
                 // Supports batch matrix multiplication
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("matmul() expects 2 arguments (a, b), got {}", args.len())
                     ));
                 }
 
-                let a = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let b = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let a_val = self.eval_expr(&args[0])?;
+                let b_val = self.eval_expr(&args[1])?;
 
-                // Use einsum for matrix multiplication
-                let output = a.matmul(&b).map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (a_val, b_val) {
+                    (Value::TensorF16(a), Value::TensorF16(b)) => {
+                        let output = a.matmul(&b).map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    (Value::TensorF32(a), Value::TensorF32(b)) => {
+                        let output = a.matmul(&b).map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "matmul() requires both tensors to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "layer_norm" => {
                 // layer_norm(tensor, normalized_shape, eps=1e-5) -> Tensor
                 // Layer normalization
+                use crate::interpreter::value::ToValue;
                 if args.len() < 1 || args.len() > 3 {
                     return Err(RuntimeError::TypeError(
                         format!("layer_norm() expects 1-3 arguments (tensor, optional normalized_shape, optional eps), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-
-                // Default: normalize over last dimension
-                let shape = tensor.shape();
-                let dims = shape.dims();
-                let default_normalized_shape = vec![dims[dims.len() - 1]];
-
-                let normalized_shape = if args.len() >= 2 {
-                    // TODO: parse normalized_shape from argument
-                    default_normalized_shape
-                } else {
-                    default_normalized_shape
-                };
+                let tensor_val = self.eval_expr(&args[0])?;
 
                 let eps = if args.len() >= 3 {
                     match self.eval_expr(&args[2])? {
@@ -2065,26 +2430,58 @@ impl Interpreter {
                     1e-5_f32
                 };
 
-                let output = tensor.layer_norm(normalized_shape, None, None, eps)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        // Default: normalize over last dimension
+                        let shape = tensor.shape();
+                        let dims = shape.dims();
+                        let default_normalized_shape = vec![dims[dims.len() - 1]];
 
-                Ok(Value::TensorF16(output))
+                        let normalized_shape = if args.len() >= 2 {
+                            // TODO: parse normalized_shape from argument
+                            default_normalized_shape
+                        } else {
+                            default_normalized_shape
+                        };
+
+                        let output = tensor.layer_norm(normalized_shape, None, None, eps)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        // Default: normalize over last dimension
+                        let shape = tensor.shape();
+                        let dims = shape.dims();
+                        let default_normalized_shape = vec![dims[dims.len() - 1]];
+
+                        let normalized_shape = if args.len() >= 2 {
+                            // TODO: parse normalized_shape from argument
+                            default_normalized_shape
+                        } else {
+                            default_normalized_shape
+                        };
+
+                        let output = tensor.layer_norm(normalized_shape, None, None, eps)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("layer_norm() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "rms_norm" => {
                 // rms_norm(tensor, weight, eps=1e-6) -> Tensor
                 // RMS normalization (used in LLaMA, TinyLlama)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 2 || args.len() > 3 {
                     return Err(RuntimeError::TypeError(
                         format!("rms_norm() expects 2-3 arguments (tensor, weight, optional eps), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let weight = self.eval_expr(&args[1])?.as_tensor()?.clone();
-
-                // Infer normalized_shape from weight shape
-                let normalized_shape = weight.shape().dims().to_vec();
+                let tensor_val = self.eval_expr(&args[0])?;
+                let weight_val = self.eval_expr(&args[1])?;
 
                 let eps = if args.len() >= 3 {
                     match self.eval_expr(&args[2])? {
@@ -2096,24 +2493,39 @@ impl Interpreter {
                     1e-6_f32
                 };
 
-                let output = tensor.rms_norm(normalized_shape, &weight, eps)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor_val, weight_val) {
+                    (Value::TensorF16(tensor), Value::TensorF16(weight)) => {
+                        let normalized_shape = weight.shape().dims().to_vec();
+                        let output = tensor.rms_norm(normalized_shape, &weight, eps)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    (Value::TensorF32(tensor), Value::TensorF32(weight)) => {
+                        let normalized_shape = weight.shape().dims().to_vec();
+                        let output = tensor.rms_norm(normalized_shape, &weight, eps)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "rms_norm() requires tensor and weight to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "concat" => {
                 // concat(tensors, dim) -> Tensor
                 // Concatenate tensors along dimension
                 // For now, simplified version that takes 2 tensors
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 3 {
                     return Err(RuntimeError::TypeError(
                         format!("concat() expects 3 arguments (tensor1, tensor2, dim), got {}", args.len())
                     ));
                 }
 
-                let tensor1 = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let tensor2 = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let tensor1_val = self.eval_expr(&args[0])?;
+                let tensor2_val = self.eval_expr(&args[1])?;
 
                 let dim = match self.eval_expr(&args[2])? {
                     Value::Integer(i) => i as usize,
@@ -2123,43 +2535,75 @@ impl Interpreter {
                     )),
                 };
 
-                let tensors = vec![&tensor1, &tensor2];
-                let output = crate::tensor::Tensor::concat(&tensors, dim)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor1_val, tensor2_val) {
+                    (Value::TensorF16(tensor1), Value::TensorF16(tensor2)) => {
+                        let tensors = vec![&tensor1, &tensor2];
+                        let output = crate::tensor::Tensor::concat(&tensors[..], dim)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    (Value::TensorF32(tensor1), Value::TensorF32(tensor2)) => {
+                        let tensors = vec![&tensor1, &tensor2];
+                        let output = crate::tensor::Tensor::concat(&tensors[..], dim)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "concat() requires both tensors to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "sigmoid" => {
                 // sigmoid(tensor) -> Tensor
                 // Sigmoid activation: 1 / (1 + exp(-x))
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("sigmoid() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let output = tensor.sigmoid().map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                Ok(match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        tensor.sigmoid().map_err(|e| RuntimeError::TensorError(e))?.to_value()
+                    }
+                    Value::TensorF32(tensor) => {
+                        tensor.sigmoid().map_err(|e| RuntimeError::TensorError(e))?.to_value()
+                    }
+                    _ => return Err(RuntimeError::TypeError("sigmoid() expects tensor (f16 or f32)".to_string()))
+                })
             }
 
             "sum" => {
                 // sum(tensor, dim, keepdim) -> Tensor or Float
                 // Sum along dimension, or sum all elements
+                use crate::interpreter::value::ToValue;
+
                 if args.is_empty() || args.len() > 3 {
                     return Err(RuntimeError::TypeError(
                         format!("sum() expects 1-3 arguments (tensor, optional dim, optional keepdim), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
 
                 if args.len() == 1 {
                     // Sum all elements
-                    let result = tensor.sum().map_err(|e| RuntimeError::TensorError(e))?;
-                    Ok(Value::Float(result.to_f32() as f64))
+                    match tensor_val {
+                        Value::TensorF16(tensor) => {
+                            let result = tensor.sum().map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(Value::Float(result.to_f32() as f64))
+                        }
+                        Value::TensorF32(tensor) => {
+                            let result = tensor.sum().map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(Value::Float(result.to_f32() as f64))
+                        }
+                        _ => Err(RuntimeError::TypeError("sum() expects tensor (f16 or f32)".to_string()))
+                    }
                 } else {
                     // Sum along dimension
                     let dim = match self.eval_expr(&args[1])? {
@@ -2176,28 +2620,48 @@ impl Interpreter {
                         false
                     };
 
-                    let output = tensor.sum_dim(dim, keepdim)
-                        .map_err(|e| RuntimeError::TensorError(e))?;
-
-                    Ok(Value::TensorF16(output))
+                    match tensor_val {
+                        Value::TensorF16(tensor) => {
+                            let output = tensor.sum_dim(dim, keepdim)
+                                .map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(output.to_value())
+                        }
+                        Value::TensorF32(tensor) => {
+                            let output = tensor.sum_dim(dim, keepdim)
+                                .map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(output.to_value())
+                        }
+                        _ => Err(RuntimeError::TypeError("sum() expects tensor (f16 or f32)".to_string()))
+                    }
                 }
             }
 
             "mean" => {
                 // mean(tensor, dim, keepdim) -> Tensor or Float
                 // Mean along dimension, or mean of all elements
+                use crate::interpreter::value::ToValue;
+
                 if args.is_empty() || args.len() > 3 {
                     return Err(RuntimeError::TypeError(
                         format!("mean() expects 1-3 arguments (tensor, optional dim, optional keepdim), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
 
                 if args.len() == 1 {
                     // Mean of all elements
-                    let result = tensor.mean().map_err(|e| RuntimeError::TensorError(e))?;
-                    Ok(Value::Float(result.to_f32() as f64))
+                    match tensor_val {
+                        Value::TensorF16(tensor) => {
+                            let result = tensor.mean().map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(Value::Float(result.to_f32() as f64))
+                        }
+                        Value::TensorF32(tensor) => {
+                            let result = tensor.mean().map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(Value::Float(result.to_f32() as f64))
+                        }
+                        _ => Err(RuntimeError::TypeError("mean() expects tensor (f16 or f32)".to_string()))
+                    }
                 } else {
                     // Mean along dimension
                     let dim = match self.eval_expr(&args[1])? {
@@ -2214,10 +2678,19 @@ impl Interpreter {
                         false
                     };
 
-                    let output = tensor.mean_dim(dim, keepdim)
-                        .map_err(|e| RuntimeError::TensorError(e))?;
-
-                    Ok(Value::TensorF16(output))
+                    match tensor_val {
+                        Value::TensorF16(tensor) => {
+                            let output = tensor.mean_dim(dim, keepdim)
+                                .map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(output.to_value())
+                        }
+                        Value::TensorF32(tensor) => {
+                            let output = tensor.mean_dim(dim, keepdim)
+                                .map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(output.to_value())
+                        }
+                        _ => Err(RuntimeError::TypeError("mean() expects tensor (f16 or f32)".to_string()))
+                    }
                 }
             }
 
@@ -2276,42 +2749,70 @@ impl Interpreter {
             // Tensor shape functions
             "reshape" => {
                 // reshape(tensor, [new_shape])
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("reshape() expects 2 arguments (tensor, new_shape), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
                 let shape_value = self.eval_expr(&args[1])?;
+
+                // Extract new_shape from TensorF16 or TensorF32
                 let new_shape = match shape_value {
                     Value::TensorF16(t) => {
                         t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                    }
+                    Value::TensorF32(t) => {
+                        t.to_vec().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
                         "reshape() new_shape must be an array".to_string()
                     )),
                 };
 
-                let output = tensor.reshape(new_shape)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.reshape(new_shape)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.reshape(new_shape)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("reshape() expects tensor".to_string()))
+                }
             }
 
             "flatten" => {
                 // flatten(tensor)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("flatten() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let output = tensor.flatten()
-                    .map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.flatten()
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.flatten()
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("flatten() expects tensor".to_string()))
+                }
             }
 
             "shape" => {
@@ -2322,32 +2823,50 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let dims = tensor.dims();
+                use crate::interpreter::value::ToValue;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                // Convert shape dimensions to a 1D tensor
                 let device = MetalDevice::new().map_err(|e| RuntimeError::TensorError(e))?;
-                let shape_vec: Vec<f16> = dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
-                let shape_tensor = Tensor::from_vec_metal(&device, shape_vec, vec![dims.len()])
-                    .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::TensorF16(shape_tensor))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let dims = tensor.dims();
+                        let shape_vec: Vec<f16> = dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
+                        let shape_tensor = Tensor::from_vec_gpu(&device, shape_vec, vec![dims.len()])
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(shape_tensor.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let dims = tensor.dims();
+                        let shape_vec: Vec<f32> = dims.iter().map(|&d| d as f32).collect();
+                        let shape_tensor = Tensor::from_vec_gpu(&device, shape_vec, vec![dims.len()])
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(shape_tensor.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("shape() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "broadcast_to" => {
                 // broadcast_to(tensor, [target_shape])
                 // Broadcast tensor to target shape following NumPy broadcasting rules
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("broadcast_to() expects 2 arguments (tensor, target_shape), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
                 let shape_value = self.eval_expr(&args[1])?;
+
                 let target_shape = match shape_value {
                     Value::TensorF16(t) => {
                         t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                    }
+                    Value::TensorF32(t) => {
+                        t.to_vec().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
                         "broadcast_to() target_shape must be an array".to_string()
@@ -2355,62 +2874,102 @@ impl Interpreter {
                 };
 
                 let target_tensor_shape = TensorShape::new(target_shape);
-                let output = tensor.broadcast_to(&target_tensor_shape)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.broadcast_to(&target_tensor_shape)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.broadcast_to(&target_tensor_shape)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("broadcast_to() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "transpose" => {
                 // transpose(tensor)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("transpose() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let output = tensor.transpose()
-                    .map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.transpose()
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.transpose()
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("transpose() expects tensor".to_string()))
+                }
             }
 
             "permute" => {
                 // permute(tensor, [dims])
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("permute() expects 2 arguments (tensor, dims), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
                 let dims_value = self.eval_expr(&args[1])?;
+
+                // Extract dims from TensorF16 or TensorF32
                 let dims = match dims_value {
                     Value::TensorF16(t) => {
                         t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                    }
+                    Value::TensorF32(t) => {
+                        t.to_vec().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
                         "permute() dims must be an array".to_string()
                     )),
                 };
 
-                let output = tensor.permute(dims)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.permute(dims)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.permute(dims)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("permute() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             // Indexing functions
             "gather" => {
                 // gather(tensor, dim, indices)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 3 {
                     return Err(RuntimeError::TypeError(
                         format!("gather() expects 3 arguments (tensor, dim, indices), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
                 let dim = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
                     Value::Float(f) => f as usize,
@@ -2418,23 +2977,36 @@ impl Interpreter {
                         format!("gather() dim must be a number, got {:?}", v)
                     )),
                 };
-                let indices = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let indices_val = self.eval_expr(&args[2])?;
 
-                let output = tensor.gather(dim, &indices)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor_val, indices_val) {
+                    (Value::TensorF16(tensor), Value::TensorF16(indices)) => {
+                        let output = tensor.gather(dim, &indices)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    (Value::TensorF32(tensor), Value::TensorF32(indices)) => {
+                        let output = tensor.gather(dim, &indices)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "gather() requires tensor and indices to be same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "scatter" => {
                 // scatter(tensor, dim, indices, src)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 4 {
                     return Err(RuntimeError::TypeError(
                         format!("scatter() expects 4 arguments (tensor, dim, indices, src), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
                 let dim = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
                     Value::Float(f) => f as usize,
@@ -2442,13 +3014,25 @@ impl Interpreter {
                         format!("scatter() dim must be a number, got {:?}", v)
                     )),
                 };
-                let indices = self.eval_expr(&args[2])?.as_tensor()?.clone();
-                let src = self.eval_expr(&args[3])?.as_tensor()?.clone();
+                let indices_val = self.eval_expr(&args[2])?;
+                let src_val = self.eval_expr(&args[3])?;
 
-                let output = tensor.scatter(dim, &indices, &src)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor_val, indices_val, src_val) {
+                    (Value::TensorF16(tensor), Value::TensorF16(indices), Value::TensorF16(src)) => {
+                        let output = tensor.scatter(dim, &indices, &src)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    (Value::TensorF32(_), Value::TensorF32(_), Value::TensorF32(_)) => {
+                        // scatter() for f32 tensors is not yet implemented due to API constraints
+                        Err(RuntimeError::TypeError(
+                            "scatter() for f32 tensors is not yet implemented. Please use f16 tensors for scatter operations.".to_string()
+                        ))
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "scatter() requires all tensors (tensor, indices, src) to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             // Reduction functions (max, min)
@@ -2460,12 +3044,21 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
 
                 if args.len() == 1 {
                     // max(tensor) -> scalar
-                    let result = tensor.max().map_err(|e| RuntimeError::TensorError(e))?;
-                    Ok(Value::Float(result.to_f32() as f64))
+                    match tensor_val {
+                        Value::TensorF16(tensor) => {
+                            let result = tensor.max().map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(Value::Float(result.to_f32() as f64))
+                        }
+                        Value::TensorF32(tensor) => {
+                            let result = tensor.max().map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(Value::Float(result.to_f32() as f64))
+                        }
+                        _ => Err(RuntimeError::TypeError("max() expects tensor (f16 or f32)".to_string()))
+                    }
                 } else {
                     return Err(RuntimeError::InvalidOperation(
                         "max() with dimension not yet implemented".to_string()
@@ -2481,12 +3074,21 @@ impl Interpreter {
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
 
                 if args.len() == 1 {
                     // min(tensor) -> scalar
-                    let result = tensor.min().map_err(|e| RuntimeError::TensorError(e))?;
-                    Ok(Value::Float(result.to_f32() as f64))
+                    match tensor_val {
+                        Value::TensorF16(tensor) => {
+                            let result = tensor.min().map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(Value::Float(result.to_f32() as f64))
+                        }
+                        Value::TensorF32(tensor) => {
+                            let result = tensor.min().map_err(|e| RuntimeError::TensorError(e))?;
+                            Ok(Value::Float(result.to_f32() as f64))
+                        }
+                        _ => Err(RuntimeError::TypeError("min() expects tensor (f16 or f32)".to_string()))
+                    }
                 } else {
                     return Err(RuntimeError::InvalidOperation(
                         "min() with dimension not yet implemented".to_string()
@@ -2497,84 +3099,141 @@ impl Interpreter {
             // Activation functions
             "gelu" => {
                 // gelu(tensor)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("gelu() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let output = tensor.gelu().map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.gelu().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.gelu().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("gelu() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "tanh" => {
                 // tanh(tensor)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("tanh() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let output = tensor.tanh().map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.tanh().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.tanh().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("tanh() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             // Math functions
             "exp" => {
                 // exp(tensor)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("exp() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let output = tensor.exp().map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.exp().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.exp().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("exp() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "log" => {
                 // log(tensor)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("log() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let output = tensor.log().map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.log().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.log().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("log() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "sqrt" => {
                 // sqrt(tensor)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("sqrt() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let output = tensor.sqrt().map_err(|e| RuntimeError::TensorError(e))?;
+                let tensor_val = self.eval_expr(&args[0])?;
 
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.sqrt().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.sqrt().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("sqrt() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "pow" => {
                 // pow(tensor, exponent)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("pow() expects 2 arguments (tensor, exponent), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
                 let exponent = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as f32,
                     Value::Float(f) => f as f32,
@@ -2583,73 +3242,121 @@ impl Interpreter {
                     )),
                 };
 
-                let output = tensor.pow(exponent).map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.pow(exponent).map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.pow(exponent).map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("pow() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "sin" => {
                 // sin(tensor)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("sin() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let output = tensor.sin().map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                let tensor_val = self.eval_expr(&args[0])?;
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.sin().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.sin().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("sin() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "cos" => {
                 // cos(tensor)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("cos() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let output = tensor.cos().map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                let tensor_val = self.eval_expr(&args[0])?;
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.cos().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.cos().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("cos() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             "tan" => {
                 // tan(tensor)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 1 {
                     return Err(RuntimeError::TypeError(
                         format!("tan() expects 1 argument (tensor), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let output = tensor.tan().map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                let tensor_val = self.eval_expr(&args[0])?;
+                match tensor_val {
+                    Value::TensorF16(tensor) => {
+                        let output = tensor.tan().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    Value::TensorF32(tensor) => {
+                        let output = tensor.tan().map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError("tan() expects tensor (f16 or f32)".to_string()))
+                }
             }
 
             // Masking operations
             "apply_attention_mask" => {
                 // apply_attention_mask(tensor, mask)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("apply_attention_mask() expects 2 arguments (tensor, mask), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let mask = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
+                let mask_val = self.eval_expr(&args[1])?;
 
-                let output = tensor.apply_attention_mask(&mask)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor_val, mask_val) {
+                    (Value::TensorF16(tensor), Value::TensorF16(mask)) => {
+                        let output = tensor.apply_attention_mask(&mask)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    (Value::TensorF32(tensor), Value::TensorF32(mask)) => {
+                        let output = tensor.apply_attention_mask(&mask)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "apply_attention_mask() requires both tensors to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "padding_mask" => {
                 // padding_mask([lengths], max_len)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("padding_mask() expects 2 arguments (lengths, max_len), got {}", args.len())
@@ -2661,6 +3368,9 @@ impl Interpreter {
                 let lengths: Vec<usize> = match lengths_value {
                     Value::TensorF16(t) => {
                         t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                    }
+                    Value::TensorF32(t) => {
+                        t.to_vec().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
                         "padding_mask() lengths must be an array".to_string()
@@ -2675,126 +3385,149 @@ impl Interpreter {
                     )),
                 };
 
+                // Return f16 version by default for masks
                 let output = crate::tensor::Tensor::<half::f16>::padding_mask(&lengths, max_len)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::TensorF16(output))
+                Ok(output.to_value())
             }
 
             "combine_masks" => {
                 // combine_masks(mask1, mask2)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("combine_masks() expects 2 arguments (mask1, mask2), got {}", args.len())
                     ));
                 }
 
-                let mask1 = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let mask2 = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let mask1_val = self.eval_expr(&args[0])?;
+                let mask2_val = self.eval_expr(&args[1])?;
 
-                let output = mask1.combine_masks(&mask2)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
-            }
-
-            // Broadcast operation
-            "broadcast_to" => {
-                // broadcast_to(tensor, [target_shape])
-                if args.len() != 2 {
-                    return Err(RuntimeError::TypeError(
-                        format!("broadcast_to() expects 2 arguments (tensor, target_shape), got {}", args.len())
-                    ));
-                }
-
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let shape_value = self.eval_expr(&args[1])?;
-                let target_shape = match shape_value {
-                    Value::TensorF16(t) => {
-                        t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                match (mask1_val, mask2_val) {
+                    (Value::TensorF16(mask1), Value::TensorF16(mask2)) => {
+                        let output = mask1.combine_masks(&mask2)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
                     }
-                    _ => return Err(RuntimeError::TypeError(
-                        "broadcast_to() target_shape must be an array".to_string()
-                    )),
-                };
-
-                use crate::tensor::TensorShape;
-                let target_tensor_shape = TensorShape::new(target_shape);
-                let output = tensor.broadcast_to(&target_tensor_shape)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                    (Value::TensorF32(mask1), Value::TensorF32(mask2)) => {
+                        let output = mask1.combine_masks(&mask2)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "combine_masks() requires both masks to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             // Fused operations
             "fused_add_relu" => {
                 // fused_add_relu(tensor, other)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("fused_add_relu() expects 2 arguments (tensor, other), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let other = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
+                let other_val = self.eval_expr(&args[1])?;
 
-                let output = tensor.fused_add_relu(&other)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor_val, other_val) {
+                    (Value::TensorF16(tensor), Value::TensorF16(other)) => {
+                        let output = tensor.fused_add_relu(&other)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    (Value::TensorF32(tensor), Value::TensorF32(other)) => {
+                        let output = tensor.fused_add_relu(&other)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "fused_add_relu() requires both tensors to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "fused_mul_relu" => {
                 // fused_mul_relu(tensor, other)
+                use crate::interpreter::value::ToValue;
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("fused_mul_relu() expects 2 arguments (tensor, other), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let other = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
+                let other_val = self.eval_expr(&args[1])?;
 
-                let output = tensor.fused_mul_relu(&other)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor_val, other_val) {
+                    (Value::TensorF16(tensor), Value::TensorF16(other)) => {
+                        let output = tensor.fused_mul_relu(&other)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    (Value::TensorF32(tensor), Value::TensorF32(other)) => {
+                        let output = tensor.fused_mul_relu(&other)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "fused_mul_relu() requires both tensors to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "fused_affine" => {
-                // fused_affine(tensor, scale, bias)
+                // fused_affine(tensor, scale, bias) - f16 only
+                use crate::interpreter::value::ToValue;
                 if args.len() != 3 {
                     return Err(RuntimeError::TypeError(
                         format!("fused_affine() expects 3 arguments (tensor, scale, bias), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let scale = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let bias = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
+                let scale_val = self.eval_expr(&args[1])?;
+                let bias_val = self.eval_expr(&args[2])?;
 
-                let output = tensor.fused_affine(&scale, &bias)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor_val, scale_val, bias_val) {
+                    (Value::TensorF16(tensor), Value::TensorF16(scale), Value::TensorF16(bias)) => {
+                        let output = tensor.fused_affine(&scale, &bias)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "fused_affine() requires all tensors to be f16 (f32 not yet supported for fused operations)".to_string()
+                    ))
+                }
             }
 
             "fused_gelu_linear" => {
-                // fused_gelu_linear(tensor, weight, bias)
+                // fused_gelu_linear(tensor, weight, bias) - f16 only
+                use crate::interpreter::value::ToValue;
                 if args.len() != 3 {
                     return Err(RuntimeError::TypeError(
                         format!("fused_gelu_linear() expects 3 arguments (tensor, weight, bias), got {}", args.len())
                     ));
                 }
 
-                let tensor = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let weight = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let bias = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let tensor_val = self.eval_expr(&args[0])?;
+                let weight_val = self.eval_expr(&args[1])?;
+                let bias_val = self.eval_expr(&args[2])?;
 
-                let output = tensor.fused_gelu_linear(&weight, &bias)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
-                Ok(Value::TensorF16(output))
+                match (tensor_val, weight_val, bias_val) {
+                    (Value::TensorF16(tensor), Value::TensorF16(weight), Value::TensorF16(bias)) => {
+                        let output = tensor.fused_gelu_linear(&weight, &bias)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        Ok(output.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "fused_gelu_linear() requires all tensors to be f16 (f32 not yet supported for fused operations)".to_string()
+                    ))
+                }
             }
 
             "generate" => {
@@ -2806,8 +3539,8 @@ impl Interpreter {
                 }
 
                 let model_val = self.eval_expr(&args[0])?;
-                let _model = match model_val {
-                    Value::Model(m) => m,
+                match model_val {
+                    Value::ModelF16(_) | Value::ModelF32(_) => {},
                     _ => return Err(RuntimeError::TypeError(
                         "generate() first argument must be a Model".to_string()
                     )),
@@ -2854,11 +3587,8 @@ impl Interpreter {
                 // 3. KV cache for efficient generation
                 // 4. Sampling strategies (greedy, top-k, top-p, etc.)
                 let response = format!(
-                    "[Placeholder Response] You said: \"{}\". Full LLM inference not yet implemented. \
-                    Model loaded: {:?}, tensors: {}",
-                    prompt,
-                    _model.metadata.format,
-                    _model.num_tensors()
+                    "[Placeholder Response] You said: \"{}\". Full LLM inference not yet implemented.",
+                    prompt
                 );
 
                 Ok(Value::String(response))
@@ -2923,7 +3653,7 @@ impl Interpreter {
                     .collect();
 
                 // Convert to tensor
-                let tensor = Tensor::from_vec_metal(self.env.metal_device(), f16_vec, vec![dim])
+                let tensor = Tensor::from_vec_gpu(self.env.metal_device(), f16_vec, vec![dim])
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::TensorF16(tensor))
@@ -2959,6 +3689,8 @@ impl Interpreter {
             "transe_score" => {
                 // transe_score(head, relation, tail, norm: "L1" or "L2") -> Tensor
                 // TransE scoring function: score = -||h + r - t||
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 3 || args.len() > 4 {
                     return Err(RuntimeError::TypeError(
                         format!("transe_score() expects 3-4 arguments (head, relation, tail, norm?), got {}", args.len())
@@ -2966,9 +3698,9 @@ impl Interpreter {
                 }
 
                 // Evaluate arguments
-                let head = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let tail = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let head_val = self.eval_expr(&args[0])?;
+                let relation_val = self.eval_expr(&args[1])?;
+                let tail_val = self.eval_expr(&args[2])?;
 
                 // Parse norm type (default: L2)
                 let norm_type = if args.len() == 4 {
@@ -2982,42 +3714,83 @@ impl Interpreter {
                     "L2".to_string()
                 };
 
-                // Compute h + r - t
-                let h_plus_r = head.add(&relation)?;
-                let diff = h_plus_r.sub(&tail)?;
+                match (head_val, relation_val, tail_val) {
+                    (Value::TensorF16(head), Value::TensorF16(relation), Value::TensorF16(tail)) => {
+                        // Compute h + r - t
+                        let h_plus_r = head.add(&relation)?;
+                        let diff = h_plus_r.sub(&tail)?;
 
-                // Compute norm
-                let score = match norm_type.as_str() {
-                    "L1" => {
-                        // L1 norm: sum(|x|)
-                        // TODO: Implement abs() method for Tensor
-                        return Err(RuntimeError::NotImplemented(
-                            "L1 norm not yet implemented (requires Tensor.abs())".to_string()
-                        ));
+                        // Compute norm
+                        let score = match norm_type.as_str() {
+                            "L1" => {
+                                // L1 norm: sum(|x|)
+                                // TODO: Implement abs() method for Tensor
+                                return Err(RuntimeError::NotImplemented(
+                                    "L1 norm not yet implemented (requires Tensor.abs())".to_string()
+                                ));
+                            }
+                            "L2" => {
+                                // L2 norm: sqrt(sum(x^2))
+                                let squared = diff.mul(&diff)?;
+                                let sum_squared_f16 = squared.sum()?;
+                                let sum_squared_f32 = sum_squared_f16.to_f32();
+                                let l2_norm_f32 = sum_squared_f32.sqrt();
+                                let l2_norm_f16 = half::f16::from_f32(-l2_norm_f32);
+
+                                // Create scalar tensor
+                                let device = self.env.metal_device();
+                                Tensor::from_vec_gpu(device, vec![l2_norm_f16], vec![1])?
+                            }
+                            _ => return Err(RuntimeError::InvalidOperation(
+                                format!("transe_score() norm must be \"L1\" or \"L2\", got \"{}\"", norm_type)
+                            )),
+                        };
+
+                        Ok(score.to_value())
                     }
-                    "L2" => {
-                        // L2 norm: sqrt(sum(x^2))
-                        let squared = diff.mul(&diff)?;
-                        let sum_squared_f16 = squared.sum()?;
-                        let sum_squared_f32 = sum_squared_f16.to_f32();
-                        let l2_norm_f32 = sum_squared_f32.sqrt();
-                        let l2_norm_f16 = half::f16::from_f32(-l2_norm_f32);
+                    (Value::TensorF32(head), Value::TensorF32(relation), Value::TensorF32(tail)) => {
+                        // Compute h + r - t
+                        let h_plus_r = head.add(&relation)?;
+                        let diff = h_plus_r.sub(&tail)?;
 
-                        // Create scalar tensor
-                        let device = self.env.metal_device();
-                        Tensor::from_vec_metal(device, vec![l2_norm_f16], vec![1])?
+                        // Compute norm
+                        let score = match norm_type.as_str() {
+                            "L1" => {
+                                // L1 norm: sum(|x|)
+                                // TODO: Implement abs() method for Tensor
+                                return Err(RuntimeError::NotImplemented(
+                                    "L1 norm not yet implemented (requires Tensor.abs())".to_string()
+                                ));
+                            }
+                            "L2" => {
+                                // L2 norm: sqrt(sum(x^2))
+                                let squared = diff.mul(&diff)?;
+                                let sum_squared = squared.sum()?;
+                                let l2_norm = sum_squared.sqrt();
+                                let score_value = -l2_norm;
+
+                                // Create scalar tensor
+                                let device = self.env.metal_device();
+                                Tensor::from_vec_gpu(device, vec![score_value], vec![1])?
+                            }
+                            _ => return Err(RuntimeError::InvalidOperation(
+                                format!("transe_score() norm must be \"L1\" or \"L2\", got \"{}\"", norm_type)
+                            )),
+                        };
+
+                        Ok(score.to_value())
                     }
-                    _ => return Err(RuntimeError::InvalidOperation(
-                        format!("transe_score() norm must be \"L1\" or \"L2\", got \"{}\"", norm_type)
-                    )),
-                };
-
-                Ok(Value::TensorF16(score))
+                    _ => Err(RuntimeError::TypeError(
+                        "transe_score() requires all tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "distmult_score" => {
                 // distmult_score(head, relation, tail) -> Tensor
                 // DistMult scoring function: score = sum(h * r * t)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 3 {
                     return Err(RuntimeError::TypeError(
                         format!("distmult_score() expects 3 arguments (head, relation, tail), got {}", args.len())
@@ -3025,22 +3798,43 @@ impl Interpreter {
                 }
 
                 // Evaluate arguments
-                let head = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let tail = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let head_val = self.eval_expr(&args[0])?;
+                let relation_val = self.eval_expr(&args[1])?;
+                let tail_val = self.eval_expr(&args[2])?;
 
-                // Compute element-wise product: h * r * t
-                let h_mul_r = head.mul(&relation)?;
-                let product = h_mul_r.mul(&tail)?;
+                match (head_val, relation_val, tail_val) {
+                    (Value::TensorF16(head), Value::TensorF16(relation), Value::TensorF16(tail)) => {
+                        // Compute element-wise product: h * r * t
+                        let h_mul_r = head.mul(&relation)?;
+                        let product = h_mul_r.mul(&tail)?;
 
-                // Sum all elements
-                let score_f16 = product.sum()?;
+                        // Sum all elements
+                        let score_f16 = product.sum()?;
 
-                // Create scalar tensor
-                let device = self.env.metal_device();
-                let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
+                        // Create scalar tensor
+                        let device = self.env.metal_device();
+                        let score_tensor = Tensor::from_vec_gpu(device, vec![score_f16], vec![1])?;
 
-                Ok(Value::TensorF16(score_tensor))
+                        Ok(score_tensor.to_value())
+                    }
+                    (Value::TensorF32(head), Value::TensorF32(relation), Value::TensorF32(tail)) => {
+                        // Compute element-wise product: h * r * t
+                        let h_mul_r = head.mul(&relation)?;
+                        let product = h_mul_r.mul(&tail)?;
+
+                        // Sum all elements
+                        let score = product.sum()?;
+
+                        // Create scalar tensor
+                        let device = self.env.metal_device();
+                        let score_tensor = Tensor::from_vec_gpu(device, vec![score], vec![1])?;
+
+                        Ok(score_tensor.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "distmult_score() requires all tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "complex_score" => {
@@ -3051,6 +3845,8 @@ impl Interpreter {
                 // + h_re[i] * r_im[i] * t_im[i]
                 // + h_im[i] * r_re[i] * t_im[i]
                 // - h_im[i] * r_im[i] * t_re[i]
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 6 {
                     return Err(RuntimeError::TypeError(
                         format!("complex_score() expects 6 arguments (h_re, h_im, r_re, r_im, t_re, t_im), got {}", args.len())
@@ -3058,58 +3854,110 @@ impl Interpreter {
                 }
 
                 // Evaluate arguments
-                let h_re = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let h_im = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let r_re = self.eval_expr(&args[2])?.as_tensor()?.clone();
-                let r_im = self.eval_expr(&args[3])?.as_tensor()?.clone();
-                let t_re = self.eval_expr(&args[4])?.as_tensor()?.clone();
-                let t_im = self.eval_expr(&args[5])?.as_tensor()?.clone();
+                let h_re_val = self.eval_expr(&args[0])?;
+                let h_im_val = self.eval_expr(&args[1])?;
+                let r_re_val = self.eval_expr(&args[2])?;
+                let r_im_val = self.eval_expr(&args[3])?;
+                let t_re_val = self.eval_expr(&args[4])?;
+                let t_im_val = self.eval_expr(&args[5])?;
 
-                // Compute the four trilinear products
+                match (h_re_val, h_im_val, r_re_val, r_im_val, t_re_val, t_im_val) {
+                    (Value::TensorF16(h_re), Value::TensorF16(h_im), Value::TensorF16(r_re),
+                     Value::TensorF16(r_im), Value::TensorF16(t_re), Value::TensorF16(t_im)) => {
+                        // Compute the four trilinear products
 
-                // Term 1: h_re * r_re * t_re
-                let h_re_r_re = h_re.mul(&r_re)?;
-                let term1_product = h_re_r_re.mul(&t_re)?;
-                let term1 = term1_product.sum()?;
+                        // Term 1: h_re * r_re * t_re
+                        let h_re_r_re = h_re.mul(&r_re)?;
+                        let term1_product = h_re_r_re.mul(&t_re)?;
+                        let term1 = term1_product.sum()?;
 
-                // Term 2: h_re * r_im * t_im
-                let h_re_r_im = h_re.mul(&r_im)?;
-                let term2_product = h_re_r_im.mul(&t_im)?;
-                let term2 = term2_product.sum()?;
+                        // Term 2: h_re * r_im * t_im
+                        let h_re_r_im = h_re.mul(&r_im)?;
+                        let term2_product = h_re_r_im.mul(&t_im)?;
+                        let term2 = term2_product.sum()?;
 
-                // Term 3: h_im * r_re * t_im
-                let h_im_r_re = h_im.mul(&r_re)?;
-                let term3_product = h_im_r_re.mul(&t_im)?;
-                let term3 = term3_product.sum()?;
+                        // Term 3: h_im * r_re * t_im
+                        let h_im_r_re = h_im.mul(&r_re)?;
+                        let term3_product = h_im_r_re.mul(&t_im)?;
+                        let term3 = term3_product.sum()?;
 
-                // Term 4: h_im * r_im * t_re
-                let h_im_r_im = h_im.mul(&r_im)?;
-                let term4_product = h_im_r_im.mul(&t_re)?;
-                let term4 = term4_product.sum()?;
+                        // Term 4: h_im * r_im * t_re
+                        let h_im_r_im = h_im.mul(&r_im)?;
+                        let term4_product = h_im_r_im.mul(&t_re)?;
+                        let term4 = term4_product.sum()?;
 
-                // Combine: term1 + term2 + term3 - term4
-                let device = self.env.metal_device();
+                        // Combine: term1 + term2 + term3 - term4
+                        let device = self.env.metal_device();
 
-                // Create scalar tensors for each term
-                let term1_tensor = Tensor::from_vec_metal(device, vec![term1], vec![1])?;
-                let term2_tensor = Tensor::from_vec_metal(device, vec![term2], vec![1])?;
-                let term3_tensor = Tensor::from_vec_metal(device, vec![term3], vec![1])?;
-                let term4_tensor = Tensor::from_vec_metal(device, vec![term4], vec![1])?;
+                        // Create scalar tensors for each term
+                        let term1_tensor = Tensor::from_vec_gpu(device, vec![term1], vec![1])?;
+                        let term2_tensor = Tensor::from_vec_gpu(device, vec![term2], vec![1])?;
+                        let term3_tensor = Tensor::from_vec_gpu(device, vec![term3], vec![1])?;
+                        let term4_tensor = Tensor::from_vec_gpu(device, vec![term4], vec![1])?;
 
-                // Add first three terms
-                let sum12 = term1_tensor.add(&term2_tensor)?;
-                let sum123 = sum12.add(&term3_tensor)?;
+                        // Add first three terms
+                        let sum12 = term1_tensor.add(&term2_tensor)?;
+                        let sum123 = sum12.add(&term3_tensor)?;
 
-                // Subtract fourth term
-                let score = sum123.sub(&term4_tensor)?;
+                        // Subtract fourth term
+                        let score = sum123.sub(&term4_tensor)?;
 
-                Ok(Value::TensorF16(score))
+                        Ok(score.to_value())
+                    }
+                    (Value::TensorF32(h_re), Value::TensorF32(h_im), Value::TensorF32(r_re),
+                     Value::TensorF32(r_im), Value::TensorF32(t_re), Value::TensorF32(t_im)) => {
+                        // Compute the four trilinear products
+
+                        // Term 1: h_re * r_re * t_re
+                        let h_re_r_re = h_re.mul(&r_re)?;
+                        let term1_product = h_re_r_re.mul(&t_re)?;
+                        let term1 = term1_product.sum()?;
+
+                        // Term 2: h_re * r_im * t_im
+                        let h_re_r_im = h_re.mul(&r_im)?;
+                        let term2_product = h_re_r_im.mul(&t_im)?;
+                        let term2 = term2_product.sum()?;
+
+                        // Term 3: h_im * r_re * t_im
+                        let h_im_r_re = h_im.mul(&r_re)?;
+                        let term3_product = h_im_r_re.mul(&t_im)?;
+                        let term3 = term3_product.sum()?;
+
+                        // Term 4: h_im * r_im * t_re
+                        let h_im_r_im = h_im.mul(&r_im)?;
+                        let term4_product = h_im_r_im.mul(&t_re)?;
+                        let term4 = term4_product.sum()?;
+
+                        // Combine: term1 + term2 + term3 - term4
+                        let device = self.env.metal_device();
+
+                        // Create scalar tensors for each term
+                        let term1_tensor = Tensor::from_vec_gpu(device, vec![term1], vec![1])?;
+                        let term2_tensor = Tensor::from_vec_gpu(device, vec![term2], vec![1])?;
+                        let term3_tensor = Tensor::from_vec_gpu(device, vec![term3], vec![1])?;
+                        let term4_tensor = Tensor::from_vec_gpu(device, vec![term4], vec![1])?;
+
+                        // Add first three terms
+                        let sum12 = term1_tensor.add(&term2_tensor)?;
+                        let sum123 = sum12.add(&term3_tensor)?;
+
+                        // Subtract fourth term
+                        let score = sum123.sub(&term4_tensor)?;
+
+                        Ok(score.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "complex_score() requires all 6 tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "margin_ranking_loss" => {
                 // margin_ranking_loss(pos_score, neg_score, margin) -> Tensor
                 // Margin ranking loss: loss = max(0, margin + neg_score - pos_score)
                 // Used in TransE training
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 3 {
                     return Err(RuntimeError::TypeError(
                         format!("margin_ranking_loss() expects 3 arguments (pos_score, neg_score, margin), got {}", args.len())
@@ -3117,8 +3965,8 @@ impl Interpreter {
                 }
 
                 // Evaluate arguments
-                let pos_score = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let neg_score = self.eval_expr(&args[1])?.as_tensor()?.clone();
+                let pos_score_val = self.eval_expr(&args[0])?;
+                let neg_score_val = self.eval_expr(&args[1])?;
                 let margin_val = self.eval_expr(&args[2])?;
 
                 // Parse margin
@@ -3130,25 +3978,48 @@ impl Interpreter {
                     )),
                 };
 
-                // Compute: margin + neg_score - pos_score
-                let neg_minus_pos = neg_score.sub(&pos_score)?;
+                match (pos_score_val, neg_score_val) {
+                    (Value::TensorF16(pos_score), Value::TensorF16(neg_score)) => {
+                        // Compute: margin + neg_score - pos_score
+                        let neg_minus_pos = neg_score.sub(&pos_score)?;
 
-                // Add margin
-                let margin_f16 = half::f16::from_f32(margin);
-                let device = self.env.metal_device();
-                let margin_tensor = Tensor::from_vec_metal(device, vec![margin_f16], vec![1])?;
-                let diff_plus_margin = neg_minus_pos.add(&margin_tensor)?;
+                        // Add margin
+                        let margin_f16 = half::f16::from_f32(margin);
+                        let device = self.env.metal_device();
+                        let margin_tensor = Tensor::from_vec_gpu(device, vec![margin_f16], vec![1])?;
+                        let diff_plus_margin = neg_minus_pos.add(&margin_tensor)?;
 
-                // Apply max(0, x) = ReLU
-                let loss = diff_plus_margin.relu()?;
+                        // Apply max(0, x) = ReLU
+                        let loss = diff_plus_margin.relu()?;
 
-                Ok(Value::TensorF16(loss))
+                        Ok(loss.to_value())
+                    }
+                    (Value::TensorF32(pos_score), Value::TensorF32(neg_score)) => {
+                        // Compute: margin + neg_score - pos_score
+                        let neg_minus_pos = neg_score.sub(&pos_score)?;
+
+                        // Add margin
+                        let device = self.env.metal_device();
+                        let margin_tensor = Tensor::from_vec_gpu(device, vec![margin], vec![1])?;
+                        let diff_plus_margin = neg_minus_pos.add(&margin_tensor)?;
+
+                        // Apply max(0, x) = ReLU
+                        let loss = diff_plus_margin.relu()?;
+
+                        Ok(loss.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "margin_ranking_loss() requires both tensors to be the same type (both f16 or both f32)".to_string()
+                    ))
+                }
             }
 
             "binary_cross_entropy" => {
                 // binary_cross_entropy(score, target) -> Tensor
                 // BCE loss: -target * log(sigmoid(score)) - (1-target) * log(1-sigmoid(score))
                 // Used for binary classification of triples
+                use crate::interpreter::value::ToValue;
+
                 if args.len() != 2 {
                     return Err(RuntimeError::TypeError(
                         format!("binary_cross_entropy() expects 2 arguments (score, target), got {}", args.len())
@@ -3156,7 +4027,7 @@ impl Interpreter {
                 }
 
                 // Evaluate arguments
-                let score = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let score_val = self.eval_expr(&args[0])?;
                 let target_val = self.eval_expr(&args[1])?;
 
                 // Parse target (0 or 1)
@@ -3168,44 +4039,77 @@ impl Interpreter {
                     )),
                 };
 
-                // Apply sigmoid to score
-                let prob = score.sigmoid()?;
+                match score_val {
+                    Value::TensorF16(score) => {
+                        // Apply sigmoid to score
+                        let prob = score.sigmoid()?;
 
-                // Compute BCE: -target * log(prob) - (1-target) * log(1-prob)
-                // For numerical stability, use: target * log_sigmoid(score) + (1-target) * log_sigmoid(-score)
-                let device = self.env.metal_device();
+                        // Compute BCE: -target * log(prob) - (1-target) * log(1-prob)
+                        // For numerical stability, use: target * log_sigmoid(score) + (1-target) * log_sigmoid(-score)
+                        let device = self.env.metal_device();
 
-                // Get prob value as f32
-                let prob_data = prob.to_vec();
-                let prob_f32 = prob_data[0].to_f32();
+                        // Get prob value as f32
+                        let prob_data = prob.to_vec();
+                        let prob_f32 = prob_data[0].to_f32();
 
-                // Compute log(prob) and log(1-prob) with numerical stability
-                let log_prob = if prob_f32 > 0.0 { prob_f32.ln() } else { -100.0 }; // Clamp to avoid -inf
-                let log_one_minus_prob = if prob_f32 < 1.0 { (1.0 - prob_f32).ln() } else { -100.0 };
+                        // Compute log(prob) and log(1-prob) with numerical stability
+                        let log_prob = if prob_f32 > 0.0 { prob_f32.ln() } else { -100.0 }; // Clamp to avoid -inf
+                        let log_one_minus_prob = if prob_f32 < 1.0 { (1.0 - prob_f32).ln() } else { -100.0 };
 
-                // BCE = -target * log(prob) - (1-target) * log(1-prob)
-                let bce_f32 = -target_f32 * log_prob - (1.0 - target_f32) * log_one_minus_prob;
-                let bce_f16 = half::f16::from_f32(bce_f32);
+                        // BCE = -target * log(prob) - (1-target) * log(1-prob)
+                        let bce_f32 = -target_f32 * log_prob - (1.0 - target_f32) * log_one_minus_prob;
+                        let bce_f16 = half::f16::from_f32(bce_f32);
 
-                // Create scalar tensor
-                let loss_tensor = Tensor::from_vec_metal(device, vec![bce_f16], vec![1])?;
+                        // Create scalar tensor
+                        let loss_tensor = Tensor::from_vec_gpu(device, vec![bce_f16], vec![1])?;
 
-                Ok(Value::TensorF16(loss_tensor))
+                        Ok(loss_tensor.to_value())
+                    }
+                    Value::TensorF32(score) => {
+                        // Apply sigmoid to score
+                        let prob = score.sigmoid()?;
+
+                        // Compute BCE: -target * log(prob) - (1-target) * log(1-prob)
+                        // For numerical stability, use: target * log_sigmoid(score) + (1-target) * log_sigmoid(-score)
+                        let device = self.env.metal_device();
+
+                        // Get prob value as f32
+                        let prob_data = prob.to_vec();
+                        let prob_f32 = prob_data[0];
+
+                        // Compute log(prob) and log(1-prob) with numerical stability
+                        let log_prob = if prob_f32 > 0.0 { prob_f32.ln() } else { -100.0 }; // Clamp to avoid -inf
+                        let log_one_minus_prob = if prob_f32 < 1.0 { (1.0 - prob_f32).ln() } else { -100.0 };
+
+                        // BCE = -target * log(prob) - (1-target) * log(1-prob)
+                        let bce = -target_f32 * log_prob - (1.0 - target_f32) * log_one_minus_prob;
+
+                        // Create scalar tensor
+                        let loss_tensor = Tensor::from_vec_gpu(device, vec![bce], vec![1])?;
+
+                        Ok(loss_tensor.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "binary_cross_entropy() score must be a tensor (f16 or f32)".to_string()
+                    ))
+                }
             }
 
             "predict_tail_transe" => {
                 // predict_tail_transe(head, relation, tail_candidates, model: "L2")
                 // Computes TransE scores for multiple tail candidates
                 // Returns list of scores (for now, just computes one at a time)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 3 {
                     return Err(RuntimeError::TypeError(
                         format!("predict_tail_transe() expects at least 3 arguments (head, relation, tail_candidate), got {}", args.len())
                     ));
                 }
 
-                let head = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let tail_candidate = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let head_val = self.eval_expr(&args[0])?;
+                let relation_val = self.eval_expr(&args[1])?;
+                let tail_candidate_val = self.eval_expr(&args[2])?;
 
                 let model = if args.len() > 3 {
                     match self.eval_expr(&args[3])? {
@@ -3216,45 +4120,80 @@ impl Interpreter {
                     "L2".to_string()
                 };
 
-                // Compute TransE score for this candidate
-                let device = self.env.metal_device();
+                match (head_val, relation_val, tail_candidate_val) {
+                    (Value::TensorF16(head), Value::TensorF16(relation), Value::TensorF16(tail_candidate)) => {
+                        // Compute TransE score for this candidate
+                        let device = self.env.metal_device();
 
-                // h + r
-                let h_plus_r = head.add(&relation)?;
-                
-                // h + r - t
-                let diff = h_plus_r.sub(&tail_candidate)?;
+                        // h + r
+                        let h_plus_r = head.add(&relation)?;
 
-                // Compute norm based on model type
-                let score = if model == "L2" {
-                    // L2 norm: -sqrt(sum(x^2))
-                    let squared = diff.mul(&diff)?;
-                    let sum_squared_f16 = squared.sum()?;
-                    let sum_squared_f32 = sum_squared_f16.to_f32();
-                    let l2_norm_f32 = sum_squared_f32.sqrt();
-                    let score_f16 = half::f16::from_f32(-l2_norm_f32);
-                    Tensor::from_vec_metal(device, vec![score_f16], vec![1])?
-                } else {
-                    return Err(RuntimeError::NotImplemented(
-                        format!("predict_tail_transe: model '{}' not yet implemented (only L2 supported)", model)
-                    ));
-                };
+                        // h + r - t
+                        let diff = h_plus_r.sub(&tail_candidate)?;
 
-                Ok(Value::TensorF16(score))
+                        // Compute norm based on model type
+                        let score = if model == "L2" {
+                            // L2 norm: -sqrt(sum(x^2))
+                            let squared = diff.mul(&diff)?;
+                            let sum_squared_f16 = squared.sum()?;
+                            let sum_squared_f32 = sum_squared_f16.to_f32();
+                            let l2_norm_f32 = sum_squared_f32.sqrt();
+                            let score_f16 = half::f16::from_f32(-l2_norm_f32);
+                            Tensor::from_vec_gpu(device, vec![score_f16], vec![1])?
+                        } else {
+                            return Err(RuntimeError::NotImplemented(
+                                format!("predict_tail_transe: model '{}' not yet implemented (only L2 supported)", model)
+                            ));
+                        };
+
+                        Ok(score.to_value())
+                    }
+                    (Value::TensorF32(head), Value::TensorF32(relation), Value::TensorF32(tail_candidate)) => {
+                        // Compute TransE score for this candidate
+                        let device = self.env.metal_device();
+
+                        // h + r
+                        let h_plus_r = head.add(&relation)?;
+
+                        // h + r - t
+                        let diff = h_plus_r.sub(&tail_candidate)?;
+
+                        // Compute norm based on model type
+                        let score = if model == "L2" {
+                            // L2 norm: -sqrt(sum(x^2))
+                            let squared = diff.mul(&diff)?;
+                            let sum_squared = squared.sum()?;
+                            let l2_norm = sum_squared.sqrt();
+                            let score_value = -l2_norm;
+                            Tensor::from_vec_gpu(device, vec![score_value], vec![1])?
+                        } else {
+                            return Err(RuntimeError::NotImplemented(
+                                format!("predict_tail_transe: model '{}' not yet implemented (only L2 supported)", model)
+                            ));
+                        };
+
+                        Ok(score.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "predict_tail_transe() requires all tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "predict_head_transe" => {
                 // predict_head_transe(head_candidate, relation, tail, model: "L2")
                 // Computes TransE scores for head candidates
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 3 {
                     return Err(RuntimeError::TypeError(
                         format!("predict_head_transe() expects at least 3 arguments (head_candidate, relation, tail), got {}", args.len())
                     ));
                 }
 
-                let head_candidate = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let tail = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let head_candidate_val = self.eval_expr(&args[0])?;
+                let relation_val = self.eval_expr(&args[1])?;
+                let tail_val = self.eval_expr(&args[2])?;
 
                 let model = if args.len() > 3 {
                     match self.eval_expr(&args[3])? {
@@ -3265,178 +4204,338 @@ impl Interpreter {
                     "L2".to_string()
                 };
 
-                // Compute TransE score: -(||h_candidate + r - t||)
-                let device = self.env.metal_device();
+                match (head_candidate_val, relation_val, tail_val) {
+                    (Value::TensorF16(head_candidate), Value::TensorF16(relation), Value::TensorF16(tail)) => {
+                        // Compute TransE score: -(||h_candidate + r - t||)
+                        let device = self.env.metal_device();
 
-                let h_plus_r = head_candidate.add(&relation)?;
-                let diff = h_plus_r.sub(&tail)?;
+                        let h_plus_r = head_candidate.add(&relation)?;
+                        let diff = h_plus_r.sub(&tail)?;
 
-                let score = if model == "L2" {
-                    let squared = diff.mul(&diff)?;
-                    let sum_squared_f16 = squared.sum()?;
-                    let sum_squared_f32 = sum_squared_f16.to_f32();
-                    let l2_norm_f32 = sum_squared_f32.sqrt();
-                    let score_f16 = half::f16::from_f32(-l2_norm_f32);
-                    Tensor::from_vec_metal(device, vec![score_f16], vec![1])?
-                } else {
-                    return Err(RuntimeError::NotImplemented(
-                        format!("predict_head_transe: model '{}' not yet implemented", model)
-                    ));
-                };
+                        let score = if model == "L2" {
+                            let squared = diff.mul(&diff)?;
+                            let sum_squared_f16 = squared.sum()?;
+                            let sum_squared_f32 = sum_squared_f16.to_f32();
+                            let l2_norm_f32 = sum_squared_f32.sqrt();
+                            let score_f16 = half::f16::from_f32(-l2_norm_f32);
+                            Tensor::from_vec_gpu(device, vec![score_f16], vec![1])?
+                        } else {
+                            return Err(RuntimeError::NotImplemented(
+                                format!("predict_head_transe: model '{}' not yet implemented", model)
+                            ));
+                        };
 
-                Ok(Value::TensorF16(score))
+                        Ok(score.to_value())
+                    }
+                    (Value::TensorF32(head_candidate), Value::TensorF32(relation), Value::TensorF32(tail)) => {
+                        // Compute TransE score: -(||h_candidate + r - t||)
+                        let device = self.env.metal_device();
+
+                        let h_plus_r = head_candidate.add(&relation)?;
+                        let diff = h_plus_r.sub(&tail)?;
+
+                        let score = if model == "L2" {
+                            let squared = diff.mul(&diff)?;
+                            let sum_squared = squared.sum()?;
+                            let l2_norm = sum_squared.sqrt();
+                            let score_value = -l2_norm;
+                            Tensor::from_vec_gpu(device, vec![score_value], vec![1])?
+                        } else {
+                            return Err(RuntimeError::NotImplemented(
+                                format!("predict_head_transe: model '{}' not yet implemented", model)
+                            ));
+                        };
+
+                        Ok(score.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "predict_head_transe() requires all tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "predict_tail_distmult" => {
                 // predict_tail_distmult(head, relation, tail_candidate)
                 // Computes DistMult scores for tail candidates
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 3 {
                     return Err(RuntimeError::TypeError(
                         format!("predict_tail_distmult() expects 3 arguments (head, relation, tail_candidate), got {}", args.len())
                     ));
                 }
 
-                let head = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let tail_candidate = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let head_val = self.eval_expr(&args[0])?;
+                let relation_val = self.eval_expr(&args[1])?;
+                let tail_candidate_val = self.eval_expr(&args[2])?;
 
-                // DistMult: score = sum(h * r * t)
-                let device = self.env.metal_device();
-                
-                let h_mul_r = head.mul(&relation)?;
-                let product = h_mul_r.mul(&tail_candidate)?;
-                let score_f16 = product.sum()?;
+                match (head_val, relation_val, tail_candidate_val) {
+                    (Value::TensorF16(head), Value::TensorF16(relation), Value::TensorF16(tail_candidate)) => {
+                        // DistMult: score = sum(h * r * t)
+                        let device = self.env.metal_device();
 
-                let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
-                Ok(Value::TensorF16(score_tensor))
+                        let h_mul_r = head.mul(&relation)?;
+                        let product = h_mul_r.mul(&tail_candidate)?;
+                        let score_f16 = product.sum()?;
+
+                        let score_tensor = Tensor::from_vec_gpu(device, vec![score_f16], vec![1])?;
+                        Ok(score_tensor.to_value())
+                    }
+                    (Value::TensorF32(head), Value::TensorF32(relation), Value::TensorF32(tail_candidate)) => {
+                        // DistMult: score = sum(h * r * t)
+                        let device = self.env.metal_device();
+
+                        let h_mul_r = head.mul(&relation)?;
+                        let product = h_mul_r.mul(&tail_candidate)?;
+                        let score = product.sum()?;
+
+                        let score_tensor = Tensor::from_vec_gpu(device, vec![score], vec![1])?;
+                        Ok(score_tensor.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "predict_tail_distmult() requires all tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "predict_head_distmult" => {
                 // predict_head_distmult(head_candidate, relation, tail)
                 // Computes DistMult scores for head candidates
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 3 {
                     return Err(RuntimeError::TypeError(
                         format!("predict_head_distmult() expects 3 arguments (head_candidate, relation, tail), got {}", args.len())
                     ));
                 }
 
-                let head_candidate = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let relation = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let tail = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let head_candidate_val = self.eval_expr(&args[0])?;
+                let relation_val = self.eval_expr(&args[1])?;
+                let tail_val = self.eval_expr(&args[2])?;
 
-                // DistMult: score = sum(h * r * t)
-                let device = self.env.metal_device();
+                match (head_candidate_val, relation_val, tail_val) {
+                    (Value::TensorF16(head_candidate), Value::TensorF16(relation), Value::TensorF16(tail)) => {
+                        // DistMult: score = sum(h * r * t)
+                        let device = self.env.metal_device();
 
-                let h_mul_r = head_candidate.mul(&relation)?;
-                let product = h_mul_r.mul(&tail)?;
-                let score_f16 = product.sum()?;
+                        let h_mul_r = head_candidate.mul(&relation)?;
+                        let product = h_mul_r.mul(&tail)?;
+                        let score_f16 = product.sum()?;
 
-                let score_tensor = Tensor::from_vec_metal(device, vec![score_f16], vec![1])?;
-                Ok(Value::TensorF16(score_tensor))
+                        let score_tensor = Tensor::from_vec_gpu(device, vec![score_f16], vec![1])?;
+                        Ok(score_tensor.to_value())
+                    }
+                    (Value::TensorF32(head_candidate), Value::TensorF32(relation), Value::TensorF32(tail)) => {
+                        // DistMult: score = sum(h * r * t)
+                        let device = self.env.metal_device();
+
+                        let h_mul_r = head_candidate.mul(&relation)?;
+                        let product = h_mul_r.mul(&tail)?;
+                        let score = product.sum()?;
+
+                        let score_tensor = Tensor::from_vec_gpu(device, vec![score], vec![1])?;
+                        Ok(score_tensor.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "predict_head_distmult() requires all tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "predict_tail_complex" => {
                 // predict_tail_complex(h_re, h_im, r_re, r_im, t_candidate_re, t_candidate_im)
                 // Computes ComplEx scores for tail candidates
                 // Uses ComplEx formula: Re(<h, r, conj(t)>)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 6 {
                     return Err(RuntimeError::TypeError(
                         format!("predict_tail_complex() expects 6 arguments (h_re, h_im, r_re, r_im, t_candidate_re, t_candidate_im), got {}", args.len())
                     ));
                 }
 
-                let h_re = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let h_im = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let r_re = self.eval_expr(&args[2])?.as_tensor()?.clone();
-                let r_im = self.eval_expr(&args[3])?.as_tensor()?.clone();
-                let t_candidate_re = self.eval_expr(&args[4])?.as_tensor()?.clone();
-                let t_candidate_im = self.eval_expr(&args[5])?.as_tensor()?.clone();
+                let h_re_val = self.eval_expr(&args[0])?;
+                let h_im_val = self.eval_expr(&args[1])?;
+                let r_re_val = self.eval_expr(&args[2])?;
+                let r_im_val = self.eval_expr(&args[3])?;
+                let t_candidate_re_val = self.eval_expr(&args[4])?;
+                let t_candidate_im_val = self.eval_expr(&args[5])?;
 
-                // Compute ComplEx score using the formula
-                // Term 1: h_re * r_re * t_re
-                let h_re_r_re = h_re.mul(&r_re)?;
-                let term1_product = h_re_r_re.mul(&t_candidate_re)?;
-                let term1 = term1_product.sum()?;
+                match (h_re_val, h_im_val, r_re_val, r_im_val, t_candidate_re_val, t_candidate_im_val) {
+                    (Value::TensorF16(h_re), Value::TensorF16(h_im), Value::TensorF16(r_re),
+                     Value::TensorF16(r_im), Value::TensorF16(t_candidate_re), Value::TensorF16(t_candidate_im)) => {
+                        // Compute ComplEx score using the formula
+                        // Term 1: h_re * r_re * t_re
+                        let h_re_r_re = h_re.mul(&r_re)?;
+                        let term1_product = h_re_r_re.mul(&t_candidate_re)?;
+                        let term1 = term1_product.sum()?;
 
-                // Term 2: h_re * r_im * t_im
-                let h_re_r_im = h_re.mul(&r_im)?;
-                let term2_product = h_re_r_im.mul(&t_candidate_im)?;
-                let term2 = term2_product.sum()?;
+                        // Term 2: h_re * r_im * t_im
+                        let h_re_r_im = h_re.mul(&r_im)?;
+                        let term2_product = h_re_r_im.mul(&t_candidate_im)?;
+                        let term2 = term2_product.sum()?;
 
-                // Term 3: h_im * r_re * t_im
-                let h_im_r_re = h_im.mul(&r_re)?;
-                let term3_product = h_im_r_re.mul(&t_candidate_im)?;
-                let term3 = term3_product.sum()?;
+                        // Term 3: h_im * r_re * t_im
+                        let h_im_r_re = h_im.mul(&r_re)?;
+                        let term3_product = h_im_r_re.mul(&t_candidate_im)?;
+                        let term3 = term3_product.sum()?;
 
-                // Term 4: h_im * r_im * t_re
-                let h_im_r_im = h_im.mul(&r_im)?;
-                let term4_product = h_im_r_im.mul(&t_candidate_re)?;
-                let term4 = term4_product.sum()?;
+                        // Term 4: h_im * r_im * t_re
+                        let h_im_r_im = h_im.mul(&r_im)?;
+                        let term4_product = h_im_r_im.mul(&t_candidate_re)?;
+                        let term4 = term4_product.sum()?;
 
-                // Combine: term1 + term2 + term3 - term4
-                let device = self.env.metal_device();
-                let term1_tensor = Tensor::from_vec_metal(device, vec![term1], vec![1])?;
-                let term2_tensor = Tensor::from_vec_metal(device, vec![term2], vec![1])?;
-                let term3_tensor = Tensor::from_vec_metal(device, vec![term3], vec![1])?;
-                let term4_tensor = Tensor::from_vec_metal(device, vec![term4], vec![1])?;
+                        // Combine: term1 + term2 + term3 - term4
+                        let device = self.env.metal_device();
+                        let term1_tensor = Tensor::from_vec_gpu(device, vec![term1], vec![1])?;
+                        let term2_tensor = Tensor::from_vec_gpu(device, vec![term2], vec![1])?;
+                        let term3_tensor = Tensor::from_vec_gpu(device, vec![term3], vec![1])?;
+                        let term4_tensor = Tensor::from_vec_gpu(device, vec![term4], vec![1])?;
 
-                let sum12 = term1_tensor.add(&term2_tensor)?;
-                let sum123 = sum12.add(&term3_tensor)?;
-                let score = sum123.sub(&term4_tensor)?;
+                        let sum12 = term1_tensor.add(&term2_tensor)?;
+                        let sum123 = sum12.add(&term3_tensor)?;
+                        let score = sum123.sub(&term4_tensor)?;
 
-                Ok(Value::TensorF16(score))
+                        Ok(score.to_value())
+                    }
+                    (Value::TensorF32(h_re), Value::TensorF32(h_im), Value::TensorF32(r_re),
+                     Value::TensorF32(r_im), Value::TensorF32(t_candidate_re), Value::TensorF32(t_candidate_im)) => {
+                        // Compute ComplEx score using the formula
+                        // Term 1: h_re * r_re * t_re
+                        let h_re_r_re = h_re.mul(&r_re)?;
+                        let term1_product = h_re_r_re.mul(&t_candidate_re)?;
+                        let term1 = term1_product.sum()?;
+
+                        // Term 2: h_re * r_im * t_im
+                        let h_re_r_im = h_re.mul(&r_im)?;
+                        let term2_product = h_re_r_im.mul(&t_candidate_im)?;
+                        let term2 = term2_product.sum()?;
+
+                        // Term 3: h_im * r_re * t_im
+                        let h_im_r_re = h_im.mul(&r_re)?;
+                        let term3_product = h_im_r_re.mul(&t_candidate_im)?;
+                        let term3 = term3_product.sum()?;
+
+                        // Term 4: h_im * r_im * t_re
+                        let h_im_r_im = h_im.mul(&r_im)?;
+                        let term4_product = h_im_r_im.mul(&t_candidate_re)?;
+                        let term4 = term4_product.sum()?;
+
+                        // Combine: term1 + term2 + term3 - term4
+                        let device = self.env.metal_device();
+                        let term1_tensor = Tensor::from_vec_gpu(device, vec![term1], vec![1])?;
+                        let term2_tensor = Tensor::from_vec_gpu(device, vec![term2], vec![1])?;
+                        let term3_tensor = Tensor::from_vec_gpu(device, vec![term3], vec![1])?;
+                        let term4_tensor = Tensor::from_vec_gpu(device, vec![term4], vec![1])?;
+
+                        let sum12 = term1_tensor.add(&term2_tensor)?;
+                        let sum123 = sum12.add(&term3_tensor)?;
+                        let score = sum123.sub(&term4_tensor)?;
+
+                        Ok(score.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "predict_tail_complex() requires all 6 tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "predict_head_complex" => {
                 // predict_head_complex(h_candidate_re, h_candidate_im, r_re, r_im, t_re, t_im)
                 // Computes ComplEx scores for head candidates
                 // Uses ComplEx formula: Re(<h, r, conj(t)>)
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 6 {
                     return Err(RuntimeError::TypeError(
                         format!("predict_head_complex() expects 6 arguments (h_candidate_re, h_candidate_im, r_re, r_im, t_re, t_im), got {}", args.len())
                     ));
                 }
 
-                let h_candidate_re = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let h_candidate_im = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let r_re = self.eval_expr(&args[2])?.as_tensor()?.clone();
-                let r_im = self.eval_expr(&args[3])?.as_tensor()?.clone();
-                let t_re = self.eval_expr(&args[4])?.as_tensor()?.clone();
-                let t_im = self.eval_expr(&args[5])?.as_tensor()?.clone();
+                let h_candidate_re_val = self.eval_expr(&args[0])?;
+                let h_candidate_im_val = self.eval_expr(&args[1])?;
+                let r_re_val = self.eval_expr(&args[2])?;
+                let r_im_val = self.eval_expr(&args[3])?;
+                let t_re_val = self.eval_expr(&args[4])?;
+                let t_im_val = self.eval_expr(&args[5])?;
 
-                // Compute ComplEx score using the formula
-                // Term 1: h_re * r_re * t_re
-                let h_re_r_re = h_candidate_re.mul(&r_re)?;
-                let term1_product = h_re_r_re.mul(&t_re)?;
-                let term1 = term1_product.sum()?;
+                match (h_candidate_re_val, h_candidate_im_val, r_re_val, r_im_val, t_re_val, t_im_val) {
+                    (Value::TensorF16(h_candidate_re), Value::TensorF16(h_candidate_im), Value::TensorF16(r_re),
+                     Value::TensorF16(r_im), Value::TensorF16(t_re), Value::TensorF16(t_im)) => {
+                        // Compute ComplEx score using the formula
+                        // Term 1: h_re * r_re * t_re
+                        let h_re_r_re = h_candidate_re.mul(&r_re)?;
+                        let term1_product = h_re_r_re.mul(&t_re)?;
+                        let term1 = term1_product.sum()?;
 
-                // Term 2: h_re * r_im * t_im
-                let h_re_r_im = h_candidate_re.mul(&r_im)?;
-                let term2_product = h_re_r_im.mul(&t_im)?;
-                let term2 = term2_product.sum()?;
+                        // Term 2: h_re * r_im * t_im
+                        let h_re_r_im = h_candidate_re.mul(&r_im)?;
+                        let term2_product = h_re_r_im.mul(&t_im)?;
+                        let term2 = term2_product.sum()?;
 
-                // Term 3: h_im * r_re * t_im
-                let h_im_r_re = h_candidate_im.mul(&r_re)?;
-                let term3_product = h_im_r_re.mul(&t_im)?;
-                let term3 = term3_product.sum()?;
+                        // Term 3: h_im * r_re * t_im
+                        let h_im_r_re = h_candidate_im.mul(&r_re)?;
+                        let term3_product = h_im_r_re.mul(&t_im)?;
+                        let term3 = term3_product.sum()?;
 
-                // Term 4: h_im * r_im * t_re
-                let h_im_r_im = h_candidate_im.mul(&r_im)?;
-                let term4_product = h_im_r_im.mul(&t_re)?;
-                let term4 = term4_product.sum()?;
+                        // Term 4: h_im * r_im * t_re
+                        let h_im_r_im = h_candidate_im.mul(&r_im)?;
+                        let term4_product = h_im_r_im.mul(&t_re)?;
+                        let term4 = term4_product.sum()?;
 
-                // Combine: term1 + term2 + term3 - term4
-                let device = self.env.metal_device();
-                let term1_tensor = Tensor::from_vec_metal(device, vec![term1], vec![1])?;
-                let term2_tensor = Tensor::from_vec_metal(device, vec![term2], vec![1])?;
-                let term3_tensor = Tensor::from_vec_metal(device, vec![term3], vec![1])?;
-                let term4_tensor = Tensor::from_vec_metal(device, vec![term4], vec![1])?;
+                        // Combine: term1 + term2 + term3 - term4
+                        let device = self.env.metal_device();
+                        let term1_tensor = Tensor::from_vec_gpu(device, vec![term1], vec![1])?;
+                        let term2_tensor = Tensor::from_vec_gpu(device, vec![term2], vec![1])?;
+                        let term3_tensor = Tensor::from_vec_gpu(device, vec![term3], vec![1])?;
+                        let term4_tensor = Tensor::from_vec_gpu(device, vec![term4], vec![1])?;
 
-                let sum12 = term1_tensor.add(&term2_tensor)?;
-                let sum123 = sum12.add(&term3_tensor)?;
-                let score = sum123.sub(&term4_tensor)?;
+                        let sum12 = term1_tensor.add(&term2_tensor)?;
+                        let sum123 = sum12.add(&term3_tensor)?;
+                        let score = sum123.sub(&term4_tensor)?;
 
-                Ok(Value::TensorF16(score))
+                        Ok(score.to_value())
+                    }
+                    (Value::TensorF32(h_candidate_re), Value::TensorF32(h_candidate_im), Value::TensorF32(r_re),
+                     Value::TensorF32(r_im), Value::TensorF32(t_re), Value::TensorF32(t_im)) => {
+                        // Compute ComplEx score using the formula
+                        // Term 1: h_re * r_re * t_re
+                        let h_re_r_re = h_candidate_re.mul(&r_re)?;
+                        let term1_product = h_re_r_re.mul(&t_re)?;
+                        let term1 = term1_product.sum()?;
+
+                        // Term 2: h_re * r_im * t_im
+                        let h_re_r_im = h_candidate_re.mul(&r_im)?;
+                        let term2_product = h_re_r_im.mul(&t_im)?;
+                        let term2 = term2_product.sum()?;
+
+                        // Term 3: h_im * r_re * t_im
+                        let h_im_r_re = h_candidate_im.mul(&r_re)?;
+                        let term3_product = h_im_r_re.mul(&t_im)?;
+                        let term3 = term3_product.sum()?;
+
+                        // Term 4: h_im * r_im * t_re
+                        let h_im_r_im = h_candidate_im.mul(&r_im)?;
+                        let term4_product = h_im_r_im.mul(&t_re)?;
+                        let term4 = term4_product.sum()?;
+
+                        // Combine: term1 + term2 + term3 - term4
+                        let device = self.env.metal_device();
+                        let term1_tensor = Tensor::from_vec_gpu(device, vec![term1], vec![1])?;
+                        let term2_tensor = Tensor::from_vec_gpu(device, vec![term2], vec![1])?;
+                        let term3_tensor = Tensor::from_vec_gpu(device, vec![term3], vec![1])?;
+                        let term4_tensor = Tensor::from_vec_gpu(device, vec![term4], vec![1])?;
+
+                        let sum12 = term1_tensor.add(&term2_tensor)?;
+                        let sum123 = sum12.add(&term3_tensor)?;
+                        let score = sum123.sub(&term4_tensor)?;
+
+                        Ok(score.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "predict_head_complex() requires all 6 tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "compute_rank" => {
@@ -3449,8 +4548,14 @@ impl Interpreter {
                     ));
                 }
 
-                let target_score = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let target_score_f32 = target_score.to_vec()[0].to_f32();
+                let target_score_val = self.eval_expr(&args[0])?;
+                let target_score_f32 = match target_score_val {
+                    Value::TensorF16(ref t) => t.to_vec()[0].to_f32(),
+                    Value::TensorF32(ref t) => t.to_vec()[0],
+                    _ => return Err(RuntimeError::TypeError(
+                        "compute_rank() target_score must be a tensor (f16 or f32)".to_string()
+                    ))
+                };
 
                 // For simplicity, second arg is the count of candidates with higher scores
                 let num_higher = match self.eval_expr(&args[1])? {
@@ -3562,14 +4667,16 @@ impl Interpreter {
                 // aggregate_neighbors(node_features, neighbor_indices, aggregation: "mean"|"sum")
                 // Aggregates features from neighboring nodes
                 // This is a simplified version for demonstration
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 2 {
                     return Err(RuntimeError::TypeError(
                         format!("aggregate_neighbors() expects at least 2 arguments (node_features, num_neighbors), got {}", args.len())
                     ));
                 }
 
-                let node_features = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                
+                let node_features_val = self.eval_expr(&args[0])?;
+
                 let num_neighbors = match self.eval_expr(&args[1])? {
                     Value::Integer(i) => i as usize,
                     _ => return Err(RuntimeError::TypeError(
@@ -3589,17 +4696,36 @@ impl Interpreter {
                 // For demonstration: return the node features
                 // In a full implementation, this would aggregate from actual neighbor tensors
                 let device = self.env.metal_device();
-                
-                if aggregation == "mean" && num_neighbors > 0 {
-                    // Divide by number of neighbors for mean aggregation
-                    let scale = 1.0 / (num_neighbors as f32);
-                    let scale_f16 = half::f16::from_f32(scale);
-                    let scale_tensor = Tensor::from_vec_metal(device, vec![scale_f16], vec![1])?;
-                    let aggregated = node_features.mul(&scale_tensor)?;
-                    Ok(Value::TensorF16(aggregated))
-                } else {
-                    // Sum aggregation (or no neighbors)
-                    Ok(Value::TensorF16(node_features))
+
+                match node_features_val {
+                    Value::TensorF16(node_features) => {
+                        if aggregation == "mean" && num_neighbors > 0 {
+                            // Divide by number of neighbors for mean aggregation
+                            let scale = 1.0 / (num_neighbors as f32);
+                            let scale_f16 = half::f16::from_f32(scale);
+                            let scale_tensor = Tensor::from_vec_gpu(device, vec![scale_f16], vec![1])?;
+                            let aggregated = node_features.mul(&scale_tensor)?;
+                            Ok(aggregated.to_value())
+                        } else {
+                            // Sum aggregation (or no neighbors)
+                            Ok(node_features.to_value())
+                        }
+                    }
+                    Value::TensorF32(node_features) => {
+                        if aggregation == "mean" && num_neighbors > 0 {
+                            // Divide by number of neighbors for mean aggregation
+                            let scale = 1.0 / (num_neighbors as f32);
+                            let scale_tensor = Tensor::from_vec_gpu(device, vec![scale], vec![1])?;
+                            let aggregated = node_features.mul(&scale_tensor)?;
+                            Ok(aggregated.to_value())
+                        } else {
+                            // Sum aggregation (or no neighbors)
+                            Ok(node_features.to_value())
+                        }
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "aggregate_neighbors() expects node_features to be a tensor (f16 or f32)".to_string()
+                    ))
                 }
             }
 
@@ -3607,73 +4733,118 @@ impl Interpreter {
                 // relational_aggregate(node_emb, relation_emb, neighbor_emb, relation_weight)
                 // R-GCN style aggregation: considers relation types
                 // Formula: h_i^(l+1) = σ(Σ_r Σ_{j∈N_r(i)} (1/c_{i,r}) W_r h_j^(l))
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 3 {
                     return Err(RuntimeError::TypeError(
                         format!("relational_aggregate() expects at least 3 arguments (node_emb, relation_emb, neighbor_emb), got {}", args.len())
                     ));
                 }
 
-                let node_emb = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let relation_emb = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let neighbor_emb = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let node_emb_val = self.eval_expr(&args[0])?;
+                let relation_emb_val = self.eval_expr(&args[1])?;
+                let neighbor_emb_val = self.eval_expr(&args[2])?;
 
-                let device = self.env.metal_device();
+                match (node_emb_val, relation_emb_val, neighbor_emb_val) {
+                    (Value::TensorF16(node_emb), Value::TensorF16(relation_emb), Value::TensorF16(neighbor_emb)) => {
+                        // Simplified R-GCN: relation-specific transformation
+                        // message = relation_emb * neighbor_emb (element-wise)
+                        let message = relation_emb.mul(&neighbor_emb)?;
 
-                // Simplified R-GCN: relation-specific transformation
-                // message = relation_emb * neighbor_emb (element-wise)
-                let message = relation_emb.mul(&neighbor_emb)?;
+                        // Combine with node's own embedding
+                        let combined = node_emb.add(&message)?;
 
-                // Combine with node's own embedding
-                let combined = node_emb.add(&message)?;
+                        Ok(combined.to_value())
+                    }
+                    (Value::TensorF32(node_emb), Value::TensorF32(relation_emb), Value::TensorF32(neighbor_emb)) => {
+                        // Simplified R-GCN: relation-specific transformation
+                        // message = relation_emb * neighbor_emb (element-wise)
+                        let message = relation_emb.mul(&neighbor_emb)?;
 
-                Ok(Value::TensorF16(combined))
+                        // Combine with node's own embedding
+                        let combined = node_emb.add(&message)?;
+
+                        Ok(combined.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "relational_aggregate() requires all 3 tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "graph_attention" => {
                 // graph_attention(query, key, value, num_neighbors)
                 // GAT-style attention mechanism for graph
                 // Simplified version: computes attention-weighted aggregation
+                use crate::interpreter::value::ToValue;
+
                 if args.len() < 3 {
                     return Err(RuntimeError::TypeError(
                         format!("graph_attention() expects at least 3 arguments (query, key, value), got {}", args.len())
                     ));
                 }
 
-                let query = self.eval_expr(&args[0])?.as_tensor()?.clone();
-                let key = self.eval_expr(&args[1])?.as_tensor()?.clone();
-                let value = self.eval_expr(&args[2])?.as_tensor()?.clone();
+                let query_val = self.eval_expr(&args[0])?;
+                let key_val = self.eval_expr(&args[1])?;
+                let value_val = self.eval_expr(&args[2])?;
 
                 let device = self.env.metal_device();
 
-                // Compute attention score: dot product of query and key
-                let qk = query.mul(&key)?;
-                let attention_score = qk.sum()?;
+                match (query_val, key_val, value_val) {
+                    (Value::TensorF16(query), Value::TensorF16(key), Value::TensorF16(value)) => {
+                        // Compute attention score: dot product of query and key
+                        let qk = query.mul(&key)?;
+                        let attention_score = qk.sum()?;
 
-                // Apply softmax (simplified: just use sigmoid for single neighbor)
-                let score_f32 = attention_score.to_f32();
-                let sigmoid_val = 1.0 / (1.0 + (-score_f32).exp());
-                
-                // For simplicity, just scale the value by the attention weight
-                // In a full implementation, this would use proper broadcasting
-                let weight_f16 = half::f16::from_f32(sigmoid_val);
-                let weight_tensor = Tensor::from_vec_metal(device, vec![weight_f16], vec![1])?;
-                
-                // Simplified: return weighted value (scalar multiplication)
-                let attended_value = value.mul(&weight_tensor)?;
+                        // Apply softmax (simplified: just use sigmoid for single neighbor)
+                        let score_f32 = attention_score.to_f32();
+                        let sigmoid_val = 1.0 / (1.0 + (-score_f32).exp());
 
-                Ok(Value::TensorF16(attended_value))
+                        // For simplicity, just scale the value by the attention weight
+                        // In a full implementation, this would use proper broadcasting
+                        let weight_f16 = half::f16::from_f32(sigmoid_val);
+                        let weight_tensor = Tensor::from_vec_gpu(device, vec![weight_f16], vec![1])?;
+
+                        // Simplified: return weighted value (scalar multiplication)
+                        let attended_value = value.mul(&weight_tensor)?;
+
+                        Ok(attended_value.to_value())
+                    }
+                    (Value::TensorF32(query), Value::TensorF32(key), Value::TensorF32(value)) => {
+                        // Compute attention score: dot product of query and key
+                        let qk = query.mul(&key)?;
+                        let score_f32: f32 = qk.sum()?.into();  // Convert f16 to f32
+
+                        // Apply softmax (simplified: just use sigmoid for single neighbor)
+                        let sigmoid_val = 1.0 / (1.0 + (-score_f32).exp());
+
+                        // For simplicity, just scale the value by the attention weight
+                        // In a full implementation, this would use proper broadcasting
+                        let weight_tensor = Tensor::from_vec_gpu(device, vec![sigmoid_val], vec![1])?;
+
+                        // Simplified: return weighted value (scalar multiplication)
+                        let attended_value = value.mul(&weight_tensor)?;
+
+                        Ok(attended_value.to_value())
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "graph_attention() requires all 3 tensors to be the same type (all f16 or all f32)".to_string()
+                    ))
+                }
             }
 
             "normalize_features" => {
                 // normalize_features(features, norm_type: "l2"|"layer")
                 // Normalizes node features
+                use crate::interpreter::value::ToValue;
+
                 if args.is_empty() {
                     return Err(RuntimeError::TypeError(
                         "normalize_features() expects at least 1 argument (features)".to_string()
                     ));
                 }
 
-                let features = self.eval_expr(&args[0])?.as_tensor()?.clone();
+                let features_val = self.eval_expr(&args[0])?;
 
                 let norm_type = if args.len() > 1 {
                     match self.eval_expr(&args[1])? {
@@ -3686,51 +4857,94 @@ impl Interpreter {
 
                 let device = self.env.metal_device();
 
-                if norm_type == "l2" {
-                    // L2 normalization: x / ||x||_2
-                    let squared = features.mul(&features)?;
-                    let sum_squared_f16 = squared.sum()?;
-                    let norm_f32 = sum_squared_f16.to_f32().sqrt();
-                    
-                    if norm_f32 > 1e-8 {
-                        let inv_norm_f16 = half::f16::from_f32(1.0 / norm_f32);
-                        let inv_norm_tensor = Tensor::from_vec_metal(device, vec![inv_norm_f16], vec![1])?;
-                        let normalized = features.mul(&inv_norm_tensor)?;
-                        Ok(Value::TensorF16(normalized))
-                    } else {
-                        // Avoid division by zero
-                        Ok(Value::TensorF16(features))
+                match features_val {
+                    Value::TensorF16(features) => {
+                        if norm_type == "l2" {
+                            // L2 normalization: x / ||x||_2
+                            let squared = features.mul(&features)?;
+                            let sum_squared_f16 = squared.sum()?;
+                            let norm_f32 = sum_squared_f16.to_f32().sqrt();
+
+                            if norm_f32 > 1e-8 {
+                                let inv_norm_f16 = half::f16::from_f32(1.0 / norm_f32);
+                                let inv_norm_tensor = Tensor::from_vec_gpu(device, vec![inv_norm_f16], vec![1])?;
+                                let normalized = features.mul(&inv_norm_tensor)?;
+                                Ok(normalized.to_value())
+                            } else {
+                                // Avoid division by zero
+                                Ok(features.to_value())
+                            }
+                        } else {
+                            // For other normalization types, just return features for now
+                            Ok(features.to_value())
+                        }
                     }
-                } else {
-                    // For other normalization types, just return features for now
-                    Ok(Value::TensorF16(features))
+                    Value::TensorF32(features) => {
+                        if norm_type == "l2" {
+                            // L2 normalization: x / ||x||_2
+                            let squared = features.mul(&features)?;
+                            let sum_squared_f32: f32 = squared.sum()?.into();  // Convert f16 to f32
+                            let norm_f32 = sum_squared_f32.sqrt();
+
+                            if norm_f32 > 1e-8 {
+                                let inv_norm = 1.0 / norm_f32;
+                                let inv_norm_tensor = Tensor::from_vec_gpu(device, vec![inv_norm], vec![1])?;
+                                let normalized = features.mul(&inv_norm_tensor)?;
+                                Ok(normalized.to_value())
+                            } else {
+                                // Avoid division by zero
+                                Ok(features.to_value())
+                            }
+                        } else {
+                            // For other normalization types, just return features for now
+                            Ok(features.to_value())
+                        }
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "normalize_features() expects features to be a tensor (f16 or f32)".to_string()
+                    ))
                 }
             }
 
             "print" => {
-                // print(value1, value2, ..., end: "\n", flush: false)
-                // For now, simple implementation
-                for (i, arg) in args.iter().enumerate() {
-                    if i > 0 {
-                        print!(" ");
-                    }
-                    let val = self.eval_expr(arg)?;
-                    match val {
-                        Value::String(s) => print!("{}", s),
-                        Value::Integer(i) => print!("{}", i),
-                        Value::Float(f) => print!("{}", f),
-                        Value::Boolean(b) => print!("{}", b),
-                        Value::TensorF16(t) => print!("{:?}", t),
-                        Value::TensorF32(t) => print!("{:?}", t),
-                        Value::Model(m) => print!("Model({:?})", m.metadata.format),
-                        Value::Tokenizer(t) => print!("{:?}", t),
-                        Value::TokenIds(ids) => print!("{:?}", ids),
-                        Value::TokenIdArray(ref arr) => print!("[{}]", arr.data().iter().map(|&id| format!("{:.4}", id as f64)).collect::<Vec<_>>().join(", ")),
-                        Value::Type(type_name) => print!("Type({})", type_name),
-                        Value::Void => print!("void"),
-                    }
+                // print(value1, value2, ...) - simple mode
+                // print("format {}", arg1, arg2, ...) - format string mode
+
+                if args.is_empty() {
+                    println!();
+                    return Ok(Value::Void);
                 }
-                println!();
+
+                // Check if first argument is a string literal (format string mode)
+                let first_val = self.eval_expr(&args[0])?;
+
+                if let Value::String(format_str) = first_val {
+                    // Format string mode: print("Hello {}", name)
+                    if args.len() > 1 {
+                        // Evaluate remaining arguments
+                        let mut format_args = Vec::new();
+                        for arg in &args[1..] {
+                            format_args.push(self.eval_expr(arg)?);
+                        }
+
+                        // Use format_string helper from eval.rs
+                        let formatted = self.format_string(&format_str, &format_args)?;
+                        println!("{}", formatted);
+                    } else {
+                        // Just a string, print it
+                        println!("{}", format_str);
+                    }
+                } else {
+                    // Simple mode: print(value1, value2, ...)
+                    print!("{}", self.value_to_display(&first_val));
+                    for arg in &args[1..] {
+                        print!(" ");
+                        let val = self.eval_expr(arg)?;
+                        print!("{}", self.value_to_display(&val));
+                    }
+                    println!();
+                }
+
                 Ok(Value::Void)
             }
 
@@ -3753,21 +4967,22 @@ impl Interpreter {
                         ));
                     }
 
-                    // 2. Create new call frame
-                    let mut frame = CallFrame::new(func_name.to_string());
+                    // 2. Create new call frame for stack trace
+                    let frame = CallFrame::new(func_name.to_string());
 
-                    // 3. Evaluate arguments, check types, and bind to parameters
+                    // 3. Push call frame and function scope
+                    self.call_stack.push(frame);
+                    self.env.push_scope(ScopeType::Function(func_name.to_string()));
+
+                    // 4. Evaluate arguments, check types, and bind to parameters
                     for (param, arg) in func_decl.params.iter().zip(args.iter()) {
                         let arg_value = self.eval_expr(arg)?;
 
                         // Type check the argument
                         self.check_type_match(&arg_value, &param.entity_type, param.name.as_str())?;
 
-                        frame.local_vars.insert(param.name.as_str().to_string(), arg_value);
+                        self.env.declare_variable(param.name.as_str().to_string(), arg_value)?;
                     }
-
-                    // 4. Push call frame onto stack
-                    self.call_stack.push(frame);
 
                     // 5. Execute function body and catch explicit returns
                     let mut explicit_return = None;
@@ -3784,6 +4999,7 @@ impl Interpreter {
                                 }
                                 Err(e) => {
                                     // Other errors - propagate upward
+                                    self.env.pop_scope();
                                     self.call_stack.pop();
                                     return Err(e);
                                 }
@@ -3802,6 +5018,7 @@ impl Interpreter {
                             Ok(None) => Value::Void,
                             Err(RuntimeError::ReturnValue(val)) => val,  // Explicit return in last statement
                             Err(e) => {
+                                self.env.pop_scope();
                                 self.call_stack.pop();
                                 return Err(e);
                             }
@@ -3814,7 +5031,8 @@ impl Interpreter {
                     // 7. Check return type matches declaration
                     self.check_return_type_match(&return_value, &func_decl.return_type, func_name)?;
 
-                    // 8. Pop call frame
+                    // 8. Pop function scope and call frame
+                    self.env.pop_scope();
                     self.call_stack.pop();
 
                     Ok(return_value)
@@ -3900,10 +5118,14 @@ impl Interpreter {
             Constraint::Shape { tensor, shape } => {
                 // Get tensor value
                 let tensor_val = self.eval_expr(tensor)?;
-                let tensor_obj = tensor_val.as_tensor()?;
 
-                // Compare actual shape with expected dimensions
-                let actual_shape = tensor_obj.shape().dims();
+                let actual_shape = match tensor_val {
+                    Value::TensorF16(ref t) => t.shape().dims(),
+                    Value::TensorF32(ref t) => t.shape().dims(),
+                    _ => return Err(RuntimeError::TypeError(
+                        "Shape constraint requires a tensor (f16 or f32)".to_string()
+                    ))
+                };
 
                 if actual_shape.len() != shape.len() {
                     return Ok(false);
@@ -3929,28 +5151,45 @@ impl Interpreter {
             Constraint::Rank { tensor, rank } => {
                 // Get tensor value
                 let tensor_val = self.eval_expr(tensor)?;
-                let tensor = tensor_val.as_tensor()?;
 
-                // Compare ranks
-                let actual_rank = tensor.rank();
+                let actual_rank = match tensor_val {
+                    Value::TensorF16(ref t) => t.rank(),
+                    Value::TensorF32(ref t) => t.rank(),
+                    _ => return Err(RuntimeError::TypeError(
+                        "Rank constraint requires a tensor (f16 or f32)".to_string()
+                    ))
+                };
+
                 Ok(actual_rank == *rank)
             }
 
             Constraint::Norm { tensor, op, value } => {
                 // Get tensor value
                 let tensor_val = self.eval_expr(tensor)?;
-                let tensor = tensor_val.as_tensor()?;
 
-                // Calculate L2 norm
-                let data = tensor.to_vec();
-                let norm: f32 = data
-                    .iter()
-                    .map(|x| {
-                        let val = x.to_f32();
-                        val * val
-                    })
-                    .sum::<f32>()
-                    .sqrt();
+                // Calculate L2 norm based on tensor type
+                let norm: f32 = match tensor_val {
+                    Value::TensorF16(ref t) => {
+                        let data = t.to_vec();
+                        data.iter()
+                            .map(|x| {
+                                let val = x.to_f32();
+                                val * val
+                            })
+                            .sum::<f32>()
+                            .sqrt()
+                    }
+                    Value::TensorF32(ref t) => {
+                        let data = t.to_vec();
+                        data.iter()
+                            .map(|&x| x * x)
+                            .sum::<f32>()
+                            .sqrt()
+                    }
+                    _ => return Err(RuntimeError::TypeError(
+                        "Norm constraint requires a tensor (f16 or f32)".to_string()
+                    ))
+                };
 
                 // Compare using the comparison operator
                 let result = match op {
@@ -4173,7 +5412,7 @@ impl Interpreter {
                         use crate::tensor::TensorAutograd;
                         param_clone.set_grad_node(node_id);
                     }
-                    self.env.variables.insert(name.clone(), Value::TensorF16(param_clone));
+                    let _ = self.env.set_variable(name, Value::TensorF16(param_clone));
                 }
             }
 
@@ -4184,14 +5423,34 @@ impl Interpreter {
 
             // Compute loss
             let loss_val = self.eval_expr(&spec.objective)?;
-            let loss_tensor = loss_val.as_tensor()?;
 
-            // Calculate loss value
-            let loss_data = loss_tensor.to_vec();
-            let loss_scalar = if loss_data.is_empty() {
-                0.0
-            } else {
-                loss_data[0].to_f32()
+            // Calculate loss value and get loss tensor (support both f16 and f32)
+            let (loss_scalar, loss_tensor) = match loss_val {
+                Value::TensorF16(ref t) => {
+                    let loss_data = t.to_vec();
+                    let scalar = if loss_data.is_empty() {
+                        0.0
+                    } else {
+                        loss_data[0].to_f32()
+                    };
+                    (scalar, t.clone())
+                }
+                Value::TensorF32(ref t) => {
+                    let loss_data = t.to_vec();
+                    let scalar = if loss_data.is_empty() {
+                        0.0
+                    } else {
+                        loss_data[0]
+                    };
+                    // For now, training only supports f16 tensors for backward pass
+                    // Convert f32 loss to f16 for gradient computation
+                    return Err(RuntimeError::TypeError(
+                        "Training currently only supports f16 tensors. Please use f16 for trainable parameters and loss.".to_string()
+                    ));
+                }
+                _ => return Err(RuntimeError::TypeError(
+                    "Loss must be a tensor (f16 or f32)".to_string()
+                ))
             };
 
             // Display epoch progress
@@ -4240,7 +5499,7 @@ impl Interpreter {
                                 // Restore the original node_id to maintain gradient connection
                                 param_with_grad.set_grad_node(*node_id);
                                 // Learning context - update parameter
-                                self.env.variables.insert(name.clone(), Value::TensorF16(param_with_grad));
+                                let _ = self.env.set_variable(name, Value::TensorF16(param_with_grad));
                             }
 
                             // Note: We don't rebuild learnable_params from the environment

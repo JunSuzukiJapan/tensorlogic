@@ -132,31 +132,6 @@ kernel void fill_f16(
     result[index] = value[0];
 }
 
-/// Matrix multiplication: C = A @ B
-/// A: [M, K], B: [K, N], C: [M, N]
-kernel void matmul_f16(
-    device const half* a [[buffer(0)]],
-    device const half* b [[buffer(1)]],
-    device half* c [[buffer(2)]],
-    constant uint& M [[buffer(3)]],
-    constant uint& N [[buffer(4)]],
-    constant uint& K [[buffer(5)]],
-    uint2 gid [[thread_position_in_grid]]
-) {
-    uint row = gid.y;  // M dimension
-    uint col = gid.x;  // N dimension
-
-    if (row >= M || col >= N) return;
-
-    // Use float (f32) for accumulation to prevent precision loss
-    float sum = 0.0f;
-    for (uint k = 0; k < K; k++) {
-        sum += float(a[row * K + k]) * float(b[k * N + col]);
-    }
-    // Convert back to f16 for storage
-    c[row * N + col] = half(sum);
-}
-
 /// ReLU activation: f(x) = max(0, x)
 kernel void relu_f16(
     device const half* input [[buffer(0)]],
@@ -257,6 +232,219 @@ kernel void sigmoid_f16(
 kernel void tanh_f16(
     device const half* input [[buffer(0)]],
     device half* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = tanh(input[index]);
+}
+
+// F32 version
+kernel void add_f32(
+    device const float* a [[buffer(0)]],
+    device const float* b [[buffer(1)]],
+    device float* result [[buffer(2)]],
+    uint index [[thread_position_in_grid]]
+) {
+    result[index] = a[index] + b[index];
+}
+
+// F32 version
+kernel void sub_f32(
+    device const float* a [[buffer(0)]],
+    device const float* b [[buffer(1)]],
+    device float* result [[buffer(2)]],
+    uint index [[thread_position_in_grid]]
+) {
+    result[index] = a[index] - b[index];
+}
+
+// F32 version
+kernel void mul_f32(
+    device const float* a [[buffer(0)]],
+    device const float* b [[buffer(1)]],
+    device float* result [[buffer(2)]],
+    uint index [[thread_position_in_grid]]
+) {
+    result[index] = a[index] * b[index];
+}
+
+// F32 version
+kernel void div_f32(
+    device const float* a [[buffer(0)]],
+    device const float* b [[buffer(1)]],
+    device float* result [[buffer(2)]],
+    uint index [[thread_position_in_grid]]
+) {
+    result[index] = a[index] / b[index];
+}
+
+// F32 version
+kernel void add_scalar_f32(
+    device const float* a [[buffer(0)]],
+    device const float* scalar [[buffer(1)]],
+    device float* result [[buffer(2)]],
+    uint index [[thread_position_in_grid]]
+) {
+    result[index] = a[index] + scalar[0];
+}
+
+// F32 version
+kernel void mul_scalar_f32(
+    device const float* a [[buffer(0)]],
+    device const float* scalar [[buffer(1)]],
+    device float* result [[buffer(2)]],
+    uint index [[thread_position_in_grid]]
+) {
+    result[index] = a[index] * scalar[0];
+}
+
+// F32 version
+kernel void neg_f32(
+    device const float* a [[buffer(0)]],
+    device float* result [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    result[index] = -a[index];
+}
+
+// F32 version
+kernel void abs_f32(
+    device const float* a [[buffer(0)]],
+    device float* result [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    result[index] = abs(a[index]);
+}
+
+// F32 version
+kernel void sign_f32(
+    device const float* a [[buffer(0)]],
+    device float* result [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    float x = a[index];
+    result[index] = (x > float(0.0)) ? float(1.0) : ((x < float(0.0)) ? float(-1.0) : float(0.0));
+}
+
+// F32 version
+kernel void max_f32(
+    device const float* a [[buffer(0)]],
+    device const float* b [[buffer(1)]],
+    device float* result [[buffer(2)]],
+    uint index [[thread_position_in_grid]]
+) {
+    result[index] = max(a[index], b[index]);
+}
+
+// F32 version
+kernel void min_f32(
+    device const float* a [[buffer(0)]],
+    device const float* b [[buffer(1)]],
+    device float* result [[buffer(2)]],
+    uint index [[thread_position_in_grid]]
+) {
+    result[index] = min(a[index], b[index]);
+}
+
+// F32 version
+kernel void relu_f32(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = max(input[index], float(0.0));
+}
+
+// F32 version
+kernel void gelu_f32(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    float x = input[index];
+    float sqrt_2_over_pi = float(0.7978845608);  // sqrt(2/π)
+    float coeff = float(0.044715);
+    float x3 = x * x * x;
+    float inner = sqrt_2_over_pi * (x + coeff * x3);
+    output[index] = float(0.5) * x * (float(1.0) + tanh(inner));
+}
+
+// F32 version
+kernel void exp_f32(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = exp(input[index]);
+}
+
+// F32 version
+kernel void log_f32(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = log(input[index]);
+}
+
+// F32 version
+kernel void sqrt_f32(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = sqrt(input[index]);
+}
+
+// F32 version
+kernel void pow_f32(
+    device const float* input [[buffer(0)]],
+    device const float* exponent [[buffer(1)]],
+    device float* output [[buffer(2)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = pow(input[index], exponent[0]);
+}
+
+// F32 version
+kernel void sin_f32(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = sin(input[index]);
+}
+
+// F32 version
+kernel void cos_f32(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = cos(input[index]);
+}
+
+// F32 version
+kernel void tan_f32(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = tan(input[index]);
+}
+
+// F32 version
+kernel void sigmoid_f32(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    uint index [[thread_position_in_grid]]
+) {
+    output[index] = float(1.0) / (float(1.0) + exp(-input[index]));
+}
+
+// F32 version
+kernel void tanh_f32(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
     uint index [[thread_position_in_grid]]
 ) {
     output[index] = tanh(input[index]);

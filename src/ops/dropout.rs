@@ -2,7 +2,7 @@
 
 use crate::tensor::Tensor;
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO};
 use crate::error::TensorError;
 use crate::TensorResult;
 use half::f16;
@@ -53,14 +53,15 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn dropout_cpu(&self, p: f32) -> TensorResult<Self> {
+        panic!("src/ops/dropout.rs:55:5");
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
         }
 
-        let input_data = self.to_vec();
+        let input_data = self.sync_and_read();
         let input_f16: Vec<f16> = unsafe { std::mem::transmute(input_data) };
 
         let mut rng = rand::rng();
@@ -99,8 +100,8 @@ mod tests {
 
         // Inference mode: should return unchanged
         let result = input.dropout(0.5, false).unwrap();
-        let input_data = input.to_vec();
-        let result_data = result.to_vec();
+        let input_data = input.sync_and_read();
+        let result_data = result.sync_and_read();
 
         for i in 0..input_data.len() {
             assert_eq!(input_data[i], result_data[i]);
@@ -119,8 +120,8 @@ mod tests {
 
         // p=0.0: should return unchanged
         let result = input.dropout(0.0, true).unwrap();
-        let input_data = input.to_vec();
-        let result_data = result.to_vec();
+        let input_data = input.sync_and_read();
+        let result_data = result.sync_and_read();
 
         for i in 0..input_data.len() {
             assert_eq!(input_data[i], result_data[i]);
@@ -136,7 +137,7 @@ mod tests {
 
         // Training mode with p=0.5
         let result = input.dropout(0.5, true).unwrap();
-        let result_data = result.to_vec();
+        let result_data = result.sync_and_read();
 
         // Count zeros (dropped elements)
         let zero_count = result_data.iter().filter(|&&x| x == f16::ZERO).count();
@@ -172,7 +173,7 @@ mod tests {
 
         for _ in 0..trials {
             let result = input.dropout(0.5, true).unwrap();
-            let data = result.to_vec();
+            let data = result.sync_and_read();
             let mean: f32 = data.iter().map(|x| x.to_f32()).sum::<f32>() / data.len() as f32;
             sum += mean;
         }

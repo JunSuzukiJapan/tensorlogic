@@ -417,7 +417,7 @@ impl Interpreter {
                 #[cfg(feature = "python")]
                 {
                     let tensor_args: Vec<Tensor> = args.iter()
-                        .map(|arg| self.eval_expr(arg)?.as_tensor())
+                        .map(|arg| self.eval_expr(arg)?.as_tensor_f16())
                         .collect::<Result<Vec<_>, _>>()?;
 
                     let result = self.python_env

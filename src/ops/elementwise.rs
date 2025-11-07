@@ -2,9 +2,9 @@
 
 use crate::autograd::gradients::{AddBackward, DivBackward, MulBackward, SubBackward};
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform, TensorAutograd};
-use crate::autograd::{AutogradContext, GradientFunction, GradientFunctionGeneric, Operation};
-use crate::device::{Device, MetalBuffer};
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorAutograd};
+use crate::autograd::{AutogradContext, GradientFunctionGeneric, Operation};
+use crate::device::{Device, MetalBuffer, EncoderProvider};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
@@ -74,7 +74,7 @@ impl<T: FloatType> Tensor<T> {
     /// Metal GPU implementation of addition
     fn add_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 format!("Metal operations currently only support f16, got {}", std::any::type_name::<T>())
             ));
@@ -84,16 +84,10 @@ impl<T: FloatType> Tensor<T> {
         let b_buf = other.buffer().as_metal()?;
 
         // Get device
-        let mut device = match self.device() {
+        let device = match self.device() {
             Device::Metal(dev) => dev.clone(),
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
-
-        // Load shaders if not already loaded
-        if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/elementwise.metal");
-            device.load_library(shader_source)?;
-        }
 
         // Safety: We checked T::is_f16() above, so we can safely transmute to MetalBuffer<f16>
         let a_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(a_buf) };
@@ -102,9 +96,17 @@ impl<T: FloatType> Tensor<T> {
         // Create result buffer (f16)
         let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
-        // Create local executor for this operation
-        let mut executor = crate::device::KernelExecutor::new(device);
-        executor.execute_binary_op("add_f16", a_buf_f16, b_buf_f16, &result_buf)?;
+        // Use global kernel executor to share pipeline cache
+        let executor_mutex = crate::device::get_kernel_executor()?;
+        let mut executor_guard = executor_mutex.lock().unwrap();
+        let executor = executor_guard.as_mut().ok_or_else(||
+            TensorError::MetalError("Kernel executor not initialized".to_string())
+        )?;
+
+        let suffix = T::kernel_suffix();
+        let kernel_name = format!("add{}", suffix);
+        executor.execute_binary_op(&kernel_name, a_buf_f16, b_buf_f16, &result_buf)?;
+        drop(executor_guard);
 
         // Safety: We're working with f16, so transmute back to T (which is f16)
         let result_buf_t: MetalBuffer<T> = unsafe { std::mem::transmute(result_buf) };
@@ -119,14 +121,14 @@ impl<T: FloatType> Tensor<T> {
     /// CPU fallback for addition
     fn add_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
         }
 
-        let a = self.to_vec();
-        let b = other.to_vec();
+        let a = self.sync_and_read();
+        let b = other.sync_and_read();
 
         // Safety: We checked T::is_f16() above
         let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
@@ -136,7 +138,7 @@ impl<T: FloatType> Tensor<T> {
 
         // Keep result on same device as self
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, result_t, self.dims().to_vec()),
             _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
@@ -167,7 +169,7 @@ impl<T: FloatType> Tensor<T> {
 
     fn sub_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -176,22 +178,26 @@ impl<T: FloatType> Tensor<T> {
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
-        let mut device = match self.device() {
+        let device = match self.device() {
             Device::Metal(dev) => dev.clone(),
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
 
-        if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/elementwise.metal");
-            device.load_library(shader_source)?;
-        }
-
         let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
-        let mut executor = crate::device::KernelExecutor::new(device);
+        // Use global kernel executor to share pipeline cache
+        let executor_mutex = crate::device::get_kernel_executor()?;
+        let mut executor_guard = executor_mutex.lock().unwrap();
+        let executor = executor_guard.as_mut().ok_or_else(||
+            TensorError::MetalError("Kernel executor not initialized".to_string())
+        )?;
+
         let a_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(a_buf) };
         let b_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(b_buf) };
-        executor.execute_binary_op("sub_f16", a_buf_f16, b_buf_f16, &result_buf)?;
+        let suffix = T::kernel_suffix();
+        let kernel_name = format!("sub{}", suffix);
+        executor.execute_binary_op(&kernel_name, a_buf_f16, b_buf_f16, &result_buf)?;
+        drop(executor_guard);
 
         self.new_from_pool(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -201,14 +207,14 @@ impl<T: FloatType> Tensor<T> {
 
     fn sub_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
         }
 
-        let a = self.to_vec();
-        let b = other.to_vec();
+        let a = self.sync_and_read();
+        let b = other.sync_and_read();
 
         // Safety: We checked T::is_f16() above
         let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
@@ -217,7 +223,7 @@ impl<T: FloatType> Tensor<T> {
         let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, result_t, self.dims().to_vec()),
             _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
@@ -247,8 +253,9 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn mul_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        let _total_start = std::time::Instant::now();
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -257,22 +264,41 @@ impl<T: FloatType> Tensor<T> {
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
-        let mut device = match self.device() {
+        let device = match self.device() {
             Device::Metal(dev) => dev.clone(),
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
 
-        if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/elementwise.metal");
-            device.load_library(shader_source)?;
+        let _buf_start = std::time::Instant::now();
+        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        if std::env::var("TL_PERF").is_ok() {
+            eprintln!("[PERF]   mul_metal: buffer_alloc={:.3}ms, numel={}",
+                     _buf_start.elapsed().as_secs_f64() * 1000.0, self.numel());
         }
 
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        // Use global kernel executor to share pipeline cache
+        let _executor_start = std::time::Instant::now();
+        let executor_mutex = crate::device::get_kernel_executor()?;
+        let mut executor_guard = executor_mutex.lock().unwrap();
+        let executor = executor_guard.as_mut().ok_or_else(||
+            TensorError::MetalError("Kernel executor not initialized".to_string())
+        )?;
 
-        let mut executor = crate::device::KernelExecutor::new(device);
         let a_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(a_buf) };
         let b_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(b_buf) };
-        executor.execute_binary_op("mul_f16", a_buf_f16, b_buf_f16, &result_buf)?;
+        let suffix = T::kernel_suffix();
+        let kernel_name = format!("mul{}", suffix);
+
+        let _exec_start = std::time::Instant::now();
+        executor.execute_binary_op(&kernel_name, a_buf_f16, b_buf_f16, &result_buf)?;
+        if std::env::var("TL_PERF").is_ok() {
+            eprintln!("[PERF]   mul_metal: execute={:.3}ms", _exec_start.elapsed().as_secs_f64() * 1000.0);
+        }
+        drop(executor_guard);
+
+        if std::env::var("TL_PERF").is_ok() {
+            eprintln!("[PERF]   mul_metal: TOTAL={:.3}ms", _total_start.elapsed().as_secs_f64() * 1000.0);
+        }
 
         self.new_from_pool(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -282,14 +308,14 @@ impl<T: FloatType> Tensor<T> {
 
     fn mul_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
         }
 
-        let a = self.to_vec();
-        let b = other.to_vec();
+        let a = self.sync_and_read();
+        let b = other.sync_and_read();
 
         // Safety: We checked T::is_f16() above
         let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
@@ -298,7 +324,7 @@ impl<T: FloatType> Tensor<T> {
         let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, result_t, self.dims().to_vec()),
             _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
@@ -329,7 +355,7 @@ impl<T: FloatType> Tensor<T> {
 
     fn div_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -338,22 +364,26 @@ impl<T: FloatType> Tensor<T> {
         let a_buf = self.buffer().as_metal()?;
         let b_buf = other.buffer().as_metal()?;
 
-        let mut device = match self.device() {
+        let device = match self.device() {
             Device::Metal(dev) => dev.clone(),
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
 
-        if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/elementwise.metal");
-            device.load_library(shader_source)?;
-        }
-
         let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
-        let mut executor = crate::device::KernelExecutor::new(device);
+        // Use global kernel executor to share pipeline cache
+        let executor_mutex = crate::device::get_kernel_executor()?;
+        let mut executor_guard = executor_mutex.lock().unwrap();
+        let executor = executor_guard.as_mut().ok_or_else(||
+            TensorError::MetalError("Kernel executor not initialized".to_string())
+        )?;
+
         let a_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(a_buf) };
         let b_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(b_buf) };
-        executor.execute_binary_op("div_f16", a_buf_f16, b_buf_f16, &result_buf)?;
+        let suffix = T::kernel_suffix();
+        let kernel_name = format!("div{}", suffix);
+        executor.execute_binary_op(&kernel_name, a_buf_f16, b_buf_f16, &result_buf)?;
+        drop(executor_guard);
 
         self.new_from_pool(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -363,14 +393,14 @@ impl<T: FloatType> Tensor<T> {
 
     fn div_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
         }
 
-        let a = self.to_vec();
-        let b = other.to_vec();
+        let a = self.sync_and_read();
+        let b = other.sync_and_read();
 
         // Safety: We checked T::is_f16() above
         let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
@@ -379,7 +409,7 @@ impl<T: FloatType> Tensor<T> {
         let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, result_t, self.dims().to_vec()),
             _ => Tensor::from_vec(result_t, self.dims().to_vec()),
         }
     }
@@ -394,19 +424,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn exp_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "exp_f16")
+        let kernel_name = format!("exp{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     fn exp_cpu(&self) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -425,19 +449,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn log_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "log_f16")
+        let kernel_name = format!("log{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     fn log_cpu(&self) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -456,19 +474,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sqrt_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "sqrt_f16")
+        let kernel_name = format!("sqrt{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     fn sqrt_cpu(&self) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -487,24 +499,18 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn pow_metal(&self, exponent: f32) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
         let device = match self.device() {
             Device::Metal(dev) => dev,
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
-        let exp_tensor = Tensor::<T>::from_vec_metal(device, vec![T::from_f32(exponent)], vec![1])?;
-        super::helpers::execute_binary_metal_op(self, &exp_tensor, "pow_f16")
+        let exp_tensor = Tensor::<T>::from_vec_gpu(device, vec![T::from_f32(exponent)], vec![1])?;
+        let kernel_name = format!("pow{}", T::kernel_suffix());
+        super::helpers::execute_binary_metal_op(self, &exp_tensor, &kernel_name)
     }
 
     fn pow_cpu(&self, exponent: f32) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -523,19 +529,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sin_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "sin_f16")
+        let kernel_name = format!("sin{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     fn sin_cpu(&self) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -554,19 +554,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn cos_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "cos_f16")
+        let kernel_name = format!("cos{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     fn cos_cpu(&self) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -585,19 +579,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn tan_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "tan_f16")
+        let kernel_name = format!("tan{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     fn tan_cpu(&self) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -607,7 +595,7 @@ impl<T: FloatType> Tensor<T> {
     }
 
     /// Element-wise addition with a scalar
-    pub fn add_scalar(&self, scalar: half::f16) -> TensorResult<Self> {
+    pub fn add_scalar(&self, scalar: T) -> TensorResult<Self> {
         if self.buffer().is_metal() {
             self.add_scalar_metal(scalar)
         } else {
@@ -615,48 +603,62 @@ impl<T: FloatType> Tensor<T> {
         }
     }
 
-    fn add_scalar_metal(&self, scalar: half::f16) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
+    fn add_scalar_metal(&self, scalar: T) -> TensorResult<Self> {
+        use crate::device::{MetalBuffer, KernelExecutor};
+        use crate::tensor::BufferHandle;
+
+        let device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        let mut device_mut = device.clone();
+        if device_mut.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device_mut.load_library(shader_source)?;
         }
 
-        let a = self.to_vec();
-        // Safety: We checked T::is_f16() above
-        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
-        let result: Vec<f16> = a_f16.iter().map(|&x| x + scalar).collect();
-        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+        let input_buf = self.buffer().as_metal()?;
+        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), self.numel())?;
+        let scalar_buf = device.metal_device().new_buffer_with_data(
+            &scalar as *const T as *const _,
+            std::mem::size_of::<T>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
 
-        match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
-            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
-        }
+        let kernel_name = if std::mem::size_of::<T>() == 2 { "add_scalar_f16" } else { "add_scalar_f32" };
+        let mut executor = KernelExecutor::new(device_mut);
+        let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
+
+        // Commands API (candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&scalar_buf), 0);
+        encoder.set_buffer(2, Some(&output_buf.buffer), 0);
+
+        let grid_size = metal::MTLSize::new(self.numel() as u64, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(256.min(self.numel() as u64), 1, 1);
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        // Note: wait_until_completed() is NOT called here (matches candle pattern).
+
+        Tensor::new(BufferHandle::Metal(output_buf), self.shape().clone(), Device::Metal(device))
     }
 
-    fn add_scalar_cpu(&self, scalar: half::f16) -> TensorResult<Self> {
-        // Currently only f16 is supported
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "CPU operations currently only support f16".to_string()
-            ));
-        }
-
-        let a = self.to_vec();
-        // Safety: We checked T::is_f16() above
-        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
-        let result: Vec<f16> = a_f16.iter().map(|&x| x + scalar).collect();
-        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+    fn add_scalar_cpu(&self, scalar: T) -> TensorResult<Self> {
+        let data = self.sync_and_read();
+        let result: Vec<T> = data.iter().map(|&x| x + scalar).collect();
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
-            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
         }
     }
 
     /// Element-wise subtraction with a scalar
-    pub fn sub_scalar(&self, scalar: half::f16) -> TensorResult<Self> {
+    pub fn sub_scalar(&self, scalar: T) -> TensorResult<Self> {
         if self.buffer().is_metal() {
             self.sub_scalar_metal(scalar)
         } else {
@@ -664,48 +666,62 @@ impl<T: FloatType> Tensor<T> {
         }
     }
 
-    fn sub_scalar_metal(&self, scalar: half::f16) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
+    fn sub_scalar_metal(&self, scalar: T) -> TensorResult<Self> {
+        use crate::device::{MetalBuffer, KernelExecutor};
+        use crate::tensor::BufferHandle;
+
+        let device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        let mut device_mut = device.clone();
+        if device_mut.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device_mut.load_library(shader_source)?;
         }
 
-        let a = self.to_vec();
-        // Safety: We checked T::is_f16() above
-        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
-        let result: Vec<f16> = a_f16.iter().map(|&x| x - scalar).collect();
-        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+        let input_buf = self.buffer().as_metal()?;
+        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), self.numel())?;
+        let scalar_buf = device.metal_device().new_buffer_with_data(
+            &scalar as *const T as *const _,
+            std::mem::size_of::<T>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
 
-        match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
-            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
-        }
+        let kernel_name = if std::mem::size_of::<T>() == 2 { "sub_scalar_f16" } else { "sub_scalar_f32" };
+        let mut executor = KernelExecutor::new(device_mut);
+        let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
+
+        // Commands API (candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&scalar_buf), 0);
+        encoder.set_buffer(2, Some(&output_buf.buffer), 0);
+
+        let grid_size = metal::MTLSize::new(self.numel() as u64, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(256.min(self.numel() as u64), 1, 1);
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        // Note: wait_until_completed() is NOT called here (matches candle pattern).
+
+        Tensor::new(BufferHandle::Metal(output_buf), self.shape().clone(), Device::Metal(device))
     }
 
-    fn sub_scalar_cpu(&self, scalar: half::f16) -> TensorResult<Self> {
-        // Currently only f16 is supported
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "CPU operations currently only support f16".to_string()
-            ));
-        }
-
-        let a = self.to_vec();
-        // Safety: We checked T::is_f16() above
-        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
-        let result: Vec<f16> = a_f16.iter().map(|&x| x - scalar).collect();
-        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+    fn sub_scalar_cpu(&self, scalar: T) -> TensorResult<Self> {
+        let data = self.sync_and_read();
+        let result: Vec<T> = data.iter().map(|&x| x - scalar).collect();
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
-            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
         }
     }
 
     /// Element-wise multiplication with a scalar
-    pub fn mul_scalar(&self, scalar: half::f16) -> TensorResult<Self> {
+    pub fn mul_scalar(&self, scalar: T) -> TensorResult<Self> {
         if self.buffer().is_metal() {
             self.mul_scalar_metal(scalar)
         } else {
@@ -713,48 +729,72 @@ impl<T: FloatType> Tensor<T> {
         }
     }
 
-    fn mul_scalar_metal(&self, scalar: half::f16) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
+    fn mul_scalar_metal(&self, scalar: T) -> TensorResult<Self> {
+        use crate::device::{MetalBuffer, KernelExecutor};
+        use crate::tensor::BufferHandle;
+
+        let device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        let mut device_mut = device.clone();
+        if device_mut.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device_mut.load_library(shader_source)?;
         }
 
-        let a = self.to_vec();
-        // Safety: We checked T::is_f16() above
-        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
-        let result: Vec<f16> = a_f16.iter().map(|&x| x * scalar).collect();
-        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+        let input_buf = self.buffer().as_metal()?;
+        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), self.numel())?;
 
-        match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
-            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
-        }
+        let scalar_buf = device.metal_device().new_buffer_with_data(
+            &scalar as *const T as *const _,
+            std::mem::size_of::<T>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        let kernel_name = if std::mem::size_of::<T>() == 2 {
+            "mul_scalar_f16"
+        } else {
+            "mul_scalar_f32"
+        };
+
+        let mut executor = KernelExecutor::new(device_mut);
+        let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
+
+        // Commands API (candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&scalar_buf), 0);
+        encoder.set_buffer(2, Some(&output_buf.buffer), 0);
+
+        let grid_size = metal::MTLSize::new(self.numel() as u64, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(256.min(self.numel() as u64), 1, 1);
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        // Note: wait_until_completed() is NOT called here (matches candle pattern).
+
+        Tensor::new(
+            BufferHandle::Metal(output_buf),
+            self.shape().clone(),
+            Device::Metal(device),
+        )
     }
 
-    fn mul_scalar_cpu(&self, scalar: half::f16) -> TensorResult<Self> {
-        // Currently only f16 is supported
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "CPU operations currently only support f16".to_string()
-            ));
-        }
-
-        let a = self.to_vec();
-        // Safety: We checked T::is_f16() above
-        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
-        let result: Vec<f16> = a_f16.iter().map(|&x| x * scalar).collect();
-        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+    fn mul_scalar_cpu(&self, scalar: T) -> TensorResult<Self> {
+        let data = self.sync_and_read();
+        let result: Vec<T> = data.iter().map(|&x| x * scalar).collect();
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
-            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
         }
     }
 
     /// Element-wise division with a scalar
-    pub fn div_scalar(&self, scalar: half::f16) -> TensorResult<Self> {
+    pub fn div_scalar(&self, scalar: T) -> TensorResult<Self> {
         if self.buffer().is_metal() {
             self.div_scalar_metal(scalar)
         } else {
@@ -762,43 +802,57 @@ impl<T: FloatType> Tensor<T> {
         }
     }
 
-    fn div_scalar_metal(&self, scalar: half::f16) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
+    fn div_scalar_metal(&self, scalar: T) -> TensorResult<Self> {
+        use crate::device::{MetalBuffer, KernelExecutor};
+        use crate::tensor::BufferHandle;
+
+        let device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        let mut device_mut = device.clone();
+        if device_mut.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device_mut.load_library(shader_source)?;
         }
 
-        let a = self.to_vec();
-        // Safety: We checked T::is_f16() above
-        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
-        let result: Vec<f16> = a_f16.iter().map(|&x| x / scalar).collect();
-        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+        let input_buf = self.buffer().as_metal()?;
+        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), self.numel())?;
+        let scalar_buf = device.metal_device().new_buffer_with_data(
+            &scalar as *const T as *const _,
+            std::mem::size_of::<T>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
 
-        match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
-            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
-        }
+        let kernel_name = if std::mem::size_of::<T>() == 2 { "div_scalar_f16" } else { "div_scalar_f32" };
+        let mut executor = KernelExecutor::new(device_mut);
+        let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
+
+        // Commands API (candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&scalar_buf), 0);
+        encoder.set_buffer(2, Some(&output_buf.buffer), 0);
+
+        let grid_size = metal::MTLSize::new(self.numel() as u64, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(256.min(self.numel() as u64), 1, 1);
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        // Note: wait_until_completed() is NOT called here (matches candle pattern).
+
+        Tensor::new(BufferHandle::Metal(output_buf), self.shape().clone(), Device::Metal(device))
     }
 
-    fn div_scalar_cpu(&self, scalar: half::f16) -> TensorResult<Self> {
-        // Currently only f16 is supported
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "CPU operations currently only support f16".to_string()
-            ));
-        }
-
-        let a = self.to_vec();
-        // Safety: We checked T::is_f16() above
-        let a_f16: Vec<f16> = unsafe { std::mem::transmute(a) };
-        let result: Vec<f16> = a_f16.iter().map(|&x| x / scalar).collect();
-        let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
+    fn div_scalar_cpu(&self, scalar: T) -> TensorResult<Self> {
+        let data = self.sync_and_read();
+        let result: Vec<T> = data.iter().map(|&x| x / scalar).collect();
 
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, self.dims().to_vec()),
-            _ => Tensor::from_vec(result_t, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, result, self.dims().to_vec()),
+            _ => Tensor::from_vec(result, self.dims().to_vec()),
         }
     }
 }
@@ -816,14 +870,14 @@ mod tests {
     fn test_add_gpu() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
             vec![3],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(4.0), f16::from_f32(5.0), f16::from_f32(6.0)],
             vec![3],
@@ -833,21 +887,21 @@ mod tests {
         let c = a.add(&b).unwrap();
 
         let expected = vec![f16::from_f32(5.0), f16::from_f32(7.0), f16::from_f32(9.0)];
-        assert_eq!(c.to_vec(), expected);
+        assert_eq!(c.sync_and_read(), expected);
     }
 
     #[test]
     fn test_sub_gpu() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(5.0), f16::from_f32(7.0), f16::from_f32(9.0)],
             vec![3],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
             vec![3],
@@ -857,21 +911,21 @@ mod tests {
         let c = a.sub(&b).unwrap();
 
         let expected = vec![f16::from_f32(4.0), f16::from_f32(5.0), f16::from_f32(6.0)];
-        assert_eq!(c.to_vec(), expected);
+        assert_eq!(c.sync_and_read(), expected);
     }
 
     #[test]
     fn test_mul_gpu() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)],
             vec![3],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(5.0), f16::from_f32(6.0), f16::from_f32(7.0)],
             vec![3],
@@ -881,21 +935,21 @@ mod tests {
         let c = a.mul(&b).unwrap();
 
         let expected = vec![f16::from_f32(10.0), f16::from_f32(18.0), f16::from_f32(28.0)];
-        assert_eq!(c.to_vec(), expected);
+        assert_eq!(c.sync_and_read(), expected);
     }
 
     #[test]
     fn test_div_gpu() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(10.0), f16::from_f32(20.0), f16::from_f32(30.0)],
             vec![3],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(2.0), f16::from_f32(4.0), f16::from_f32(5.0)],
             vec![3],
@@ -905,7 +959,7 @@ mod tests {
         let c = a.div(&b).unwrap();
 
         let expected = vec![f16::from_f32(5.0), f16::from_f32(5.0), f16::from_f32(6.0)];
-        assert_eq!(c.to_vec(), expected);
+        assert_eq!(c.sync_and_read(), expected);
     }
 
     #[test]
@@ -921,7 +975,7 @@ mod tests {
     #[test]
     fn test_exp() {
         let device = get_test_device();
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(0.0), f16::from_f32(1.0), f16::from_f32(2.0)],
             vec![3],
@@ -929,7 +983,7 @@ mod tests {
         .unwrap();
 
         let result = a.exp().unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         assert!((values[0].to_f32() - 1.0).abs() < 0.01);
         assert!((values[1].to_f32() - 2.718).abs() < 0.01);
@@ -939,7 +993,7 @@ mod tests {
     #[test]
     fn test_log() {
         let device = get_test_device();
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.718), f16::from_f32(7.389)],
             vec![3],
@@ -947,7 +1001,7 @@ mod tests {
         .unwrap();
 
         let result = a.log().unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         assert!((values[0].to_f32() - 0.0).abs() < 0.01);
         assert!((values[1].to_f32() - 1.0).abs() < 0.01);
@@ -957,7 +1011,7 @@ mod tests {
     #[test]
     fn test_sqrt() {
         let device = get_test_device();
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(4.0), f16::from_f32(9.0)],
             vec![3],
@@ -966,13 +1020,13 @@ mod tests {
 
         let result = a.sqrt().unwrap();
         let expected = vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)];
-        assert_eq!(result.to_vec(), expected);
+        assert_eq!(result.sync_and_read(), expected);
     }
 
     #[test]
     fn test_pow() {
         let device = get_test_device();
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)],
             vec![3],
@@ -981,13 +1035,13 @@ mod tests {
 
         let result = a.pow(2.0).unwrap();
         let expected = vec![f16::from_f32(4.0), f16::from_f32(9.0), f16::from_f32(16.0)];
-        assert_eq!(result.to_vec(), expected);
+        assert_eq!(result.sync_and_read(), expected);
     }
 
     #[test]
     fn test_sin() {
         let device = get_test_device();
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(0.0), f16::from_f32(std::f32::consts::PI / 2.0), f16::from_f32(std::f32::consts::PI)],
             vec![3],
@@ -995,7 +1049,7 @@ mod tests {
         .unwrap();
 
         let result = a.sin().unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         assert!((values[0].to_f32() - 0.0).abs() < 0.01);
         assert!((values[1].to_f32() - 1.0).abs() < 0.01);
@@ -1005,7 +1059,7 @@ mod tests {
     #[test]
     fn test_cos() {
         let device = get_test_device();
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(0.0), f16::from_f32(std::f32::consts::PI / 2.0), f16::from_f32(std::f32::consts::PI)],
             vec![3],
@@ -1013,7 +1067,7 @@ mod tests {
         .unwrap();
 
         let result = a.cos().unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         assert!((values[0].to_f32() - 1.0).abs() < 0.01);
         assert!((values[1].to_f32() - 0.0).abs() < 0.01);
@@ -1023,7 +1077,7 @@ mod tests {
     #[test]
     fn test_tan() {
         let device = get_test_device();
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(0.0), f16::from_f32(std::f32::consts::PI / 4.0)],
             vec![2],
@@ -1031,7 +1085,7 @@ mod tests {
         .unwrap();
 
         let result = a.tan().unwrap();
-        let values = result.to_vec();
+        let values = result.sync_and_read();
 
         assert!((values[0].to_f32() - 0.0).abs() < 0.01);
         assert!((values[1].to_f32() - 1.0).abs() < 0.01);

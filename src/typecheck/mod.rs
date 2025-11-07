@@ -405,7 +405,7 @@ impl TypeChecker {
                 self.infer_unary_op_type(op, &operand_type)
             }
 
-            TensorExpr::FunctionCall { name, args } => {
+            TensorExpr::FunctionCall { type_namespace, name, args, .. } => {
                 let (param_types, return_type) = self.env.get_function(name.as_str())?;
 
                 // Check argument count
@@ -549,7 +549,7 @@ impl TypeChecker {
         }
 
         match op {
-            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod => {
                 // Element-wise operations: same shape required
                 if !left.dimensions_match(&right.dimensions) {
                     return Err(TypeError::DimensionMismatch {

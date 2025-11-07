@@ -17,3 +17,8 @@ Thumbs.db
 
 # Serena MCP internal files
 .serena/
+
+# Claude Code local settings
+.claude/settings.local.json
+
+/[Mm]emo

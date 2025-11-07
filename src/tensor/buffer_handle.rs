@@ -3,7 +3,6 @@
 use crate::device::{MetalBuffer, NeuralEngineBuffer};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::FloatType;
-use half::f16;
 
 /// Handle to tensor data on different devices
 #[derive(Debug, Clone)]
@@ -141,6 +140,7 @@ impl<T: FloatType + PartialEq> PartialEq for BufferHandle<T> {
 
 #[cfg(test)]
 mod tests {
+    use half::f16;
     use super::*;
     use metal::Device as MTLDevice;
 
@@ -159,7 +159,7 @@ mod tests {
     fn test_metal_buffer() {
         let device = MTLDevice::system_default().unwrap();
         let data = vec![f16::from_f32(1.0), f16::from_f32(2.0)];
-        let metal_buf = MetalBuffer::<f16>::from_f16_slice(&device, &data).unwrap();
+        let metal_buf = MetalBuffer::<f16>::from_slice(&device, &data).unwrap();
         let handle = BufferHandle::<f16>::Metal(metal_buf);
 
         assert!(handle.is_metal());

@@ -22,5 +22,5 @@ main {
     // - Learn embeddings during training
 
     // Currently demonstrates relation declaration syntax
-    status := 1
+    status = 1
 }

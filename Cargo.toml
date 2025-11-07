@@ -47,6 +47,9 @@ rand_distr = "0.5.1"
 # モデルフォーマット対応
 safetensors = "0.4"
 gguf-rs-lib = "0.2"
+memmap2 = "0.9"  # メモリマップファイル（高速ローダー用）
+rayon = "1.8"    # 並列処理（Phase 4で使用）
+lru = "0.12"     # LRUキャッシュ（遅延ロード用）
 
 # トークナイゼーション
 tokenizers = "0.20"
@@ -59,6 +62,7 @@ hf-hub = "0.4.3"
 
 [dev-dependencies]
 criterion = "0.5"
+serial_test = "3.0"  # GPU tests must run sequentially to avoid resource contention
 
 [features]
 default = []
@@ -85,9 +89,6 @@ path = "src/lib.rs"
 name = "tl"
 path = "src/main.rs"
 
-[[example]]
-name = "simple_training"
-path = "examples/simple_training.rs"
 
 [[bench]]
 name = "coreml_benchmark"

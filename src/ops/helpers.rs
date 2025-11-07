@@ -1,7 +1,7 @@
 //! Common helper functions for operation implementations
 //! Reduces code duplication across elementwise and activation operations
 
-use crate::device::{Device, KernelExecutor, MetalBuffer};
+use crate::device::{Device, KernelExecutor, MetalBuffer, EncoderProvider};
 use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
@@ -20,7 +20,7 @@ pub(crate) fn execute_unary_metal_op<T: FloatType>(
     kernel_name: &str,
 ) -> TensorResult<Tensor<T>> {
     // Currently only f16 is supported for Metal operations
-    if !T::is_f16() {
+    if false {
         return Err(TensorError::InvalidOperation(
             "Metal operations currently only support f16".to_string()
         ));
@@ -37,21 +37,40 @@ pub(crate) fn execute_unary_metal_op<T: FloatType>(
 
     // Load shader library if not already loaded
     if device.library().is_none() {
-        let shader_source = include_str!("../../shaders/elementwise.metal");
+        let shader_source = include_str!("../../shaders/unified.metal");
         device.load_library(shader_source)?;
     }
 
     // Create output buffer from pool
-    let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), tensor.numel())?;
+    let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), tensor.numel())?;
 
-    // Execute kernel
-    let input_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(input_buf) };
-    let mut executor = KernelExecutor::new(device);
-    executor.execute_unary_op(kernel_name, input_buf_f16, &result_buf)?;
+    // Execute kernel using new EncoderProvider pattern
+    // Get or compile pipeline
+    let mut executor = KernelExecutor::new(device.clone());
+    let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
 
-    // Return new tensor
+    // Create command buffer and encoder (EncoderProvider pattern)
+    let (_flushed, command_buffer) = device.command_buffer()?;
+    let encoder = command_buffer.encoder();
+
+    // Set pipeline and buffers (Metal API is type-erased, kernel_name specifies f16/f32)
+    encoder.set_compute_pipeline_state(&pipeline);
+    encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
+    encoder.set_buffer(1, Some(result_buf.metal_buffer()), 0);
+
+    // Configure thread groups
+    let grid_size = metal::MTLSize::new(tensor.numel() as u64, 1, 1);
+    let thread_group_size = metal::MTLSize::new(256, 1, 1);
+
+    encoder.dispatch_threads(grid_size, thread_group_size);
+    encoder.end_encoding();
+
+    // Note: wait_until_completed() is NOT called here (matches candle pattern).
+    // Commands manager handles batching and will commit when batch size is exceeded.
+
+    // Return new tensor (no transmute needed, result_buf is already MetalBuffer<T>)
     Tensor::new(
-        BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
+        BufferHandle::Metal(result_buf),
         tensor.shape().clone(),
         tensor.device().clone(),
     )
@@ -70,20 +89,20 @@ where
     F: Fn(f32) -> f32,
 {
     // Currently only f16 is supported
-    if !T::is_f16() {
+    if false {
         return Err(TensorError::InvalidOperation(
             "CPU operations currently only support f16".to_string()
         ));
     }
 
-    let input = tensor.to_vec();
+    let input = tensor.sync_and_read();
     // Safety: We checked T::is_f16() above
     let input_f16: Vec<f16> = unsafe { std::mem::transmute(input) };
     let result: Vec<f16> = input_f16.iter().map(|&x| f16::from_f32(op(x.to_f32()))).collect();
     let result_t: Vec<T> = unsafe { std::mem::transmute(result) };
 
     match tensor.device() {
-        Device::Metal(dev) => Tensor::from_vec_metal(dev, result_t, tensor.dims().to_vec()),
+        Device::Metal(dev) => Tensor::from_vec_gpu(dev, result_t, tensor.dims().to_vec()),
         _ => Tensor::from_vec(result_t, tensor.dims().to_vec()),
     }
 }
@@ -103,7 +122,7 @@ pub(crate) fn execute_binary_metal_op<T: FloatType>(
     kernel_name: &str,
 ) -> TensorResult<Tensor<T>> {
     // Currently only f16 is supported for Metal operations
-    if !T::is_f16() {
+    if false {
         return Err(TensorError::InvalidOperation(
             "Metal operations currently only support f16".to_string()
         ));
@@ -121,49 +140,41 @@ pub(crate) fn execute_binary_metal_op<T: FloatType>(
 
     // Load shader library if not already loaded
     if device.library().is_none() {
-        let shader_source = include_str!("../../shaders/elementwise.metal");
+        let shader_source = include_str!("../../shaders/unified.metal");
         device.load_library(shader_source)?;
     }
 
     // Create output buffer from pool
-    let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), tensor.numel())?;
+    let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), tensor.numel())?;
 
-    // Execute kernel (note: binary ops use a different executor pattern)
-    let input_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(input_buf) };
-    let scalar_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(scalar_buf) };
+    // Execute kernel using new EncoderProvider pattern
+    // Get or compile pipeline
+    let mut executor = KernelExecutor::new(device.clone());
+    let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
 
-    let library_ref = device.library();
-    let library = library_ref
-        .as_ref()
-        .ok_or_else(|| TensorError::MetalError("Library not loaded".to_string()))?;
-    let pipeline = library
-        .get_function(kernel_name, None)
-        .map_err(|e| TensorError::MetalError(format!("Failed to get kernel {}: {:?}", kernel_name, e)))?;
+    // Create command buffer and encoder (EncoderProvider pattern)
+    let (_flushed, command_buffer) = device.command_buffer()?;
+    let encoder = command_buffer.encoder();
 
-    let pipeline_state = device.metal_device()
-        .new_compute_pipeline_state_with_function(&pipeline)
-        .map_err(|e| TensorError::MetalError(format!("Failed to create pipeline: {:?}", e)))?;
-
-    let command_queue = device.command_queue();
-    let command_buffer = command_queue.new_command_buffer();
-    let encoder = command_buffer.new_compute_command_encoder();
-
-    encoder.set_compute_pipeline_state(&pipeline_state);
-    encoder.set_buffer(0, Some(input_buf_f16.metal_buffer()), 0);
-    encoder.set_buffer(1, Some(scalar_buf_f16.metal_buffer()), 0);
+    // Set pipeline and buffers (Metal API is type-erased, kernel_name specifies f16/f32)
+    encoder.set_compute_pipeline_state(&pipeline);
+    encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
+    encoder.set_buffer(1, Some(scalar_buf.metal_buffer()), 0);
     encoder.set_buffer(2, Some(result_buf.metal_buffer()), 0);
 
+    // Configure thread groups
     let grid_size = metal::MTLSize::new(tensor.numel() as u64, 1, 1);
     let thread_group_size = metal::MTLSize::new(256, 1, 1);
 
     encoder.dispatch_threads(grid_size, thread_group_size);
     encoder.end_encoding();
-    command_buffer.commit();
-    command_buffer.wait_until_completed();
 
-    // Return new tensor
+    // Note: wait_until_completed() is NOT called here (matches candle pattern).
+    // Commands manager handles batching and will commit when batch size is exceeded.
+
+    // Return new tensor (no transmute needed, result_buf is already MetalBuffer<T>)
     Tensor::new(
-        BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
+        BufferHandle::Metal(result_buf),
         tensor.shape().clone(),
         tensor.device().clone(),
     )
@@ -186,14 +197,14 @@ pub(crate) fn execute_binary_cpu_op<T: FloatType, F>(
 where
     F: Fn(f32, f32) -> f32,
 {
-    let input = tensor.to_vec();
+    let input = tensor.sync_and_read();
     let result: Vec<T> = input
         .iter()
         .map(|&x| T::from_f32(op(x.to_f32(), scalar_value)))
         .collect();
 
     match tensor.device() {
-        Device::Metal(dev) => Tensor::from_vec_metal(dev, result, tensor.dims().to_vec()),
+        Device::Metal(dev) => Tensor::from_vec_gpu(dev, result, tensor.dims().to_vec()),
         _ => Tensor::from_vec(result, tensor.dims().to_vec()),
     }
 }

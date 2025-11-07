@@ -1,7 +1,6 @@
 use crate::error::TensorResult;
 use super::prelude::*;
 use crate::tensor::{FloatType, Tensor, TensorShape};
-use half::f16;
 
 /// ブロードキャストされた勾配を元の形状に縮約
 ///
@@ -53,7 +52,7 @@ mod tests {
     #[test]
     fn test_reduce_grad_no_broadcast() {
         let device = get_test_device();
-        let grad = Tensor::from_vec_metal(
+        let grad = Tensor::from_vec_gpu(
             &device,
             vec![
                 half::f16::from_f32(1.0),
@@ -69,14 +68,14 @@ mod tests {
         let result = reduce_grad_for_broadcast(&grad, &original_shape).unwrap();
 
         assert_eq!(result.dims(), &[2, 2]);
-        assert_eq!(result.to_vec(), grad.to_vec());
+        assert_eq!(result.sync_and_read(), grad.sync_and_read());
     }
 
     #[test]
     fn test_reduce_grad_broadcast_scalar() {
         let device = get_test_device();
         // 勾配は [2, 2] だが、元の形状は [1] (スカラー)
-        let grad = Tensor::from_vec_metal(
+        let grad = Tensor::from_vec_gpu(
             &device,
             vec![
                 half::f16::from_f32(1.0),
@@ -93,6 +92,6 @@ mod tests {
 
         assert_eq!(result.dims(), &[1]);
         // sum = 1 + 2 + 3 + 4 = 10
-        assert_eq!(result.to_vec()[0], half::f16::from_f32(10.0));
+        assert_eq!(result.sync_and_read()[0], half::f16::from_f32(10.0));
     }
 }

@@ -1,11 +1,8 @@
-use crate::tensor::FloatType;
 use crate::autograd::GradientFunction;
-use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::Device;
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
-use half::f16;
 
 /// Backward for concatenation - splits gradient to match input shapes
 pub struct ConcatBackward {
@@ -22,7 +19,7 @@ impl ConcatBackward {
 impl GradientFunction for ConcatBackward {
     fn backward(&self, grad_output: &Tensor<half::f16>, _inputs: &[&Tensor<half::f16>]) -> TensorResult<Vec<Tensor<half::f16>>> {
         // For simplicity, implement CPU version that splits the gradient
-        let grad_data = grad_output.to_vec();
+        let grad_data = grad_output.sync_and_read();
         let mut gradients = Vec::new();
 
         // Calculate strides
@@ -64,7 +61,7 @@ impl GradientFunction for ConcatBackward {
 
             let grad_tensor = match grad_output.device() {
                 Device::Metal(dev) => {
-                    <Tensor<half::f16>>::from_vec_metal(dev, grad_input_data, input_shape.clone())?
+                    <Tensor<half::f16>>::from_vec_gpu(dev, grad_input_data, input_shape.clone())?
                 }
                 _ => <Tensor<half::f16>>::from_vec(grad_input_data, input_shape.clone())?,
             };

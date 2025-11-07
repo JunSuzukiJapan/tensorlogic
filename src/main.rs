@@ -8,9 +8,9 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-use tensorlogic::parser::TensorLogicParser;
+use tensorlogic::error_reporting::{helpers, ErrorReporter, FrameType, StackFrame, StackTrace};
 use tensorlogic::interpreter::Interpreter;
-use tensorlogic::error_reporting::{ErrorReporter, helpers, StackTrace, StackFrame, FrameType};
+use tensorlogic::parser::TensorLogicParser;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -25,15 +25,22 @@ fn main() {
     // Check for debug flag
     let debug_mode = args.contains(&"--debug".to_string()) || args.contains(&"-d".to_string());
 
+    // Check for test/bench flags
+    let test_mode = args.contains(&"--test".to_string());
+    let bench_mode = args.contains(&"--bench".to_string());
+
     match command.as_str() {
         "run" => {
             if args.len() < 3 {
                 eprintln!("Error: Missing file path");
-                eprintln!("Usage: {} run <file.tl> [--debug]", args[0]);
+                eprintln!(
+                    "Usage: {} run <file.tl> [--debug] [--test] [--bench]",
+                    args[0]
+                );
                 std::process::exit(1);
             }
             let file_path = &args[2];
-            if let Err(e) = run_file(file_path, debug_mode) {
+            if let Err(e) = run_file(file_path, debug_mode, test_mode, bench_mode) {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
             }
@@ -72,14 +79,23 @@ fn print_usage(program_name: &str) {
     println!();
     println!("OPTIONS:");
     println!("    --debug, -d   Enable debug mode with detailed error information");
+    println!("    --test        Run test blocks instead of main block");
+    println!("    --bench       Run benchmark blocks with timing");
     println!();
     println!("EXAMPLES:");
     println!("    {} run examples/linear_regression.tl", program_name);
     println!("    {} run examples/test.tl --debug", program_name);
+    println!("    {} run examples/test.tl --test", program_name);
+    println!("    {} run examples/benchmark.tl --bench", program_name);
     println!("    {} repl --debug", program_name);
 }
 
-fn run_file(file_path: &str, debug_mode: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn run_file(
+    file_path: &str,
+    debug_mode: bool,
+    test_mode: bool,
+    bench_mode: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Check if file exists
     let path = Path::new(file_path);
     if !path.exists() {
@@ -121,6 +137,8 @@ fn run_file(file_path: &str, debug_mode: bool) -> Result<(), Box<dyn std::error:
         if program.main_block.is_some() {
             println!("[DEBUG] Found main block");
         }
+        println!("[DEBUG] Found {} test blocks", program.test_blocks.len());
+        println!("[DEBUG] Found {} bench blocks", program.bench_blocks.len());
     } else {
         println!("Parsed {} declarations", program.declarations.len());
         if program.main_block.is_some() {
@@ -129,13 +147,27 @@ fn run_file(file_path: &str, debug_mode: bool) -> Result<(), Box<dyn std::error:
     }
 
     // Execute program
-    println!("\nExecuting...\n");
     let mut interpreter = Interpreter::new();
 
     // Set current file path for import resolution
     interpreter.set_current_file(path.canonicalize()?);
 
-    if let Err(e) = interpreter.execute(&program) {
+    // Determine which blocks to execute
+    let result = if test_mode {
+        // Run test blocks
+        println!("\n=== Running Tests ===\n");
+        interpreter.execute_tests(&program)
+    } else if bench_mode {
+        // Run benchmark blocks
+        println!("\n=== Running Benchmarks ===\n");
+        interpreter.execute_benchmarks(&program)
+    } else {
+        // Run main block (default)
+        println!("\nExecuting...\n");
+        interpreter.execute(&program)
+    };
+
+    if let Err(e) = result {
         // Build stack trace from error context
         let mut stack_trace = StackTrace::new();
 
@@ -174,7 +206,7 @@ fn run_file(file_path: &str, debug_mode: bool) -> Result<(), Box<dyn std::error:
     println!("\n✅ Program executed successfully!");
 
     // Print final state
-    print_final_state(&interpreter);
+    // print_final_state(&interpreter);
 
     Ok(())
 }
@@ -305,20 +337,9 @@ fn print_repl_help() {
     println!();
 }
 
-fn print_variables(_interpreter: &Interpreter) {
-    println!("Variables:");
-    // TODO: Implement get_all_variables() method in Interpreter
-    println!("  (method not yet implemented)");
-}
-
-fn print_final_state(_interpreter: &Interpreter) {
-    // TODO: Implement get_all_variables() method in Interpreter
-    println!("\nFinal state:");
-    println!("  (method not yet implemented)");
-    /*
+fn print_varialbes_sub(interpreter: &Interpreter) {
     let vars = interpreter.get_all_variables();
-    if !vars.is_empty() {
-        println!("\nFinal state:");
+    if let Some(vars) = vars {
         for (name, value) in vars {
             match value {
                 tensorlogic::interpreter::Value::Float(f) => {
@@ -330,14 +351,26 @@ fn print_final_state(_interpreter: &Interpreter) {
                 tensorlogic::interpreter::Value::Boolean(b) => {
                     println!("  {} = {}", name, b);
                 }
-                tensorlogic::interpreter::Value::Tensor(t) => {
-                    println!("  {} = Tensor{:?}", name, t.shape());
-                }
+                tensorlogic::interpreter::Value::TensorF16(t) => {
+                    println!("  {} = TensorF16{:?}", name, t.shape());
+                },
+                tensorlogic::interpreter::Value::TensorF32(t) => {
+                    println!("  {} = TensorF32{:?}", name, t.shape());
+                },
                 _ => {
                     println!("  {} = {:?}", name, value);
                 }
             }
         }
     }
-    */
+}
+
+fn print_variables(interpreter: &Interpreter) {
+    println!("Variables:");
+    print_varialbes_sub(interpreter);
+}
+
+fn print_final_state(interpreter: &Interpreter) {
+    println!("\nFinal state:");
+    print_varialbes_sub(interpreter);
 }

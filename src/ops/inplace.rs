@@ -5,7 +5,7 @@
 
 use crate::device::Device;
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorAutograd, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::{TensorAccessors, TensorAutograd, TensorCreation, TensorIO};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::Tensor;
 use half::f16;
@@ -38,7 +38,7 @@ impl<T: FloatType> Tensor<T> {
         use crate::tensor::BufferHandle;
 
         let self_data = self.buffer().to_cpu_vec();
-        let other_data = other.to_vec();
+        let other_data = other.sync_and_read();
 
         // Safety: We checked T::is_f16() in the caller
         let self_f16: Vec<f16> = unsafe { std::mem::transmute(self_data) };
@@ -95,7 +95,7 @@ impl<T: FloatType> Tensor<T> {
         use crate::tensor::BufferHandle;
 
         let self_data = self.buffer().to_cpu_vec();
-        let other_data = other.to_vec();
+        let other_data = other.sync_and_read();
 
         // Safety: We checked T::is_f16() in the caller
         let self_f16: Vec<f16> = unsafe { std::mem::transmute(self_data) };
@@ -149,7 +149,7 @@ impl<T: FloatType> Tensor<T> {
         use crate::tensor::BufferHandle;
 
         let self_data = self.buffer().to_cpu_vec();
-        let other_data = other.to_vec();
+        let other_data = other.sync_and_read();
 
         // Safety: We checked T::is_f16() in the caller
         let self_f16: Vec<f16> = unsafe { std::mem::transmute(self_data) };
@@ -291,7 +291,7 @@ mod tests {
 
         a.add_(&b).unwrap();
 
-        let result = a.to_vec();
+        let result = a.sync_and_read();
         assert_eq!(result[0], f16::from_f32(5.0));
         assert_eq!(result[1], f16::from_f32(7.0));
         assert_eq!(result[2], f16::from_f32(9.0));
@@ -313,7 +313,7 @@ mod tests {
 
         a.mul_(&b).unwrap();
 
-        let result = a.to_vec();
+        let result = a.sync_and_read();
         assert_eq!(result[0], f16::from_f32(10.0));
         assert_eq!(result[1], f16::from_f32(18.0));
         assert_eq!(result[2], f16::from_f32(28.0));
@@ -335,7 +335,7 @@ mod tests {
 
         a.sub_(&b).unwrap();
 
-        let result = a.to_vec();
+        let result = a.sync_and_read();
         assert_eq!(result[0], f16::from_f32(9.0));
         assert_eq!(result[1], f16::from_f32(18.0));
         assert_eq!(result[2], f16::from_f32(27.0));
@@ -356,7 +356,7 @@ mod tests {
 
         a.relu_().unwrap();
 
-        let result = a.to_vec();
+        let result = a.sync_and_read();
         assert_eq!(result[0], f16::ZERO);
         assert_eq!(result[1], f16::from_f32(2.0));
         assert_eq!(result[2], f16::ZERO);
@@ -373,7 +373,7 @@ mod tests {
 
         a.add_scalar_(f16::from_f32(10.0)).unwrap();
 
-        let result = a.to_vec();
+        let result = a.sync_and_read();
         assert_eq!(result[0], f16::from_f32(11.0));
         assert_eq!(result[1], f16::from_f32(12.0));
         assert_eq!(result[2], f16::from_f32(13.0));
@@ -389,7 +389,7 @@ mod tests {
 
         a.mul_scalar_(f16::from_f32(2.0)).unwrap();
 
-        let result = a.to_vec();
+        let result = a.sync_and_read();
         assert_eq!(result[0], f16::from_f32(4.0));
         assert_eq!(result[1], f16::from_f32(6.0));
         assert_eq!(result[2], f16::from_f32(8.0));

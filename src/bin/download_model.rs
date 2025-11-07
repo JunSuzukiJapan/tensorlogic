@@ -102,7 +102,10 @@ fn list_models() {
     for model in MODELS {
         println!("  {} - {}", model.name, model.description);
         println!("    Size: ~{}MB", model.size_mb);
-        println!("    Download: cargo run --bin download_model -- --model {}", model.name);
+        println!(
+            "    Download: cargo run --bin download_model -- --model {}",
+            model.name
+        );
         println!();
     }
 }
@@ -125,7 +128,11 @@ fn list_downloaded() {
                 if let Ok(metadata) = entry.metadata() {
                     if metadata.is_file() {
                         let size_mb = metadata.len() / 1_000_000;
-                        println!("  ✓ {} ({}MB)", entry.file_name().to_string_lossy(), size_mb);
+                        println!(
+                            "  ✓ {} ({}MB)",
+                            entry.file_name().to_string_lossy(),
+                            size_mb
+                        );
                         found_any = true;
                     }
                 }

@@ -583,7 +583,7 @@ Metal vs CPU の結果一致確認
 
 ### 追加実装
 - **Metal GPU サポート完全化**:
-  - インタープリターからの Metal GPU 使用（from_vec → from_vec_metal）
+  - インタープリターからの Metal GPU 使用（from_vec → from_vec_gpu）
   - tests/test_interpreter_gpu.rs（GPU使用検証テスト）
   - 全テンソル操作が Apple M4 Pro GPU で実行
 

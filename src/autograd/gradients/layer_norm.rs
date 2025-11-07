@@ -1,11 +1,9 @@
 use crate::tensor::FloatType;
 use crate::autograd::GradientFunction;
-use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::Device;
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
-use half::f16;
 
 /// Backward for layer normalization
 /// Returns gradients for [input, weight, bias] (weight and bias can be None)
@@ -52,9 +50,9 @@ impl GradientFunction for LayerNormBackward {
 
 impl LayerNormBackward {
     fn backward_cpu(&self, grad_output: &Tensor) -> TensorResult<Vec<Tensor<half::f16>>> {
-        let grad_out = grad_output.to_vec();
-        let normalized = self.normalized.to_vec();
-        let inv_std = self.inv_std.to_vec();
+        let grad_out = grad_output.sync_and_read();
+        let normalized = self.normalized.sync_and_read();
+        let inv_std = self.inv_std.sync_and_read();
 
         let normalized_size: usize = self.normalized_shape.iter().product();
         let batch_size = self.input.numel() / normalized_size;
@@ -71,7 +69,7 @@ impl LayerNormBackward {
             None
         };
 
-        let weight_vec = self.weight.as_ref().map(|w| w.to_vec());
+        let weight_vec = self.weight.as_ref().map(|w| w.sync_and_read());
 
         for batch_idx in 0..batch_size {
             let offset = batch_idx * normalized_size;
@@ -121,7 +119,7 @@ impl LayerNormBackward {
         // Input gradient
         let grad_input_tensor = match self.input.device() {
             Device::Metal(dev) => {
-                <Tensor<half::f16>>::from_vec_metal(dev, grad_input, self.input.dims().to_vec())?
+                <Tensor<half::f16>>::from_vec_gpu(dev, grad_input, self.input.dims().to_vec())?
             }
             _ => <Tensor<half::f16>>::from_vec(grad_input, self.input.dims().to_vec())?,
         };
@@ -131,7 +129,7 @@ impl LayerNormBackward {
         if let Some(gw) = grad_weight {
             let grad_weight_tensor = match self.input.device() {
                 Device::Metal(dev) => {
-                    <Tensor<half::f16>>::from_vec_metal(dev, gw, self.normalized_shape.clone())?
+                    <Tensor<half::f16>>::from_vec_gpu(dev, gw, self.normalized_shape.clone())?
                 }
                 _ => <Tensor<half::f16>>::from_vec(gw, self.normalized_shape.clone())?,
             };
@@ -142,7 +140,7 @@ impl LayerNormBackward {
         if let Some(gb) = grad_bias {
             let grad_bias_tensor = match self.input.device() {
                 Device::Metal(dev) => {
-                    <Tensor<half::f16>>::from_vec_metal(dev, gb, self.normalized_shape.clone())?
+                    <Tensor<half::f16>>::from_vec_gpu(dev, gb, self.normalized_shape.clone())?
                 }
                 _ => <Tensor<half::f16>>::from_vec(gb, self.normalized_shape.clone())?,
             };

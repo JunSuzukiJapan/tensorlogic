@@ -1,7 +1,7 @@
-use tensorlogic::model::Model;
-use tensorlogic::device::MetalDevice;
-use tensorlogic::tensor::{TensorAccessors, TensorIO};
 use std::env;
+use tensorlogic::device::MetalDevice;
+use tensorlogic::model::Model;
+use tensorlogic::tensor::{TensorAccessors, TensorIO};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -20,23 +20,23 @@ fn main() {
         std::process::exit(1);
     });
 
-    let model = Model::load(model_path, &device).unwrap_or_else(|e| {
+    let model = Model::<half::f16>::load(model_path, &device).unwrap_or_else(|e| {
         eprintln!("Error loading model: {}", e);
         std::process::exit(1);
     });
 
     println!("\n=== Dumping blk.0.attn_q.weight ===\n");
 
-    let W_q = model.get_tensor("blk.0.attn_q.weight").unwrap_or_else(|| {
+    let w_q = model.get_tensor("blk.0.attn_q.weight").unwrap_or_else(|| {
         eprintln!("Tensor not found: blk.0.attn_q.weight");
         std::process::exit(1);
     });
 
-    println!("Shape: {:?}", W_q.shape().dims());
+    println!("Shape: {:?}", w_q.shape().dims());
 
     // Get raw data as f16 values
-    let data = W_q.to_vec();
-    let dims = W_q.shape().dims();
+    let data = w_q.to_vec();
+    let dims = w_q.shape().dims();
 
     if dims.len() != 2 {
         eprintln!("Expected 2D tensor, got {}D", dims.len());
@@ -59,7 +59,7 @@ fn main() {
     // 2. First row W_q[0, :10]
     println!("2. First row W_q[0, :10]:");
     for j in 0..10.min(cols) {
-        let idx = 0 * cols + j;  // Row-major: row * ncols + col
+        let idx = 0 * cols + j; // Row-major: row * ncols + col
         print!("{:.8} ", data[idx].to_f32());
     }
     println!("\n");
@@ -67,7 +67,7 @@ fn main() {
     // 3. First column W_q[:10, 0]
     println!("3. First column W_q[:10, 0]:");
     for i in 0..10.min(rows) {
-        let idx = i * cols + 0;  // Row-major: row * ncols + col
+        let idx = i * cols + 0; // Row-major: row * ncols + col
         print!("{:.8} ", data[idx].to_f32());
     }
     println!("\n");

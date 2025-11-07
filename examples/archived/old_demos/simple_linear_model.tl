@@ -24,27 +24,27 @@ main {
     // Train the model
     learn {
         // Forward pass for all samples
-        pred1 := x1 * W
-        pred2 := x2 * W
-        pred3 := x3 * W
-        pred4 := x4 * W
-        pred5 := x5 * W
+        pred1 = x1 * W
+        pred2 = x2 * W
+        pred3 = x3 * W
+        pred4 = x4 * W
+        pred5 = x5 * W
 
         // Compute errors
-        err1 := pred1 - y1
-        err2 := pred2 - y2
-        err3 := pred3 - y3
-        err4 := pred4 - y4
-        err5 := pred5 - y5
+        err1 = pred1 - y1
+        err2 = pred2 - y2
+        err3 = pred3 - y3
+        err4 = pred4 - y4
+        err5 = pred5 - y5
 
         // Sum of squared errors
-        loss1 := err1 * err1
-        loss2 := err2 * err2
-        loss3 := err3 * err3
-        loss4 := err4 * err4
-        loss5 := err5 * err5
+        loss1 = err1 * err1
+        loss2 = err2 * err2
+        loss3 = err3 * err3
+        loss4 = err4 * err4
+        loss5 = err5 * err5
 
-        total_loss := loss1 + loss2 + loss3 + loss4 + loss5
+        total_loss = loss1 + loss2 + loss3 + loss4 + loss5
 
         objective: total_loss,
         optimizer: sgd(lr: 0.01),

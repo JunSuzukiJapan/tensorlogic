@@ -8,7 +8,7 @@ COMMENT = _{ "//" ~ (!"\n" ~ ANY)* ~ "\n" | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 // Program Structure
 // ============================================================================
 
-program = { SOI ~ declaration* ~ main_block? ~ EOI }
+program = { SOI ~ declaration* ~ main_block? ~ test_block* ~ bench_block* ~ EOI }
 
 declaration = {
     import_decl
@@ -22,6 +22,10 @@ declaration = {
 }
 
 main_block = { "main" ~ "{" ~ statement* ~ "}" }
+
+test_block = { "test" ~ identifier ~ "{" ~ statement* ~ "}" }
+
+bench_block = { "bench" ~ identifier ~ "{" ~ statement* ~ "}" }
 
 // ============================================================================
 // Import Declarations
@@ -159,7 +163,7 @@ additive_expr = { multiplicative_expr ~ (additive_op ~ multiplicative_expr)* }
 additive_op = { "+" | "-" }
 
 multiplicative_expr = { power_expr ~ (multiplicative_op ~ power_expr)* }
-multiplicative_op = { "*" | "/" | "@" | "⊙" }
+multiplicative_op = { "*" | "/" | "%" | "@" | "⊙" }
 
 power_expr = { unary_expr ~ (power_op ~ unary_expr)* }
 power_op = { "**" | "⊗" }
@@ -207,7 +211,7 @@ index_access = {
 binary_op = {
     "||" | "&&"
     | "==" | "!=" | "<=" | ">=" | "<" | ">"
-    | "**" | "⊗" | "⊙" | "@" | "*" | "/" | "+" | "-"
+    | "**" | "⊗" | "⊙" | "@" | "*" | "/" | "%" | "+" | "-"
 }
 
 unary_op = {
@@ -218,7 +222,9 @@ einstein_sum = { "einsum" ~ "(" ~ string_literal ~ "," ~ tensor_list ~ ")" }
 
 tensor_list = { tensor_expr ~ ("," ~ tensor_expr)* }
 
-function_call = { identifier ~ "(" ~ tensor_list? ~ ")" }
+function_call = { (type_namespace ~ "::")? ~ identifier ~ "(" ~ tensor_list? ~ ")" }
+
+type_namespace = { "Tensor" | "f16" | "f32" | "KVCache" }
 
 // tensor_index is now handled by postfix_expr
 // tensor_index = { identifier ~ "[" ~ index_list ~ "]" }
@@ -272,7 +278,7 @@ logical_op = { "and" | "or" }
 
 tensor_equation = { tensor_expr ~ eq_type ~ tensor_expr }
 
-eq_type = { ":=" | "~" | "=" }
+eq_type = { "~" }
 
 // ============================================================================
 // Statements
@@ -282,6 +288,7 @@ statement = {
     let_statement
     | break_statement
     | return_statement
+    | panic_statement
     | tensor_decl
     | assignment
     | query              // Try query before fact_assertion (query is more specific with ? suffix)
@@ -293,15 +300,23 @@ statement = {
     | learning_call
     | with_block
     | control_flow
+    | block_statement
+    | tensor_expr        // Allow expressions as statements (for method calls like cache.set(...))
 }
+
+block_statement = { "{" ~ statement* ~ "}" }
 
 break_statement = { "break" }
 
 return_statement = { "return" ~ tensor_expr? }
 
+panic_statement = { "panic" ~ "(" ~ format_args ~ ")" }
+
+format_args = { string_literal ~ ("," ~ tensor_expr)* }
+
 let_statement = { "let" ~ identifier ~ "=" ~ tensor_expr }
 
-assignment = { identifier ~ ":=" ~ tensor_expr }
+assignment = { identifier ~ "=" ~ tensor_expr }
 
 fact_assertion = { atom }
 
@@ -360,7 +375,7 @@ if_statement = {
     ~ ("else" ~ "{" ~ statement* ~ "}")?
 }
 
-condition = { constraint | tensor_expr }
+condition = { tensor_expr | constraint }
 
 for_statement = {
     "for" ~ identifier ~ "in" ~ iterable ~ "{" ~ statement* ~ "}"

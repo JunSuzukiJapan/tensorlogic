@@ -2,7 +2,7 @@
 // Print stats (shape, approximate value range) after each major operation
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
-    result := x * sigmoid(x)
+    result = x * sigmoid(x)
 }
 
 main {

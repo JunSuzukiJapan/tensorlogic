@@ -199,7 +199,7 @@ pub fn walk_tensor_expr<V: Visitor>(visitor: &mut V, expr: &TensorExpr) -> Resul
             }
             Ok(())
         }
-        TensorExpr::FunctionCall { name, args } => {
+        TensorExpr::FunctionCall { type_namespace, name, args, .. } => {
             visitor.visit_identifier(name)?;
             for arg in args {
                 visitor.visit_tensor_expr(arg)?;
@@ -272,7 +272,7 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
             visitor.visit_tensor_expr(&eq.left)?;
             visitor.visit_tensor_expr(&eq.right)
         }
-        Statement::FunctionCall { name, args } => {
+        Statement::FunctionCall { name, args, .. } => {
             visitor.visit_identifier(name)?;
             for arg in args {
                 visitor.visit_tensor_expr(arg)?;
@@ -364,6 +364,12 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
             // No sub-expressions to visit
             Ok(())
         }
+        Statement::Block { statements } => {
+            for stmt in statements {
+                visitor.visit_statement(stmt)?;
+            }
+            Ok(())
+        }
         Statement::Break => {
             // No sub-expressions to visit
             Ok(())
@@ -374,6 +380,17 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
                 visitor.visit_tensor_expr(expr)?;
             }
             Ok(())
+        }
+        Statement::Panic { format: _, args } => {
+            // Visit panic arguments
+            for arg in args {
+                visitor.visit_tensor_expr(arg)?;
+            }
+            Ok(())
+        }
+        Statement::Expr { expr } => {
+            // Visit expression statement
+            visitor.visit_tensor_expr(expr)
         }
     }
 }

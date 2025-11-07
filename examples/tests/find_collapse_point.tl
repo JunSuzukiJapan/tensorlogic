@@ -4,7 +4,7 @@
 // SiLU activation
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
-    result := x * sig
+    result = x * sig
 }
 
 // SwiGLU FFN
@@ -13,7 +13,7 @@ fn swiglu_ffn(x: float16[?, ?], W_gate: float16[?, ?], W_up: float16[?, ?], W_do
     let gate_act = silu(gate)
     let up = linear(x, W_up)
     let intermediate = gate_act * up
-    result := linear(intermediate, W_down)
+    result = linear(intermediate, W_down)
 }
 
 // Grouped Query Attention
@@ -53,7 +53,7 @@ fn tinyllama_gqa_attention(Q: float16[?, ?], K: float16[?, ?], V: float16[?, ?],
     let d_model = 2048.0
     let shape_output = [seq_len_f, d_model]
     let attn_reshaped = reshape(attn_output, shape_output)
-    result := linear(attn_reshaped, W_o)
+    result = linear(attn_reshaped, W_o)
 }
 
 // Single Transformer Layer
@@ -77,7 +77,7 @@ fn transformer_layer(
     let x1 = x + attn_out
     let x_norm2 = rms_norm(x1, ffn_norm)
     let ffn_out = swiglu_ffn(x_norm2, W_gate, W_up, W_down)
-    result := x1 + ffn_out
+    result = x1 + ffn_out
 }
 
 main {

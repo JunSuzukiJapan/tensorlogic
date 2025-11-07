@@ -3,7 +3,7 @@
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
-    result := x * sig
+    result = x * sig
 }
 
 fn swiglu_ffn(
@@ -16,7 +16,7 @@ fn swiglu_ffn(
     let gate_act = silu(gate)
     let up = matmul(x, W_up)
     let intermediate = gate_act * up
-    result := matmul(intermediate, W_down)
+    result = matmul(intermediate, W_down)
 }
 
 // GQA Attention with KV Cache support
@@ -71,7 +71,7 @@ fn tinyllama_gqa_attention_with_cache(
     let d_model = 2048.0
     let shape_output = [seq_len_f, d_model]
     let attn_reshaped = reshape(attn_output, shape_output)
-    result := matmul(attn_reshaped, W_o)
+    result = matmul(attn_reshaped, W_o)
 }
 
 // Simplified transformer layer (without KV cache for now)
@@ -101,7 +101,7 @@ fn transformer_layer(
     let x1 = x + attn_out
     let x_norm2 = rms_norm(x1, ffn_norm)
     let ffn_out = swiglu_ffn(x_norm2, W_gate, W_up, W_down)
-    result := x1 + ffn_out
+    result = x1 + ffn_out
 }
 
 main {
@@ -162,7 +162,7 @@ main {
     let final_norm1 = rms_norm(h1, output_norm)
     let logits1 = matmul(final_norm1, output_weight)
     let t1 = temperature_sample(logits1, 0.8)
-    gen_tokens := append(gen_tokens, t1)
+    gen_tokens = append(gen_tokens, t1)
     print("      Token:", t1)
 
     // Token 2
@@ -173,7 +173,7 @@ main {
     let final_norm2 = rms_norm(h1_2, output_norm)
     let logits2 = matmul(final_norm2, output_weight)
     let t2 = temperature_sample(logits2, 0.8)
-    gen_tokens := append(gen_tokens, t2)
+    gen_tokens = append(gen_tokens, t2)
     print("      Token:", t2)
 
     // Token 3
@@ -184,7 +184,7 @@ main {
     let final_norm3 = rms_norm(h1_3, output_norm)
     let logits3 = matmul(final_norm3, output_weight)
     let t3 = temperature_sample(logits3, 0.8)
-    gen_tokens := append(gen_tokens, t3)
+    gen_tokens = append(gen_tokens, t3)
     print("      Token:", t3)
 
     print("")

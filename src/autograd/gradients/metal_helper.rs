@@ -1,8 +1,8 @@
 //! Metal勾配計算用の共通ヘルパー関数
 
-use crate::device::{Device, MetalBuffer};
+use crate::device::{Device, MetalBuffer, EncoderProvider};
 use crate::error::{TensorError, TensorResult};
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO};
+use crate::tensor::{TensorAccessors, TensorCreation};
 use crate::tensor::Tensor;
 
 /// シンプルな要素ごとのMetal勾配カーネルを実行
@@ -32,7 +32,7 @@ pub fn execute_simple_metal_gradient(
 
     // シェーダーライブラリをロード
     if device.library().is_none() {
-        let shader_source = include_str!("../../../shaders/gradients.metal");
+        let shader_source = include_str!("../../../shaders/unified.metal");
         device.load_library(shader_source)?;
     }
 
@@ -55,10 +55,9 @@ pub fn execute_simple_metal_gradient(
         .new_compute_pipeline_state_with_function(&pipeline)
         .map_err(|e| TensorError::MetalError(format!("Failed to create pipeline: {:?}", e)))?;
 
-    // コマンド実行
-    let command_queue = device.command_queue();
-    let command_buffer = command_queue.new_command_buffer();
-    let encoder = command_buffer.new_compute_command_encoder();
+    // Use Commands manager for command buffer (Candle pattern)
+    let (_flushed, command_buffer) = device.command_buffer()?;
+    let encoder = command_buffer.encoder();
 
     encoder.set_compute_pipeline_state(&pipeline_state);
 
@@ -75,8 +74,9 @@ pub fn execute_simple_metal_gradient(
 
     encoder.dispatch_threads(grid_size, threadgroup_size);
     encoder.end_encoding();
-    command_buffer.commit();
-    command_buffer.wait_until_completed();
+
+    // Commands manager will flush and commit when needed
+    // Result stays on GPU - no wait needed (batching-friendly)
 
     Tensor::new(
         crate::tensor::BufferHandle::Metal(result_buf),
@@ -114,7 +114,7 @@ pub fn execute_parametric_metal_gradient(
 
     // シェーダーライブラリをロード
     if device.library().is_none() {
-        let shader_source = include_str!("../../../shaders/gradients.metal");
+        let shader_source = include_str!("../../../shaders/unified.metal");
         device.load_library(shader_source)?;
     }
 
@@ -137,10 +137,9 @@ pub fn execute_parametric_metal_gradient(
         .new_compute_pipeline_state_with_function(&pipeline)
         .map_err(|e| TensorError::MetalError(format!("Failed to create pipeline: {:?}", e)))?;
 
-    // コマンド実行
-    let command_queue = device.command_queue();
-    let command_buffer = command_queue.new_command_buffer();
-    let encoder = command_buffer.new_compute_command_encoder();
+    // Use Commands manager for command buffer (Candle pattern)
+    let (_flushed, command_buffer) = device.command_buffer()?;
+    let encoder = command_buffer.encoder();
 
     encoder.set_compute_pipeline_state(&pipeline_state);
 
@@ -168,8 +167,9 @@ pub fn execute_parametric_metal_gradient(
 
     encoder.dispatch_threads(grid_size, threadgroup_size);
     encoder.end_encoding();
-    command_buffer.commit();
-    command_buffer.wait_until_completed();
+
+    // Commands manager will flush and commit when needed
+    // Result stays on GPU - no wait needed (batching-friendly)
 
     Tensor::new(
         crate::tensor::BufferHandle::Metal(result_buf),

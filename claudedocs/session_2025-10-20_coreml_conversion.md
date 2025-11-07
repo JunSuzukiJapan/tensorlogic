@@ -82,7 +82,7 @@ let data: Vec<half::f16> = unsafe {
 
 3. **Tensor生成**
 ```rust
-Tensor::from_vec_metal(device, data, shape)?
+Tensor::from_vec_gpu(device, data, shape)?
 ```
 
 **API違い**:
@@ -90,7 +90,7 @@ Tensor::from_vec_metal(device, data, shape)?
 - **非macOS版**: `fn mlmultiarray_to_tensor(device, shape) -> Tensor` （プレースホルダー）
 
 **重要な発見**:
-- `Tensor::from_vec_metal(device, data, shape)` を使用（`from_vec` はdeviceを取らない）
+- `Tensor::from_vec_gpu(device, data, shape)` を使用（`from_vec` はdeviceを取らない）
 - スライスの `to_vec()` でポインタからデータコピー
 - `unsafe` block必須（raw pointer操作）
 
@@ -205,9 +205,9 @@ error[E0061]: this function takes 2 arguments but 3 arguments were supplied
 
 **原因**: `from_vec(data, shape)` はdeviceを取らない
 
-**解決策**: `from_vec_metal(device, data, shape)` を使用
+**解決策**: `from_vec_gpu(device, data, shape)` を使用
 ```rust
-Tensor::from_vec_metal(device, data, shape)?
+Tensor::from_vec_gpu(device, data, shape)?
 ```
 
 ### 課題5: macOS/非macOS署名不一致
