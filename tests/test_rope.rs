@@ -8,10 +8,7 @@
 /// - Numerical stability
 /// - Error cases (odd head_dim, wrong dimensions)
 
-use tensorlogic::device::MetalDevice;
-use tensorlogic::error::TensorResult;
-use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO, TensorAccessors};
-use half::f16;
+use tensorlogic::prelude::*;
 use serial_test::serial;
 
 // Helper function to assert f16 tensors are close
@@ -66,6 +63,8 @@ fn test_rope_basic() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_shape_preservation() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+
     // Test that RoPE preserves tensor shape
     let test_shapes = vec![
         vec![4, 2, 8],      // [seq_len=4, n_heads=2, head_dim=8]
@@ -74,9 +73,9 @@ fn test_rope_shape_preservation() -> TensorResult<()> {
     ];
 
     for shape in test_shapes {
-        let input = Tensor::<f16>::ones(shape.clone())?;
+        let input = Tensor::<f16>::ones(&device, shape.clone())?;
         let output = input.rope(0)?;
-        assert_eq!(output.shape(), shape, "Shape not preserved for {:?}", shape);
+        assert_eq!(output.shape().dims(), &shape, "Shape not preserved for {:?}", shape);
     }
 
     println!("✓ RoPE shape preservation test passed");
@@ -86,6 +85,8 @@ fn test_rope_shape_preservation() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_position_offset() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+
     // Test RoPE with different position offsets
     let seq_len = 3;
     let n_heads = 2;
@@ -125,6 +126,8 @@ fn test_rope_position_offset() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_zeros_input() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+
     // Test RoPE with all-zero input
     // RoPE of zeros should remain zeros (rotation of zero vector)
     let seq_len = 2;
@@ -180,17 +183,18 @@ fn test_rope_deterministic() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_head_dim_variations() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+
     // Test RoPE with various head dimensions (all even)
     let head_dims = vec![2, 4, 8, 16, 32, 64, 128];
 
     for head_dim in head_dims {
-    let device = MetalDevice::new()?;
         let input = Tensor::<f16>::ones(&device, vec![2, 1, head_dim])?;
         let output = input.rope(0)?;
 
         assert_eq!(
-            output.shape(),
-            vec![2, 1, head_dim],
+            output.shape().dims(),
+            &vec![2, 1, head_dim],
             "Failed for head_dim={}",
             head_dim
         );
@@ -203,6 +207,8 @@ fn test_rope_head_dim_variations() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_large_sequence() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+
     // Test RoPE with large sequence length
     let seq_len = 256;  // Typical for inference
     let n_heads = 4;
@@ -228,16 +234,17 @@ fn test_rope_large_sequence() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_numerical_stability() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+
     // Test numerical stability with various input magnitudes
     let seq_len = 4;
     let n_heads = 2;
     let head_dim = 8;
 
     // Test with small values
-    let small_input = Tensor::<f16>::from_scalar(
-        f16::from_f32(0.001),
-        vec![seq_len, n_heads, head_dim]
-    )?;
+    let total_size = seq_len * n_heads * head_dim;
+    let small_data: Vec<f16> = vec![f16::from_f32(0.001); total_size];
+    let small_input = Tensor::<f16>::from_vec(small_data, vec![seq_len, n_heads, head_dim])?;
     let small_output = small_input.rope(0)?;
     let small_result = small_output.sync_and_read();
 
@@ -246,10 +253,8 @@ fn test_rope_numerical_stability() -> TensorResult<()> {
     }
 
     // Test with large values (within f16 range)
-    let large_input = Tensor::<f16>::from_scalar(
-        f16::from_f32(100.0),
-        vec![seq_len, n_heads, head_dim]
-    )?;
+    let large_data: Vec<f16> = vec![f16::from_f32(100.0); total_size];
+    let large_input = Tensor::<f16>::from_vec(large_data, vec![seq_len, n_heads, head_dim])?;
     let large_output = large_input.rope(0)?;
     let large_result = large_output.sync_and_read();
 
@@ -264,16 +269,19 @@ fn test_rope_numerical_stability() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_consistency_across_positions() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+
     // Test that RoPE with position_offset=n on seq[0] equals
     // RoPE with position_offset=0 on seq[n]
     let n_heads = 1;
     let head_dim = 8;
 
     // Create a sequence of length 5
+    let long_seq_data: Vec<f16> = (0..5 * n_heads * head_dim)
+        .map(|i| f16::from_f32((i % 10) as f32 / 10.0))
+        .collect();
     let long_seq = Tensor::<f16>::from_vec(
-        (0..5 * n_heads * head_dim)
-            .map(|i| f16::from_f32((i % 10) as f32 / 10.0))
-            .collect(),
+        long_seq_data,
         vec![5, n_heads, head_dim]
     )?;
 
@@ -284,13 +292,14 @@ fn test_rope_consistency_across_positions() -> TensorResult<()> {
     // Extract position 2 from the full output
     let start_idx = 2 * n_heads * head_dim;
     let end_idx = 3 * n_heads * head_dim;
-    let pos_2_from_full: Vec<f16> = full_vec[start_idx..end_idx].sync_and_read();
+    let pos_2_from_full: Vec<f16> = full_vec[start_idx..end_idx].to_vec();
 
     // Now apply RoPE to just position 0 with offset 2
+    let single_pos_data: Vec<f16> = (0..n_heads * head_dim)
+        .map(|i| f16::from_f32((i % 10) as f32 / 10.0))
+        .collect();
     let single_pos = Tensor::<f16>::from_vec(
-        (0..n_heads * head_dim)
-            .map(|i| f16::from_f32((i % 10) as f32 / 10.0))
-            .collect(),
+        single_pos_data,
         vec![1, n_heads, head_dim]
     )?;
     let single_output = single_pos.rope(2)?;
@@ -307,6 +316,8 @@ fn test_rope_consistency_across_positions() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_multi_head() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+
     // Test RoPE with multiple attention heads
     let seq_len = 4;
     let head_dims_and_heads = vec![
@@ -317,13 +328,12 @@ fn test_rope_multi_head() -> TensorResult<()> {
     ];
 
     for (head_dim, n_heads) in head_dims_and_heads {
-    let device = MetalDevice::new()?;
         let input = Tensor::<f16>::ones(&device, vec![seq_len, n_heads, head_dim])?;
         let output = input.rope(0)?;
 
         assert_eq!(
-            output.shape(),
-            vec![seq_len, n_heads, head_dim],
+            output.shape().dims(),
+            &vec![seq_len, n_heads, head_dim],
             "Failed for n_heads={}, head_dim={}",
             n_heads, head_dim
         );
@@ -345,6 +355,7 @@ fn test_rope_multi_head() -> TensorResult<()> {
 #[serial]
 #[should_panic(expected = "even head_dim")]
 fn test_rope_odd_head_dim() {
+    let device = MetalDevice::new().unwrap();
     // RoPE requires even head_dim for proper rotation
     let input = Tensor::<f16>::ones(&device, vec![2, 1, 5]).unwrap(); // head_dim=5 is odd
     let _ = input.rope(0).unwrap();
@@ -354,7 +365,7 @@ fn test_rope_odd_head_dim() {
 #[serial]
 #[should_panic(expected = "at least 3D")]
 fn test_rope_insufficient_dimensions_2d() {
-    let device = MetalDevice::new()?;
+    let device = MetalDevice::new().unwrap();
     // RoPE requires at least 3D tensor
     let input = Tensor::<f16>::ones(&device, vec![2, 4]).unwrap(); // Only 2D
     let _ = input.rope(0).unwrap();
@@ -364,7 +375,7 @@ fn test_rope_insufficient_dimensions_2d() {
 #[serial]
 #[should_panic(expected = "at least 3D")]
 fn test_rope_insufficient_dimensions_1d() {
-    let device = MetalDevice::new()?;
+    let device = MetalDevice::new().unwrap();
     // RoPE requires at least 3D tensor
     let input = Tensor::<f16>::ones(&device, vec![8]).unwrap(); // Only 1D
     let _ = input.rope(0).unwrap();
@@ -440,6 +451,8 @@ fn test_rope_position_offset_range() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_gradient_compatibility() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+
     // Test that RoPE output can be used in gradient computation
     // (This is a prerequisite for training with RoPE)
     let seq_len = 2;
@@ -451,7 +464,7 @@ fn test_rope_gradient_compatibility() -> TensorResult<()> {
 
     // Output should be valid for further operations
     let sum = output.sum()?;
-    let sum_val = sum.sync_and_read()[0].to_f32();
+    let sum_val = sum.to_f32();
 
     assert!(sum_val.is_finite(), "RoPE output sum should be finite");
 
@@ -462,6 +475,8 @@ fn test_rope_gradient_compatibility() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_kv_cache_simulation() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+
     // Simulate KV cache scenario:
     // - First, process a prompt (position_offset=0)
     // - Then, generate tokens one by one (position_offset increases)
@@ -475,7 +490,6 @@ fn test_rope_kv_cache_simulation() -> TensorResult<()> {
 
     // Generate 3 new tokens, one at a time
     for i in 0..3 {
-    let device = MetalDevice::new()?;
         let new_token = Tensor::<f16>::ones(&device, vec![1, n_heads, head_dim])?;
         let token_rope = new_token.rope(5 + i)?; // position_offset = prompt_len + i
 
