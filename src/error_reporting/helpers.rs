@@ -74,6 +74,34 @@ pub fn type_error_to_diagnostic(error: &TypeError) -> Diagnostic {
                 .with_note("Dimension variables must be declared in the tensor type")
                 .with_suggestion(format!("Add '{}' to the dimension variables in scope", name))
         }
+        TypeError::UndefinedStruct(name) => {
+            Diagnostic::error(format!("Struct '{}' not found", name))
+                .with_note("Structs must be declared before use")
+                .with_suggestion(format!("Declare the struct: 'struct {} {{ ... }}'", name))
+        }
+        TypeError::UndefinedMethod(struct_name, method_name) => {
+            Diagnostic::error(format!("Method '{}::{}' not found", struct_name, method_name))
+                .with_note("Methods must be declared in an impl block")
+                .with_suggestion(format!("Add method to impl block: 'impl {} {{ fn {}(...) {{ ... }} }}'", struct_name, method_name))
+        }
+        TypeError::UndefinedField(field_name, struct_name) => {
+            Diagnostic::error(format!("Field '{}' not found in struct '{}'", field_name, struct_name))
+                .with_note("Struct fields must be declared in the struct definition")
+                .with_suggestion(format!("Add field to struct: 'struct {} {{ {}: type, ... }}'", struct_name, field_name))
+        }
+        TypeError::TypeArgumentCountMismatch { expected, found } => {
+            Diagnostic::error(format!(
+                "Wrong number of type arguments: expected {}, found {}",
+                expected, found
+            ))
+            .with_note("Type constructors must provide the exact number of type arguments")
+            .with_suggestion("Add or remove type arguments to match the type signature")
+        }
+        TypeError::UndefinedTypeParameter(name) => {
+            Diagnostic::error(format!("Type parameter '{}' not in scope", name))
+                .with_note("Type parameters must be declared in the type signature")
+                .with_suggestion(format!("Add '{}' to the type parameters", name))
+        }
     }
 }
 

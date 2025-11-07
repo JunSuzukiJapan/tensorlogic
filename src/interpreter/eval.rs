@@ -820,6 +820,8 @@ impl Interpreter {
             TensorExpr::PythonCall { .. } => "PythonCall",
             TensorExpr::PropertyAccess { .. } => "PropertyAccess",
             TensorExpr::MethodCall { .. } => "MethodCall",
+            TensorExpr::StructLiteral { .. } => "StructLiteral",
+            TensorExpr::AssociatedCall { .. } => "AssociatedCall",
         };
         // eprintln!("[DEBUG] eval_expr: type={}", expr_type);
 
@@ -2646,6 +2648,7 @@ impl Interpreter {
             Value::LazyModelLayerCollectionF32(_) => "<LazyModelLayerCollectionF32>".to_string(),
             Value::LazyModelLayerF32(_) => "<LazyModelLayerF32>".to_string(),
             Value::LazyModelFeatureF32(_) => "<LazyModelFeatureF32>".to_string(),
+            Value::Struct { struct_type, .. } => format!("<{}>", struct_type.name.as_str()),
         })
     }
 
@@ -2726,6 +2729,7 @@ impl Interpreter {
             Value::LazyModelLayerCollectionF32(_) => "<LazyModelLayerCollectionF32>".to_string(),
             Value::LazyModelLayerF32(_) => "<LazyModelLayerF32>".to_string(),
             Value::LazyModelFeatureF32(_) => "<LazyModelFeatureF32>".to_string(),
+            Value::Struct { struct_type, .. } => format!("<{}>", struct_type.name.as_str()),
         }
     }
 }

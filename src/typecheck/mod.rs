@@ -425,6 +425,11 @@ impl TypeChecker {
                 Some(TensorTypeInfo::from_tensor_type(tensor_type))
             }
             ReturnType::Void => None,
+            ReturnType::Struct(_struct_type) => {
+                // Struct types are not tensor types, so return None for now
+                // TODO: Extend type system to handle struct return types
+                None
+            }
         };
 
         // Add function to environment

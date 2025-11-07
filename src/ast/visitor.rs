@@ -107,6 +107,14 @@ pub fn walk_declaration<V: Visitor>(visitor: &mut V, decl: &Declaration) -> Resu
             Ok(())
         },
         Declaration::Function(d) => visitor.visit_function_decl(d),
+        Declaration::Struct(_d) => {
+            // Struct declarations don't need visiting for now
+            Ok(())
+        },
+        Declaration::Impl(_d) => {
+            // Impl block declarations don't need visiting for now
+            Ok(())
+        },
     }
 }
 
@@ -235,6 +243,20 @@ pub fn walk_tensor_expr<V: Visitor>(visitor: &mut V, expr: &TensorExpr) -> Resul
         TensorExpr::MethodCall { object, method, args } => {
             visitor.visit_tensor_expr(object)?;
             visitor.visit_identifier(method)?;
+            for arg in args {
+                visitor.visit_tensor_expr(arg)?;
+            }
+            Ok(())
+        }
+        TensorExpr::StructLiteral { fields, .. } => {
+            // Visit field values
+            for field_init in fields {
+                visitor.visit_tensor_expr(&field_init.value)?;
+            }
+            Ok(())
+        }
+        TensorExpr::AssociatedCall { function, args, .. } => {
+            visitor.visit_identifier(function)?;
             for arg in args {
                 visitor.visit_tensor_expr(arg)?;
             }

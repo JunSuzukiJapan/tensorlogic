@@ -367,6 +367,9 @@ impl Interpreter {
                         EntityType::Scalar(_) => {
                             // Scalar-typed parameter, skip
                         }
+                        EntityType::Struct(_) => {
+                            // Struct-typed parameter, skip
+                        }
                     }
                 }
 
@@ -497,11 +500,12 @@ impl Interpreter {
         // Check if there's a Drop implementation for this struct
         if let Some(drop_method) = self.drop_impls.get(struct_name).cloned() {
             // Create a new call frame for the drop method
-            let frame = CallFrame::new(format!("{}::drop", struct_name));
+            let drop_fn_name = format!("{}::drop", struct_name);
+            let frame = CallFrame::new(drop_fn_name.clone());
 
             // Push call frame and new scope
             self.call_stack.push(frame);
-            self.env.push_scope(ScopeType::Function);
+            self.env.push_scope(ScopeType::Function(drop_fn_name));
 
             // Bind self parameter to the struct value in environment
             self.env.set_variable("self", value.clone())?;
@@ -961,6 +965,11 @@ impl Interpreter {
                 let entity_type = EntityType::Tensor(tensor_type.clone());
                 self.check_type_match(value, &entity_type, &format!("return value of '{}'", func_name))
             }
+            ReturnType::Struct(struct_type) => {
+                // Convert StructType to EntityType and reuse check_type_match
+                let entity_type = EntityType::Struct(struct_type.clone());
+                self.check_type_match(value, &entity_type, &format!("return value of '{}'", func_name))
+            }
         }
     }
 
@@ -1079,6 +1088,25 @@ impl Interpreter {
                     }
                     _ => Err(RuntimeError::TypeError(
                         format!("Parameter '{}' expects {:?}, got {:?}", param_name, scalar_type, value)
+                    ))
+                }
+            }
+            EntityType::Struct(struct_type) => {
+                // Check if value is a struct of the correct type
+                match value {
+                    Value::Struct { struct_type: value_type, .. } => {
+                        if value_type.name == struct_type.name {
+                            Ok(())
+                        } else {
+                            Err(RuntimeError::TypeError(
+                                format!("Parameter '{}' expects struct {}, got struct {}",
+                                    param_name, struct_type.name.as_str(), value_type.name.as_str())
+                            ))
+                        }
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        format!("Parameter '{}' expects struct {}, got {:?}",
+                            param_name, struct_type.name.as_str(), value)
                     ))
                 }
             }
