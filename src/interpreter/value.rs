@@ -127,7 +127,7 @@ impl LazyModelFeatureF32 {
 }
 
 /// Runtime value
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Value {
     /// Tensor with f16 precision (float16)
     TensorF16(Tensor<f16>),
@@ -303,6 +303,14 @@ impl Value {
     }
 }
 
+// Use Display implementation for Debug as well
+impl std::fmt::Debug for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Delegate to Display implementation
+        std::fmt::Display::fmt(self, f)
+    }
+}
+
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -311,8 +319,34 @@ impl std::fmt::Display for Value {
                 write!(f, "Tensor<f16>(shape={:?})", t.dims())
             }
             Value::TensorF32(t) => {
-                // Display tensor shape only to avoid GPU->CPU transfer
-                write!(f, "Tensor<f32>(shape={:?})", t.dims())
+                use crate::tensor::{TensorIO, TensorAccessors};
+                use crate::device::Device;
+
+                let dims = t.dims();
+                let numel: usize = dims.iter().product();
+
+                // For small tensors, show data values instead of metadata
+                // This is especially important for shape() results
+                // Small tensors (<=10 elements): GPU->CPU transfer cost is negligible
+                if numel <= 10 {
+                    let data = t.sync_and_read();
+                    write!(f, "[")?;
+                    for (i, val) in data.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        // Display as integer if it's a whole number (common for shapes)
+                        if val.fract() == 0.0 && val.abs() < 1e9 {
+                            write!(f, "{}", *val as i64)?;
+                        } else {
+                            write!(f, "{}", val)?;
+                        }
+                    }
+                    write!(f, "]")
+                } else {
+                    // For large tensors, display shape only to avoid expensive transfer
+                    write!(f, "Tensor<f32>(shape={:?})", dims)
+                }
             }
             Value::Boolean(b) => write!(f, "{}", b),
             Value::Integer(i) => write!(f, "{}", i),

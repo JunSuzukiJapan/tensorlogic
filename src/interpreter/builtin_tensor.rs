@@ -975,7 +975,7 @@ impl Interpreter {
         match shape_val {
             Value::TensorF32(ref t) => {
                 // f32 shape array -> create f32 zeros tensor
-                let data = t.to_vec();
+                let data = t.sync_and_read();
                 let shape = data.iter().map(|&v| v as usize).collect::<Vec<_>>();
                 let numel: usize = shape.iter().product();
                 let zeros_data = vec![0.0f32; numel];
@@ -985,7 +985,7 @@ impl Interpreter {
             }
             Value::TensorF16(ref t) => {
                 // f16 shape array -> create f16 zeros tensor
-                let data = t.to_vec_f32();
+                let data = t.sync_and_read_f32();
                 let shape = data.iter().map(|&v| v as usize).collect::<Vec<_>>();
                 let numel: usize = shape.iter().product();
                 let zeros_data = vec![f16::ZERO; numel];

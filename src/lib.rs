@@ -42,3 +42,4 @@ pub use error::{TensorError, TensorResult};
 pub use tensor::Tensor;
 pub use device::{Device, MetalDevice};
 pub use planner::ExecutionPlanner;
+pub use model::GGUFWeightCache;

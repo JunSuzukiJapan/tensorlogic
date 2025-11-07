@@ -2531,7 +2531,31 @@ impl Interpreter {
                 format!("Tensor<f16>(shape={:?})", t.dims())
             }
             Value::TensorF32(t) => {
-                format!("Tensor<f32>(shape={:?})", t.dims())
+                // For small tensors, show data values instead of just shape
+                let dims = t.dims();
+                let numel: usize = dims.iter().product();
+
+                if numel <= 10 {
+                    // Small tensor: show actual data values
+                    let data = t.sync_and_read();
+                    let mut result = String::from("[");
+                    for (i, val) in data.iter().enumerate() {
+                        if i > 0 {
+                            result.push_str(", ");
+                        }
+                        // Display as integer if it's a whole number (common for shapes)
+                        if val.fract() == 0.0 && val.abs() < 1e9 {
+                            result.push_str(&format!("{}", *val as i64));
+                        } else {
+                            result.push_str(&format!("{}", val));
+                        }
+                    }
+                    result.push(']');
+                    result
+                } else {
+                    // Large tensor: just show shape to avoid expensive transfer
+                    format!("Tensor<f32>(shape={:?})", dims)
+                }
             }
             Value::Boolean(b) => b.to_string(),
             Value::Integer(i) => i.to_string(),
@@ -2587,7 +2611,31 @@ impl Interpreter {
                 format!("Tensor<f16>(shape={:?})", t.dims())
             }
             Value::TensorF32(t) => {
-                format!("Tensor<f32>(shape={:?})", t.dims())
+                // For small tensors, show data values instead of just shape
+                let dims = t.dims();
+                let numel: usize = dims.iter().product();
+
+                if numel <= 10 {
+                    // Small tensor: show actual data values
+                    let data = t.sync_and_read();
+                    let mut result = String::from("[");
+                    for (i, val) in data.iter().enumerate() {
+                        if i > 0 {
+                            result.push_str(", ");
+                        }
+                        // Display as integer if it's a whole number (common for shapes)
+                        if val.fract() == 0.0 && val.abs() < 1e9 {
+                            result.push_str(&format!("{}", *val as i64));
+                        } else {
+                            result.push_str(&format!("{}", val));
+                        }
+                    }
+                    result.push(']');
+                    result
+                } else {
+                    // Large tensor: just show shape to avoid expensive transfer
+                    format!("Tensor<f32>(shape={:?})", dims)
+                }
             }
             Value::Boolean(b) => b.to_string(),
             Value::Integer(i) => i.to_string(),
