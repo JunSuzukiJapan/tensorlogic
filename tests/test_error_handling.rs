@@ -23,40 +23,44 @@ use half::f16;
 #[test]
 #[should_panic(expected = "ShapeMismatch")]
 fn test_add_shape_mismatch_2x2_and_3x3() {
-    let a = Tensor::<f32>::ones(vec![2, 2]).unwrap();
-    let b = Tensor::<f32>::ones(vec![3, 3]).unwrap();
+    let a = Tensor::<f32>::ones(&device, vec![2, 2]).unwrap();
+    let b = Tensor::<f32>::ones(&device, vec![3, 3]).unwrap();
     let _ = a.add(&b).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "ShapeMismatch")]
 fn test_add_shape_mismatch_1d_and_2d() {
-    let a = Tensor::<f32>::ones(vec![4]).unwrap();
-    let b = Tensor::<f32>::ones(vec![4, 1]).unwrap();
+    let device = MetalDevice::new()?;
+    let a = Tensor::<f32>::ones(&device, vec![4]).unwrap();
+    let b = Tensor::<f32>::ones(&device, vec![4, 1]).unwrap();
     let _ = a.add(&b).unwrap();
 }
 
 #[test]
 #[should_panic]
 fn test_sub_shape_mismatch() {
-    let a = Tensor::<f32>::ones(vec![2, 3]).unwrap();
-    let b = Tensor::<f32>::ones(vec![3, 2]).unwrap();
+    let device = MetalDevice::new()?;
+    let a = Tensor::<f32>::ones(&device, vec![2, 3]).unwrap();
+    let b = Tensor::<f32>::ones(&device, vec![3, 2]).unwrap();
     let _ = a.sub(&b).unwrap();
 }
 
 #[test]
 #[should_panic]
 fn test_mul_shape_mismatch() {
-    let a = Tensor::<f32>::ones(vec![4, 5]).unwrap();
-    let b = Tensor::<f32>::ones(vec![4, 6]).unwrap();
+    let device = MetalDevice::new()?;
+    let a = Tensor::<f32>::ones(&device, vec![4, 5]).unwrap();
+    let b = Tensor::<f32>::ones(&device, vec![4, 6]).unwrap();
     let _ = a.mul(&b).unwrap();
 }
 
 #[test]
 #[should_panic]
 fn test_div_shape_mismatch() {
-    let a = Tensor::<f32>::ones(vec![10]).unwrap();
-    let b = Tensor::<f32>::ones(vec![20]).unwrap();
+    let device = MetalDevice::new()?;
+    let a = Tensor::<f32>::ones(&device, vec![10]).unwrap();
+    let b = Tensor::<f32>::ones(&device, vec![20]).unwrap();
     let _ = a.div(&b).unwrap();
 }
 
@@ -65,29 +69,32 @@ fn test_div_shape_mismatch() {
 #[test]
 #[should_panic]
 fn test_matmul_incompatible_dimensions() {
+    let device = MetalDevice::new()?;
     // [2, 3] @ [5, 7] - incompatible (inner dimensions don't match)
-    let a = Tensor::<f32>::ones(vec![2, 3]).unwrap();
-    let b = Tensor::<f32>::ones(vec![5, 7]).unwrap();
+    let a = Tensor::<f32>::ones(&device, vec![2, 3]).unwrap();
+    let b = Tensor::<f32>::ones(&device, vec![5, 7]).unwrap();
     let _ = a.matmul(&b).unwrap();
 }
 
 #[test]
 #[should_panic]
 fn test_matmul_1d_tensors() {
+    let device = MetalDevice::new()?;
     // Matmul requires at least 2D tensors
-    let a = Tensor::<f32>::ones(vec![5]).unwrap();
-    let b = Tensor::<f32>::ones(vec![5]).unwrap();
+    let a = Tensor::<f32>::ones(&device, vec![5]).unwrap();
+    let b = Tensor::<f32>::ones(&device, vec![5]).unwrap();
     let _ = a.matmul(&b).unwrap();
 }
 
 #[test]
 fn test_matmul_valid_dimensions() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // This should succeed: [2, 3] @ [3, 4] = [2, 4]
-    let a = Tensor::<f32>::ones(vec![2, 3])?;
-    let b = Tensor::<f32>::ones(vec![3, 4])?;
+    let a = Tensor::<f32>::ones(&device, vec![2, 3])?;
+    let b = Tensor::<f32>::ones(&device, vec![3, 4])?;
     let c = a.matmul(&b)?;
 
-    assert_eq!(c.shape(), vec![2, 4]);
+    assert_eq!(c.shape().dims(), &[2, 4]);
 
     println!("✓ Matmul valid dimensions test passed");
     Ok(())
@@ -98,15 +105,17 @@ fn test_matmul_valid_dimensions() -> TensorResult<()> {
 #[test]
 #[should_panic]
 fn test_reshape_incompatible_size() {
+    let device = MetalDevice::new()?;
     // Cannot reshape [2, 3] (6 elements) to [2, 4] (8 elements)
-    let a = Tensor::<f32>::ones(vec![2, 3]).unwrap();
+    let a = Tensor::<f32>::ones(&device, vec![2, 3]).unwrap();
     let _ = a.reshape(vec![2, 4]).unwrap();
 }
 
 #[test]
 #[should_panic]
 fn test_reshape_negative_dimension() {
-    let a = Tensor::<f32>::ones(vec![4, 4]).unwrap();
+    let device = MetalDevice::new()?;
+    let a = Tensor::<f32>::ones(&device, vec![4, 4]).unwrap();
     // Negative dimensions should be invalid
     // Note: This depends on implementation - may not panic if -1 is supported as "infer"
     let _ = a.reshape(vec![2, -8_i32 as usize]).unwrap();
@@ -114,11 +123,12 @@ fn test_reshape_negative_dimension() {
 
 #[test]
 fn test_reshape_valid() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Valid reshape: [2, 3] (6 elements) to [3, 2] (6 elements)
-    let a = Tensor::<f32>::ones(vec![2, 3])?;
+    let a = Tensor::<f32>::ones(&device, vec![2, 3])?;
     let b = a.reshape(vec![3, 2])?;
 
-    assert_eq!(b.shape(), vec![3, 2]);
+    assert_eq!(b.shape().dims(), &[3, 2]);
 
     println!("✓ Reshape valid test passed");
     Ok(())
@@ -129,7 +139,8 @@ fn test_reshape_valid() -> TensorResult<()> {
 #[test]
 #[should_panic(expected = "InvalidDimension")]
 fn test_slice_invalid_dimension() {
-    let a = Tensor::<f32>::ones(vec![3, 4]).unwrap();
+    let device = MetalDevice::new()?;
+    let a = Tensor::<f32>::ones(&device, vec![3, 4]).unwrap();
     // Tensor is 2D, cannot slice dimension 2
     let _ = a.slice(2, 0, 2).unwrap();
 }
@@ -137,7 +148,8 @@ fn test_slice_invalid_dimension() {
 #[test]
 #[should_panic]
 fn test_slice_out_of_bounds() {
-    let a = Tensor::<f32>::ones(vec![3, 4]).unwrap();
+    let device = MetalDevice::new()?;
+    let a = Tensor::<f32>::ones(&device, vec![3, 4]).unwrap();
     // Cannot slice [5:10] in dimension with size 3
     let _ = a.slice(0, 5, 10).unwrap();
 }
@@ -147,7 +159,8 @@ fn test_slice_out_of_bounds() {
 #[test]
 #[should_panic(expected = "InvalidDimension")]
 fn test_sum_invalid_dimension() {
-    let a = Tensor::<f32>::ones(vec![3, 4]).unwrap();
+    let device = MetalDevice::new()?;
+    let a = Tensor::<f32>::ones(&device, vec![3, 4]).unwrap();
     // Cannot sum over dimension 2 (tensor only has 2 dimensions)
     let _ = a.sum_dim(2).unwrap();
 }
@@ -155,18 +168,20 @@ fn test_sum_invalid_dimension() {
 #[test]
 #[should_panic(expected = "InvalidDimension")]
 fn test_softmax_invalid_dimension() {
-    let a = Tensor::<f32>::ones(vec![2, 3, 4]).unwrap();
+    let device = MetalDevice::new()?;
+    let a = Tensor::<f32>::ones(&device, vec![2, 3, 4]).unwrap();
     // Cannot apply softmax on dimension 3 (max is 2 for 3D tensor)
-    let _ = a.softmax(3).unwrap();
+    let _ = a.softmax().unwrap();
 }
 
 // Numerical Stability Errors
 
 #[test]
 fn test_division_by_zero() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Division by zero should produce Inf, not crash
-    let a = Tensor::<f32>::ones(vec![2, 2])?;
-    let b = Tensor::<f32>::zeros(vec![2, 2])?;
+    let a = Tensor::<f32>::ones(&device, vec![2, 2])?;
+    let b = Tensor::<f32>::zeros(&device, vec![2, 2])?;
 
     let c = a.div(&b)?;
     let result = c.sync_and_read();
@@ -184,7 +199,7 @@ fn test_division_by_zero() -> TensorResult<()> {
 fn test_nan_propagation_add() -> TensorResult<()> {
     // NaN should propagate through operations
     let a = Tensor::<f32>::from_vec(vec![1.0, f32::NAN, 3.0], vec![3])?;
-    let b = Tensor::<f32>::ones(vec![3])?;
+    let b = Tensor::<f32>::ones(&device, vec![3])?;
 
     let c = a.add(&b)?;
     let result = c.sync_and_read();
@@ -340,11 +355,11 @@ fn test_pow_special_cases() -> TensorResult<()> {
 #[test]
 fn test_empty_tensor_operations() -> TensorResult<()> {
     // Operations on empty tensors should not crash
-    let a = Tensor::<f32>::zeros(vec![0, 5])?;
-    let b = Tensor::<f32>::zeros(vec![0, 5])?;
+    let a = Tensor::<f32>::zeros(&device, vec![0, 5])?;
+    let b = Tensor::<f32>::zeros(&device, vec![0, 5])?;
 
     let c = a.add(&b)?;
-    assert_eq!(c.shape(), vec![0, 5]);
+    assert_eq!(c.shape().dims(), &[0, 5]);
 
     println!("✓ Empty tensor operations test passed");
     Ok(())
@@ -352,8 +367,9 @@ fn test_empty_tensor_operations() -> TensorResult<()> {
 
 #[test]
 fn test_empty_tensor_sum() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Sum of empty tensor should be 0
-    let a = Tensor::<f32>::zeros(vec![0, 3])?;
+    let a = Tensor::<f32>::zeros(&device, vec![0, 3])?;
 
     let sum = a.sum()?;
     let result = sum.sync_and_read();
@@ -370,14 +386,16 @@ fn test_empty_tensor_sum() -> TensorResult<()> {
 #[test]
 #[should_panic]
 fn test_zeros_with_zero_dimension() {
+    let device = MetalDevice::new()?;
     // Creating tensor with a zero dimension should fail
-    let _ = Tensor::<f32>::zeros(vec![2, 0, 3]).unwrap();
+    let _ = Tensor::<f32>::zeros(&device, vec![2, 0, 3]).unwrap();
 }
 
 #[test]
 #[should_panic]
 fn test_ones_with_zero_dimension() {
-    let _ = Tensor::<f32>::ones(vec![0, 4]).unwrap();
+    let device = MetalDevice::new()?;
+    let _ = Tensor::<f32>::ones(&device, vec![0, 4]).unwrap();
 }
 
 // Autograd Errors
@@ -385,10 +403,11 @@ fn test_ones_with_zero_dimension() {
 #[test]
 #[should_panic(expected = "requires_grad")]
 fn test_backward_without_requires_grad() {
+    let device = MetalDevice::new()?;
     use tensorlogic::tensor::TensorAutograd;
 
     // Calling backward on tensor without requires_grad should fail
-    let a = Tensor::<f32>::ones(vec![2, 2]).unwrap();
+    let a = Tensor::<f32>::ones(&device, vec![2, 2]).unwrap();
     let _ = a.backward().unwrap();
 }
 
@@ -436,9 +455,10 @@ fn test_f16_underflow() -> TensorResult<()> {
 #[test]
 #[should_panic]
 fn test_concat_dimension_mismatch() {
+    let device = MetalDevice::new()?;
     // Cannot concat tensors with different shapes in non-concat dimensions
-    let a = Tensor::<f32>::ones(vec![2, 3]).unwrap();
-    let b = Tensor::<f32>::ones(vec![2, 5]).unwrap();
+    let a = Tensor::<f32>::ones(&device, vec![2, 3]).unwrap();
+    let b = Tensor::<f32>::ones(&device, vec![2, 5]).unwrap();
 
     // Concatenating along dim 0, but dim 1 doesn't match (3 vs 5)
     let _ = a.concat(&b, 0).unwrap();
@@ -447,8 +467,9 @@ fn test_concat_dimension_mismatch() {
 #[test]
 #[should_panic(expected = "InvalidDimension")]
 fn test_concat_invalid_dimension() {
-    let a = Tensor::<f32>::ones(vec![2, 3]).unwrap();
-    let b = Tensor::<f32>::ones(vec![2, 3]).unwrap();
+    let device = MetalDevice::new()?;
+    let a = Tensor::<f32>::ones(&device, vec![2, 3]).unwrap();
+    let b = Tensor::<f32>::ones(&device, vec![2, 3]).unwrap();
 
     // Dimension 2 doesn't exist
     let _ = a.concat(&b, 2).unwrap();
@@ -459,8 +480,9 @@ fn test_concat_invalid_dimension() {
 #[test]
 #[should_panic]
 fn test_transpose_1d_tensor() {
+    let device = MetalDevice::new()?;
     // Transpose requires at least 2D
-    let a = Tensor::<f32>::ones(vec![5]).unwrap();
+    let a = Tensor::<f32>::ones(&device, vec![5]).unwrap();
     let _ = a.transpose().unwrap();
 }
 
@@ -510,7 +532,7 @@ fn test_softmax_overflow_safety() -> TensorResult<()> {
     // Softmax should handle large values without overflow
     let a = Tensor::<f32>::from_vec(vec![1000.0, 1001.0, 1002.0], vec![1, 3])?;
 
-    let b = a.softmax(1)?;
+    let b = a.softmax()?;
     let result = b.sync_and_read();
 
     // Should not be NaN or Inf
@@ -548,8 +570,9 @@ fn test_from_vec_empty_shape() {
 #[test]
 #[should_panic]
 fn test_layer_norm_invalid_dimension() {
-    let a = Tensor::<f32>::ones(vec![2, 3, 4]).unwrap();
-    let weight = Tensor::<f32>::ones(vec![5]).unwrap(); // Wrong size
+    let device = MetalDevice::new()?;
+    let a = Tensor::<f32>::ones(&device, vec![2, 3, 4]).unwrap();
+    let weight = Tensor::<f32>::ones(&device, vec![5]).unwrap(); // Wrong size
 
     let _ = a.layer_norm(&weight, None).unwrap();
 }
@@ -576,18 +599,18 @@ fn test_device_availability() -> TensorResult<()> {
 #[test]
 fn test_error_recovery() -> TensorResult<()> {
     // Test that errors don't leave system in bad state
-    let a = Tensor::<f32>::ones(vec![2, 2])?;
-    let b = Tensor::<f32>::ones(vec![3, 3])?;
+    let a = Tensor::<f32>::ones(&device, vec![2, 2])?;
+    let b = Tensor::<f32>::ones(&device, vec![3, 3])?;
 
     // This should fail
     let result1 = a.add(&b);
     assert!(result1.is_err(), "Expected error for shape mismatch");
 
     // But we should be able to do valid operations afterward
-    let c = Tensor::<f32>::ones(vec![2, 2])?;
+    let c = Tensor::<f32>::ones(&device, vec![2, 2])?;
     let d = a.add(&c)?;
 
-    assert_eq!(d.shape(), vec![2, 2]);
+    assert_eq!(d.shape().dims(), &[2, 2]);
 
     println!("✓ Error recovery test passed");
     Ok(())
@@ -595,8 +618,9 @@ fn test_error_recovery() -> TensorResult<()> {
 
 #[test]
 fn test_chain_operations_with_error() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test error in chain of operations
-    let a = Tensor::<f32>::ones(vec![2, 2])?;
+    let a = Tensor::<f32>::ones(&device, vec![2, 2])?;
 
     // Valid operations
     let b = a.mul_scalar(2.0)?;

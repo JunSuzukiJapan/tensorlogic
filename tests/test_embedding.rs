@@ -70,7 +70,7 @@ fn test_embedding_basic() -> TensorResult<()> {
     assert_tensor_close_f32(&result, &expected, 1e-5);
 
     // Check output shape: [1, d_model]
-    assert_eq!(embeddings.shape(), vec![1, d_model]);
+    assert_eq!(embeddings.shape().dims(), &[1, d_model]);
 
     println!("✓ Embedding basic test passed");
     Ok(())
@@ -104,7 +104,7 @@ fn test_embedding_multiple_tokens() -> TensorResult<()> {
     assert_tensor_close_f32(&result, &expected, 1e-5);
 
     // Check shape: [4, 2]
-    assert_eq!(embeddings.shape(), vec![4, d_model]);
+    assert_eq!(embeddings.shape().dims(), &[4, d_model]);
 
     println!("✓ Embedding multiple tokens test passed");
     Ok(())
@@ -146,7 +146,7 @@ fn test_embedding_batch() -> TensorResult<()> {
     assert_tensor_close_f32(&result, &expected, 1e-5);
 
     // Check shape: [2, 3, 2]
-    assert_eq!(embeddings.shape(), vec![2, 3, d_model]);
+    assert_eq!(embeddings.shape().dims(), &[2, 3, d_model]);
 
     println!("✓ Embedding batch test passed");
     Ok(())
@@ -184,7 +184,7 @@ fn test_embedding_f16() -> TensorResult<()> {
     ];
     assert_tensor_close_f16(&result, &expected, 1e-3);
 
-    assert_eq!(embeddings.shape(), vec![2, d_model]);
+    assert_eq!(embeddings.shape().dims(), &[2, d_model]);
 
     println!("✓ Embedding f16 test passed");
     Ok(())
@@ -216,7 +216,7 @@ fn test_embedding_from_token_ids() -> TensorResult<()> {
     ];
     assert_tensor_close_f32(&result, &expected, 1e-5);
 
-    assert_eq!(embeddings.shape(), vec![3, d_model]);
+    assert_eq!(embeddings.shape().dims(), &[3, d_model]);
 
     println!("✓ Embedding from TokenIdArray test passed");
     Ok(())
@@ -241,7 +241,7 @@ fn test_embedding_large_vocabulary() -> TensorResult<()> {
     let embeddings = weight.embedding(&token_ids)?;
 
     // Check shape
-    assert_eq!(embeddings.shape(), vec![4, d_model]);
+    assert_eq!(embeddings.shape().dims(), &[4, d_model]);
 
     // Verify first embedding (token 0)
     let result = embeddings.sync_and_read();
@@ -325,12 +325,12 @@ fn test_embedding_single_token() -> TensorResult<()> {
     let vocab_size = 10;
     let d_model = 8;
 
-    let weight = Tensor::<f32>::ones(vec![vocab_size, d_model])?;
+    let weight = Tensor::<f32>::ones(&device, vec![vocab_size, d_model])?;
     let token_ids = Tensor::<f32>::from_vec(vec![5.0], vec![1])?;
 
     let embeddings = weight.embedding(&token_ids)?;
 
-    assert_eq!(embeddings.shape(), vec![1, d_model]);
+    assert_eq!(embeddings.shape().dims(), &[1, d_model]);
 
     let result = embeddings.sync_and_read();
     for &val in &result {
@@ -384,7 +384,8 @@ fn test_embedding_different_dimensions() -> TensorResult<()> {
     ];
 
     for (vocab_size, d_model) in test_configs {
-        let weight = Tensor::<f32>::zeros(vec![vocab_size, d_model])?;
+    let device = MetalDevice::new()?;
+        let weight = Tensor::<f32>::zeros(&device, vec![vocab_size, d_model])?;
         let token_ids = Tensor::<f32>::from_vec(vec![0.0, 1.0], vec![2])?;
 
         let embeddings = weight.embedding(&token_ids)?;
@@ -407,7 +408,7 @@ fn test_embedding_batch_different_sizes() -> TensorResult<()> {
     let vocab_size = 100;
     let d_model = 32;
 
-    let weight = Tensor::<f32>::zeros(vec![vocab_size, d_model])?;
+    let weight = Tensor::<f32>::zeros(&device, vec![vocab_size, d_model])?;
 
     let test_shapes = vec![
         vec![1, 5],   // Single sequence, length 5
@@ -487,7 +488,7 @@ fn test_embedding_token_out_of_range() {
     let vocab_size = 5;
     let d_model = 3;
 
-    let weight = Tensor::<f32>::ones(vec![vocab_size, d_model]).unwrap();
+    let weight = Tensor::<f32>::ones(&device, vec![vocab_size, d_model]).unwrap();
     let token_ids = Tensor::<f32>::from_vec(vec![5.0], vec![1]).unwrap(); // 5 >= vocab_size
 
     let _ = weight.embedding(&token_ids).unwrap();
@@ -497,11 +498,12 @@ fn test_embedding_token_out_of_range() {
 #[serial]
 #[should_panic(expected = "out of range")]
 fn test_embedding_negative_token_id() {
+    let device = MetalDevice::new()?;
     // Test that negative token ID causes error (if converted to large positive)
     let vocab_size = 10;
     let d_model = 4;
 
-    let weight = Tensor::<f32>::ones(vec![vocab_size, d_model]).unwrap();
+    let weight = Tensor::<f32>::ones(&device, vec![vocab_size, d_model]).unwrap();
     let token_ids = Tensor::<f32>::from_vec(vec![-1.0], vec![1]).unwrap();
 
     let _ = weight.embedding(&token_ids).unwrap();
@@ -511,8 +513,9 @@ fn test_embedding_negative_token_id() {
 #[serial]
 #[should_panic(expected = "must be 2D")]
 fn test_embedding_wrong_weight_dimensions_1d() {
+    let device = MetalDevice::new()?;
     // Test that 1D weight causes error
-    let weight = Tensor::<f32>::ones(vec![10]).unwrap();
+    let weight = Tensor::<f32>::ones(&device, vec![10]).unwrap();
     let token_ids = Tensor::<f32>::from_vec(vec![0.0], vec![1]).unwrap();
 
     let _ = weight.embedding(&token_ids).unwrap();
@@ -522,8 +525,9 @@ fn test_embedding_wrong_weight_dimensions_1d() {
 #[serial]
 #[should_panic(expected = "must be 2D")]
 fn test_embedding_wrong_weight_dimensions_3d() {
+    let device = MetalDevice::new()?;
     // Test that 3D weight causes error
-    let weight = Tensor::<f32>::ones(vec![5, 3, 2]).unwrap();
+    let weight = Tensor::<f32>::ones(&device, vec![5, 3, 2]).unwrap();
     let token_ids = Tensor::<f32>::from_vec(vec![0.0], vec![1]).unwrap();
 
     let _ = weight.embedding(&token_ids).unwrap();

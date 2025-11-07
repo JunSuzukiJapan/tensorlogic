@@ -91,7 +91,7 @@ fn test_rope_position_offset() -> TensorResult<()> {
     let n_heads = 2;
     let head_dim = 8;
 
-    let input = Tensor::<f16>::ones(vec![seq_len, n_heads, head_dim])?;
+    let input = Tensor::<f16>::ones(&device, vec![seq_len, n_heads, head_dim])?;
 
     // Apply RoPE with different position offsets
     let output_0 = input.rope(0)?;
@@ -131,7 +131,7 @@ fn test_rope_zeros_input() -> TensorResult<()> {
     let n_heads = 1;
     let head_dim = 8;
 
-    let input = Tensor::<f16>::zeros(vec![seq_len, n_heads, head_dim])?;
+    let input = Tensor::<f16>::zeros(&device, vec![seq_len, n_heads, head_dim])?;
     let output = input.rope(0)?;
 
     let result = output.sync_and_read();
@@ -184,7 +184,8 @@ fn test_rope_head_dim_variations() -> TensorResult<()> {
     let head_dims = vec![2, 4, 8, 16, 32, 64, 128];
 
     for head_dim in head_dims {
-        let input = Tensor::<f16>::ones(vec![2, 1, head_dim])?;
+    let device = MetalDevice::new()?;
+        let input = Tensor::<f16>::ones(&device, vec![2, 1, head_dim])?;
         let output = input.rope(0)?;
 
         assert_eq!(
@@ -207,10 +208,10 @@ fn test_rope_large_sequence() -> TensorResult<()> {
     let n_heads = 4;
     let head_dim = 64;
 
-    let input = Tensor::<f16>::ones(vec![seq_len, n_heads, head_dim])?;
+    let input = Tensor::<f16>::ones(&device, vec![seq_len, n_heads, head_dim])?;
     let output = input.rope(0)?;
 
-    assert_eq!(output.shape(), vec![seq_len, n_heads, head_dim]);
+    assert_eq!(output.shape().dims(), &[seq_len, n_heads, head_dim]);
 
     // Check that output values are in reasonable range (not NaN or Inf)
     let result = output.sync_and_read();
@@ -316,7 +317,8 @@ fn test_rope_multi_head() -> TensorResult<()> {
     ];
 
     for (head_dim, n_heads) in head_dims_and_heads {
-        let input = Tensor::<f16>::ones(vec![seq_len, n_heads, head_dim])?;
+    let device = MetalDevice::new()?;
+        let input = Tensor::<f16>::ones(&device, vec![seq_len, n_heads, head_dim])?;
         let output = input.rope(0)?;
 
         assert_eq!(
@@ -344,7 +346,7 @@ fn test_rope_multi_head() -> TensorResult<()> {
 #[should_panic(expected = "even head_dim")]
 fn test_rope_odd_head_dim() {
     // RoPE requires even head_dim for proper rotation
-    let input = Tensor::<f16>::ones(vec![2, 1, 5]).unwrap(); // head_dim=5 is odd
+    let input = Tensor::<f16>::ones(&device, vec![2, 1, 5]).unwrap(); // head_dim=5 is odd
     let _ = input.rope(0).unwrap();
 }
 
@@ -352,8 +354,9 @@ fn test_rope_odd_head_dim() {
 #[serial]
 #[should_panic(expected = "at least 3D")]
 fn test_rope_insufficient_dimensions_2d() {
+    let device = MetalDevice::new()?;
     // RoPE requires at least 3D tensor
-    let input = Tensor::<f16>::ones(vec![2, 4]).unwrap(); // Only 2D
+    let input = Tensor::<f16>::ones(&device, vec![2, 4]).unwrap(); // Only 2D
     let _ = input.rope(0).unwrap();
 }
 
@@ -361,14 +364,16 @@ fn test_rope_insufficient_dimensions_2d() {
 #[serial]
 #[should_panic(expected = "at least 3D")]
 fn test_rope_insufficient_dimensions_1d() {
+    let device = MetalDevice::new()?;
     // RoPE requires at least 3D tensor
-    let input = Tensor::<f16>::ones(vec![8]).unwrap(); // Only 1D
+    let input = Tensor::<f16>::ones(&device, vec![8]).unwrap(); // Only 1D
     let _ = input.rope(0).unwrap();
 }
 
 #[test]
 #[serial]
 fn test_rope_4d_tensor() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test RoPE with 4D tensor (batch dimension)
     // Shape: [batch, seq_len, n_heads, head_dim]
     let batch_size = 2;
@@ -376,11 +381,11 @@ fn test_rope_4d_tensor() -> TensorResult<()> {
     let n_heads = 4;
     let head_dim = 8;
 
-    let input = Tensor::<f16>::ones(vec![batch_size, seq_len, n_heads, head_dim])?;
+    let input = Tensor::<f16>::ones(&device, vec![batch_size, seq_len, n_heads, head_dim])?;
     let output = input.rope(0)?;
 
     // Shape should be preserved
-    assert_eq!(output.shape(), vec![batch_size, seq_len, n_heads, head_dim]);
+    assert_eq!(output.shape().dims(), &[batch_size, seq_len, n_heads, head_dim]);
 
     // Last 3 dimensions are used for RoPE
     println!("✓ RoPE 4D tensor test passed");
@@ -390,16 +395,17 @@ fn test_rope_4d_tensor() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_single_position() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test RoPE with single position (seq_len=1)
     // This is common in autoregressive generation
     let seq_len = 1;
     let n_heads = 8;
     let head_dim = 64;
 
-    let input = Tensor::<f16>::ones(vec![seq_len, n_heads, head_dim])?;
+    let input = Tensor::<f16>::ones(&device, vec![seq_len, n_heads, head_dim])?;
     let output = input.rope(0)?;
 
-    assert_eq!(output.shape(), vec![seq_len, n_heads, head_dim]);
+    assert_eq!(output.shape().dims(), &[seq_len, n_heads, head_dim]);
 
     println!("✓ RoPE single position test passed");
     Ok(())
@@ -408,12 +414,13 @@ fn test_rope_single_position() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_position_offset_range() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test RoPE with various position offset values
     let seq_len = 2;
     let n_heads = 2;
     let head_dim = 8;
 
-    let input = Tensor::<f16>::ones(vec![seq_len, n_heads, head_dim])?;
+    let input = Tensor::<f16>::ones(&device, vec![seq_len, n_heads, head_dim])?;
 
     // Test offsets from 0 to 1000
     for offset in [0, 1, 10, 100, 500, 1000] {
@@ -439,7 +446,7 @@ fn test_rope_gradient_compatibility() -> TensorResult<()> {
     let n_heads = 1;
     let head_dim = 8;
 
-    let input = Tensor::<f16>::ones(vec![seq_len, n_heads, head_dim])?;
+    let input = Tensor::<f16>::ones(&device, vec![seq_len, n_heads, head_dim])?;
     let output = input.rope(0)?;
 
     // Output should be valid for further operations
@@ -463,15 +470,16 @@ fn test_rope_kv_cache_simulation() -> TensorResult<()> {
     let head_dim = 16;
 
     // Initial prompt: 5 tokens
-    let prompt = Tensor::<f16>::ones(vec![5, n_heads, head_dim])?;
+    let prompt = Tensor::<f16>::ones(&device, vec![5, n_heads, head_dim])?;
     let prompt_rope = prompt.rope(0)?;
 
     // Generate 3 new tokens, one at a time
     for i in 0..3 {
-        let new_token = Tensor::<f16>::ones(vec![1, n_heads, head_dim])?;
+    let device = MetalDevice::new()?;
+        let new_token = Tensor::<f16>::ones(&device, vec![1, n_heads, head_dim])?;
         let token_rope = new_token.rope(5 + i)?; // position_offset = prompt_len + i
 
-        assert_eq!(token_rope.shape(), vec![1, n_heads, head_dim]);
+        assert_eq!(token_rope.shape().dims(), &[1, n_heads, head_dim]);
 
         // Check no NaN
         let result = token_rope.sync_and_read();

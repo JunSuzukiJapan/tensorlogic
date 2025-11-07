@@ -284,7 +284,7 @@ fn test_f16_softmax_basic() -> TensorResult<()> {
         vec![1, 3]
     )?;
 
-    let b = a.softmax(1)?; // dim=1
+    let b = a.softmax()?; // dim=1
     let result = b.sync_and_read();
 
     // Softmax properties:
@@ -317,7 +317,7 @@ fn test_f16_softmax_uniform() -> TensorResult<()> {
         vec![1, 4]
     )?;
 
-    let b = a.softmax(1)?;
+    let b = a.softmax()?;
     let result = b.sync_and_read();
 
     // Each should be approximately 0.25
@@ -340,7 +340,7 @@ fn test_f16_softmax_overflow_safety() -> TensorResult<()> {
         vec![1, 3]
     )?;
 
-    let b = a.softmax(1)?;
+    let b = a.softmax()?;
     let result = b.sync_and_read();
 
     // Should not be NaN or Inf
@@ -423,7 +423,7 @@ fn test_f16_f32_activation_comparison() -> TensorResult<()> {
 fn test_f16_activation_with_zeros() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
-    let zeros = Tensor::<f16>::zeros(vec![4])?;
+    let zeros = Tensor::<f16>::zeros(&device, vec![4])?;
 
     // ReLU of zeros should be zeros
     let relu_result = zeros.relu()?;
@@ -495,7 +495,7 @@ fn test_f16_activation_2d() -> TensorResult<()> {
     let result = b.sync_and_read();
 
     assert_eq!(result.len(), 6);
-    assert_eq!(b.shape(), vec![2, 3]);
+    assert_eq!(b.shape().dims(), &[2, 3]);
 
     println!("✓ f16 activation 2D test passed");
     Ok(())
@@ -510,13 +510,13 @@ fn test_f16_activation_batched() -> TensorResult<()> {
     let batch_size = 4;
     let features = 8;
 
-    let a = Tensor::<f16>::ones(vec![batch_size, features])?;
+    let a = Tensor::<f16>::ones(&device, vec![batch_size, features])?;
 
     let b = a.relu()?;
-    assert_eq!(b.shape(), vec![batch_size, features]);
+    assert_eq!(b.shape().dims(), &[batch_size, features]);
 
     let c = a.sigmoid()?;
-    assert_eq!(c.shape(), vec![batch_size, features]);
+    assert_eq!(c.shape().dims(), &[batch_size, features]);
 
     println!("✓ f16 activation batched test passed");
     Ok(())

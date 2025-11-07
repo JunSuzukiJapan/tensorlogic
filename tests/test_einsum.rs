@@ -150,7 +150,7 @@ fn test_einsum_attention_output() -> TensorResult<()> {
         1.0 / seq_k as f32,
         vec![seq_q, heads, seq_k]
     )?;
-    let v = Tensor::<f32>::ones(vec![seq_k, heads, head_dim])?;
+    let v = Tensor::<f32>::ones(&device, vec![seq_k, heads, head_dim])?;
 
     let output = Tensor::einsum("ihj,jhd->ihd", &[&attn, &v])?;
     let result = output.sync_and_read();

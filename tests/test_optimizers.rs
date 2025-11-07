@@ -284,7 +284,7 @@ fn test_adam_zero_grad() -> TensorResult<()> {
 #[test]
 fn test_adamw_creation() -> TensorResult<()> {
     let param = Tensor::from_vec(vec![f16::ONE; 10], vec![10])?;
-    let optimizer = AdamW::new(vec![param], 0.001, 0.01);
+    let optimizer = AdamW::new(vec![param], 0.001);
 
     assert_eq!(optimizer.get_lr(), 0.001);
 
@@ -304,7 +304,7 @@ fn test_adamw_basic_step() -> TensorResult<()> {
 
     AutogradContext::register_tensor_generic(x.grad_node().unwrap(), x.clone());
 
-    let mut optimizer = AdamW::new(vec![x.clone()], 0.1, 0.01);
+    let mut optimizer = AdamW::new(vec![x.clone()], 0.1);
 
     let before = x.sync_and_read()[0].to_f32();
     optimizer.step()?;

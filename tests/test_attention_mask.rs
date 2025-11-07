@@ -473,7 +473,7 @@ fn test_mask_with_softmax() -> TensorResult<()> {
     let masked_scores = scores.apply_attention_mask(&mask)?;
 
     // Apply softmax
-    let softmax_output = masked_scores.softmax(1)?; // dim=1
+    let softmax_output = masked_scores.softmax()?; // dim=1
     let data = softmax_output.sync_and_read();
 
     // Middle position should be very close to 0
@@ -508,7 +508,7 @@ fn test_causal_attention_simulation() -> TensorResult<()> {
     let masked_scores = scores.apply_attention_mask(&causal_mask)?;
 
     // Apply softmax
-    let attn_weights = masked_scores.softmax(1)?; // softmax over keys (dim=1)
+    let attn_weights = masked_scores.softmax()?; // softmax over keys (dim=1)
     let data = attn_weights.sync_and_read();
 
     // For each query position, check attention weights

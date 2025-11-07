@@ -193,7 +193,7 @@ fn test_rope_position_encoding_math() {
 
 #[test]
 #[serial]
-fn test_attention_scaling_factor() {
+fn test_attention_scaling_factor() -> TensorResult<()> {
     // Verify attention uses correct scaling factor (1/sqrt(head_dim))
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -203,6 +203,7 @@ fn test_attention_scaling_factor() {
 
     println!("\nTesting attention scaling factor:");
     println!("  head_dim: {}", head_dim);
+    let device = MetalDevice::new()?;
     println!("  Expected scale: {} (1/sqrt({}))", scale, head_dim);
 
     // Create simple Q and K with known dot product
@@ -234,11 +235,12 @@ fn test_attention_scaling_factor() {
             "Scaled attention should be {}, got {}", scale, scaled_data[0]);
 
     println!("\n✅ Attention scaling factor is correct!");
+    Ok(())
 }
 
 #[test]
 #[serial]
-fn test_gqa_repeat_kv() {
+fn test_gqa_repeat_kv() -> TensorResult<()> {
     // Test Grouped Query Attention K/V repetition
     // TinyLlama: 32 Q heads, 4 KV heads -> n_rep = 8
     let device = MetalDevice::new().expect("Failed to create Metal device");
@@ -250,6 +252,7 @@ fn test_gqa_repeat_kv() {
 
     println!("\nTesting GQA K/V repetition:");
     println!("  n_q_heads: {}", n_q_heads);
+    let device = MetalDevice::new()?;
     println!("  n_kv_heads: {}", n_kv_heads);
     println!("  n_rep: {}", n_rep);
     println!("  head_dim: {}", head_dim);
@@ -305,11 +308,12 @@ fn test_gqa_repeat_kv() {
     }
 
     println!("\n✅ GQA K/V repetition is correct!");
+    Ok(())
 }
 
 #[test]
 #[serial]
-fn test_llm_attention_full_pipeline() {
+fn test_llm_attention_full_pipeline() -> TensorResult<()> {
     // Test full attention pipeline with LLM-realistic settings
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -325,6 +329,7 @@ fn test_llm_attention_full_pipeline() {
 
     println!("\nTesting LLM attention pipeline:");
     println!("  DECODE phase: seq_len={}, cache_len={}", seq_len, cache_len);
+    let device = MetalDevice::new()?;
     println!("  n_heads={}, n_kv_heads={}, head_dim={}", n_heads, n_kv_heads, head_dim);
     println!("  Q shape: [{}, {}]", seq_len, n_embd);
     println!("  K shape: [{}, {}]", cache_len, kv_embd);
@@ -364,11 +369,12 @@ fn test_llm_attention_full_pipeline() {
 
     println!("  GQA n_rep: {} ({}x repetition)", n_rep, n_rep);
     println!("\n✅ LLM attention pipeline shapes are correct!");
+    Ok(())
 }
 
 #[test]
 #[serial]
-fn test_rope_llm_settings() {
+fn test_rope_llm_settings() -> TensorResult<()> {
     // Test RoPE with realistic LLM settings
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -379,6 +385,7 @@ fn test_rope_llm_settings() {
 
     println!("\nTesting RoPE with LLM settings:");
     println!("  n_heads: {}, head_dim: {}, n_embd: {}", n_heads, head_dim, n_embd);
+    let device = MetalDevice::new()?;
 
     // Test with DECODE phase: seq_len=1, position=34 (after PREFILL of 34 tokens)
     let seq_len = 1;
@@ -423,11 +430,12 @@ fn test_rope_llm_settings() {
     }
 
     println!("\n✅ RoPE with LLM settings is correct!");
+    Ok(())
 }
 
 #[test]
 #[serial]
-fn test_rms_norm_llm_settings() {
+fn test_rms_norm_llm_settings() -> TensorResult<()> {
     // Test RMS Normalization with realistic LLM settings
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -438,6 +446,7 @@ fn test_rms_norm_llm_settings() {
 
     println!("\nTesting RMS Norm with LLM settings:");
     println!("  n_embd: {}, batch_size: {}", n_embd, batch_size);
+    let device = MetalDevice::new()?;
 
     // Create input tensor [batch_size, n_embd]
     use rand::Rng;
@@ -489,11 +498,12 @@ fn test_rms_norm_llm_settings() {
     }
 
     println!("\n✅ RMS Norm with LLM settings is correct!");
+    Ok(())
 }
 
 #[test]
 #[serial]
-fn test_swiglu_ffn_llm_settings() {
+fn test_swiglu_ffn_llm_settings() -> TensorResult<()> {
     // Test SwiGLU FFN with realistic LLM settings
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -504,6 +514,7 @@ fn test_swiglu_ffn_llm_settings() {
 
     println!("\nTesting SwiGLU FFN with LLM settings:");
     println!("  n_embd: {}, ffn_hidden: {}, seq_len: {}", n_embd, ffn_hidden, seq_len);
+    let device = MetalDevice::new()?;
 
     // Create input [seq_len, n_embd]
     use rand::Rng;
@@ -570,11 +581,12 @@ fn test_swiglu_ffn_llm_settings() {
     assert!(max.abs() > 0.001, "SwiGLU output should not be all zeros");
 
     println!("\n✅ SwiGLU FFN with LLM settings is correct!");
+    Ok(())
 }
 
 #[test]
 #[serial]
-fn test_linear_projection_llm_settings() {
+fn test_linear_projection_llm_settings() -> TensorResult<()> {
     // Test linear projection (fused transpose-matmul) with LLM settings
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -586,6 +598,7 @@ fn test_linear_projection_llm_settings() {
 
     println!("\nTesting linear projection with LLM settings:");
     println!("  seq_len: {}, n_embd: {}", seq_len, n_embd);
+    let device = MetalDevice::new()?;
 
     // Create input [seq_len, n_embd]
     use rand::Rng;
@@ -635,4 +648,5 @@ fn test_linear_projection_llm_settings() {
     assert_eq!(k.dims(), &[seq_len, kv_embd]);
 
     println!("\n✅ Linear projection with LLM settings is correct!");
+    Ok(())
 }

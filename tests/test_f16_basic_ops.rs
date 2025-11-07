@@ -279,7 +279,7 @@ fn test_f16_addition_stability() -> TensorResult<()> {
     // Test that f16 addition maintains reasonable precision
     let device = MetalDevice::new()?;
 
-    let a = Tensor::<f16>::ones(vec![100])?;
+    let a = Tensor::<f16>::ones(&device, vec![100])?;
     let mut sum = a.clone();
 
     // Add 1.0 many times
@@ -363,8 +363,8 @@ fn test_f16_zero_operations() -> TensorResult<()> {
     // Test operations with zero
     let device = MetalDevice::new()?;
 
-    let zeros = Tensor::<f16>::zeros(vec![2, 2])?;
-    let ones = Tensor::<f16>::ones(vec![2, 2])?;
+    let zeros = Tensor::<f16>::zeros(&device, vec![2, 2])?;
+    let ones = Tensor::<f16>::ones(&device, vec![2, 2])?;
 
     // Add zeros
     let a = ones.add(&zeros)?;
