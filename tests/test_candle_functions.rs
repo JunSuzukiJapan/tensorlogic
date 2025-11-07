@@ -1,0 +1,418 @@
+/// Tests for Candle-based operations (cndl_* functions)
+///
+/// These tests verify that the Candle-based wrappers work correctly
+/// and produce expected results for various mathematical operations.
+
+use tensorlogic::prelude::*;
+use tensorlogic::interpreter::Interpreter;
+use tensorlogic::parser::TensorLogicParser;
+use serial_test::serial;
+
+/// Helper to run TensorLogic code and return result
+fn run_tl_code(code: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let program = TensorLogicParser::parse_program(code)?;
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)?;
+
+    let result = interpreter.get_variable("result")?;
+    Ok(format!("{:?}", result))
+}
+
+#[test]
+#[serial]
+fn test_cndl_matmul_f32() -> TensorResult<()> {
+    let code = r#"
+        main {
+            a := f32::ones([2, 3])
+            b := f32::ones([3, 4])
+            result := cndl_matmul(a, b)
+            print("cndl_matmul shape:", shape(result))
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    let result = interpreter.get_variable("result")
+        .map_err(|e| TensorError::InvalidOperation(format!("Get variable error: {}", e)))?;
+
+    // Check result shape should be [2, 4]
+    match result {
+        tensorlogic::interpreter::Value::TensorF32(t) => {
+            assert_eq!(t.dims(), &[2, 4]);
+            println!("✓ cndl_matmul f32 test passed");
+        }
+        _ => panic!("Expected TensorF32"),
+    }
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_cndl_softmax_f32() -> TensorResult<()> {
+    let code = r#"
+        main {
+            x := f32::ones([2, 4])
+            result := cndl_softmax(x, -1)
+            print("cndl_softmax result:", result)
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    let result = interpreter.get_variable("result")
+        .map_err(|e| TensorError::InvalidOperation(format!("Get variable error: {}", e)))?;
+
+    match result {
+        tensorlogic::interpreter::Value::TensorF32(t) => {
+            assert_eq!(t.dims(), &[2, 4]);
+
+            // Check that softmax output sums to 1 along last dimension
+            let data = t.buffer().to_cpu_vec();
+
+            // Sum along last dimension (dim=1) for each row
+            for i in 0..2 {
+                let row_sum: f32 = (0..4).map(|j| data[i * 4 + j]).sum();
+                assert!((row_sum - 1.0).abs() < 1e-3, "Softmax should sum to 1, got {}", row_sum);
+            }
+
+            println!("✓ cndl_softmax f32 test passed");
+        }
+        _ => panic!("Expected TensorF32"),
+    }
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_cndl_gelu_f32() -> TensorResult<()> {
+    let code = r#"
+        main {
+            x := f32::from_array([0.0, 1.0, -1.0, 2.0])
+            result := cndl_gelu(x)
+            print("cndl_gelu result:", result)
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    let result = interpreter.get_variable("result")
+        .map_err(|e| TensorError::InvalidOperation(format!("Get variable error: {}", e)))?;
+
+    match result {
+        tensorlogic::interpreter::Value::TensorF32(t) => {
+            assert_eq!(t.dims(), &[4]);
+
+            let data = t.buffer().to_cpu_vec();
+
+            // GELU(0) should be close to 0
+            assert!(data[0].abs() < 0.01, "GELU(0) should be ~0, got {}", data[0]);
+
+            // GELU(1) should be close to 0.841
+            assert!((data[1] - 0.841).abs() < 0.1, "GELU(1) should be ~0.841, got {}", data[1]);
+
+            println!("✓ cndl_gelu f32 test passed");
+        }
+        _ => panic!("Expected TensorF32"),
+    }
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_cndl_silu_f32() -> TensorResult<()> {
+    let code = r#"
+        main {
+            x := f32::from_array([0.0, 1.0, -1.0, 2.0])
+            result := cndl_silu(x)
+            print("cndl_silu result:", result)
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    let result = interpreter.get_variable("result")
+        .map_err(|e| TensorError::InvalidOperation(format!("Get variable error: {}", e)))?;
+
+    match result {
+        tensorlogic::interpreter::Value::TensorF32(t) => {
+            assert_eq!(t.dims(), &[4]);
+
+            let data = t.buffer().to_cpu_vec();
+
+            // SiLU(0) should be close to 0
+            assert!(data[0].abs() < 0.01, "SiLU(0) should be ~0, got {}", data[0]);
+
+            // SiLU(x) = x * sigmoid(x), so SiLU(1) ≈ 1 * 0.731 = 0.731
+            assert!((data[1] - 0.731).abs() < 0.1, "SiLU(1) should be ~0.731, got {}", data[1]);
+
+            println!("✓ cndl_silu f32 test passed");
+        }
+        _ => panic!("Expected TensorF32"),
+    }
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_cndl_relu_f32() -> TensorResult<()> {
+    let code = r#"
+        main {
+            x := f32::from_array([-2.0, -1.0, 0.0, 1.0, 2.0])
+            result := cndl_relu(x)
+            print("cndl_relu result:", result)
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    let result = interpreter.get_variable("result")
+        .map_err(|e| TensorError::InvalidOperation(format!("Get variable error: {}", e)))?;
+
+    match result {
+        tensorlogic::interpreter::Value::TensorF32(t) => {
+            assert_eq!(t.dims(), &[5]);
+
+            let data = t.buffer().to_cpu_vec();
+            let expected = vec![0.0, 0.0, 0.0, 1.0, 2.0];
+
+            for (i, (&result, &expected)) in data.iter().zip(expected.iter()).enumerate() {
+                assert!((result - expected).abs() < 1e-5,
+                    "ReLU mismatch at index {}: got {}, expected {}", i, result, expected);
+            }
+
+            println!("✓ cndl_relu f32 test passed");
+        }
+        _ => panic!("Expected TensorF32"),
+    }
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_cndl_tanh_f32() -> TensorResult<()> {
+    let code = r#"
+        main {
+            x := f32::from_array([0.0, 1.0, -1.0])
+            result := cndl_tanh(x)
+            print("cndl_tanh result:", result)
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    let result = interpreter.get_variable("result")
+        .map_err(|e| TensorError::InvalidOperation(format!("Get variable error: {}", e)))?;
+
+    match result {
+        tensorlogic::interpreter::Value::TensorF32(t) => {
+            assert_eq!(t.dims(), &[3]);
+
+            let data = t.buffer().to_cpu_vec();
+
+            // tanh(0) should be 0
+            assert!(data[0].abs() < 1e-5, "tanh(0) should be 0, got {}", data[0]);
+
+            // tanh(1) should be ~0.762
+            assert!((data[1] - 0.762).abs() < 0.01, "tanh(1) should be ~0.762, got {}", data[1]);
+
+            // tanh(-1) should be ~-0.762
+            assert!((data[2] + 0.762).abs() < 0.01, "tanh(-1) should be ~-0.762, got {}", data[2]);
+
+            println!("✓ cndl_tanh f32 test passed");
+        }
+        _ => panic!("Expected TensorF32"),
+    }
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_cndl_transpose_f32() -> TensorResult<()> {
+    let code = r#"
+        main {
+            x := f32::ones([2, 3, 4])
+            result := cndl_transpose(x, 0, 2)
+            print("cndl_transpose shape:", shape(result))
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    let result = interpreter.get_variable("result")
+        .map_err(|e| TensorError::InvalidOperation(format!("Get variable error: {}", e)))?;
+
+    match result {
+        tensorlogic::interpreter::Value::TensorF32(t) => {
+            // Shape should be [4, 3, 2] after transposing dims 0 and 2
+            assert_eq!(t.dims(), &[4, 3, 2]);
+            println!("✓ cndl_transpose f32 test passed");
+        }
+        _ => panic!("Expected TensorF32"),
+    }
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_cndl_rms_norm_f32() -> TensorResult<()> {
+    let code = r#"
+        main {
+            x := f32::ones([2, 4])
+            result := cndl_rms_norm(x)
+            print("cndl_rms_norm result:", result)
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    let result = interpreter.get_variable("result")
+        .map_err(|e| TensorError::InvalidOperation(format!("Get variable error: {}", e)))?;
+
+    match result {
+        tensorlogic::interpreter::Value::TensorF32(t) => {
+            assert_eq!(t.dims(), &[2, 4]);
+
+            let data = t.buffer().to_cpu_vec();
+
+            // For ones tensor, RMS norm should give 1.0 for each element
+            for (i, &val) in data.iter().enumerate() {
+                assert!((val - 1.0).abs() < 0.01,
+                    "RMS norm of ones should be ~1.0, got {} at index {}", val, i);
+            }
+
+            println!("✓ cndl_rms_norm f32 test passed");
+        }
+        _ => panic!("Expected TensorF32"),
+    }
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+#[ignore] // This test requires proper implementation of embedding lookup
+fn test_cndl_embedding_f32() -> TensorResult<()> {
+    let code = r#"
+        main {
+            // Create embedding table: 5 words, 3 dims each
+            embeddings := f32::from_array([[1.0, 2.0, 3.0],
+                                          [4.0, 5.0, 6.0],
+                                          [7.0, 8.0, 9.0],
+                                          [10.0, 11.0, 12.0],
+                                          [13.0, 14.0, 15.0]])
+            // Get embedding for word 2
+            result := cndl_embedding(2, embeddings)
+            print("cndl_embedding result:", result)
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    let result = interpreter.get_variable("result")
+        .map_err(|e| TensorError::InvalidOperation(format!("Get variable error: {}", e)))?;
+
+    match result {
+        tensorlogic::interpreter::Value::TensorF32(t) => {
+            assert_eq!(t.dims(), &[3]);
+
+            let data = t.buffer().to_cpu_vec();
+            let expected = vec![7.0, 8.0, 9.0];
+
+            for (i, (&result, &expected)) in data.iter().zip(expected.iter()).enumerate() {
+                assert!((result - expected).abs() < 1e-5,
+                    "Embedding mismatch at index {}: got {}, expected {}", i, result, expected);
+            }
+
+            println!("✓ cndl_embedding f32 test passed");
+        }
+        _ => panic!("Expected TensorF32"),
+    }
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+#[ignore] // This test requires proper RoPE implementation with Candle
+fn test_cndl_rope_f32() -> TensorResult<()> {
+    let code = r#"
+        main {
+            // Create input: [seq_len=2, n_heads=1, head_dim=4]
+            x := f32::ones([2, 1, 4])
+            result := cndl_rope(x, 0, 10000.0)
+            print("cndl_rope result:", result)
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    let result = interpreter.get_variable("result")
+        .map_err(|e| TensorError::InvalidOperation(format!("Get variable error: {}", e)))?;
+
+    match result {
+        tensorlogic::interpreter::Value::TensorF32(t) => {
+            assert_eq!(t.dims(), &[2, 1, 4]);
+            println!("✓ cndl_rope f32 test passed");
+        }
+        _ => panic!("Expected TensorF32"),
+    }
+
+    Ok(())
+}
