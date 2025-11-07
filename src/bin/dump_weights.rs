@@ -1,7 +1,7 @@
 use std::env;
 use tensorlogic::device::MetalDevice;
 use tensorlogic::model::Model;
-use tensorlogic::tensor::{TensorAccessors, TensorIO};
+use tensorlogic::tensor::TensorIO;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

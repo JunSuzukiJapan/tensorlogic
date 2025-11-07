@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 //! Comprehensive tests for reshape and transformation operations
 //! Tests reshape, flatten, transpose, permute with various shapes and edge cases
 

@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 /// Comprehensive tests for Rotary Position Embedding (RoPE)
 ///
 /// RoPE is a crucial component for LLM position encoding.

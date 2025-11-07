@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 //! Integration tests for multi-operation pipelines
 //! Tests combinations of operations that represent real-world usage patterns
 
@@ -197,8 +198,8 @@ fn test_batch_normalization_pattern() -> TensorResult<()> {
     )?;
 
     let mean = x.mean_dim(0, true)?;
-    let gamma = Tensor::ones(vec![1, 5])?;
-    let beta = Tensor::zeros(vec![1, 5])?;
+    let gamma = Tensor::<f16>::ones(&device, vec![1, 5])?;
+    let beta = Tensor::<f16>::zeros(&device, vec![1, 5])?;
 
     // Broadcast mean to x's shape
     let target_shape = TensorShape::new(vec![4, 5]);
@@ -308,8 +309,8 @@ fn test_mlp_forward_pass() -> TensorResult<()> {
     )?;
 
     // Layer 1: Linear + ReLU
-    let w1 = Tensor::ones(vec![input_dim, hidden_dim])?;
-    let b1 = Tensor::zeros(vec![1, hidden_dim])?;
+    let w1 = Tensor::<f16>::ones(&device, vec![input_dim, hidden_dim])?;
+    let b1 = Tensor::zeros(&device, vec![1, hidden_dim])?;
 
     let h = x.matmul(&w1)?;
     let target_shape = TensorShape::new(vec![batch_size, hidden_dim]);
@@ -318,14 +319,14 @@ fn test_mlp_forward_pass() -> TensorResult<()> {
     let h = h.relu()?;
 
     // Layer 2: Linear + Softmax
-    let w2 = Tensor::ones(vec![hidden_dim, output_dim])?;
-    let b2 = Tensor::zeros(vec![1, output_dim])?;
+    let w2 = Tensor::<f16>::ones(&device, vec![hidden_dim, output_dim])?;
+    let b2 = Tensor::zeros(&device, vec![1, output_dim])?;
 
     let output = h.matmul(&w2)?;
     let target_shape2 = TensorShape::new(vec![batch_size, output_dim]);
     let b2_broadcast = b2.broadcast_to(&target_shape2)?;
     let output = output.add(&b2_broadcast)?;
-    let output = output.softmax().rank() - 1)?;
+    let output = output.softmax()?;
 
     assert_eq!(output.shape().dims(), &[batch_size, output_dim]);
     Ok(())
@@ -338,15 +339,15 @@ fn test_attention_mechanism_simple() -> TensorResult<()> {
     let seq_len = 4;
     let d_k = 8;
 
-    let q = Tensor::ones(vec![seq_len, d_k])?;
-    let k = Tensor::ones(vec![seq_len, d_k])?;
+    let q = Tensor::<f16>::ones(&device, vec![seq_len, d_k])?;
+    let k = Tensor::<f16>::ones(&device, vec![seq_len, d_k])?;
 
     // Scores = Q @ K^T
     let k_t = k.transpose()?;
     let scores = q.matmul(&k_t)?;
 
     // Apply softmax
-    let attention_weights = scores.softmax().rank() - 1)?;
+    let attention_weights = scores.softmax()?;
 
     assert_eq!(attention_weights.shape().dims(), &[seq_len, seq_len]);
     Ok(())
@@ -362,7 +363,7 @@ fn test_residual_connection() -> TensorResult<()> {
     )?;
 
     // Apply transformation
-    let w = Tensor::ones(vec![5, 5])?;
+    let w = Tensor::<f16>::ones(&device, vec![5, 5])?;
     let transformed = x.matmul(&w)?;
 
     // Residual connection
@@ -414,7 +415,7 @@ fn test_feature_extraction_pipeline() -> TensorResult<()> {
     let features = reshaped.mean_dim(1, false)?;
 
     // Apply transformation
-    let w = Tensor::ones(&device, vec![10])?;
+    let w = Tensor::<f16>::ones(&device, vec![10])?;
     let output = features.mul(&w)?;
 
     assert_eq!(output.shape().dims(), &[10]);
@@ -453,11 +454,11 @@ fn test_multi_branch_pipeline() -> TensorResult<()> {
     )?;
 
     // Branch 1: Simple linear
-    let w1 = Tensor::ones(vec![5, 3])?;
+    let w1 = Tensor::<f16>::ones(&device, vec![5, 3])?;
     let branch1 = x.matmul(&w1)?;
 
     // Branch 2: Linear with activation
-    let w2 = Tensor::ones(vec![5, 3])?;
+    let w2 = Tensor::<f16>::ones(&device, vec![5, 3])?;
     let branch2_linear = x.matmul(&w2)?;
     let branch2 = branch2_linear.relu()?;
 
@@ -506,7 +507,7 @@ fn test_batch_processing_pipeline() -> TensorResult<()> {
         )?;
 
         // Process batch
-        let w = Tensor::ones(vec![5, 2])?;
+        let w = Tensor::<f16>::ones(&device, vec![5, 2])?;
         let processed = batch.matmul(&w)?;
         let activated = processed.relu()?;
         let aggregated = activated.sum_dim(0, false)?;
@@ -537,12 +538,12 @@ fn test_inference_pipeline() -> TensorResult<()> {
     let normalized = input.sub(&mean)?.div(&std)?;
 
     // Forward pass
-    let w = Tensor::ones(vec![10, 5])?;
+    let w = Tensor::<f16>::ones(&device, vec![10, 5])?;
     let output = normalized.matmul(&w)?;
     let activated = output.relu()?;
 
     // Softmax for probabilities
-    let probs = activated.softmax().rank() - 1)?;
+    let probs = activated.softmax()?;
 
     assert_eq!(probs.shape().dims(), &[1, 5]);
     Ok(())
@@ -552,12 +553,12 @@ fn test_inference_pipeline() -> TensorResult<()> {
 fn test_training_step_simulation() -> TensorResult<()> {
     let device = MetalDevice::new()?;
     // Simulate single training step (forward only, no autograd)
-    let x = Tensor::ones(vec![8, 10])?; // batch_size=8, features=10
-    let y_true = Tensor::ones(vec![8, 3])?; // 3 classes
+    let x = Tensor::<f16>::ones(&device, vec![8, 10])?; // batch_size=8, features=10
+    let y_true = Tensor::<f16>::ones(&device, vec![8, 3])?; // 3 classes
 
     // Forward pass
-    let w = Tensor::ones(vec![10, 3])?;
-    let b = Tensor::zeros(vec![1, 3])?;
+    let w = Tensor::<f16>::ones(&device, vec![10, 3])?;
+    let b = Tensor::<f16>::zeros(&device, vec![1, 3])?;
 
     let logits = x.matmul(&w)?;
     let target_shape = TensorShape::new(vec![8, 3]);
@@ -565,7 +566,7 @@ fn test_training_step_simulation() -> TensorResult<()> {
     let logits = logits.add(&b_broadcast)?;
 
     // Softmax
-    let probs = logits.softmax().rank() - 1)?;
+    let probs = logits.softmax()?;
 
     // Loss (simplified)
     let diff = probs.sub(&y_true)?;
@@ -582,12 +583,12 @@ fn test_transformer_layer_components() -> TensorResult<()> {
     let seq_len = 4;
     let d_model = 8;
 
-    let x = Tensor::ones(vec![seq_len, d_model])?;
+    let x = Tensor::<f16>::ones(&device, vec![seq_len, d_model])?;
 
     // Multi-head attention (simplified)
-    let q_proj = Tensor::ones(vec![d_model, d_model])?;
-    let k_proj = Tensor::ones(vec![d_model, d_model])?;
-    let v_proj = Tensor::ones(vec![d_model, d_model])?;
+    let q_proj = Tensor::<f16>::ones(&device, vec![d_model, d_model])?;
+    let k_proj = Tensor::<f16>::ones(&device, vec![d_model, d_model])?;
+    let v_proj = Tensor::<f16>::ones(&device, vec![d_model, d_model])?;
 
     let q = x.matmul(&q_proj)?;
     let k = x.matmul(&k_proj)?;
@@ -596,7 +597,7 @@ fn test_transformer_layer_components() -> TensorResult<()> {
     // Attention scores
     let k_t = k.transpose()?;
     let scores = q.matmul(&k_t)?;
-    let attn_weights = scores.softmax().rank() - 1)?;
+    let attn_weights = scores.softmax()?;
 
     // Attention output
     let attn_output = attn_weights.matmul(&v)?;

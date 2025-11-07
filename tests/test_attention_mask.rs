@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 /// Comprehensive tests for Attention Masking operations
 ///
 /// Attention masking is crucial for Transformer models, especially:
@@ -17,6 +18,7 @@
 use tensorlogic::prelude::*;
 
 // Helper function to assert f16 tensors are close
+#[allow(dead_code)]
 fn assert_tensor_close_f16(result: &[f16], expected: &[f16], epsilon: f32) {
     assert_eq!(result.len(), expected.len(), "Length mismatch");
     for (i, (&r, &e)) in result.iter().zip(expected.iter()).enumerate() {

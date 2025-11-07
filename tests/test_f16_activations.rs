@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 /// Comprehensive tests for f16 activation functions
 ///
 /// Activation functions are critical for neural networks.
@@ -13,7 +14,7 @@
 
 use tensorlogic::device::MetalDevice;
 use tensorlogic::error::TensorResult;
-use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO, TensorAccessors};
+use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO};
 use half::f16;
 use serial_test::serial;
 

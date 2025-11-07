@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 //! Comprehensive tests for reduction operations
 //! Tests sum, mean, max, min, argmax, argmin with various axes and edge cases
 

@@ -21,6 +21,7 @@ pub mod error_reporting;
 pub mod interpreter;
 pub mod lexer;
 pub mod logic;
+pub mod lsp;
 pub mod model;
 pub mod ops;
 pub mod optim;

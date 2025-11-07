@@ -2248,7 +2248,7 @@ impl TensorLogicParser {
     }
 
     fn parse_impl_block(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<ImplBlock, ParseError> {
-        let mut inner = pair.into_inner();
+        let inner = pair.into_inner();
 
         let mut type_params = Vec::new();
         let mut trait_name = None;

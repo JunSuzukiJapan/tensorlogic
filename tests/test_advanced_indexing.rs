@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 //! Comprehensive tests for advanced indexing operations
 //! Tests gather, scatter, and embedding lookup operations
 
