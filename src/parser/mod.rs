@@ -2573,53 +2573,16 @@ impl TensorLogicParser {
         }
 
         if arms.is_empty() {
-            return Err(ParseError::InvalidSyntax("match expression must have at least one arm".to_string()));
+            return Err(ParseError::InvalidValue("match expression must have at least one arm".to_string()));
         }
 
         Ok(TensorExpr::Match { expr, arms })
     }
 
     fn parse_match_arm(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<MatchArm, ParseError> {
-        let mut inner = pair.into_inner();
-
-        // Parse pattern
-        let pattern = Self::parse_pattern(inner.next().ok_or_else(|| {
-            ParseError::MissingField("pattern in match arm".to_string())
-        })?)?;
-
-        let mut guard = None;
-        let mut body = None;
-
-        // Parse guard (if present) and body
-        for item in inner {
-            match item.as_rule() {
-                Rule::tensor_expr => {
-                    if body.is_none() {
-                        // If we haven't seen a body yet, check if this is a guard or body
-                        // The grammar says: pattern ~ ("if" ~ tensor_expr)? ~ "=>" ~ tensor_expr
-                        // So if we have a guard, it comes before the body
-                        if guard.is_none() {
-                            // Try to determine if this is a guard or body
-                            // In our grammar, guards are explicitly marked with "if"
-                            // But since pest combines them, we need to check position
-                            // For now, let's assume the first tensor_expr after pattern is guard if there are 2
-                            // and the second is body, or the first is body if there's only 1
-                            guard = Some(Self::parse_tensor_expr(item, registry)?);
-                        } else {
-                            body = Some(Self::parse_tensor_expr(item, registry)?);
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // Actually, we need to rethink this. The grammar has:
+        // The grammar has:
         // match_arm = { pattern ~ ("if" ~ tensor_expr)? ~ "=>" ~ tensor_expr }
         // Pest will give us the pattern and one or two tensor_exprs
-        // We need to handle this more carefully
-
-        // Let's re-parse more carefully
         let mut inner = pair.into_inner();
         let pattern = Self::parse_pattern(inner.next().ok_or_else(|| {
             ParseError::MissingField("pattern in match arm".to_string())
@@ -2643,7 +2606,7 @@ impl TensorLogicParser {
                 )
             }
             _ => {
-                return Err(ParseError::InvalidSyntax(
+                return Err(ParseError::InvalidValue(
                     "match arm must have 1 or 2 expressions (guard and body)".to_string()
                 ));
             }
@@ -2687,12 +2650,12 @@ impl TensorLogicParser {
                 let num_str = inner.as_str();
                 if num_str.contains('.') {
                     let f = num_str.parse::<f64>().map_err(|_| {
-                        ParseError::InvalidSyntax(format!("invalid float pattern: {}", num_str))
+                        ParseError::InvalidValue(format!("invalid float pattern: {}", num_str))
                     })?;
                     Ok(Pattern::Float(f))
                 } else {
                     let i = num_str.parse::<i64>().map_err(|_| {
-                        ParseError::InvalidSyntax(format!("invalid integer pattern: {}", num_str))
+                        ParseError::InvalidValue(format!("invalid integer pattern: {}", num_str))
                     })?;
                     Ok(Pattern::Integer(i))
                 }

@@ -1270,8 +1270,28 @@ impl Interpreter {
                                 // CRITICAL: Make contiguous copy to ensure independent buffers per layer
                                 // Without this, all layers share the same buffer and overwrite each other
                                 use crate::tensor::TensorTransform;
+
+                                // Debug: print buffer pointers before and after contiguous()
+                                if std::env::var("TL_DEBUG_CACHE").is_ok() {
+                                    use crate::tensor::TensorAccessors;
+                                    if let Ok(buf) = k.buffer().as_metal() {
+                                        eprintln!("[KVCache.set f32] Layer {} BEFORE contiguous: k buffer ptr: {:p}, v buffer ptr: {:p}",
+                                            layer_idx, std::sync::Arc::as_ptr(&buf.buffer),
+                                            std::sync::Arc::as_ptr(&v.buffer().as_metal().unwrap().buffer));
+                                    }
+                                }
+
                                 let k_copy = k.contiguous().map_err(|e| RuntimeError::TensorError(e))?;
                                 let v_copy = v.contiguous().map_err(|e| RuntimeError::TensorError(e))?;
+
+                                if std::env::var("TL_DEBUG_CACHE").is_ok() {
+                                    use crate::tensor::TensorAccessors;
+                                    if let Ok(buf) = k_copy.buffer().as_metal() {
+                                        eprintln!("[KVCache.set f32] Layer {} AFTER contiguous: k_copy buffer ptr: {:p}, v_copy buffer ptr: {:p}",
+                                            layer_idx, std::sync::Arc::as_ptr(&buf.buffer),
+                                            std::sync::Arc::as_ptr(&v_copy.buffer().as_metal().unwrap().buffer));
+                                    }
+                                }
 
                                 cache.kvs[layer_idx] = Some((k_copy, v_copy));
                                 Ok(Value::Void)

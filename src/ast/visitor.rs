@@ -269,6 +269,16 @@ pub fn walk_tensor_expr<V: Visitor>(visitor: &mut V, expr: &TensorExpr) -> Resul
             }
             Ok(())
         }
+        TensorExpr::Match { expr, arms } => {
+            visitor.visit_tensor_expr(expr)?;
+            for arm in arms {
+                if let Some(guard) = &arm.guard {
+                    visitor.visit_tensor_expr(guard)?;
+                }
+                visitor.visit_tensor_expr(&arm.body)?;
+            }
+            Ok(())
+        }
     }
 }
 

@@ -790,6 +790,15 @@ impl TypeChecker {
                     ReturnType::Void => Err(TypeError::CannotInferType),
                 }
             }
+
+            TensorExpr::Match { expr: _, arms } => {
+                // For match expressions, infer type from first arm's body
+                // TODO: Verify all arms have compatible types
+                if arms.is_empty() {
+                    return Err(TypeError::CannotInferType);
+                }
+                self.infer_expr_type(&arms[0].body)
+            }
         }
     }
 

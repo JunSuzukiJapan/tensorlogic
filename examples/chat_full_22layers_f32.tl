@@ -693,3 +693,89 @@ main {
     print("=== Generation Complete ===")
     print("Tokens generated: {}", token_count)
 }
+
+test k_cache_buffer_isolation {
+    print("=== TEST: K cache buffer isolation ===")
+    print("")
+
+    // Load model
+    let home = env("HOME")
+    let model = load_model_f32(home + "/.llm/models/tinyllama-1.1b-chat-f16.gguf")
+    let tokenizer = load_tokenizer(home + "/.llm/tokenizers/tinyllama-tokenizer.json")
+
+    let tok_embd = model.token_embd.weight
+    let L0 = model.blk[0]
+    let L1 = model.blk[1]
+    let L2 = model.blk[2]
+
+    // Create input embedding
+    let chat_prompt = "<|system|>\nYou are a helpful assistant.</s>\n<|user|>\nHello!</s>\n<|assistant|>\n"
+    let tokens = tokenizer.tokenize(chat_prompt, true)
+    let x = embedding(tok_embd, tokens)
+    let seq_len = 34.0
+
+    print("Step 1: Computing K0_raw = linear(x, L0.attn_k.weight)")
+    let K0_raw = linear(x, L0.attn_k.weight)
+    print("  K0_raw shape: {}", shape(K0_raw))
+
+    print("Step 2: Computing K0 = apply_rope_k(K0_raw, seq_len, 0.0)")
+    let K0 = apply_rope_k(K0_raw, seq_len, 0.0)
+    print("  K0 shape: {}", shape(K0))
+
+    print("Step 3: Computing K1_raw = linear(x, L1.attn_k.weight)")
+    let K1_raw = linear(x, L1.attn_k.weight)
+    print("  K1_raw shape: {}", shape(K1_raw))
+
+    print("Step 4: Computing K1 = apply_rope_k(K1_raw, seq_len, 0.0)")
+    let K1 = apply_rope_k(K1_raw, seq_len, 0.0)
+    print("  K1 shape: {}", shape(K1))
+
+    print("Step 5: Computing K2_raw = linear(x, L2.attn_k.weight)")
+    let K2_raw = linear(x, L2.attn_k.weight)
+    print("  K2_raw shape: {}", shape(K2_raw))
+
+    print("Step 6: Computing K2 = apply_rope_k(K2_raw, seq_len, 0.0)")
+    let K2 = apply_rope_k(K2_raw, seq_len, 0.0)
+    print("  K2 shape: {}", shape(K2))
+
+    print("")
+    print("Step 7: Creating KV cache and storing K0, K1, K2")
+    let kv_cache = KVCache::new_f32(3)
+    let V0 = linear(x, L0.attn_v.weight)
+    let V1 = linear(x, L1.attn_v.weight)
+    let V2 = linear(x, L2.attn_v.weight)
+
+    kv_cache.set(0, K0, V0)
+    kv_cache.set(1, K1, V1)
+    kv_cache.set(2, K2, V2)
+
+    print("Step 8: Retrieving from cache")
+    let retrieved_K0 = kv_cache.get_k(0)
+    let retrieved_K1 = kv_cache.get_k(1)
+    let retrieved_K2 = kv_cache.get_k(2)
+
+    print("  Retrieved K0 shape: {}", shape(retrieved_K0))
+    print("  Retrieved K1 shape: {}", shape(retrieved_K1))
+    print("  Retrieved K2 shape: {}", shape(retrieved_K2))
+
+    print("")
+    print("Step 9: Testing attention with each cache (this will print K cache values)")
+    let Q0 = linear(x, L0.attn_q.weight)
+    let Q0_rope = apply_rope_q(Q0, seq_len, 0.0)
+    print("  Calling attention_with_cache for Layer 0...")
+    let attn0 = attention_with_cache(Q0_rope, retrieved_K0, V0, L0.attn_output.weight)
+
+    let Q1 = linear(x, L1.attn_q.weight)
+    let Q1_rope = apply_rope_q(Q1, seq_len, 0.0)
+    print("  Calling attention_with_cache for Layer 1...")
+    let attn1 = attention_with_cache(Q1_rope, retrieved_K1, V1, L1.attn_output.weight)
+
+    let Q2 = linear(x, L2.attn_q.weight)
+    let Q2_rope = apply_rope_q(Q2, seq_len, 0.0)
+    print("  Calling attention_with_cache for Layer 2...")
+    let attn2 = attention_with_cache(Q2_rope, retrieved_K2, V2, L2.attn_output.weight)
+
+    print("")
+    print("✓ Test complete - check K cache values in debug output above")
+    print("  If all layers show same K cache values, buffers are being shared incorrectly")
+}

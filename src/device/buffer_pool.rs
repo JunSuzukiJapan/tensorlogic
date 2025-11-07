@@ -403,6 +403,20 @@ impl BufferPool {
             );
         }
 
+        // CRITICAL FIX: Check Arc reference count before returning to pool
+        // If there are other references (strong_count > 1), don't return to pool
+        // to prevent buffer sharing between layers
+        let ref_count = Arc::strong_count(buffer);
+        if ref_count > 1 {
+            if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+                eprintln!(
+                    "[BufferPool::try_return_buffer] ✗ buffer has {} references, not returning to pool (size_class={})",
+                    ref_count, size_class
+                );
+            }
+            return; // Don't return to pool, let it be freed
+        }
+
         let buffers = pools.entry(size_class).or_insert_with(Vec::new);
 
         // Only add if we haven't reached the limit
