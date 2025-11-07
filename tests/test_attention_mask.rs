@@ -14,9 +14,7 @@
 /// - Various sequence lengths and batch sizes
 /// - Error cases
 
-use tensorlogic::error::TensorResult;
-use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO, TensorAccessors};
-use half::f16;
+use tensorlogic::prelude::*;
 
 // Helper function to assert f16 tensors are close
 fn assert_tensor_close_f16(result: &[f16], expected: &[f16], epsilon: f32) {
@@ -163,7 +161,7 @@ fn test_padding_mask_basic() -> TensorResult<()> {
     assert_eq!(data[6], f16::ONE);
     assert_eq!(data[7], f16::ZERO);
 
-    assert_eq!(0.shape().dims(), &[2, 4]);
+    assert_eq!(mask.shape().dims(), &[2, 4]);
 
     println!("✓ Padding mask basic test passed");
     Ok(())
@@ -180,7 +178,7 @@ fn test_padding_mask_no_padding() -> TensorResult<()> {
         assert_eq!(val, f16::ONE);
     }
 
-    assert_eq!(0.shape().dims(), &[3, 4]);
+    assert_eq!(mask.shape().dims(), &[3, 4]);
 
     println!("✓ Padding mask no padding test passed");
     Ok(())
@@ -197,7 +195,7 @@ fn test_padding_mask_all_padding() -> TensorResult<()> {
         assert_eq!(val, f16::ZERO);
     }
 
-    assert_eq!(0.shape().dims(), &[2, 4]);
+    assert_eq!(mask.shape().dims(), &[2, 4]);
 
     println!("✓ Padding mask all padding test passed");
     Ok(())
@@ -212,7 +210,7 @@ fn test_padding_mask_various_lengths() -> TensorResult<()> {
     let mask = Tensor::<f16>::padding_mask(&lengths, max_len)?;
     let data = mask.sync_and_read();
 
-    assert_eq!(0.shape().dims(), &[lengths.len(), max_len]);
+    assert_eq!(mask.shape().dims(), &[lengths.len(), max_len]);
 
     // Verify each sequence
     for (seq_idx, &len) in lengths.iter().enumerate() {
@@ -246,7 +244,7 @@ fn test_padding_mask_single_sequence() -> TensorResult<()> {
 
     // Expected: [1, 1, 1, 0, 0]
     assert_eq!(data, vec![f16::ONE, f16::ONE, f16::ONE, f16::ZERO, f16::ZERO]);
-    assert_eq!(0.shape().dims(), &[1, 5]);
+    assert_eq!(mask.shape().dims(), &[1, 5]);
 
     println!("✓ Padding mask single sequence test passed");
     Ok(())
@@ -558,7 +556,7 @@ fn test_causal_mask_large_sequence() -> TensorResult<()> {
 
     let mask = Tensor::<f16>::causal_mask(seq_len)?;
 
-    assert_eq!(0.shape().dims(), &[seq_len, seq_len]);
+    assert_eq!(mask.shape().dims(), &[seq_len, seq_len]);
 
     // Spot check a few positions
     let data = mask.sync_and_read();
@@ -596,7 +594,7 @@ fn test_padding_mask_large_batch() -> TensorResult<()> {
 
     let mask = Tensor::<f16>::padding_mask(&lengths, max_len)?;
 
-    assert_eq!(0.shape().dims(), &[batch_size, max_len]);
+    assert_eq!(mask.shape().dims(), &[batch_size, max_len]);
 
     // Verify shape
     let data = mask.sync_and_read();
@@ -665,7 +663,7 @@ fn test_empty_padding_mask() -> TensorResult<()> {
     // Test edge case: empty batch
     let mask = Tensor::<f16>::padding_mask(&[], 10)?;
 
-    assert_eq!(0.shape().dims(), &[0, 10]);
+    assert_eq!(mask.shape().dims(), &[0, 10]);
 
     println!("✓ Empty padding mask test passed");
     Ok(())
@@ -673,6 +671,8 @@ fn test_empty_padding_mask() -> TensorResult<()> {
 
 #[test]
 fn test_mask_application_preserves_shape() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+
     // Test that mask application preserves tensor shape
     let test_shapes = vec![
         vec![4, 4],
@@ -682,12 +682,12 @@ fn test_mask_application_preserves_shape() -> TensorResult<()> {
     ];
 
     for shape in test_shapes {
-        let scores = Tensor::<f16>::ones(shape.clone())?;
-        let mask = Tensor::<f16>::ones(shape.clone())?;
+        let scores = Tensor::<f16>::ones(&device, shape.clone())?;
+        let mask = Tensor::<f16>::ones(&device, shape.clone())?;
 
         let result = scores.apply_attention_mask(&mask)?;
 
-        assert_eq!(result.shape(), shape, "Shape not preserved for {:?}", shape);
+        assert_eq!(result.shape().dims(), &shape, "Shape not preserved for {:?}", shape);
     }
 
     println!("✓ Mask application preserves shape test passed");
