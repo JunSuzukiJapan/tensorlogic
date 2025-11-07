@@ -99,6 +99,7 @@ fn test_matmul_1d_tensors() {
 #[serial]
 fn test_matmul_valid_dimensions() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
     // This should succeed: [2, 3] @ [3, 4] = [2, 4]
     let a = Tensor::<f32>::ones(&device, vec![2, 3])?;
     let b = Tensor::<f32>::ones(&device, vec![3, 4])?;
@@ -135,6 +136,7 @@ fn test_reshape_negative_dimension() {
 
 #[test]
 fn test_reshape_valid() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
     // Valid reshape: [2, 3] (6 elements) to [3, 2] (6 elements)
     let a = Tensor::<f32>::ones(&device, vec![2, 3])?;
@@ -197,6 +199,7 @@ fn test_softmax_invalid_dimension() {
 #[test]
 fn test_division_by_zero() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
     // Division by zero should produce Inf, not crash
     let a = Tensor::<f32>::ones(&device, vec![2, 2])?;
     let b = Tensor::<f32>::zeros(&device, vec![2, 2])?;
@@ -217,6 +220,7 @@ fn test_division_by_zero() -> TensorResult<()> {
 #[serial]
 fn test_nan_propagation_add() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
     // NaN should propagate through operations
     let a = Tensor::<f32>::from_vec(vec![1.0, f32::NAN, 3.0], vec![3])?;
     let b = Tensor::<f32>::ones(&device, vec![3])?;
@@ -234,6 +238,7 @@ fn test_nan_propagation_add() -> TensorResult<()> {
 
 #[test]
 fn test_nan_propagation_mul() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // NaN * anything = NaN (even 0)
     let a = Tensor::<f32>::from_vec(vec![f32::NAN, f32::NAN], vec![2])?;
     let b = Tensor::<f32>::from_vec(vec![0.0, 5.0], vec![2])?;
@@ -250,6 +255,7 @@ fn test_nan_propagation_mul() -> TensorResult<()> {
 
 #[test]
 fn test_inf_propagation() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Inf should propagate appropriately
     let a = Tensor::<f32>::from_vec(vec![f32::INFINITY, f32::NEG_INFINITY], vec![2])?;
     let b = Tensor::<f32>::from_vec(vec![2.0, 2.0], vec![2])?;
@@ -266,6 +272,7 @@ fn test_inf_propagation() -> TensorResult<()> {
 
 #[test]
 fn test_inf_minus_inf() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Inf - Inf = NaN
     let a = Tensor::<f32>::from_vec(vec![f32::INFINITY], vec![1])?;
     let b = Tensor::<f32>::from_vec(vec![f32::INFINITY], vec![1])?;
@@ -281,6 +288,7 @@ fn test_inf_minus_inf() -> TensorResult<()> {
 
 #[test]
 fn test_exp_overflow() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // exp of large number should produce Inf, not crash
     let a = Tensor::<f32>::from_vec(vec![1000.0], vec![1])?;
 
@@ -295,6 +303,7 @@ fn test_exp_overflow() -> TensorResult<()> {
 
 #[test]
 fn test_log_negative() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // log of negative number should produce NaN
     let a = Tensor::<f32>::from_vec(vec![-1.0, -10.0], vec![2])?;
 
@@ -310,6 +319,7 @@ fn test_log_negative() -> TensorResult<()> {
 
 #[test]
 fn test_log_zero() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // log(0) = -Inf
     let a = Tensor::<f32>::from_vec(vec![0.0], vec![1])?;
 
@@ -327,6 +337,7 @@ fn test_log_zero() -> TensorResult<()> {
 
 #[test]
 fn test_sqrt_negative() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // sqrt of negative should produce NaN
     let a = Tensor::<f32>::from_vec(vec![-4.0], vec![1])?;
 
@@ -342,6 +353,7 @@ fn test_sqrt_negative() -> TensorResult<()> {
 #[test]
 #[ignore] // TODO: pow() with Tensor argument not yet implemented, only scalar pow
 fn test_pow_special_cases() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test special cases of pow
     let a = Tensor::<f32>::from_vec(
         vec![0.0, -1.0, 2.0, f32::INFINITY],
@@ -377,6 +389,7 @@ fn test_pow_special_cases() -> TensorResult<()> {
 #[serial]
 fn test_empty_tensor_operations() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
     // Operations on empty tensors should not crash
     let a = Tensor::<f32>::zeros(&device, vec![0, 5])?;
     let b = Tensor::<f32>::zeros(&device, vec![0, 5])?;
@@ -391,6 +404,7 @@ fn test_empty_tensor_operations() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_empty_tensor_sum() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
     // Sum of empty tensor should be 0
     let a = Tensor::<f32>::zeros(&device, vec![0, 3])?;
@@ -440,6 +454,7 @@ fn test_backward_without_requires_grad() {
 
 #[test]
 fn test_f16_precision_loss() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Very large numbers may lose precision in f16
     let large_f32 = 65536.0f32; // Larger than f16 max (~65504)
 
@@ -460,6 +475,7 @@ fn test_f16_precision_loss() -> TensorResult<()> {
 
 #[test]
 fn test_f16_underflow() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Very small numbers may underflow to 0 in f16
     let tiny_f32 = 1e-10f32; // Smaller than f16 min (~6e-8)
 
@@ -520,6 +536,7 @@ fn test_transpose_1d_tensor() {
 
 #[test]
 fn test_relu_negative() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // ReLU of negative should be 0
     let a = Tensor::<f32>::from_vec(vec![-5.0, -1.0, 0.0, 1.0, 5.0], vec![5])?;
 
@@ -538,6 +555,7 @@ fn test_relu_negative() -> TensorResult<()> {
 
 #[test]
 fn test_sigmoid_extreme_values() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Sigmoid should saturate at extreme values
     let a = Tensor::<f32>::from_vec(vec![-1000.0, 0.0, 1000.0], vec![3])?;
 
@@ -559,6 +577,7 @@ fn test_sigmoid_extreme_values() -> TensorResult<()> {
 
 #[test]
 fn test_softmax_overflow_safety() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Softmax should handle large values without overflow
     let a = Tensor::<f32>::from_vec(vec![1000.0, 1001.0, 1002.0], vec![1, 3])?;
 
@@ -614,6 +633,7 @@ fn test_layer_norm_invalid_dimension() {
 
 #[test]
 fn test_device_availability() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Check if Metal device is available
     match MetalDevice::new() {
         Ok(_device) => {
@@ -632,6 +652,7 @@ fn test_device_availability() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_error_recovery() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
     // Test that errors don't leave system in bad state
     let a = Tensor::<f32>::ones(&device, vec![2, 2])?;
@@ -653,6 +674,7 @@ fn test_error_recovery() -> TensorResult<()> {
 
 #[test]
 fn test_chain_operations_with_error() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
     // Test error in chain of operations
     let a = Tensor::<f32>::ones(&device, vec![2, 2])?;

@@ -25,6 +25,7 @@ use serial_test::serial;
 #[test]
 #[serial]
 fn test_model_create_empty() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let metadata = ModelMetadata {
         name: "test_model".to_string(),
         format: ModelFormat::SafeTensors,
@@ -45,6 +46,7 @@ fn test_model_create_empty() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_model_insert_single_tensor() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
     let metadata = ModelMetadata {
@@ -74,6 +76,7 @@ fn test_model_insert_single_tensor() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_model_insert_multiple_tensors() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
     let metadata = ModelMetadata {
@@ -115,6 +118,7 @@ fn test_model_insert_multiple_tensors() -> TensorResult<()> {
 #[serial]
 fn test_model_get_tensor() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
 
     let mut model = Model::new(ModelMetadata {
     let device = MetalDevice::new()?;
@@ -147,6 +151,7 @@ fn test_model_get_tensor() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_model_get_nonexistent_tensor() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let model = Model::new(ModelMetadata {
         name: "empty".to_string(),
         format: ModelFormat::SafeTensors,
@@ -163,6 +168,7 @@ fn test_model_get_nonexistent_tensor() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_model_tensor_names() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
     let mut model = Model::new(ModelMetadata {
@@ -199,6 +205,7 @@ fn test_model_tensor_names() -> TensorResult<()> {
 #[serial]
 fn test_model_from_tensors() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
 
     let mut tensors = HashMap::new();
 
@@ -232,6 +239,7 @@ fn test_model_from_tensors() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_model_metadata_safetensors() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let metadata = ModelMetadata {
         name: "safetensors_model".to_string(),
         format: ModelFormat::SafeTensors,
@@ -251,6 +259,7 @@ fn test_model_metadata_safetensors() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_model_metadata_gguf_quantized() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let metadata = ModelMetadata {
         name: "gguf_model".to_string(),
         format: ModelFormat::GGUF,
@@ -273,6 +282,7 @@ fn test_model_metadata_gguf_quantized() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_model_metadata_coreml() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let metadata = ModelMetadata {
         name: "coreml_model".to_string(),
         format: ModelFormat::CoreML,
@@ -293,6 +303,7 @@ fn test_model_metadata_coreml() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_model_typical_llm_structure() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
     let mut model = Model::new(ModelMetadata {
@@ -366,6 +377,7 @@ fn test_model_typical_llm_structure() -> TensorResult<()> {
 #[serial]
 fn test_model_update_tensor() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
 
     let mut model = Model::new(ModelMetadata {
     let device = MetalDevice::new()?;
@@ -399,6 +411,7 @@ fn test_model_update_tensor() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_model_large_number_of_tensors() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
     let mut model = Model::new(ModelMetadata {
@@ -478,6 +491,7 @@ fn test_model_load_nonexistent_file() {
 #[serial]
 fn test_model_various_tensor_shapes() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
 
     let mut model = Model::new(ModelMetadata {
     let device = MetalDevice::new()?;
@@ -518,6 +532,7 @@ fn test_model_various_tensor_shapes() -> TensorResult<()> {
 #[serial]
 fn test_model_empty_tensor() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
 
     let mut model = Model::new(ModelMetadata {
     let device = MetalDevice::new()?;
@@ -544,6 +559,7 @@ fn test_model_empty_tensor() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_model_nested_tensor_names() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
     let mut model = Model::new(ModelMetadata {
@@ -583,6 +599,7 @@ fn test_model_nested_tensor_names() -> TensorResult<()> {
 #[serial]
 fn test_model_special_characters_in_names() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
 
     let mut model = Model::new(ModelMetadata {
     let device = MetalDevice::new()?;
@@ -620,6 +637,7 @@ fn test_model_special_characters_in_names() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_model_quantization_types() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let quantization_types = vec![
         None,
         Some(QuantizationType::Q4_0),
@@ -654,6 +672,7 @@ fn test_model_quantization_types() -> TensorResult<()> {
 #[serial]
 fn test_model_clone() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
 
     let mut model = Model::new(ModelMetadata {
     let device = MetalDevice::new()?;
@@ -686,6 +705,7 @@ fn test_model_clone() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_model_workflow_simulation() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
     // Step 1: Create model structure

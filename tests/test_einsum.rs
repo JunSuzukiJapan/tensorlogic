@@ -26,6 +26,7 @@ fn assert_tensor_close_f32(result: &[f32], expected: &[f32], epsilon: f32) {
 
 #[test]
 fn test_einsum_matrix_multiplication() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test: "ij,jk->ik" (standard matrix multiplication)
     let a = Tensor::<f32>::from_vec(
         vec![1.0, 2.0, 3.0, 4.0],
@@ -50,6 +51,7 @@ fn test_einsum_matrix_multiplication() -> TensorResult<()> {
 
 #[test]
 fn test_einsum_transpose() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test: "ij->ji" (transpose)
     let a = Tensor::<f32>::from_vec(
         vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
@@ -70,6 +72,7 @@ fn test_einsum_transpose() -> TensorResult<()> {
 
 #[test]
 fn test_einsum_batch_matrix_multiplication() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test: "bij,bjk->bik" (batch matrix multiplication)
     let a = Tensor::<f32>::from_vec(
         vec![
@@ -103,6 +106,7 @@ fn test_einsum_batch_matrix_multiplication() -> TensorResult<()> {
 
 #[test]
 fn test_einsum_attention_scores() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test: "ihd,jhd->ihj" (attention score calculation)
     // Query: [seq_q, heads, head_dim]
     // Key:   [seq_k, heads, head_dim]
@@ -135,6 +139,7 @@ fn test_einsum_attention_scores() -> TensorResult<()> {
 
 #[test]
 fn test_einsum_attention_output() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test: "ihj,jhd->ihd" (attention output calculation)
     // Attention weights: [seq_q, heads, seq_k]
     // Values: [seq_k, heads, head_dim]
@@ -146,10 +151,9 @@ fn test_einsum_attention_output() -> TensorResult<()> {
     let head_dim = 4;
 
     // Uniform attention weights
-    let attn = Tensor::<f32>::from_scalar(
-        1.0 / seq_k as f32,
-        vec![seq_q, heads, seq_k]
-    )?;
+    let attn_value = 1.0 / seq_k as f32;
+    let attn_ones = Tensor::<f32>::ones(&device, vec![seq_q, heads, seq_k])?;
+    let attn = attn_ones.mul_scalar(attn_value)?;
     let v = Tensor::<f32>::ones(&device, vec![seq_k, heads, head_dim])?;
 
     let output = Tensor::einsum("ihj,jhd->ihd", &[&attn, &v])?;
@@ -157,7 +161,7 @@ fn test_einsum_attention_output() -> TensorResult<()> {
     let shape = output.shape();
 
     // Shape should be [seq_q, heads, head_dim] = [2, 2, 4]
-    assert_eq!(shape, vec![seq_q, heads, head_dim]);
+    assert_eq!(shape.dims(), &[seq_q, heads, head_dim]);
 
     // Each element should be 1.0 (average of ones)
     for &val in &result {
@@ -170,6 +174,7 @@ fn test_einsum_attention_output() -> TensorResult<()> {
 
 #[test]
 fn test_einsum_element_wise_product() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test: "ij,ij->ij" (element-wise multiplication)
     let a = Tensor::<f32>::from_vec(
         vec![1.0, 2.0, 3.0, 4.0],
@@ -192,6 +197,7 @@ fn test_einsum_element_wise_product() -> TensorResult<()> {
 
 #[test]
 fn test_einsum_outer_product() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test: "i,j->ij" (outer product)
     let a = Tensor::<f32>::from_vec(vec![1.0, 2.0, 3.0], vec![3])?;
     let b = Tensor::<f32>::from_vec(vec![4.0, 5.0], vec![2])?;
@@ -209,6 +215,7 @@ fn test_einsum_outer_product() -> TensorResult<()> {
 
 #[test]
 fn test_einsum_matrix_vector() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test: "ij,j->i" (matrix-vector multiplication)
     let a = Tensor::<f32>::from_vec(
         vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
@@ -229,6 +236,7 @@ fn test_einsum_matrix_vector() -> TensorResult<()> {
 
 #[test]
 fn test_einsum_trace() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test: "ii->" (trace - sum of diagonal)
     let a = Tensor::<f32>::from_vec(
         vec![1.0, 2.0, 3.0, 4.0],
@@ -248,6 +256,7 @@ fn test_einsum_trace() -> TensorResult<()> {
 
 #[test]
 fn test_einsum_diagonal() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test: "ii->i" (extract diagonal)
     let a = Tensor::<f32>::from_vec(
         vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
@@ -267,6 +276,7 @@ fn test_einsum_diagonal() -> TensorResult<()> {
 
 #[test]
 fn test_einsum_sum_all() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test: "ij->" (sum all elements)
     let a = Tensor::<f32>::from_vec(
         vec![1.0, 2.0, 3.0, 4.0],
@@ -286,6 +296,7 @@ fn test_einsum_sum_all() -> TensorResult<()> {
 
 #[test]
 fn test_einsum_sum_axis() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test: "ij->i" (sum along axis 1)
     let a = Tensor::<f32>::from_vec(
         vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
@@ -305,6 +316,7 @@ fn test_einsum_sum_axis() -> TensorResult<()> {
 
 #[test]
 fn test_einsum_permute() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test: "ijk->kji" (permute dimensions)
     let a = Tensor::<f32>::from_vec(
         vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
@@ -315,7 +327,7 @@ fn test_einsum_permute() -> TensorResult<()> {
     let shape = b.shape();
 
     // Shape should be [2, 2, 2] (permuted)
-    assert_eq!(shape, vec![2, 2, 2]);
+    assert_eq!(shape.dims(), &[2, 2, 2]);
 
     println!("✓ einsum permute dimensions test passed");
     Ok(())
@@ -323,6 +335,7 @@ fn test_einsum_permute() -> TensorResult<()> {
 
 #[test]
 fn test_einsum_bilinear() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test: "ij,jk,kl->il" (chained multiplication)
     let a = Tensor::<f32>::from_vec(vec![1.0, 2.0], vec![1, 2])?;
     let b = Tensor::<f32>::from_vec(vec![1.0, 0.0, 0.0, 1.0], vec![2, 2])?;
@@ -341,6 +354,7 @@ fn test_einsum_bilinear() -> TensorResult<()> {
 
 #[test]
 fn test_einsum_f16_basic() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test einsum with f16 (half precision)
     use half::f16;
 
@@ -395,6 +409,7 @@ fn test_einsum_shape_mismatch() {
 
 #[test]
 fn test_einsum_empty_output() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test: Empty equation (no output spec) - should infer output
     let a = Tensor::<f32>::from_vec(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2])?;
     let b = Tensor::<f32>::from_vec(vec![5.0, 6.0, 7.0, 8.0], vec![2, 2])?;
@@ -412,6 +427,7 @@ fn test_einsum_empty_output() -> TensorResult<()> {
 
 #[test]
 fn test_einsum_single_operand() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test various single-operand operations
     let a = Tensor::<f32>::from_vec(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2])?;
 

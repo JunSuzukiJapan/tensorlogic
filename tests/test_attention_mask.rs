@@ -33,6 +33,7 @@ fn assert_tensor_close_f16(result: &[f16], expected: &[f16], epsilon: f32) {
 
 #[test]
 fn test_causal_mask_small() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test causal mask for small sequence
     let mask = Tensor::<f16>::causal_mask(3)?;
     let data = mask.sync_and_read();
@@ -60,6 +61,7 @@ fn test_causal_mask_small() -> TensorResult<()> {
 
 #[test]
 fn test_causal_mask_various_sizes() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test causal masks of various sizes
     for seq_len in [1, 2, 4, 8, 16, 32, 64, 128] {
         let mask = Tensor::<f16>::causal_mask(seq_len)?;
@@ -95,6 +97,7 @@ fn test_causal_mask_various_sizes() -> TensorResult<()> {
 
 #[test]
 fn test_causal_mask_single_token() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test causal mask for single token (common in generation)
     let mask = Tensor::<f16>::causal_mask(1)?;
     let data = mask.sync_and_read();
@@ -109,6 +112,7 @@ fn test_causal_mask_single_token() -> TensorResult<()> {
 
 #[test]
 fn test_causal_mask_count_zeros_ones() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Verify the count of zeros and ones in causal mask
     for seq_len in [3, 5, 10] {
         let mask = Tensor::<f16>::causal_mask(seq_len)?;
@@ -142,6 +146,7 @@ fn test_causal_mask_count_zeros_ones() -> TensorResult<()> {
 
 #[test]
 fn test_padding_mask_basic() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test basic padding mask
     let mask = Tensor::<f16>::padding_mask(&[2, 3], 4)?;
     let data = mask.sync_and_read();
@@ -169,6 +174,7 @@ fn test_padding_mask_basic() -> TensorResult<()> {
 
 #[test]
 fn test_padding_mask_no_padding() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test padding mask when all sequences are full length
     let mask = Tensor::<f16>::padding_mask(&[4, 4, 4], 4)?;
     let data = mask.sync_and_read();
@@ -186,6 +192,7 @@ fn test_padding_mask_no_padding() -> TensorResult<()> {
 
 #[test]
 fn test_padding_mask_all_padding() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test padding mask with zero-length sequences
     let mask = Tensor::<f16>::padding_mask(&[0, 0], 4)?;
     let data = mask.sync_and_read();
@@ -203,6 +210,7 @@ fn test_padding_mask_all_padding() -> TensorResult<()> {
 
 #[test]
 fn test_padding_mask_various_lengths() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test padding mask with various sequence lengths
     let lengths = vec![1, 3, 5, 7, 10];
     let max_len = 10;
@@ -238,6 +246,7 @@ fn test_padding_mask_various_lengths() -> TensorResult<()> {
 
 #[test]
 fn test_padding_mask_single_sequence() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test padding mask with single sequence
     let mask = Tensor::<f16>::padding_mask(&[3], 5)?;
     let data = mask.sync_and_read();
@@ -254,6 +263,7 @@ fn test_padding_mask_single_sequence() -> TensorResult<()> {
 
 #[test]
 fn test_apply_attention_mask_basic() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test basic mask application
     let scores = Tensor::from_vec(
         vec![
@@ -282,6 +292,7 @@ fn test_apply_attention_mask_basic() -> TensorResult<()> {
 
 #[test]
 fn test_apply_attention_mask_all_ones() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test mask application with all ones (no masking)
     let scores = Tensor::from_vec(
         vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
@@ -307,6 +318,7 @@ fn test_apply_attention_mask_all_ones() -> TensorResult<()> {
 
 #[test]
 fn test_apply_attention_mask_all_zeros() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test mask application with all zeros (mask everything)
     let scores = Tensor::from_vec(
         vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)],
@@ -332,6 +344,7 @@ fn test_apply_attention_mask_all_zeros() -> TensorResult<()> {
 
 #[test]
 fn test_apply_causal_mask_to_scores() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test applying causal mask to attention scores
     let seq_len = 4;
 
@@ -364,6 +377,7 @@ fn test_apply_causal_mask_to_scores() -> TensorResult<()> {
 
 #[test]
 fn test_combine_masks_basic() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test basic mask combination (logical AND)
     let mask1 = Tensor::from_vec(
         vec![f16::ONE, f16::ZERO, f16::ONE, f16::ONE],
@@ -390,6 +404,7 @@ fn test_combine_masks_basic() -> TensorResult<()> {
 
 #[test]
 fn test_combine_masks_with_itself() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test combining mask with itself (should be identity)
     let mask = Tensor::from_vec(
         vec![f16::ONE, f16::ZERO, f16::ZERO, f16::ONE],
@@ -411,6 +426,7 @@ fn test_combine_masks_with_itself() -> TensorResult<()> {
 
 #[test]
 fn test_combine_causal_and_padding() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test combining causal mask with padding mask
     // This is a common pattern in transformer decoders
 
@@ -456,6 +472,7 @@ fn test_combine_causal_and_padding() -> TensorResult<()> {
 
 #[test]
 fn test_mask_with_softmax() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test that masked positions become ~0 after softmax
     let scores = Tensor::from_vec(
         vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
@@ -495,6 +512,7 @@ fn test_mask_with_softmax() -> TensorResult<()> {
 
 #[test]
 fn test_causal_attention_simulation() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Simulate causal attention: each position can only attend to previous positions
     let seq_len = 4;
 
@@ -551,6 +569,7 @@ fn test_causal_attention_simulation() -> TensorResult<()> {
 
 #[test]
 fn test_causal_mask_large_sequence() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test causal mask for large sequence (e.g., 2048 tokens)
     let seq_len = 512; // Reduced from 2048 for faster testing
 
@@ -583,6 +602,7 @@ fn test_causal_mask_large_sequence() -> TensorResult<()> {
 
 #[test]
 fn test_padding_mask_large_batch() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test padding mask with large batch
     let batch_size = 64;
     let max_len = 128;
@@ -660,6 +680,7 @@ fn test_combine_masks_shape_mismatch() {
 
 #[test]
 fn test_empty_padding_mask() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test edge case: empty batch
     let mask = Tensor::<f16>::padding_mask(&[], 10)?;
 
@@ -671,6 +692,7 @@ fn test_empty_padding_mask() -> TensorResult<()> {
 
 #[test]
 fn test_mask_application_preserves_shape() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
     // Test that mask application preserves tensor shape

@@ -1,6 +1,7 @@
 // Mathematical verification of attention computation
 use tensorlogic::device::MetalDevice;
 use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO, TensorAccessors};
+use tensorlogic::error::TensorResult;
 use serial_test::serial;
 
 #[test]
@@ -194,6 +195,7 @@ fn test_rope_position_encoding_math() {
 #[test]
 #[serial]
 fn test_attention_scaling_factor() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Verify attention uses correct scaling factor (1/sqrt(head_dim))
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -241,6 +243,7 @@ fn test_attention_scaling_factor() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_gqa_repeat_kv() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test Grouped Query Attention K/V repetition
     // TinyLlama: 32 Q heads, 4 KV heads -> n_rep = 8
     let device = MetalDevice::new().expect("Failed to create Metal device");
@@ -314,6 +317,7 @@ fn test_gqa_repeat_kv() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_llm_attention_full_pipeline() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test full attention pipeline with LLM-realistic settings
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -375,6 +379,7 @@ fn test_llm_attention_full_pipeline() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_llm_settings() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test RoPE with realistic LLM settings
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -436,6 +441,7 @@ fn test_rope_llm_settings() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rms_norm_llm_settings() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test RMS Normalization with realistic LLM settings
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -504,6 +510,7 @@ fn test_rms_norm_llm_settings() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_swiglu_ffn_llm_settings() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test SwiGLU FFN with realistic LLM settings
     let device = MetalDevice::new().expect("Failed to create Metal device");
 
@@ -587,6 +594,7 @@ fn test_swiglu_ffn_llm_settings() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_linear_projection_llm_settings() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test linear projection (fused transpose-matmul) with LLM settings
     let device = MetalDevice::new().expect("Failed to create Metal device");
 

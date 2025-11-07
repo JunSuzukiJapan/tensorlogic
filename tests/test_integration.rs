@@ -11,6 +11,7 @@ use tensorlogic::tensor::TensorShape;
 
 #[test]
 fn test_arithmetic_pipeline() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Create tensors
     let a = Tensor::from_vec(
         (0..10).map(|i| f16::from_f32(i as f32)).collect(),
@@ -35,6 +36,7 @@ fn test_arithmetic_pipeline() -> TensorResult<()> {
 
 #[test]
 fn test_matmul_activation_pipeline() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Linear layer: y = xW + b, then ReLU
     let x = Tensor::from_vec(
         vec![
@@ -75,6 +77,7 @@ fn test_matmul_activation_pipeline() -> TensorResult<()> {
 
 #[test]
 fn test_reshape_matmul_pipeline() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Reshape then matmul
     let a = Tensor::from_vec(
         (0..12).map(|i| f16::from_f32(i as f32)).collect(),
@@ -99,6 +102,7 @@ fn test_reshape_matmul_pipeline() -> TensorResult<()> {
 
 #[test]
 fn test_sum_mean_pipeline() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let a = Tensor::from_vec(
         (0..100).map(|i| f16::from_f32(i as f32)).collect(),
         vec![10, 10],
@@ -114,6 +118,7 @@ fn test_sum_mean_pipeline() -> TensorResult<()> {
 
 #[test]
 fn test_max_min_range_pipeline() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let a = Tensor::from_vec(
         (0..100).map(|i| f16::from_f32((i as f32) * 0.1)).collect(),
         vec![10, 10],
@@ -129,6 +134,7 @@ fn test_max_min_range_pipeline() -> TensorResult<()> {
 
 #[test]
 fn test_normalize_pipeline() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Normalize: (x - mean) / std
     let x = Tensor::from_vec(
         (0..100).map(|i| f16::from_f32(i as f32)).collect(),
@@ -153,6 +159,7 @@ fn test_normalize_pipeline() -> TensorResult<()> {
 
 #[test]
 fn test_broadcast_add_mul_pipeline() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let a = Tensor::from_vec(
         (0..12).map(|i| f16::from_f32(i as f32)).collect(),
         vec![3, 4],
@@ -182,6 +189,7 @@ fn test_broadcast_add_mul_pipeline() -> TensorResult<()> {
 
 #[test]
 fn test_batch_normalization_pattern() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Simulate batch normalization: (x - mean) * gamma + beta
     let x = Tensor::from_vec(
         (0..20).map(|i| f16::from_f32(i as f32)).collect(),
@@ -213,6 +221,7 @@ fn test_batch_normalization_pattern() -> TensorResult<()> {
 
 #[test]
 fn test_gather_process_scatter_pipeline() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Gather, process, scatter back
     let x = Tensor::from_vec(
         (0..10).map(|i| f16::from_f32(i as f32)).collect(),
@@ -243,6 +252,7 @@ fn test_gather_process_scatter_pipeline() -> TensorResult<()> {
 
 #[test]
 fn test_embedding_attention_pipeline() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Simulate simple embedding lookup + processing
     let vocab_size = 10;
     let d_model = 8;
@@ -282,6 +292,7 @@ fn test_embedding_attention_pipeline() -> TensorResult<()> {
 
 #[test]
 fn test_mlp_forward_pass() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Simple 2-layer MLP: input -> hidden -> output
     let batch_size = 4;
     let input_dim = 10;
@@ -314,7 +325,7 @@ fn test_mlp_forward_pass() -> TensorResult<()> {
     let target_shape2 = TensorShape::new(vec![batch_size, output_dim]);
     let b2_broadcast = b2.broadcast_to(&target_shape2)?;
     let output = output.add(&b2_broadcast)?;
-    let output = output.softmax(output.shape().rank() - 1)?;
+    let output = output.softmax().rank() - 1)?;
 
     assert_eq!(output.shape().dims(), &[batch_size, output_dim]);
     Ok(())
@@ -322,6 +333,7 @@ fn test_mlp_forward_pass() -> TensorResult<()> {
 
 #[test]
 fn test_attention_mechanism_simple() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Simplified attention: scores = Q @ K^T, attention = softmax(scores)
     let seq_len = 4;
     let d_k = 8;
@@ -334,7 +346,7 @@ fn test_attention_mechanism_simple() -> TensorResult<()> {
     let scores = q.matmul(&k_t)?;
 
     // Apply softmax
-    let attention_weights = scores.softmax(scores.shape().rank() - 1)?;
+    let attention_weights = scores.softmax().rank() - 1)?;
 
     assert_eq!(attention_weights.shape().dims(), &[seq_len, seq_len]);
     Ok(())
@@ -342,6 +354,7 @@ fn test_attention_mechanism_simple() -> TensorResult<()> {
 
 #[test]
 fn test_residual_connection() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Residual connection: output = f(x) + x
     let x = Tensor::from_vec(
         (0..20).map(|i| f16::from_f32(i as f32 * 0.1)).collect(),
@@ -365,6 +378,7 @@ fn test_residual_connection() -> TensorResult<()> {
 
 #[test]
 fn test_data_augmentation_pipeline() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Simulate data augmentation: normalize, add noise, clip
     let data = Tensor::from_vec(
         (0..100).map(|i| f16::from_f32(i as f32)).collect(),
@@ -386,6 +400,7 @@ fn test_data_augmentation_pipeline() -> TensorResult<()> {
 
 #[test]
 fn test_feature_extraction_pipeline() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Extract features: reshape, select, aggregate
     let data = Tensor::from_vec(
         (0..120).map(|i| f16::from_f32(i as f32)).collect(),
@@ -399,7 +414,7 @@ fn test_feature_extraction_pipeline() -> TensorResult<()> {
     let features = reshaped.mean_dim(1, false)?;
 
     // Apply transformation
-    let w = Tensor::ones(vec![10])?;
+    let w = Tensor::ones(&device, vec![10])?;
     let output = features.mul(&w)?;
 
     assert_eq!(output.shape().dims(), &[10]);
@@ -412,6 +427,7 @@ fn test_feature_extraction_pipeline() -> TensorResult<()> {
 
 #[test]
 fn test_threshold_and_process() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let x = Tensor::from_vec(
         (0..20).map(|i| f16::from_f32((i as f32) - 10.0)).collect(),
         vec![20],
@@ -430,6 +446,7 @@ fn test_threshold_and_process() -> TensorResult<()> {
 
 #[test]
 fn test_multi_branch_pipeline() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let x = Tensor::from_vec(
         (0..20).map(|i| f16::from_f32(i as f32)).collect(),
         vec![4, 5],
@@ -457,8 +474,9 @@ fn test_multi_branch_pipeline() -> TensorResult<()> {
 
 #[test]
 fn test_iterative_refinement() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Iterative processing (like gradient descent step)
-    let mut x = Tensor::ones(vec![10])?;
+    let mut x = Tensor::ones(&device, vec![10])?;
 
     for _iter in 0..5 {
         // x = x * 0.9 (decay)
@@ -477,6 +495,7 @@ fn test_iterative_refinement() -> TensorResult<()> {
 
 #[test]
 fn test_batch_processing_pipeline() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Process multiple batches
     let mut results = Vec::new();
 
@@ -505,6 +524,7 @@ fn test_batch_processing_pipeline() -> TensorResult<()> {
 
 #[test]
 fn test_inference_pipeline() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Simulate model inference pipeline
     let input = Tensor::from_vec(
         vec![f16::from_f32(0.5); 10],
@@ -522,7 +542,7 @@ fn test_inference_pipeline() -> TensorResult<()> {
     let activated = output.relu()?;
 
     // Softmax for probabilities
-    let probs = activated.softmax(activated.shape().rank() - 1)?;
+    let probs = activated.softmax().rank() - 1)?;
 
     assert_eq!(probs.shape().dims(), &[1, 5]);
     Ok(())
@@ -530,6 +550,7 @@ fn test_inference_pipeline() -> TensorResult<()> {
 
 #[test]
 fn test_training_step_simulation() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Simulate single training step (forward only, no autograd)
     let x = Tensor::ones(vec![8, 10])?; // batch_size=8, features=10
     let y_true = Tensor::ones(vec![8, 3])?; // 3 classes
@@ -544,7 +565,7 @@ fn test_training_step_simulation() -> TensorResult<()> {
     let logits = logits.add(&b_broadcast)?;
 
     // Softmax
-    let probs = logits.softmax(logits.shape().rank() - 1)?;
+    let probs = logits.softmax().rank() - 1)?;
 
     // Loss (simplified)
     let diff = probs.sub(&y_true)?;
@@ -556,6 +577,7 @@ fn test_training_step_simulation() -> TensorResult<()> {
 
 #[test]
 fn test_transformer_layer_components() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test components of transformer layer
     let seq_len = 4;
     let d_model = 8;
@@ -574,7 +596,7 @@ fn test_transformer_layer_components() -> TensorResult<()> {
     // Attention scores
     let k_t = k.transpose()?;
     let scores = q.matmul(&k_t)?;
-    let attn_weights = scores.softmax(scores.shape().rank() - 1)?;
+    let attn_weights = scores.softmax().rank() - 1)?;
 
     // Attention output
     let attn_output = attn_weights.matmul(&v)?;

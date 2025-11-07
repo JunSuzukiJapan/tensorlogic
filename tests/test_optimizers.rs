@@ -46,6 +46,7 @@ fn assert_tensor_close(result: &[f16], expected: &[f16], epsilon: f32) {
 
 #[test]
 fn test_sgd_creation() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let param = Tensor::from_vec(vec![f16::ONE; 10], vec![10])?;
     let optimizer = SGD::new(vec![param], 0.01);
 
@@ -58,6 +59,7 @@ fn test_sgd_creation() -> TensorResult<()> {
 
 #[test]
 fn test_sgd_basic_step() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     AutogradContext::clear();
 
     // Create parameter: x = 2.0
@@ -89,6 +91,7 @@ fn test_sgd_basic_step() -> TensorResult<()> {
 
 #[test]
 fn test_sgd_multiple_steps() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     AutogradContext::clear();
 
     let mut x = Tensor::from_vec(vec![f16::from_f32(10.0)], vec![1])?;
@@ -118,6 +121,7 @@ fn test_sgd_multiple_steps() -> TensorResult<()> {
 
 #[test]
 fn test_sgd_with_momentum() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let param = Tensor::from_vec(vec![f16::ONE; 5], vec![5])?;
     let optimizer = SGD::with_momentum(vec![param], 0.01, 0.9);
 
@@ -131,6 +135,7 @@ fn test_sgd_with_momentum() -> TensorResult<()> {
 
 #[test]
 fn test_sgd_zero_grad() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     AutogradContext::clear();
 
     let mut param = Tensor::from_vec(vec![f16::from_f32(2.0); 5], vec![5])?;
@@ -157,6 +162,7 @@ fn test_sgd_zero_grad() -> TensorResult<()> {
 
 #[test]
 fn test_sgd_learning_rate_manipulation() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let param = Tensor::from_vec(vec![f16::ONE; 10], vec![10])?;
     let mut optimizer = SGD::new(vec![param], 0.01);
 
@@ -178,6 +184,7 @@ fn test_sgd_learning_rate_manipulation() -> TensorResult<()> {
 
 #[test]
 fn test_adam_creation() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let param = Tensor::from_vec(vec![f16::ONE; 10], vec![10])?;
     let optimizer = Adam::new(vec![param], 0.001);
 
@@ -190,6 +197,7 @@ fn test_adam_creation() -> TensorResult<()> {
 
 #[test]
 fn test_adam_basic_step() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     AutogradContext::clear();
 
     let mut x = Tensor::from_vec(vec![f16::from_f32(2.0)], vec![1])?;
@@ -217,6 +225,7 @@ fn test_adam_basic_step() -> TensorResult<()> {
 
 #[test]
 fn test_adam_multiple_steps() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     AutogradContext::clear();
 
     let mut x = Tensor::from_vec(vec![f16::from_f32(5.0)], vec![1])?;
@@ -249,6 +258,7 @@ fn test_adam_multiple_steps() -> TensorResult<()> {
 
 #[test]
 fn test_adam_with_weight_decay() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let param = Tensor::from_vec(vec![f16::from_f32(1.0); 5], vec![5])?;
     let optimizer = Adam::with_weight_decay(vec![param], 0.001, 0.01);
 
@@ -261,6 +271,7 @@ fn test_adam_with_weight_decay() -> TensorResult<()> {
 
 #[test]
 fn test_adam_zero_grad() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     AutogradContext::clear();
 
     let mut param = Tensor::from_vec(vec![f16::from_f32(2.0); 5], vec![5])?;
@@ -283,6 +294,7 @@ fn test_adam_zero_grad() -> TensorResult<()> {
 
 #[test]
 fn test_adamw_creation() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let param = Tensor::from_vec(vec![f16::ONE; 10], vec![10])?;
     let optimizer = AdamW::new(vec![param], 0.001);
 
@@ -294,6 +306,7 @@ fn test_adamw_creation() -> TensorResult<()> {
 
 #[test]
 fn test_adamw_basic_step() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     AutogradContext::clear();
 
     let mut x = Tensor::from_vec(vec![f16::from_f32(2.0)], vec![1])?;
@@ -322,6 +335,7 @@ fn test_adamw_basic_step() -> TensorResult<()> {
 
 #[test]
 fn test_sgd_simple_optimization() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Optimize simple quadratic: minimize (x - 3)^2
     // Target: x = 3
     AutogradContext::clear();
@@ -358,6 +372,7 @@ fn test_sgd_simple_optimization() -> TensorResult<()> {
 
 #[test]
 fn test_adam_simple_optimization() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Same optimization with Adam
     AutogradContext::clear();
 
@@ -392,6 +407,7 @@ fn test_adam_simple_optimization() -> TensorResult<()> {
 
 #[test]
 fn test_sgd_state_dict() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let param = Tensor::from_vec(vec![f16::ONE; 5], vec![5])?;
     let optimizer = SGD::with_momentum(vec![param], 0.01, 0.9);
 
@@ -407,6 +423,7 @@ fn test_sgd_state_dict() -> TensorResult<()> {
 
 #[test]
 fn test_adam_state_dict() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let param = Tensor::from_vec(vec![f16::ONE; 5], vec![5])?;
     let optimizer = Adam::new(vec![param], 0.001);
 
@@ -422,6 +439,7 @@ fn test_adam_state_dict() -> TensorResult<()> {
 
 #[test]
 fn test_sgd_multiple_parameters() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     AutogradContext::clear();
 
     let mut x1 = Tensor::from_vec(vec![f16::from_f32(1.0)], vec![1])?;
@@ -453,6 +471,7 @@ fn test_sgd_multiple_parameters() -> TensorResult<()> {
 
 #[test]
 fn test_adam_multiple_parameters() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     AutogradContext::clear();
 
     let mut x1 = Tensor::from_vec(vec![f16::from_f32(1.0)], vec![1])?;
@@ -485,6 +504,7 @@ fn test_adam_multiple_parameters() -> TensorResult<()> {
 
 #[test]
 fn test_optimizer_zero_learning_rate() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     AutogradContext::clear();
 
     let mut x = Tensor::from_vec(vec![f16::from_f32(2.0)], vec![1])?;
@@ -510,6 +530,7 @@ fn test_optimizer_zero_learning_rate() -> TensorResult<()> {
 
 #[test]
 fn test_optimizer_large_learning_rate() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     AutogradContext::clear();
 
     let mut x = Tensor::from_vec(vec![f16::from_f32(2.0)], vec![1])?;

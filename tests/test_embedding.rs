@@ -42,6 +42,7 @@ fn assert_tensor_close_f16(result: &[f16], expected: &[f16], epsilon: f32) {
 #[test]
 #[serial]
 fn test_embedding_basic() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test basic embedding lookup with small vocabulary
     let vocab_size = 5;
     let d_model = 3;
@@ -79,6 +80,7 @@ fn test_embedding_basic() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_embedding_multiple_tokens() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test embedding lookup for multiple tokens (sequence)
     let vocab_size = 4;
     let d_model = 2;
@@ -113,6 +115,7 @@ fn test_embedding_multiple_tokens() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_embedding_batch() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test batched embedding lookup [batch_size, seq_len]
     let vocab_size = 3;
     let d_model = 2;
@@ -155,6 +158,7 @@ fn test_embedding_batch() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_embedding_f16() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test embedding with f16 precision
     let vocab_size = 4;
     let d_model = 3;
@@ -193,6 +197,7 @@ fn test_embedding_f16() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_embedding_from_token_ids() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test embedding_from_token_ids (no f16 precision loss)
     let vocab_size = 5;
     let d_model = 4;
@@ -225,6 +230,7 @@ fn test_embedding_from_token_ids() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_embedding_large_vocabulary() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test with realistic vocabulary size
     let vocab_size = 1000;
     let d_model = 64;
@@ -256,6 +262,7 @@ fn test_embedding_large_vocabulary() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_embedding_identity() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test with identity-like embedding (each token maps to one-hot-like vector)
     let vocab_size = 4;
     let d_model = 4;
@@ -286,6 +293,7 @@ fn test_embedding_identity() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_embedding_repeated_tokens() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test embedding lookup with repeated tokens
     let vocab_size = 3;
     let d_model = 2;
@@ -321,6 +329,7 @@ fn test_embedding_repeated_tokens() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_embedding_single_token() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test embedding for single token (common in autoregressive generation)
     let vocab_size = 10;
     let d_model = 8;
@@ -344,6 +353,7 @@ fn test_embedding_single_token() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_embedding_sequential_tokens() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test embedding with sequential token IDs
     let vocab_size = 10;
     let d_model = 4;
@@ -375,6 +385,7 @@ fn test_embedding_sequential_tokens() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_embedding_different_dimensions() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test various embedding dimensions
     let test_configs = vec![
         (10, 8),      // Small
@@ -404,6 +415,7 @@ fn test_embedding_different_dimensions() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_embedding_batch_different_sizes() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test different batch and sequence length combinations
     let vocab_size = 100;
     let d_model = 32;
@@ -441,6 +453,7 @@ fn test_embedding_batch_different_sizes() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_embedding_token_id_array_large() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test TokenIdArray with large token IDs (beyond f16 precision)
     let vocab_size = 32000;  // TinyLlama vocab size
     let d_model = 128;
@@ -484,6 +497,7 @@ fn test_embedding_token_id_array_large() -> TensorResult<()> {
 #[serial]
 #[should_panic(expected = "out of range")]
 fn test_embedding_token_out_of_range() {
+    let device = MetalDevice::new().unwrap();
     // Test that out-of-range token ID causes error
     let vocab_size = 5;
     let d_model = 3;
@@ -536,6 +550,7 @@ fn test_embedding_wrong_weight_dimensions_3d() {
 #[test]
 #[serial]
 fn test_embedding_edge_case_token_zero() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test that token ID 0 works correctly
     let vocab_size = 10;
     let d_model = 4;
@@ -560,6 +575,7 @@ fn test_embedding_edge_case_token_zero() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_embedding_edge_case_last_token() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test that last token ID (vocab_size - 1) works correctly
     let vocab_size = 10;
     let d_model = 4;
@@ -584,6 +600,7 @@ fn test_embedding_edge_case_last_token() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_embedding_preserves_device() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test that embedding preserves tensor device
     let device = MetalDevice::new()?;
 

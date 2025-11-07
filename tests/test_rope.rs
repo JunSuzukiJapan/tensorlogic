@@ -27,6 +27,7 @@ fn assert_tensor_close_f16(result: &[f16], expected: &[f16], epsilon: f32) {
 #[test]
 #[serial]
 fn test_rope_basic() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test basic RoPE application with simple input
     let device = MetalDevice::new()?;
 
@@ -64,6 +65,7 @@ fn test_rope_basic() -> TensorResult<()> {
 #[serial]
 fn test_rope_shape_preservation() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
 
     // Test that RoPE preserves tensor shape
     let test_shapes = vec![
@@ -85,6 +87,7 @@ fn test_rope_shape_preservation() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_position_offset() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
     // Test RoPE with different position offsets
@@ -127,6 +130,7 @@ fn test_rope_position_offset() -> TensorResult<()> {
 #[serial]
 fn test_rope_zeros_input() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
 
     // Test RoPE with all-zero input
     // RoPE of zeros should remain zeros (rotation of zero vector)
@@ -155,6 +159,7 @@ fn test_rope_zeros_input() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_deterministic() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     // Test that RoPE is deterministic (same input + offset -> same output)
     let seq_len = 4;
     let n_heads = 2;
@@ -184,6 +189,7 @@ fn test_rope_deterministic() -> TensorResult<()> {
 #[serial]
 fn test_rope_head_dim_variations() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
 
     // Test RoPE with various head dimensions (all even)
     let head_dims = vec![2, 4, 8, 16, 32, 64, 128];
@@ -207,6 +213,7 @@ fn test_rope_head_dim_variations() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_large_sequence() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
     // Test RoPE with large sequence length
@@ -234,6 +241,7 @@ fn test_rope_large_sequence() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_numerical_stability() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
     // Test numerical stability with various input magnitudes
@@ -269,6 +277,7 @@ fn test_rope_numerical_stability() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_consistency_across_positions() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
     // Test that RoPE with position_offset=n on seq[0] equals
@@ -316,6 +325,7 @@ fn test_rope_consistency_across_positions() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_multi_head() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
     // Test RoPE with multiple attention heads
@@ -385,6 +395,7 @@ fn test_rope_insufficient_dimensions_1d() {
 #[serial]
 fn test_rope_4d_tensor() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
     // Test RoPE with 4D tensor (batch dimension)
     // Shape: [batch, seq_len, n_heads, head_dim]
     let batch_size = 2;
@@ -407,6 +418,7 @@ fn test_rope_4d_tensor() -> TensorResult<()> {
 #[serial]
 fn test_rope_single_position() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
     // Test RoPE with single position (seq_len=1)
     // This is common in autoregressive generation
     let seq_len = 1;
@@ -425,6 +437,7 @@ fn test_rope_single_position() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_position_offset_range() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
     // Test RoPE with various position offset values
     let seq_len = 2;
@@ -452,6 +465,7 @@ fn test_rope_position_offset_range() -> TensorResult<()> {
 #[serial]
 fn test_rope_gradient_compatibility() -> TensorResult<()> {
     let device = MetalDevice::new()?;
+    let device = MetalDevice::new()?;
 
     // Test that RoPE output can be used in gradient computation
     // (This is a prerequisite for training with RoPE)
@@ -475,6 +489,7 @@ fn test_rope_gradient_compatibility() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_rope_kv_cache_simulation() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
     let device = MetalDevice::new()?;
 
     // Simulate KV cache scenario:
