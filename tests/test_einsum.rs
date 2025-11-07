@@ -113,15 +113,16 @@ fn test_einsum_attention_scores() -> TensorResult<()> {
     let heads = 2;
     let head_dim = 4;
 
-    let q = Tensor::<f32>::ones(vec![seq_q, heads, head_dim])?;
-    let k = Tensor::<f32>::ones(vec![seq_k, heads, head_dim])?;
+    let device = MetalDevice::new()?;
+    let q = Tensor::<f32>::ones(&device, vec![seq_q, heads, head_dim])?;
+    let k = Tensor::<f32>::ones(&device, vec![seq_k, heads, head_dim])?;
 
     let scores = Tensor::einsum("ihd,jhd->ihj", &[&q, &k])?;
     let result = scores.sync_and_read();
     let shape = scores.shape();
 
     // Shape should be [seq_q, heads, seq_k] = [2, 2, 3]
-    assert_eq!(shape, vec![seq_q, heads, seq_k]);
+    assert_eq!(shape.dims(), &[seq_q, heads, seq_k]);
 
     // Each element should be head_dim (sum of 1*1 head_dim times)
     for &val in &result {
@@ -149,7 +150,7 @@ fn test_einsum_attention_output() -> TensorResult<()> {
         1.0 / seq_k as f32,
         vec![seq_q, heads, seq_k]
     )?;
-    let v = Tensor::<f32>::ones(vec![seq_k, heads, head_dim])?;
+    let v = Tensor::<f32>::ones(&device, vec![seq_k, heads, head_dim])?;
 
     let output = Tensor::einsum("ihj,jhd->ihd", &[&attn, &v])?;
     let result = output.sync_and_read();

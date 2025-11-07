@@ -3,6 +3,7 @@
 
 use half::f16;
 use tensorlogic::prelude::*;
+use tensorlogic::tensor::TensorShape;
 
 // ============================================================================
 // Basic Pipeline Tests

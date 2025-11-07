@@ -344,6 +344,7 @@ fn test_buffer_reuse() {
 
     // Create and destroy multiple tensors to test buffer pool
     for _ in 0..10 {
+    let device = MetalDevice::new()?;
         let tensor = tensor_f32(&device, vec![1.0; 1000], vec![1000]);
         let result = tensor.mul_scalar(2.0).expect("mul_scalar failed");
         drop(result);
@@ -412,6 +413,7 @@ fn test_f16_buffer_recycling() {
 
     // Create and drop many f16 tensors to test recycling
     for _ in 0..20 {
+    let device = MetalDevice::new()?;
         let t = tensor_f16(&device, vec![1.0; 500], vec![500]);
         let r = t.mul_scalar(f16::from_f32(2.0)).expect("mul failed");
         drop(r);
@@ -425,6 +427,7 @@ fn test_f32_buffer_recycling() {
 
     // Create and drop many f32 tensors to test recycling
     for _ in 0..20 {
+    let device = MetalDevice::new()?;
         let t = tensor_f32(&device, vec![1.0; 500], vec![500]);
         let r = t.mul_scalar(2.0).expect("mul failed");
         drop(r);
