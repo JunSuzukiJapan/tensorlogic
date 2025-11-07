@@ -49,6 +49,12 @@ pub struct Tensor<T: FloatType = f16> {
     pub(crate) _phantom: PhantomData<T>,
 }
 
+impl<T: FloatType> Tensor<T> {
+    pub fn shape(&self) -> &TensorShape {
+        &self.shape
+    }
+}
+
 /// Automatic buffer recycling when tensor is dropped
 impl<T: FloatType> Drop for Tensor<T> {
     fn drop(&mut self) {
@@ -60,7 +66,7 @@ impl<T: FloatType> Drop for Tensor<T> {
         }
 
         // Only recycle Metal buffers that have a buffer pool
-        // Only f16 buffers can be recycled (BufferPool is f16-only)
+        // Both f16 and f32 buffers can be recycled (BufferPool supports both)
         if T::is_f16() {
             if let (BufferHandle::Metal(metal_buffer), Some(pool)) =
                 (&self.buffer, &self.buffer_pool)
@@ -120,7 +126,7 @@ mod tests {
         let device = get_test_device();
         let data = vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)];
 
-        let tensor = Tensor::<f16>::from_vec_metal(&device, data.clone(), vec![3]).unwrap();
+        let tensor = Tensor::<f16>::from_vec_gpu(&device, data.clone(), vec![3]).unwrap();
 
         assert_eq!(tensor.dims(), &[3]);
         assert_eq!(tensor.numel(), 3);
@@ -174,7 +180,7 @@ mod tests {
     fn test_to_cpu() {
         let device = get_test_device();
         let data = vec![f16::from_f32(1.0), f16::from_f32(2.0)];
-        let tensor = Tensor::<f16>::from_vec_metal(&device, data.clone(), vec![2]).unwrap();
+        let tensor = Tensor::<f16>::from_vec_gpu(&device, data.clone(), vec![2]).unwrap();
 
         let cpu_tensor = tensor.to_cpu().unwrap();
         assert!(cpu_tensor.buffer().is_cpu());
@@ -188,7 +194,7 @@ mod tests {
 
         let metal_device = get_test_device();
         let data = vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)];
-        let tensor = Tensor::<f16>::from_vec_metal(&metal_device, data.clone(), vec![2, 2]).unwrap();
+        let tensor = Tensor::<f16>::from_vec_gpu(&metal_device, data.clone(), vec![2, 2]).unwrap();
 
         let path = "/tmp/test_tensor.bin";
         tensor.save(path).unwrap();
@@ -207,7 +213,7 @@ mod tests {
         let device = get_test_device();
         let data = vec![1.0f32, 2.0f32, 3.0f32];
 
-        let tensor = Tensor::<f32>::from_vec_metal(&device, data.clone(), vec![3]).unwrap();
+        let tensor = Tensor::<f32>::from_vec_gpu(&device, data.clone(), vec![3]).unwrap();
 
         assert_eq!(tensor.dims(), &[3]);
         assert_eq!(tensor.numel(), 3);

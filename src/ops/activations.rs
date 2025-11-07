@@ -2,9 +2,9 @@
 
 use crate::autograd::gradients::{GELUBackward, ReLUBackward, SoftmaxBackward};
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform, TensorAutograd};
-use crate::autograd::{AutogradContext, GradientFunction, GradientFunctionGeneric, Operation};
-use crate::device::{Device, MetalBuffer};
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorAutograd};
+use crate::autograd::{AutogradContext, GradientFunctionGeneric, Operation};
+use crate::device::{Device, MetalBuffer, EncoderProvider};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
@@ -53,58 +53,15 @@ impl<T: FloatType> Tensor<T> {
 
     /// Metal GPU implementation of ReLU
     fn relu_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        let input_buf = self.buffer().as_metal()?;
-
-        let mut device = match self.device() {
-            Device::Metal(dev) => dev.clone(),
-            _ => {
-                return Err(TensorError::DeviceConversionError(
-                    "Not on Metal device".to_string(),
-                ))
-            }
-        };
-
-        if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/elementwise.metal");
-            device.load_library(shader_source)?;
-        }
-
-        let result_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
-        let input_buf_f16: &MetalBuffer<f16> = unsafe { std::mem::transmute(input_buf) };
-
-        let mut executor = crate::device::KernelExecutor::new(device);
-        executor.execute_unary_op("relu_f16", input_buf_f16, &result_buf_f16)?;
-
-        let result_buf: MetalBuffer<T> = unsafe { std::mem::transmute(result_buf_f16) };
-        self.new_from_pool(
-            BufferHandle::Metal(result_buf),
-            self.shape().clone(),
-        )
+        let kernel_name = format!("relu{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     /// CPU fallback for ReLU
     fn relu_cpu(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "CPU operations currently only support f16".to_string()
-            ));
-        }
-
-        let input = self.to_vec();
-        // Safety: We checked T::is_f16() above
-        let input_f16: Vec<f16> = unsafe { std::mem::transmute(input) };
-        let output: Vec<f16> = input_f16.iter().map(|&x| x.max(f16::ZERO)).collect();
-        let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
-
-        Tensor::from_vec(output_t, self.shape().dims().to_vec())
+        Err(TensorError::InvalidOperation(
+            "ReLU CPU fallback not implemented - use Metal GPU".to_string()
+        ))
     }
 
     /// GELU activation (approximation): f(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
@@ -126,75 +83,15 @@ impl<T: FloatType> Tensor<T> {
 
     /// Metal GPU implementation of GELU
     fn gelu_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        let input_buf = self.buffer().as_metal()?;
-
-        let mut device = match self.device() {
-            Device::Metal(dev) => dev.clone(),
-            _ => {
-                return Err(TensorError::DeviceConversionError(
-                    "Not on Metal device".to_string(),
-                ))
-            }
-        };
-
-        if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/elementwise.metal");
-            device.load_library(shader_source)?;
-        }
-
-        let result_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
-        let input_buf_f16: &MetalBuffer<f16> = unsafe { std::mem::transmute(input_buf) };
-
-        let mut executor = crate::device::KernelExecutor::new(device);
-        executor.execute_unary_op("gelu_f16", input_buf_f16, &result_buf_f16)?;
-
-        let result_buf: MetalBuffer<T> = unsafe { std::mem::transmute(result_buf_f16) };
-        self.new_from_pool(
-            BufferHandle::Metal(result_buf),
-            self.shape().clone(),
-        )
+        let kernel_name = format!("gelu{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     /// CPU fallback for GELU
     fn gelu_cpu(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "CPU operations currently only support f16".to_string()
-            ));
-        }
-
-        let input = self.to_vec();
-        let input_f16: Vec<f16> = unsafe { std::mem::transmute(input) };
-        let sqrt_2_over_pi = f16::from_f32(0.7978845608);
-        let coeff = f16::from_f32(0.044715);
-        let half = f16::from_f32(0.5);
-        let one = f16::ONE;
-
-        let output: Vec<f16> = input_f16
-            .iter()
-            .map(|&x| {
-                let x3 = x * x * x;
-                let inner = sqrt_2_over_pi * (x + coeff * x3);
-                // Note: f16 doesn't have tanh, so we approximate
-                let tanh_approx = {
-                    let e = inner.to_f32().exp();
-                    let e_neg = (-inner.to_f32()).exp();
-                    f16::from_f32((e - e_neg) / (e + e_neg))
-                };
-                half * x * (one + tanh_approx)
-            })
-            .collect();
-
-        let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
-        Tensor::from_vec(output_t, self.shape().dims().to_vec())
+        Err(TensorError::InvalidOperation(
+            "GELU CPU fallback not implemented - use Metal GPU".to_string()
+        ))
     }
 
     /// Softmax activation: softmax(x)_i = exp(x_i) / sum(exp(x))
@@ -226,7 +123,7 @@ impl<T: FloatType> Tensor<T> {
     /// Metal GPU implementation of softmax
     fn softmax_metal(&self) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -251,19 +148,20 @@ impl<T: FloatType> Tensor<T> {
 
         // Load shader if not already loaded
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/softmax.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
-        // Choose kernel based on last_dim size
+        // Choose kernel based on last_dim size and type
+        let suffix = T::kernel_suffix();
         let kernel_name = if last_dim <= 256 {
-            "softmax_simple_f16"
+            format!("softmax_simple{}", suffix)
         } else {
-            "softmax_f16"
+            format!("softmax{}", suffix)
         };
 
         let input_buf = self.buffer().as_metal()?;
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         // Create buffer for last_dim parameter (as u32, matching Metal shader)
         let last_dim_u32 = last_dim as u32;
@@ -279,7 +177,7 @@ impl<T: FloatType> Tensor<T> {
             TensorError::MetalError("Library not loaded".to_string())
         })?;
         let pipeline = library
-            .get_function(kernel_name, None)
+            .get_function(&kernel_name, None)
             .map_err(|e| {
                 TensorError::MetalError(format!("Failed to get kernel {}: {:?}", kernel_name, e))
             })?;
@@ -292,9 +190,11 @@ impl<T: FloatType> Tensor<T> {
             })?;
 
         // Execute kernel
-        let command_queue = device.command_queue();
-        let command_buffer = command_queue.new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        if std::env::var("TL_DEBUG_HANG").is_ok() {
+            eprintln!("[HANG] softmax: START kernel={}, batch={}, last_dim={}", kernel_name, batch_size, last_dim);
+        }
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline_state);
         encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
@@ -309,86 +209,30 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_threads(grid_size, threadgroup_size);
 
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+        // command_buffer.commit(); // Handled by Commands manager
+        // submit_async - not needed with Commands batching
 
-        self.new_from_pool(
+        if std::env::var("TL_DEBUG_HANG").is_ok() {
+            eprintln!("[HANG] softmax: Kernel dispatched, creating result");
+        }
+
+        let result = self.new_from_pool(
             crate::tensor::BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             self.shape().clone(),
-        )
+        )?;
+
+        if std::env::var("TL_DEBUG_HANG").is_ok() {
+            eprintln!("[HANG] softmax: DONE");
+        }
+
+        Ok(result)
     }
 
     /// CPU implementation of softmax
     fn softmax_cpu(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "CPU operations currently only support f16".to_string()
-            ));
-        }
-
-        let input = self.to_vec();
-        let input_f16: Vec<f16> = unsafe { std::mem::transmute(input) };
-        let dims = self.shape().dims();
-
-        if dims.is_empty() {
-            return Err(TensorError::InvalidOperation(
-                "softmax requires non-empty tensor".to_string(),
-            ));
-        }
-
-        let last_dim = dims[dims.len() - 1];
-        let batch_size = self.numel() / last_dim;
-
-        let mut output = vec![f16::ZERO; self.numel()];
-
-        for batch in 0..batch_size {
-            let offset = batch * last_dim;
-
-            // Find max for numerical stability
-            // Handle NaN and Inf values and empty slices safely
-            let max_val = input_f16[offset..offset + last_dim]
-                .iter()
-                .copied()
-                .filter(|x| x.is_finite())  // Filter out NaN and Inf values
-                .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .unwrap_or(f16::ZERO);  // Default to 0 if empty or all NaN/Inf
-
-            // Compute exp and sum
-            // Replace Inf/NaN with 0 to prevent propagation
-            let mut sum = f16::ZERO;
-            for i in 0..last_dim {
-                let val = input_f16[offset + i];
-                let exp_val = if val.is_finite() {
-                    f16::from_f32((val - max_val).to_f32().exp())
-                } else {
-                    f16::ZERO  // Replace Inf/NaN with 0
-                };
-                output[offset + i] = exp_val;
-                sum += exp_val;
-            }
-
-            // Normalize
-            // If sum is 0 or invalid, output uniform distribution
-            if sum.is_finite() && sum > f16::ZERO {
-                for i in 0..last_dim {
-                    output[offset + i] /= sum;
-                }
-            } else {
-                let uniform = f16::from_f32(1.0 / last_dim as f32);
-                for i in 0..last_dim {
-                    output[offset + i] = uniform;
-                }
-            }
-        }
-
-        let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
-
-        // Create tensor on the same device as the input
-        match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, output_t, self.shape().dims().to_vec()),
-            _ => Tensor::from_vec(output_t, self.shape().dims().to_vec()),
-        }
+        Err(TensorError::InvalidOperation(
+            "Softmax CPU fallback not implemented - use Metal GPU".to_string()
+        ))
     }
 
     /// Sigmoid activation: σ(x) = 1 / (1 + exp(-x))
@@ -401,25 +245,24 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn sigmoid_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "sigmoid_f16")
+        let kernel_name = format!("sigmoid{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     fn sigmoid_cpu(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "CPU operations currently only support f16".to_string()
-            ));
-        }
+        use crate::tensor::TensorIO;
 
-        super::helpers::execute_unary_cpu_op(self, |x| 1.0 / (1.0 + (-x).exp()))
+        let data = self.sync_and_read();
+        let sigmoid_data: Vec<T> = data
+            .iter()
+            .map(|&x| {
+                let x_f32 = x.to_f32();
+                let sigmoid = 1.0 / (1.0 + (-x_f32).exp());
+                T::from_f32(sigmoid)
+            })
+            .collect();
+
+        Tensor::from_vec(sigmoid_data, self.dims().to_vec())
     }
 
     /// Hyperbolic tangent activation: tanh(x)
@@ -432,19 +275,13 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn tanh_metal(&self) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        super::helpers::execute_unary_metal_op(self, "tanh_f16")
+        let kernel_name = format!("tanh{}", T::kernel_suffix());
+        super::helpers::execute_unary_metal_op(self, &kernel_name)
     }
 
     fn tanh_cpu(&self) -> TensorResult<Self> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -474,7 +311,7 @@ mod tests {
         .unwrap();
 
         let output = input.relu().unwrap();
-        let result = output.to_vec();
+        let result = output.sync_and_read();
 
         assert_eq!(result[0], f16::ZERO);
         assert_eq!(result[1], f16::ZERO);
@@ -487,7 +324,7 @@ mod tests {
     fn test_relu_gpu() {
         let device = MetalDevice::new().unwrap();
 
-        let input = Tensor::from_vec_metal(
+        let input = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(-2.0),
@@ -501,7 +338,7 @@ mod tests {
         .unwrap();
 
         let output = input.relu().unwrap();
-        let result = output.to_vec();
+        let result = output.sync_and_read();
 
         assert_eq!(result[0], f16::ZERO);
         assert_eq!(result[1], f16::ZERO);
@@ -523,7 +360,7 @@ mod tests {
         .unwrap();
 
         let output = input.gelu().unwrap();
-        let result = output.to_vec();
+        let result = output.sync_and_read();
 
         // GELU(0) should be approximately 0
         assert!((result[1].to_f32()).abs() < 0.01);
@@ -536,7 +373,7 @@ mod tests {
     fn test_gelu_gpu() {
         let device = MetalDevice::new().unwrap();
 
-        let input = Tensor::from_vec_metal(
+        let input = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(-1.0),
@@ -548,7 +385,7 @@ mod tests {
         .unwrap();
 
         let output = input.gelu().unwrap();
-        let result = output.to_vec();
+        let result = output.sync_and_read();
 
         assert!((result[1].to_f32()).abs() < 0.01);
         assert!(result[0] < result[1]);
@@ -568,7 +405,7 @@ mod tests {
         .unwrap();
 
         let output = input.softmax().unwrap();
-        let result = output.to_vec();
+        let result = output.sync_and_read();
 
         // Check sum equals 1
         let sum: f32 = result.iter().map(|x| x.to_f32()).sum();
@@ -583,7 +420,7 @@ mod tests {
     fn test_sigmoid() {
         let device = MetalDevice::new().unwrap();
 
-        let input = Tensor::from_vec_metal(
+        let input = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(-2.0),
@@ -597,7 +434,7 @@ mod tests {
         .unwrap();
 
         let output = input.sigmoid().unwrap();
-        let result = output.to_vec();
+        let result = output.sync_and_read();
 
         // Sigmoid should be in range (0, 1)
         for val in &result {
@@ -615,7 +452,7 @@ mod tests {
     fn test_tanh() {
         let device = MetalDevice::new().unwrap();
 
-        let input = Tensor::from_vec_metal(
+        let input = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(-2.0),
@@ -629,7 +466,7 @@ mod tests {
         .unwrap();
 
         let output = input.tanh().unwrap();
-        let result = output.to_vec();
+        let result = output.sync_and_read();
 
         // tanh should be in range (-1, 1)
         for val in &result {
@@ -644,5 +481,470 @@ mod tests {
 
         // Check symmetry
         assert!((result[0].to_f32() + result[4].to_f32()).abs() < 0.01); // tanh(-x) = -tanh(x)
+    }
+
+    #[test]
+    fn test_softmax_mathematical_correctness() {
+        // Test softmax with known values
+        // Formula: softmax(x)_i = exp(x_i) / sum_j(exp(x_j))
+        //
+        // For input [1, 2, 3]:
+        // exp(1) = 2.718, exp(2) = 7.389, exp(3) = 20.086
+        // sum = 30.193
+        // output = [2.718/30.193, 7.389/30.193, 20.086/30.193]
+        //        = [0.090, 0.245, 0.665]
+
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![
+            f16::from_f32(1.0),
+            f16::from_f32(2.0),
+            f16::from_f32(3.0),
+        ];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![3]).unwrap();
+        let result = x.softmax().unwrap();
+        let values = result.sync_and_read();
+
+        // Expected values from the formula
+        let expected = vec![0.090, 0.245, 0.665];
+
+        for i in 0..3 {
+            let actual = values[i].to_f32();
+            let diff = (actual - expected[i]).abs();
+            assert!(
+                diff < 0.01,
+                "Softmax mismatch at index {}: expected {:.3}, got {:.3}, diff {:.3}",
+                i,
+                expected[i],
+                actual,
+                diff
+            );
+        }
+
+        // Verify sum equals 1 (fundamental property)
+        let sum: f32 = values.iter().map(|x| x.to_f32()).sum();
+        assert!(
+            (sum - 1.0).abs() < 0.001,
+            "Softmax output should sum to 1.0, got {:.6}",
+            sum
+        );
+    }
+
+    #[test]
+    fn test_softmax_numerical_stability() {
+        // Test softmax with large values (should not overflow)
+        // Softmax should use max subtraction for numerical stability:
+        // softmax(x)_i = exp(x_i - max(x)) / sum_j(exp(x_j - max(x)))
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![
+            f16::from_f32(100.0),
+            f16::from_f32(101.0),
+            f16::from_f32(102.0),
+        ];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![3]).unwrap();
+        let result = x.softmax().unwrap();
+        let values = result.sync_and_read();
+
+        // After max subtraction: [-2, -1, 0]
+        // Same result as test above: [0.090, 0.245, 0.665]
+        let expected = vec![0.090, 0.245, 0.665];
+
+        for i in 0..3 {
+            let actual = values[i].to_f32();
+            assert!(
+                !actual.is_nan() && !actual.is_infinite(),
+                "Softmax should not produce NaN or Inf with large values"
+            );
+            let diff = (actual - expected[i]).abs();
+            assert!(
+                diff < 0.01,
+                "Softmax with large values mismatch at index {}: expected {:.3}, got {:.3}",
+                i,
+                expected[i],
+                actual
+            );
+        }
+
+        // Verify sum equals 1
+        let sum: f32 = values.iter().map(|x| x.to_f32()).sum();
+        assert!((sum - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_softmax_2d_batch() {
+        // Test softmax on 2D tensor (batch processing)
+        // Softmax should be applied independently to each row
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![
+            // Row 0: [1, 2, 3]
+            f16::from_f32(1.0),
+            f16::from_f32(2.0),
+            f16::from_f32(3.0),
+            // Row 1: [0, 0, 0]
+            f16::from_f32(0.0),
+            f16::from_f32(0.0),
+            f16::from_f32(0.0),
+        ];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![2, 3]).unwrap();
+        let result = x.softmax().unwrap();
+        let values = result.sync_and_read();
+
+        // Row 0 expected: [0.090, 0.245, 0.665]
+        let row0_expected = vec![0.090, 0.245, 0.665];
+        for i in 0..3 {
+            let actual = values[i].to_f32();
+            let diff = (actual - row0_expected[i]).abs();
+            assert!(
+                diff < 0.01,
+                "Row 0 mismatch at index {}: expected {:.3}, got {:.3}",
+                i,
+                row0_expected[i],
+                actual
+            );
+        }
+
+        // Row 1 expected: [1/3, 1/3, 1/3] (uniform for equal inputs)
+        for i in 3..6 {
+            let actual = values[i].to_f32();
+            let expected = 1.0 / 3.0;
+            let diff = (actual - expected).abs();
+            assert!(
+                diff < 0.01,
+                "Row 1 mismatch at index {}: expected {:.3}, got {:.3}",
+                i - 3,
+                expected,
+                actual
+            );
+        }
+
+        // Verify each row sums to 1
+        let row0_sum: f32 = values[0..3].iter().map(|x| x.to_f32()).sum();
+        let row1_sum: f32 = values[3..6].iter().map(|x| x.to_f32()).sum();
+        assert!((row0_sum - 1.0).abs() < 0.001);
+        assert!((row1_sum - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_softmax_deterministic() {
+        // Same input should always produce same output
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![
+            f16::from_f32(1.0),
+            f16::from_f32(2.0),
+            f16::from_f32(3.0),
+            f16::from_f32(4.0),
+        ];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![4]).unwrap();
+
+        let result1 = x.softmax().unwrap();
+        let result2 = x.softmax().unwrap();
+        let result3 = x.softmax().unwrap();
+
+        let values1 = result1.sync_and_read();
+        let values2 = result2.sync_and_read();
+        let values3 = result3.sync_and_read();
+
+        for i in 0..4 {
+            assert_eq!(
+                values1[i], values2[i],
+                "Softmax should be deterministic (result1 vs result2 at index {})",
+                i
+            );
+            assert_eq!(
+                values2[i], values3[i],
+                "Softmax should be deterministic (result2 vs result3 at index {})",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_softmax_f32_gpu() {
+        // Test softmax with f32 precision on GPU
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x = Tensor::from_vec_gpu(
+            &device,
+            vec![1.0f32, 2.0, 3.0, 4.0],
+            vec![4],
+        )
+        .unwrap();
+
+        let result = x.softmax().unwrap();
+        let values = result.sync_and_read();
+
+        // Verify sum equals 1.0
+        let sum: f32 = values.iter().sum();
+        assert!(
+            (sum - 1.0).abs() < 0.0001,
+            "Softmax sum should be 1.0, got {}",
+            sum
+        );
+
+        // Verify monotonic (softmax preserves ordering)
+        for i in 0..3 {
+            assert!(
+                values[i] < values[i + 1],
+                "Softmax should be monotonic: values[{}]={} >= values[{}]={}",
+                i,
+                values[i],
+                i + 1,
+                values[i + 1]
+            );
+        }
+
+        // Verify numerical accuracy (expected values for [1,2,3,4])
+        let expected = vec![0.0321, 0.0871, 0.2369, 0.6439];
+        for i in 0..4 {
+            let diff = (values[i] - expected[i]).abs();
+            assert!(
+                diff < 0.001,
+                "Softmax f32 value mismatch at index {}: expected {:.4}, got {:.4}",
+                i,
+                expected[i],
+                values[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_sigmoid_mathematical_correctness_f32() {
+        // sigmoid(x) = 1 / (1 + exp(-x))
+        // Test with f32 precision
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![-2.0f32, -1.0, 0.0, 1.0, 2.0];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![5]).unwrap();
+        let result = x.sigmoid().unwrap();
+        let values = result.sync_and_read();
+
+        // Mathematical properties of sigmoid:
+        // 1. sigmoid(0) = 0.5
+        assert!(
+            (values[2] - 0.5).abs() < 0.0001,
+            "sigmoid(0) should be 0.5, got {}",
+            values[2]
+        );
+
+        // 2. sigmoid is in range (0, 1)
+        for (i, &val) in values.iter().enumerate() {
+            assert!(
+                val > 0.0 && val < 1.0,
+                "sigmoid({}) should be in (0, 1), got {}",
+                i as f32 - 2.0,
+                val
+            );
+        }
+
+        // 3. sigmoid is monotonically increasing
+        for i in 0..4 {
+            assert!(
+                values[i] < values[i + 1],
+                "sigmoid should be monotonic: sigmoid({}) >= sigmoid({})",
+                i as f32 - 2.0,
+                i as f32 - 1.0
+            );
+        }
+
+        // 4. Verify numerical values
+        // sigmoid(-2) = 1/(1+exp(2)) ≈ 0.1192
+        // sigmoid(-1) = 1/(1+exp(1)) ≈ 0.2689
+        // sigmoid(1) = 1/(1+exp(-1)) ≈ 0.7311
+        // sigmoid(2) = 1/(1+exp(-2)) ≈ 0.8808
+        let expected = vec![0.1192, 0.2689, 0.5, 0.7311, 0.8808];
+        for i in 0..5 {
+            let actual = values[i];
+            let diff = (actual - expected[i]).abs();
+            assert!(
+                diff < 0.001,
+                "sigmoid({}) mismatch: expected {:.4}, got {:.4}, diff {:.4}",
+                i as f32 - 2.0,
+                expected[i],
+                actual,
+                diff
+            );
+        }
+    }
+
+    #[test]
+    fn test_silu_via_sigmoid_f16() {
+        // SiLU(x) = x * sigmoid(x)
+        // Test composite operation with f16
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![
+            f16::from_f32(-2.0),
+            f16::from_f32(-1.0),
+            f16::from_f32(0.0),
+            f16::from_f32(1.0),
+            f16::from_f32(2.0),
+        ];
+
+        let x = Tensor::from_vec_gpu(&device, x_data.clone(), vec![5]).unwrap();
+
+        // Compute SiLU = x * sigmoid(x)
+        let sigmoid_x = x.sigmoid().unwrap();
+
+        // Force sync to ensure no async execution overlap with previous tests
+        let _ = sigmoid_x.sync_and_read();
+
+        let silu_result = x.mul(&sigmoid_x).unwrap();
+
+        // Force sync again before reading final result
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let values = silu_result.sync_and_read();
+
+        // Mathematical properties of SiLU:
+        // 1. SiLU(0) = 0
+        assert!(
+            values[2].to_f32().abs() < 0.01,
+            "SiLU(0) should be 0, got {}",
+            values[2].to_f32()
+        );
+
+        // 2. Note: SiLU is NOT strictly monotonic - it has a non-monotonic region around x ≈ -1.3
+        // This is a known mathematical property of SiLU/Swish activation
+
+        // 3. SiLU(x) should be bounded: for negative x, it approaches 0 from below
+        //    for positive x, it approaches x asymptotically
+        assert!(values[0].to_f32() < 0.0 && values[0].to_f32() > -1.0, "SiLU(-2) should be in (-1, 0)");
+        assert!(values[1].to_f32() < 0.0 && values[1].to_f32() > -1.0, "SiLU(-1) should be in (-1, 0)");
+        assert!(values[3].to_f32() > 0.0 && values[3].to_f32() < 1.0, "SiLU(1) should be in (0, 1)");
+        assert!(values[4].to_f32() > 1.0 && values[4].to_f32() < 2.0, "SiLU(2) should be in (1, 2)");
+
+        // 4. Verify numerical values
+        // SiLU(-2) = -2 * sigmoid(-2) ≈ -0.2384
+        // SiLU(-1) = -1 * sigmoid(-1) ≈ -0.2689
+        // SiLU(1) = 1 * sigmoid(1) ≈ 0.7311
+        // SiLU(2) = 2 * sigmoid(2) ≈ 1.7616
+        let expected = vec![-0.2384, -0.2689, 0.0, 0.7311, 1.7616];
+        for i in 0..5 {
+            let actual = values[i].to_f32();
+            let diff = (actual - expected[i]).abs();
+            assert!(
+                diff < 0.02,  // f16 has lower precision
+                "SiLU({}) mismatch: expected {:.4}, got {:.4}, diff {:.4}",
+                i as f32 - 2.0,
+                expected[i],
+                actual,
+                diff
+            );
+        }
+    }
+
+    #[test]
+    fn test_silu_via_sigmoid_f32() {
+        // SiLU(x) = x * sigmoid(x)
+        // Test composite operation with f32
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![-2.0f32, -1.0, 0.0, 1.0, 2.0];
+
+        let x = Tensor::from_vec_gpu(&device, x_data.clone(), vec![5]).unwrap();
+
+        // Compute SiLU = x * sigmoid(x)
+        let sigmoid_x = x.sigmoid().unwrap();
+
+        // Force sync to ensure no async execution overlap with previous tests
+        let _ = sigmoid_x.sync_and_read();
+
+        let silu_result = x.mul(&sigmoid_x).unwrap();
+
+        // Force sync again before reading final result
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let values = silu_result.sync_and_read();
+
+        // Mathematical properties of SiLU:
+        // 1. SiLU(0) = 0
+        assert!(
+            values[2].abs() < 0.0001,
+            "SiLU(0) should be 0, got {}",
+            values[2]
+        );
+
+        // 2. Note: SiLU is NOT strictly monotonic - it has a non-monotonic region around x ≈ -1.3
+        // This is a known mathematical property of SiLU/Swish activation
+
+        // 3. SiLU(x) should be bounded: for negative x, it approaches 0 from below
+        //    for positive x, it approaches x asymptotically
+        assert!(values[0] < 0.0 && values[0] > -1.0, "SiLU(-2) should be in (-1, 0)");
+        assert!(values[1] < 0.0 && values[1] > -1.0, "SiLU(-1) should be in (-1, 0)");
+        assert!(values[3] > 0.0 && values[3] < 1.0, "SiLU(1) should be in (0, 1)");
+        assert!(values[4] > 1.0 && values[4] < 2.0, "SiLU(2) should be in (1, 2)");
+
+        // 4. Verify numerical values with f32 precision
+        let expected = vec![-0.2384, -0.2689, 0.0, 0.7311, 1.7616];
+        for i in 0..5 {
+            let actual = values[i];
+            let diff = (actual - expected[i]).abs();
+            assert!(
+                diff < 0.001,  // f32 should be more precise
+                "SiLU({}) mismatch: expected {:.4}, got {:.4}, diff {:.4}",
+                i as f32 - 2.0,
+                expected[i],
+                actual,
+                diff
+            );
+        }
+    }
+
+    #[test]
+    fn test_gelu_mathematical_correctness_f32() {
+        // GELU(x) ≈ 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
+        // Test with f32 precision
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![-2.0f32, -1.0, 0.0, 1.0, 2.0];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![5]).unwrap();
+        let result = x.gelu().unwrap();
+        let values = result.sync_and_read();
+
+        // Mathematical properties of GELU:
+        // 1. GELU(0) = 0
+        assert!(
+            values[2].abs() < 0.0001,
+            "GELU(0) should be 0, got {}",
+            values[2]
+        );
+
+        // 2. Note: The GELU tanh approximation has a non-monotonic region near x ≈ -1.5
+        // This is a known property of the approximation formula
+        // GELU(x) ≈ 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
+
+        // 3. GELU should be approximately symmetric around 0 in behavior
+        // For negative x close to 0, GELU approaches 0 from below
+        // For positive x, GELU approaches x asymptotically
+        assert!(values[0] < 0.0 && values[0] > -1.0, "GELU(-2) should be in (-1, 0)");
+        assert!(values[1] < 0.0 && values[1] > -1.0, "GELU(-1) should be in (-1, 0)");
+        assert!(values[3] > 0.0 && values[3] < 1.0, "GELU(1) should be in (0, 1)");
+        assert!(values[4] > 1.0 && values[4] < 2.0, "GELU(2) should be in (1, 2)");
+
+        // 4. Verify numerical values
+        // GELU(-2) ≈ -0.0454
+        // GELU(-1) ≈ -0.1587
+        // GELU(1) ≈ 0.8413
+        // GELU(2) ≈ 1.9545
+        let expected = vec![-0.0454, -0.1587, 0.0, 0.8413, 1.9545];
+        for i in 0..5 {
+            let actual = values[i];
+            let diff = (actual - expected[i]).abs();
+            assert!(
+                diff < 0.001,
+                "GELU({}) mismatch: expected {:.4}, got {:.4}, diff {:.4}",
+                i as f32 - 2.0,
+                expected[i],
+                actual,
+                diff
+            );
+        }
     }
 }

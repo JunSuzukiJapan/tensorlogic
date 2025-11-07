@@ -4,17 +4,14 @@
 
 use crate::error::TensorError;
 use crate::model::{Model, ModelMetadata, ModelFormat, QuantizationType};
-use crate::tensor::Tensor;
 use crate::device::MetalDevice;
 use std::collections::HashMap;
 use std::path::Path;
 
 #[cfg(target_os = "macos")]
-use objc2::rc::Retained;
+use objc2_core_ml::MLModel;
 #[cfg(target_os = "macos")]
-use objc2_core_ml::{MLModel, MLMultiArray, MLFeatureValue, MLDictionaryFeatureProvider};
-#[cfg(target_os = "macos")]
-use objc2_foundation::{NSURL, NSString, NSNumber, NSMutableDictionary};
+use objc2_foundation::{NSURL, NSString};
 
 pub struct CoreMLLoader;
 
@@ -59,7 +56,7 @@ impl CoreMLLoader {
         // They are compiled and optimized for inference on Neural Engine
         // For now, we create a model structure that holds the CoreML model reference
 
-        let mut tensors = HashMap::new();
+        let tensors = HashMap::new();
 
         // Create metadata
         let metadata = ModelMetadata {

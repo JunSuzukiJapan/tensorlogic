@@ -1,6 +1,6 @@
 //! Tensor manipulation operations (concat, transpose, permute, split)
 
-use crate::device::{Device, MetalBuffer};
+use crate::device::{Device, MetalBuffer, EncoderProvider};
 use crate::tensor::FloatType;
 use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
 use crate::error::{TensorError, TensorResult};
@@ -20,7 +20,7 @@ impl<T: FloatType> Tensor<T> {
     /// let b = Tensor::<f16>::zeros(&device, vec![2, 3]).unwrap();
     /// let c = Tensor::<f16>::concat(&[&a, &b], 0).unwrap(); // Shape: [4, 3]
     /// ```
-    pub fn concat(tensors: &[&Tensor], dim: usize) -> TensorResult<Self> {
+    pub fn concat(tensors: &[&Tensor<T>], dim: usize) -> TensorResult<Self> {
         if tensors.is_empty() {
             return Err(TensorError::InvalidOperation(
                 "Cannot concatenate empty tensor list".to_string(),
@@ -65,15 +65,8 @@ impl<T: FloatType> Tensor<T> {
         }
     }
 
-    fn concat_metal(tensors: &[&Tensor], dim: usize, output_shape: Vec<usize>) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
-        let device = match tensors[0].device() {
+    fn concat_metal(tensors: &[&Tensor<T>], dim: usize, output_shape: Vec<usize>) -> TensorResult<Self> {
+        let mut device = match tensors[0].device() {
             Device::Metal(dev) => dev.clone(),
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
@@ -81,48 +74,100 @@ impl<T: FloatType> Tensor<T> {
         // Calculate total number of elements
         let total_elements: usize = output_shape.iter().product();
 
-        // For now, use CPU approach with GPU memory
-        // This copies data to CPU, concatenates, then copies back
-        // TODO: Implement proper Metal kernel for concat
-        let mut result_data = Vec::with_capacity(total_elements);
-
-        // Calculate stride for each dimension
-        let mut strides = vec![1; output_shape.len()];
-        for i in (0..output_shape.len() - 1).rev() {
-            strides[i] = strides[i + 1] * output_shape[i + 1];
+        // Load shader library
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device.load_library(shader_source)?;
         }
 
-        // Concatenate along the specified dimension
-        let chunk_size: usize = output_shape[dim + 1..].iter().product();
-        let num_chunks: usize = output_shape[..dim].iter().product();
+        // Create output buffer
+        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), total_elements)?;
 
-        for chunk_idx in 0..num_chunks {
-            for tensor in tensors {
-                let data = tensor.to_vec();
-                let tensor_dim_size = tensor.dims()[dim];
+        // Calculate concat parameters
+        let chunk_size: usize = if dim + 1 < output_shape.len() {
+            output_shape[dim + 1..].iter().product()
+        } else {
+            1
+        };
+        let num_chunks: usize = if dim > 0 {
+            output_shape[..dim].iter().product()
+        } else {
+            1
+        };
+        let output_dim_size = output_shape[dim];
 
-                for i in 0..tensor_dim_size {
-                    let start = (chunk_idx * tensor_dim_size + i) * chunk_size;
-                    let end = start + chunk_size;
-                    result_data.extend_from_slice(&data[start..end]);
-                }
-            }
+        // Select kernel based on type
+        let kernel_name = format!("concat{}", T::kernel_suffix());
+        let mut executor = crate::device::KernelExecutor::new(device.clone());
+        let pipeline = executor.get_or_compile_pipeline(&kernel_name)?;
+
+        // Process each input tensor
+        let mut dim_offset: u32 = 0;
+        for tensor in tensors {
+            let input_buf = tensor.buffer().as_metal()?;
+            let input_dim_size = tensor.dims()[dim] as u32;
+
+            let dim_offset_buf = device.metal_device().new_buffer_with_data(
+                &dim_offset as *const u32 as *const _,
+                std::mem::size_of::<u32>() as u64,
+                metal::MTLResourceOptions::StorageModeShared,
+            );
+            let input_dim_size_buf = device.metal_device().new_buffer_with_data(
+                &input_dim_size as *const u32 as *const _,
+                std::mem::size_of::<u32>() as u64,
+                metal::MTLResourceOptions::StorageModeShared,
+            );
+            let output_dim_size_buf = device.metal_device().new_buffer_with_data(
+                &(output_dim_size as u32) as *const u32 as *const _,
+                std::mem::size_of::<u32>() as u64,
+                metal::MTLResourceOptions::StorageModeShared,
+            );
+            let chunk_size_buf = device.metal_device().new_buffer_with_data(
+                &(chunk_size as u32) as *const u32 as *const _,
+                std::mem::size_of::<u32>() as u64,
+                metal::MTLResourceOptions::StorageModeShared,
+            );
+            let num_chunks_buf = device.metal_device().new_buffer_with_data(
+                &(num_chunks as u32) as *const u32 as *const _,
+                std::mem::size_of::<u32>() as u64,
+                metal::MTLResourceOptions::StorageModeShared,
+            );
+
+            // Commands API (candle pattern)
+            let (_flushed, command_buffer) = device.command_buffer()?;
+            let encoder = command_buffer.encoder();
+
+            encoder.set_compute_pipeline_state(&pipeline);
+            encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+            encoder.set_buffer(1, Some(&output_buf.buffer), 0);
+            encoder.set_buffer(2, Some(&dim_offset_buf), 0);
+            encoder.set_buffer(3, Some(&input_dim_size_buf), 0);
+            encoder.set_buffer(4, Some(&output_dim_size_buf), 0);
+            encoder.set_buffer(5, Some(&chunk_size_buf), 0);
+            encoder.set_buffer(6, Some(&num_chunks_buf), 0);
+
+            let total_input_elements = (num_chunks * input_dim_size as usize * chunk_size) as u64;
+            let grid_size = metal::MTLSize::new(total_input_elements, 1, 1);
+            let threadgroup_size = metal::MTLSize::new(256.min(total_input_elements), 1, 1);
+
+            encoder.dispatch_threads(grid_size, threadgroup_size);
+            encoder.end_encoding();
+            // Note: wait_until_completed() is NOT called here (matches candle pattern).
+
+            dim_offset += input_dim_size;
         }
-
-        // Write data to Metal buffer
-        let metal_buf_f16 = MetalBuffer::from_f16_slice(device.metal_device(), &result_data)?;
-        let metal_buf: MetalBuffer<T> = unsafe { std::mem::transmute(metal_buf_f16) };
 
         Tensor::new(
-            BufferHandle::Metal(metal_buf),
+            BufferHandle::Metal(unsafe { std::mem::transmute(output_buf) }),
             output_shape.into(),
             Device::Metal(device),
         )
     }
 
-    fn concat_cpu(tensors: &[&Tensor], dim: usize, output_shape: Vec<usize>) -> TensorResult<Self> {
+    fn concat_cpu(tensors: &[&Tensor<T>], dim: usize, output_shape: Vec<usize>) -> TensorResult<Self> {
+        panic!("src/ops/tensor_ops.rs:132:5");
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -138,8 +183,7 @@ impl<T: FloatType> Tensor<T> {
         // Concatenate along the specified dimension
         for chunk_idx in 0..num_chunks {
             for tensor in tensors {
-                let data_t = tensor.to_vec();
-                let data: Vec<f16> = unsafe { std::mem::transmute(data_t) };
+                let data = tensor.sync_and_read();
                 let tensor_dim_size = tensor.dims()[dim];
 
                 for i in 0..tensor_dim_size {
@@ -150,8 +194,7 @@ impl<T: FloatType> Tensor<T> {
             }
         }
 
-        let result_t: Vec<T> = unsafe { std::mem::transmute(result_data) };
-        Tensor::from_vec(result_t, output_shape)
+        Tensor::from_vec(result_data, output_shape)
     }
 
     /// Transpose a 2D tensor (swap dimensions 0 and 1)
@@ -207,27 +250,96 @@ impl<T: FloatType> Tensor<T> {
     }
 
     fn permute_metal(&self, dims: &[usize]) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
+        let input_buf = self.buffer().as_metal()?;
+        let input_shape = self.dims();
+
+        // Calculate output shape
+        let output_shape: Vec<usize> = dims.iter().map(|&i| input_shape[i]).collect();
+        let total_elements: usize = output_shape.iter().product();
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        // Load shader library
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device.load_library(shader_source)?;
         }
 
-        // For now, use CPU implementation with GPU memory
-        // TODO: Implement proper Metal kernel for permute
-        self.permute_cpu(dims)
+        // Create output buffer
+        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), total_elements)?;
+
+        // Select kernel based on type
+        let kernel_name = format!("permute{}", T::kernel_suffix());
+
+        let mut executor = crate::device::KernelExecutor::new(device.clone());
+        let pipeline = executor.get_or_compile_pipeline(&kernel_name)?;
+
+        // Prepare shape and permutation buffers
+        let input_shape_u32: Vec<u32> = input_shape.iter().map(|&x| x as u32).collect();
+        let output_shape_u32: Vec<u32> = output_shape.iter().map(|&x| x as u32).collect();
+        let perm_u32: Vec<u32> = dims.iter().map(|&x| x as u32).collect();
+        let ndim_u32 = input_shape.len() as u32;
+
+        let input_shape_buf = device.metal_device().new_buffer_with_data(
+            input_shape_u32.as_ptr() as *const _,
+            (input_shape_u32.len() * std::mem::size_of::<u32>()) as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+        let output_shape_buf = device.metal_device().new_buffer_with_data(
+            output_shape_u32.as_ptr() as *const _,
+            (output_shape_u32.len() * std::mem::size_of::<u32>()) as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+        let perm_buf = device.metal_device().new_buffer_with_data(
+            perm_u32.as_ptr() as *const _,
+            (perm_u32.len() * std::mem::size_of::<u32>()) as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+        let ndim_buf = device.metal_device().new_buffer_with_data(
+            &ndim_u32 as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        // Commands API (candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&output_buf.buffer), 0);
+        encoder.set_buffer(2, Some(&input_shape_buf), 0);
+        encoder.set_buffer(3, Some(&output_shape_buf), 0);
+        encoder.set_buffer(4, Some(&perm_buf), 0);
+        encoder.set_buffer(5, Some(&ndim_buf), 0);
+
+        let grid_size = metal::MTLSize::new(total_elements as u64, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(256.min(total_elements as u64), 1, 1);
+
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        // Note: wait_until_completed() is NOT called here (matches candle pattern).
+
+        Tensor::new(
+            BufferHandle::Metal(unsafe { std::mem::transmute(output_buf) }),
+            output_shape.into(),
+            self.device().clone(),
+        )
     }
 
     fn permute_cpu(&self, dims: &[usize]) -> TensorResult<Self> {
+        panic!("src/ops/tensor_ops.rs:229:5");
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
         }
 
-        let input_data_t = self.to_vec();
+        let input_data_t = self.sync_and_read();
         let input_data: Vec<f16> = unsafe { std::mem::transmute(input_data_t) };
         let input_shape = self.dims();
 
@@ -275,7 +387,7 @@ impl<T: FloatType> Tensor<T> {
 
         let output_t: Vec<T> = unsafe { std::mem::transmute(output_data) };
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_metal(dev, output_t, output_shape),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, output_t, output_shape),
             _ => Tensor::from_vec(output_t, output_shape),
         }
     }
@@ -429,7 +541,7 @@ impl<T: FloatType> Tensor<T> {
         let num_splits = (dim_size + split_size - 1) / split_size;
 
         let mut result = Vec::with_capacity(num_splits);
-        let data = self.to_vec();
+        let data = self.sync_and_read();
 
         // Calculate strides for indexing
         let mut strides = vec![1; dims.len()];
@@ -479,7 +591,7 @@ impl<T: FloatType> Tensor<T> {
 
             // Create split tensor
             let split_tensor = match self.device() {
-                Device::Metal(dev) => Tensor::from_vec_metal(dev, split_data, split_dims)?,
+                Device::Metal(dev) => Tensor::from_vec_gpu(dev, split_data, split_dims)?,
                 _ => Tensor::from_vec(split_data, split_dims)?,
             };
 
@@ -503,14 +615,14 @@ mod tests {
     fn test_concat_dim0() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
             vec![1, 3],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(4.0), f16::from_f32(5.0), f16::from_f32(6.0)],
             vec![1, 3],
@@ -520,7 +632,7 @@ mod tests {
         let c = Tensor::<f16>::concat(&[&a, &b], 0).unwrap();
 
         assert_eq!(c.dims(), &[2, 3]);
-        let result = c.to_vec();
+        let result = c.sync_and_read();
         assert_eq!(result[0], f16::from_f32(1.0));
         assert_eq!(result[1], f16::from_f32(2.0));
         assert_eq!(result[2], f16::from_f32(3.0));
@@ -533,14 +645,14 @@ mod tests {
     fn test_concat_dim1() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0)],
             vec![2, 1],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(3.0), f16::from_f32(4.0)],
             vec![2, 1],
@@ -550,7 +662,7 @@ mod tests {
         let c = Tensor::<f16>::concat(&[&a, &b], 1).unwrap();
 
         assert_eq!(c.dims(), &[2, 2]);
-        let result = c.to_vec();
+        let result = c.sync_and_read();
         assert_eq!(result[0], f16::from_f32(1.0));
         assert_eq!(result[1], f16::from_f32(3.0));
         assert_eq!(result[2], f16::from_f32(2.0));
@@ -561,14 +673,14 @@ mod tests {
     fn test_concat_multiple() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(&device, vec![f16::from_f32(1.0)], vec![1, 1]).unwrap();
-        let b = Tensor::from_vec_metal(&device, vec![f16::from_f32(2.0)], vec![1, 1]).unwrap();
-        let c = Tensor::from_vec_metal(&device, vec![f16::from_f32(3.0)], vec![1, 1]).unwrap();
+        let a = Tensor::from_vec_gpu(&device, vec![f16::from_f32(1.0)], vec![1, 1]).unwrap();
+        let b = Tensor::from_vec_gpu(&device, vec![f16::from_f32(2.0)], vec![1, 1]).unwrap();
+        let c = Tensor::from_vec_gpu(&device, vec![f16::from_f32(3.0)], vec![1, 1]).unwrap();
 
         let d = Tensor::<f16>::concat(&[&a, &b, &c], 0).unwrap();
 
         assert_eq!(d.dims(), &[3, 1]);
-        let result = d.to_vec();
+        let result = d.sync_and_read();
         assert_eq!(result[0], f16::from_f32(1.0));
         assert_eq!(result[1], f16::from_f32(2.0));
         assert_eq!(result[2], f16::from_f32(3.0));
@@ -578,7 +690,7 @@ mod tests {
     fn test_transpose_2d() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0),
@@ -591,7 +703,7 @@ mod tests {
         let b = a.transpose().unwrap();
 
         assert_eq!(b.dims(), &[3, 2]);
-        let result = b.to_vec();
+        let result = b.sync_and_read();
 
         // Original: [[1,2,3], [4,5,6]]
         // Transposed: [[1,4], [2,5], [3,6]]
@@ -609,7 +721,7 @@ mod tests {
 
         // Create a 2x3x4 tensor
         let data: Vec<f16> = (0..24).map(|i| f16::from_f32(i as f32)).collect();
-        let a = Tensor::from_vec_metal(&device, data, vec![2, 3, 4]).unwrap();
+        let a = Tensor::from_vec_gpu(&device, data, vec![2, 3, 4]).unwrap();
 
         // Permute to [4, 2, 3] (dims [2, 0, 1])
         let b = a.permute(vec![2, 0, 1]).unwrap();
@@ -622,7 +734,7 @@ mod tests {
     fn test_permute_identity() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)],
             vec![2, 2],
@@ -632,7 +744,7 @@ mod tests {
         let b = a.permute(vec![0, 1]).unwrap();
 
         assert_eq!(b.dims(), &[2, 2]);
-        assert_eq!(a.to_vec(), b.to_vec());
+        assert_eq!(a.sync_and_read(), b.sync_and_read());
     }
 
     #[test]
@@ -640,7 +752,7 @@ mod tests {
         let device = crate::device::MetalDevice::new().unwrap();
 
         // Test unsqueeze on 1D tensor [3] -> [1, 3]
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
             vec![3],
@@ -649,7 +761,7 @@ mod tests {
 
         let b = a.unsqueeze(0).unwrap();
         assert_eq!(b.dims(), &[1, 3]);
-        assert_eq!(a.to_vec(), b.to_vec());
+        assert_eq!(a.sync_and_read(), b.sync_and_read());
 
         let c = a.unsqueeze(1).unwrap();
         assert_eq!(c.dims(), &[3, 1]);
@@ -660,7 +772,7 @@ mod tests {
         let device = crate::device::MetalDevice::new().unwrap();
 
         // Test squeeze on [1, 3, 1] -> [3]
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
             vec![1, 3, 1],
@@ -669,7 +781,7 @@ mod tests {
 
         let b = a.squeeze(None).unwrap();
         assert_eq!(b.dims(), &[3]);
-        assert_eq!(a.to_vec(), b.to_vec());
+        assert_eq!(a.sync_and_read(), b.sync_and_read());
 
         // Test squeeze specific dimension
         let c = a.squeeze(Some(0)).unwrap();
@@ -682,7 +794,7 @@ mod tests {
 
         // Test split on [6, 4] tensor
         let data: Vec<f16> = (0..24).map(|i| f16::from_f32(i as f32)).collect();
-        let a = Tensor::from_vec_metal(&device, data, vec![6, 4]).unwrap();
+        let a = Tensor::from_vec_gpu(&device, data, vec![6, 4]).unwrap();
 
         // Split into size 2 chunks along dim 0
         let splits = a.split(2, 0).unwrap();
@@ -692,7 +804,7 @@ mod tests {
         assert_eq!(splits[2].dims(), &[2, 4]);
 
         // Test split with uneven division
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             (0..28).map(|i| f16::from_f32(i as f32)).collect(),
             vec![7, 4],
@@ -712,7 +824,7 @@ mod tests {
 
         // Test chunk on [6, 4] tensor
         let data: Vec<f16> = (0..24).map(|i| f16::from_f32(i as f32)).collect();
-        let a = Tensor::from_vec_metal(&device, data, vec![6, 4]).unwrap();
+        let a = Tensor::from_vec_gpu(&device, data, vec![6, 4]).unwrap();
 
         // Split into 3 chunks along dim 0
         let chunks = a.chunk(3, 0).unwrap();
@@ -722,7 +834,7 @@ mod tests {
         assert_eq!(chunks[2].dims(), &[2, 4]);
 
         // Test chunk with uneven division
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             (0..28).map(|i| f16::from_f32(i as f32)).collect(),
             vec![7, 4],

@@ -93,7 +93,7 @@ impl NeuralEngineBuffer {
     pub fn to_metal_buffer(&self, device: &MTLDevice) -> TensorResult<MetalBuffer<half::f16>> {
         // Copy data from Neural Engine to CPU, then to Metal
         let data = self.to_f16_vec();
-        MetalBuffer::from_f16_slice(device, &data)
+        MetalBuffer::<half::f16>::from_slice(device, &data)
     }
 }
 

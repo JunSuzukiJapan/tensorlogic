@@ -17,6 +17,7 @@ use tensorlogic::device::MetalDevice;
 use tensorlogic::error::TensorResult;
 use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO, TensorAccessors};
 use half::f16;
+use serial_test::serial;
 
 // Helper function to assert f16 tensors are close
 fn assert_tensor_close_f16(result: &[f16], expected: &[f16], epsilon: f32) {
@@ -34,6 +35,7 @@ fn assert_tensor_close_f16(result: &[f16], expected: &[f16], epsilon: f32) {
 // Basic Arithmetic Operations
 
 #[test]
+#[serial]
 fn test_f16_addition() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -60,6 +62,7 @@ fn test_f16_addition() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_subtraction() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -83,6 +86,7 @@ fn test_f16_subtraction() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_multiplication() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -106,6 +110,7 @@ fn test_f16_multiplication() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_division() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -131,6 +136,7 @@ fn test_f16_division() -> TensorResult<()> {
 // Scalar Operations
 
 #[test]
+#[serial]
 fn test_f16_scalar_operations() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -164,6 +170,7 @@ fn test_f16_scalar_operations() -> TensorResult<()> {
 // F16 Precision Tests
 
 #[test]
+#[serial]
 fn test_f16_precision_vs_f32() -> TensorResult<()> {
     // Test that f16 has lower precision than f32
     let device = MetalDevice::new()?;
@@ -182,6 +189,7 @@ fn test_f16_precision_vs_f32() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_small_values() -> TensorResult<()> {
     // Test f16 with small values (near underflow)
     let device = MetalDevice::new()?;
@@ -208,6 +216,7 @@ fn test_f16_small_values() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_large_values() -> TensorResult<()> {
     // Test f16 with large values (near overflow)
     let device = MetalDevice::new()?;
@@ -230,6 +239,7 @@ fn test_f16_large_values() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_overflow() -> TensorResult<()> {
     // Test f16 overflow behavior
     // F16 max is ~65504, values beyond this become Inf
@@ -245,6 +255,7 @@ fn test_f16_overflow() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_underflow() -> TensorResult<()> {
     // Test f16 underflow behavior
     // F16 min normal is ~6e-8, smaller values may underflow to 0
@@ -263,6 +274,7 @@ fn test_f16_underflow() -> TensorResult<()> {
 // Numerical Stability
 
 #[test]
+#[serial]
 fn test_f16_addition_stability() -> TensorResult<()> {
     // Test that f16 addition maintains reasonable precision
     let device = MetalDevice::new()?;
@@ -289,6 +301,7 @@ fn test_f16_addition_stability() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_multiplication_stability() -> TensorResult<()> {
     // Test f16 multiplication stability with values that might lose precision
     let device = MetalDevice::new()?;
@@ -317,6 +330,7 @@ fn test_f16_multiplication_stability() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_mixed_operations() -> TensorResult<()> {
     // Test combinations of operations
     let device = MetalDevice::new()?;
@@ -344,6 +358,7 @@ fn test_f16_mixed_operations() -> TensorResult<()> {
 // Edge Cases
 
 #[test]
+#[serial]
 fn test_f16_zero_operations() -> TensorResult<()> {
     // Test operations with zero
     let device = MetalDevice::new()?;
@@ -370,6 +385,7 @@ fn test_f16_zero_operations() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_negative_values() -> TensorResult<()> {
     // Test operations with negative values
     let device = MetalDevice::new()?;
@@ -401,6 +417,7 @@ fn test_f16_negative_values() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_special_values() -> TensorResult<()> {
     // Test special f16 values (Inf, NaN)
     let inf = f16::INFINITY;
@@ -426,6 +443,7 @@ fn test_f16_special_values() -> TensorResult<()> {
 // Comparison with F32
 
 #[test]
+#[serial]
 fn test_f16_f32_precision_difference() -> TensorResult<()> {
     // Demonstrate precision difference between f16 and f32
     let device = MetalDevice::new()?;
@@ -457,6 +475,7 @@ fn test_f16_f32_precision_difference() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_tensor_size_optimization() -> TensorResult<()> {
     // Verify f16 uses half the memory of f32
     use std::mem;
@@ -486,6 +505,7 @@ fn test_f16_tensor_size_optimization() -> TensorResult<()> {
 // Accumulated Error Test
 
 #[test]
+#[serial]
 fn test_f16_accumulated_error() -> TensorResult<()> {
     // Test that repeated operations accumulate error in f16
     let device = MetalDevice::new()?;

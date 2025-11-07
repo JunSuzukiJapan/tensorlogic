@@ -1,0 +1,141 @@
+use half::f16;
+//! Advanced Kernel Fusion Benchmark
+//!
+//! Measures performance improvement of fused multi-operation chains
+//! versus separate operations.
+
+use std::time::Instant;
+use tensorlogic::device::MetalDevice;
+use tensorlogic::tensor::Tensor;
+
+fn main() {
+    println!("╔═══════════════════════════════════════════════════╗");
+    println!("║   Advanced Kernel Fusion Performance Benchmark   ║");
+    println!("╚═══════════════════════════════════════════════════╝\n");
+
+    let device = MetalDevice::new().expect("Failed to create Metal device");
+    println!("Metal Device: {}\n", device.name());
+
+    benchmark_linear_residual_relu(&device);
+    benchmark_gelu_linear(&device);
+}
+
+fn benchmark_linear_residual_relu(device: &MetalDevice) {
+    println!("=== Linear + Residual + ReLU ===\n");
+
+    let sizes = vec![
+        (128, 128, 128),
+        (256, 256, 256),
+        (512, 512, 512),
+        (1024, 1024, 1024),
+    ];
+
+    println!("{:<15} {:>15} {:>15} {:>15}", "Size", "Separate (ms)", "Fused (ms)", "Speedup");
+    println!("{}", "-".repeat(65));
+
+    for (m, k, n) in sizes {
+        // Create tensors
+        let x = Tensor::ones(device, vec![m, k]).unwrap();
+        let w = Tensor::ones(device, vec![k, n]).unwrap();
+        let bias = Tensor::ones(device, vec![n]).unwrap();  // 1D vector
+        let bias_broadcasted = Tensor::ones(device, vec![m, n]).unwrap();  // For separate ops
+        let residual = Tensor::ones(device, vec![m, n]).unwrap();
+
+        // Warmup
+        for _ in 0..10 {
+            let _ = x.fused_linear_residual_relu(&w, &bias, &residual).unwrap();
+        }
+
+        // Benchmark separate operations
+        let mut separate_times = Vec::new();
+        for _ in 0..100 {
+            let start = Instant::now();
+            let matmul_result = x.matmul(&w).unwrap();
+            let with_bias = matmul_result.add(&bias_broadcasted).unwrap();
+            let with_residual = with_bias.add(&residual).unwrap();
+            let _ = with_residual.relu().unwrap();
+            separate_times.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        // Benchmark fused operation
+        let mut fused_times = Vec::new();
+        for _ in 0..100 {
+            let start = Instant::now();
+            let _ = x.fused_linear_residual_relu(&w, &bias, &residual).unwrap();
+            fused_times.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        let separate_avg = separate_times.iter().sum::<f64>() / separate_times.len() as f64;
+        let fused_avg = fused_times.iter().sum::<f64>() / fused_times.len() as f64;
+        let speedup = separate_avg / fused_avg;
+
+        println!(
+            "{:<15} {:>15.2} {:>15.2} {:>14.2}x",
+            format!("{}×{}×{}", m, k, n),
+            separate_avg,
+            fused_avg,
+            speedup
+        );
+    }
+
+    println!();
+}
+
+fn benchmark_gelu_linear(device: &MetalDevice) {
+    println!("=== GELU + Linear ===\n");
+
+    let sizes = vec![
+        (128, 128, 128),
+        (256, 256, 256),
+        (512, 512, 512),
+        (1024, 1024, 1024),
+    ];
+
+    println!("{:<15} {:>15} {:>15} {:>15}", "Size", "Separate (ms)", "Fused (ms)", "Speedup");
+    println!("{}", "-".repeat(65));
+
+    for (m, k, n) in sizes {
+        // Create tensors
+        let x = Tensor::ones(device, vec![m, k]).unwrap();
+        let w = Tensor::ones(device, vec![k, n]).unwrap();
+        let bias = Tensor::ones(device, vec![n]).unwrap();  // 1D vector for fused ops
+        let bias_broadcasted = Tensor::ones(device, vec![m, n]).unwrap();  // For separate ops
+
+        // Warmup
+        for _ in 0..10 {
+            let _ = x.fused_gelu_linear(&w, &bias).unwrap();
+        }
+
+        // Benchmark separate operations
+        let mut separate_times = Vec::new();
+        for _ in 0..100 {
+            let start = Instant::now();
+            let gelu_result = x.gelu().unwrap();
+            let matmul_result = gelu_result.matmul(&w).unwrap();
+            let _ = matmul_result.add(&bias_broadcasted).unwrap();
+            separate_times.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        // Benchmark fused operation
+        let mut fused_times = Vec::new();
+        for _ in 0..100 {
+            let start = Instant::now();
+            let _ = x.fused_gelu_linear(&w, &bias).unwrap();
+            fused_times.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        let separate_avg = separate_times.iter().sum::<f64>() / separate_times.len() as f64;
+        let fused_avg = fused_times.iter().sum::<f64>() / fused_times.len() as f64;
+        let speedup = separate_avg / fused_avg;
+
+        println!(
+            "{:<15} {:>15.2} {:>15.2} {:>14.2}x",
+            format!("{}×{}×{}", m, k, n),
+            separate_avg,
+            fused_avg,
+            speedup
+        );
+    }
+
+    println!();
+}

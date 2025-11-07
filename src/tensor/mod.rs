@@ -10,6 +10,7 @@ mod tensor_accessors;
 mod tensor_transform;
 mod tensor_io;
 mod tensor_autograd;
+mod tensor_convert;
 
 pub use tensor::Tensor;
 pub use buffer_handle::BufferHandle;
@@ -21,6 +22,7 @@ pub use tensor_accessors::TensorAccessors;
 pub use tensor_transform::TensorTransform;
 pub use tensor_io::TensorIO;
 pub use tensor_autograd::TensorAutograd;
+pub use tensor_convert::TensorConvert;
 
 // Type aliases for convenience
 /// Tensor with f16 precision (default)

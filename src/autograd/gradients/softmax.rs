@@ -4,7 +4,6 @@ use std::marker::PhantomData;
 use super::prelude::*;
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
-use half::f16;
 
 /// Softmax演算の勾配関数
 ///
@@ -29,8 +28,8 @@ impl<T: FloatType> SoftmaxBackward<T> {
 
 impl<T: FloatType> GradientFunctionGeneric<T> for SoftmaxBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>, _inputs: &[&Tensor<T>]) -> TensorResult<Vec<Tensor<T>>> {
-        let grad_output_data = grad_output.to_vec();
-        let output_data = self.output.to_vec();
+        let grad_output_data = grad_output.sync_and_read();
+        let output_data = self.output.sync_and_read();
 
         // Σ_j (grad_output_j * y_j)
         let sum_grad_y: T = grad_output_data
@@ -67,7 +66,7 @@ mod tests {
 
         // Softmax output (already computed): [0.1, 0.2, 0.7]
         // (これは入力 [1.0, 2.0, 3.0] のsoftmax出力の近似値)
-        let output = <Tensor<half::f16>>::from_vec_metal(
+        let output = <Tensor<half::f16>>::from_vec_gpu(
             &device,
             vec![
                 half::f16::from_f32(0.09003057),
@@ -79,7 +78,7 @@ mod tests {
         .unwrap();
 
         // grad_output = [1.0, 0.0, 0.0] (one-hot gradient)
-        let grad_output = <Tensor<half::f16>>::from_vec_metal(
+        let grad_output = <Tensor<half::f16>>::from_vec_gpu(
             &device,
             vec![
                 half::f16::from_f32(1.0),
@@ -96,7 +95,7 @@ mod tests {
         assert_eq!(grads.len(), 1);
         assert_eq!(grads[0].dims(), &[3]);
 
-        let grad_input = grads[0].to_vec();
+        let grad_input = grads[0].sync_and_read();
 
         // Softmax勾配の性質：Σ_i grad_input_i = 0 (合計は0になる)
         let sum: f32 = grad_input.iter().map(|x| x.to_f32()).sum();

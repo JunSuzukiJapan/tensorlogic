@@ -24,6 +24,10 @@ impl<T: FloatType> MulBackward<T> {
     pub fn new(a: Tensor<T>, b: Tensor<T>) -> Self {
         let a_shape = a.shape().clone();
         let b_shape = b.shape().clone();
+
+        // No GPU sync needed - tensors store Arc<Buffer> references,
+        // not copied data. Backward pass will sync when needed.
+
         Self {
             a,
             b,
@@ -67,7 +71,7 @@ mod tests {
     fn test_mul_backward_same_shape() {
         let device = get_test_device();
 
-        let a = <Tensor<half::f16>>::from_vec_metal(
+        let a = <Tensor<half::f16>>::from_vec_gpu(
             &device,
             vec![
                 half::f16::from_f32(2.0),
@@ -79,7 +83,7 @@ mod tests {
         )
         .unwrap();
 
-        let b = <Tensor<half::f16>>::from_vec_metal(
+        let b = <Tensor<half::f16>>::from_vec_gpu(
             &device,
             vec![
                 half::f16::from_f32(6.0),
@@ -91,7 +95,7 @@ mod tests {
         )
         .unwrap();
 
-        let grad_output = <Tensor<half::f16>>::from_vec_metal(
+        let grad_output = <Tensor<half::f16>>::from_vec_gpu(
             &device,
             vec![
                 half::f16::from_f32(1.0),
@@ -109,9 +113,9 @@ mod tests {
         assert_eq!(grads.len(), 2);
 
         // grad_a = grad_output * b = [1,1,1,1] * [6,7,8,9] = [6,7,8,9]
-        assert_eq!(grads[0].to_vec(), b.to_vec());
+        assert_eq!(grads[0].sync_and_read(), b.sync_and_read());
 
         // grad_b = grad_output * a = [1,1,1,1] * [2,3,4,5] = [2,3,4,5]
-        assert_eq!(grads[1].to_vec(), a.to_vec());
+        assert_eq!(grads[1].sync_and_read(), a.sync_and_read());
     }
 }

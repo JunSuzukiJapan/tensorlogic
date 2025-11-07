@@ -2,7 +2,7 @@
 // Find at which point the model starts producing abnormal logits
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
-    result := x * sigmoid(x)
+    result = x * sigmoid(x)
 }
 
 fn transformer_layer(
@@ -67,7 +67,7 @@ fn transformer_layer(
     let ffn_out = linear(intermediate, W_down)
 
     // Residual 2
-    result := res1 + ffn_out
+    result = res1 + ffn_out
 }
 
 main {

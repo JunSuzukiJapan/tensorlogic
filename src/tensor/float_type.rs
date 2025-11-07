@@ -40,6 +40,9 @@ pub trait FloatType:
     /// Metal shader type name (e.g., "half" or "float")
     fn metal_type_name() -> &'static str;
 
+    /// Metal kernel suffix (e.g., "_f16" or "_f32")
+    fn kernel_suffix() -> &'static str;
+
     /// Size in bytes
     fn size_in_bytes() -> usize {
         std::mem::size_of::<Self>()
@@ -99,6 +102,11 @@ impl FloatType for f16 {
     }
 
     #[inline]
+    fn kernel_suffix() -> &'static str {
+        "_f16"
+    }
+
+    #[inline]
     fn is_finite(self) -> bool {
         self.to_f32().is_finite()
     }
@@ -149,6 +157,11 @@ impl FloatType for f32 {
     #[inline]
     fn metal_type_name() -> &'static str {
         "float"
+    }
+
+    #[inline]
+    fn kernel_suffix() -> &'static str {
+        "_f32"
     }
 
     #[inline]

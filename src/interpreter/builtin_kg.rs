@@ -1,8 +1,6 @@
 //! Knowledge Graph embedding builtin functions for TensorLogic interpreter
 
 use super::*;
-use crate::tensor::Tensor;
-use half::f16;
 
 impl Interpreter {
     /// Evaluate Knowledge Graph embedding function

@@ -2,14 +2,14 @@
 // This will tell us if the issue is our test weights or a real problem
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
-    result := x * sigmoid(x)
+    result = x * sigmoid(x)
 }
 
 fn print_stats(t: float16[?, ?], name: string) {
     let s = shape(t)
     print("  ", name, " shape:", s)
     // Can't directly inspect values in TensorLogic, but shape is informative
-    result := 0
+    result = 0
 }
 
 main {

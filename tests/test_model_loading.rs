@@ -18,10 +18,12 @@ use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO};
 use tensorlogic::model::{Model, ModelMetadata, ModelFormat, QuantizationType};
 use std::collections::HashMap;
 use half::f16;
+use serial_test::serial;
 
 // Model Creation and Basic Operations
 
 #[test]
+#[serial]
 fn test_model_create_empty() -> TensorResult<()> {
     let metadata = ModelMetadata {
         name: "test_model".to_string(),
@@ -41,6 +43,7 @@ fn test_model_create_empty() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_model_insert_single_tensor() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -68,6 +71,7 @@ fn test_model_insert_single_tensor() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_model_insert_multiple_tensors() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -106,6 +110,7 @@ fn test_model_insert_multiple_tensors() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_model_get_tensor() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -137,6 +142,7 @@ fn test_model_get_tensor() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_model_get_nonexistent_tensor() -> TensorResult<()> {
     let model = Model::new(ModelMetadata {
         name: "empty".to_string(),
@@ -152,6 +158,7 @@ fn test_model_get_nonexistent_tensor() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_model_tensor_names() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -185,6 +192,7 @@ fn test_model_tensor_names() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_model_from_tensors() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -218,6 +226,7 @@ fn test_model_from_tensors() -> TensorResult<()> {
 // Metadata Tests
 
 #[test]
+#[serial]
 fn test_model_metadata_safetensors() -> TensorResult<()> {
     let metadata = ModelMetadata {
         name: "safetensors_model".to_string(),
@@ -236,6 +245,7 @@ fn test_model_metadata_safetensors() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_model_metadata_gguf_quantized() -> TensorResult<()> {
     let metadata = ModelMetadata {
         name: "gguf_model".to_string(),
@@ -257,6 +267,7 @@ fn test_model_metadata_gguf_quantized() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_model_metadata_coreml() -> TensorResult<()> {
     let metadata = ModelMetadata {
         name: "coreml_model".to_string(),
@@ -276,6 +287,7 @@ fn test_model_metadata_coreml() -> TensorResult<()> {
 // Model Structure Tests
 
 #[test]
+#[serial]
 fn test_model_typical_llm_structure() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -346,6 +358,7 @@ fn test_model_typical_llm_structure() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_model_update_tensor() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -378,6 +391,7 @@ fn test_model_update_tensor() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_model_large_number_of_tensors() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -409,6 +423,7 @@ fn test_model_large_number_of_tensors() -> TensorResult<()> {
 // Model Loading Error Cases
 
 #[test]
+#[serial]
 #[should_panic(expected = "File has no extension")]
 fn test_model_load_no_extension() {
     let device = MetalDevice::new().unwrap();
@@ -416,6 +431,7 @@ fn test_model_load_no_extension() {
 }
 
 #[test]
+#[serial]
 #[should_panic(expected = "Unsupported file extension")]
 fn test_model_load_unsupported_extension() {
     let device = MetalDevice::new().unwrap();
@@ -423,6 +439,7 @@ fn test_model_load_unsupported_extension() {
 }
 
 #[test]
+#[serial]
 #[should_panic(expected = "Unsupported file extension")]
 fn test_model_load_unknown_format() {
     let device = MetalDevice::new().unwrap();
@@ -430,6 +447,7 @@ fn test_model_load_unknown_format() {
 }
 
 #[test]
+#[serial]
 fn test_model_load_nonexistent_file() {
     let device = MetalDevice::new();
     if device.is_err() {
@@ -450,6 +468,7 @@ fn test_model_load_nonexistent_file() {
 // Tensor Shape Validation
 
 #[test]
+#[serial]
 fn test_model_various_tensor_shapes() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -488,6 +507,7 @@ fn test_model_various_tensor_shapes() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_model_empty_tensor() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -513,6 +533,7 @@ fn test_model_empty_tensor() -> TensorResult<()> {
 // Model Name Conventions
 
 #[test]
+#[serial]
 fn test_model_nested_tensor_names() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -549,6 +570,7 @@ fn test_model_nested_tensor_names() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_model_special_characters_in_names() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -585,6 +607,7 @@ fn test_model_special_characters_in_names() -> TensorResult<()> {
 // Quantization Tests
 
 #[test]
+#[serial]
 fn test_model_quantization_types() -> TensorResult<()> {
     let quantization_types = vec![
         None,
@@ -617,6 +640,7 @@ fn test_model_quantization_types() -> TensorResult<()> {
 // Model Cloning
 
 #[test]
+#[serial]
 fn test_model_clone() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -648,6 +672,7 @@ fn test_model_clone() -> TensorResult<()> {
 // Integration Test: Simulate Model Loading Workflow
 
 #[test]
+#[serial]
 fn test_model_workflow_simulation() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 

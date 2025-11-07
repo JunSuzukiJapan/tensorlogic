@@ -238,7 +238,7 @@
   - **mlmultiarray_to_tensor()実装完了**（🆕 実データ抽出実装）
     - Data extraction from MLMultiArray
     - Vec<f16> creation from raw pointer
-    - Tensor::from_vec_metal() integration
+    - Tensor::from_vec_gpu() integration
     - macOS/non-macOS signature differences
   - バッチ変換サポート
   - 実装: src/coreml/conversion.rs ✅（+115行、実データ転送完全実装）

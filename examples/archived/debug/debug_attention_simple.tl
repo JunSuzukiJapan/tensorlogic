@@ -2,7 +2,7 @@
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
-    result := x * sig
+    result = x * sig
 }
 
 fn swiglu_ffn(
@@ -15,7 +15,7 @@ fn swiglu_ffn(
     let gate_act = silu(gate)
     let up = linear(x, W_up)
     let intermediate = gate_act * up
-    result := linear(intermediate, W_down)
+    result = linear(intermediate, W_down)
 }
 
 main {

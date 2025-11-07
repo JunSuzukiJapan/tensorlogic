@@ -1,11 +1,9 @@
 use crate::tensor::FloatType;
 use crate::autograd::GradientFunction;
-use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::{Device, MetalBuffer};
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
-use half::f16;
 
 pub struct PowBackward {
     input: Tensor<half::f16>,
@@ -40,7 +38,7 @@ impl PowBackward {
             )),
         };
 
-        let exponent_buf = MetalBuffer::from_f16_slice(
+        let exponent_buf = MetalBuffer::<half::f16>::from_slice(
             device.metal_device(),
             &[half::f16::from_f32(self.exponent)],
         )?;
@@ -54,8 +52,8 @@ impl PowBackward {
     }
 
     fn backward_cpu(&self, grad_output: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
-        let grad_out = grad_output.to_vec();
-        let input = self.input.to_vec();
+        let grad_out = grad_output.sync_and_read();
+        let input = self.input.sync_and_read();
 
         let grad_input: Vec<_> = grad_out
             .iter()
@@ -69,7 +67,7 @@ impl PowBackward {
 
         match grad_output.device() {
             Device::Metal(dev) => {
-                <Tensor<half::f16>>::from_vec_metal(dev, grad_input, grad_output.dims().to_vec())
+                <Tensor<half::f16>>::from_vec_gpu(dev, grad_input, grad_output.dims().to_vec())
             }
             _ => <Tensor<half::f16>>::from_vec(grad_input, grad_output.dims().to_vec()),
         }

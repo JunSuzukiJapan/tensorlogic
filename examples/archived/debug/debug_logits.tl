@@ -2,7 +2,7 @@
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
-    result := x * sig
+    result = x * sig
 }
 
 fn gqa_attention(
@@ -39,7 +39,7 @@ fn gqa_attention(
     let attn_output = einsum("ihj,jhd->ihd", attn_weights, V_expanded)
 
     let attn_reshaped = reshape(attn_output, [seq_len, 2048.0])
-    result := matmul(attn_reshaped, W_o)
+    result = matmul(attn_reshaped, W_o)
 }
 
 fn transformer_layer(
@@ -65,7 +65,7 @@ fn transformer_layer(
     let ffn_hidden = gate_act * up
     let ffn_out = matmul(ffn_hidden, W_down)
 
-    result := h1 + ffn_out
+    result = h1 + ffn_out
 }
 
 main {

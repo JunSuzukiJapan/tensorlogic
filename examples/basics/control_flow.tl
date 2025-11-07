@@ -25,7 +25,7 @@ main {
 
     while counter[0] < 3.0 {
         print("  counter =", counter[0])
-        counter := counter + [1.0]
+        counter = counter + [1.0]
     }
 
     print("\n=== All control flow tests passed! ===")

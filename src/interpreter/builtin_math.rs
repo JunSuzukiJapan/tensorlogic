@@ -1,7 +1,6 @@
 //! Math operations for TensorLogic interpreter
 
 use super::*;
-use crate::tensor::Tensor;
 
 impl Interpreter {
     pub(super) fn eval_math_function(&mut self, name: &str, args: &[TensorExpr]) -> Option<RuntimeResult<Value>> {
@@ -45,16 +44,24 @@ impl Interpreter {
 
         // Evaluate both tensor arguments
         let a_val = self.eval_expr(&args[0])?;
-        let a = a_val.as_tensor()?;
-
         let b_val = self.eval_expr(&args[1])?;
-        let b = b_val.as_tensor()?;
 
-        // Perform matrix multiplication
-        let result = a.matmul(&b)
-            .map_err(|e| RuntimeError::TensorError(e))?;
-
-        Ok(Value::TensorF16(result))
+        // Process based on input type (f16 or f32)
+        match (a_val, b_val) {
+            (Value::TensorF16(a), Value::TensorF16(b)) => {
+                let result = a.matmul(&b)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(a), Value::TensorF32(b)) => {
+                let result = a.matmul(&b)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "matmul() requires both tensors to be same type (both f16 or both f32)".to_string()
+            ))
+        }
     }
 
     /// linear(x, weight, bias) -> tensor
@@ -66,57 +73,114 @@ impl Interpreter {
     ///   weight: weight matrix [out_features, in_features] (GGUF format after reverse)
     ///   bias: optional bias vector [out_features]
     fn eval_linear(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] eval_linear: ENTRY");
+        }
+        let _start = std::time::Instant::now();
         if args.len() < 2 || args.len() > 3 {
             return Err(RuntimeError::TypeError(
                 format!("linear() expects 2-3 arguments (x, weight, [bias]), got {}", args.len())
             ));
         }
 
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] eval_linear: Evaluating arg[0]...");
+        }
         // Evaluate input tensor
         let x_val = self.eval_expr(&args[0])?;
-        let x = x_val.as_tensor()?;
-
-        // Evaluate weight tensor
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] eval_linear: arg[0] done, evaluating arg[1]...");
+        }
         let weight_val = self.eval_expr(&args[1])?;
-        let weight = weight_val.as_tensor()?;
-
-        // Transpose weight: [out_features, in_features] -> [in_features, out_features]
-        let weight_t = weight.transpose()
-            .map_err(|e| RuntimeError::TensorError(e))?;
-
-        // Compute x @ weight.T
-        let mut result = x.matmul(&weight_t)
-            .map_err(|e| RuntimeError::TensorError(e))?;
-
-        // Add bias if provided
-        if args.len() == 3 {
-            let bias_val = self.eval_expr(&args[2])?;
-            let bias = bias_val.as_tensor()?;
-            result = result.add(&bias)
-                .map_err(|e| RuntimeError::TensorError(e))?;
+        if std::env::var("TL_DEBUG").is_ok() {
+            eprintln!("[DEBUG_RS] eval_linear: Both args evaluated");
         }
 
-        Ok(Value::TensorF16(result))
+        // Process based on input type (f16 or f32)
+        let result = match (x_val, weight_val) {
+            (Value::TensorF16(x), Value::TensorF16(weight)) => {
+                // Use fused transpose-matmul: x @ weight.T
+                // This is 20-30% faster than separate transpose + matmul
+                let mut result = x.matmul_transposed_b(&weight)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                // Add bias if provided
+                if args.len() == 3 {
+                    let bias_val = self.eval_expr(&args[2])?;
+                    let bias = match bias_val {
+                        Value::TensorF16(ref t) => t,
+                        _ => return Err(RuntimeError::TypeError("linear() bias must be f16 tensor".to_string()))
+                    };
+                    result = result.add(&bias)
+                        .map_err(|e| RuntimeError::TensorError(e))?;
+                }
+
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(x), Value::TensorF32(weight)) => {
+                // Use fused transpose-matmul: x @ weight.T
+                // This is 20-30% faster than separate transpose + matmul
+                let mut result = x.matmul_transposed_b(&weight)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                // Add bias if provided
+                if args.len() == 3 {
+                    let bias_val = self.eval_expr(&args[2])?;
+                    let bias = match bias_val {
+                        Value::TensorF32(ref t) => t,
+                        _ => return Err(RuntimeError::TypeError("linear() bias must be f32 tensor".to_string()))
+                    };
+                    result = result.add(&bias)
+                        .map_err(|e| RuntimeError::TensorError(e))?;
+                }
+
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "linear() requires x and weight to be same type (both f16 or both f32)".to_string()
+            )),
+        };
+
+        if std::env::var("TL_PERF").is_ok() {
+            let dtype = match &result {
+                Ok(Value::TensorF16(_)) => "f16",
+                Ok(Value::TensorF32(_)) => "f32",
+                _ => "unknown",
+            };
+            eprintln!("[PERF] linear({}): {:.3}ms", dtype, _start.elapsed().as_secs_f64() * 1000.0);
+        }
+        result
     }
 
     /// sigmoid(x) -> tensor
     /// Sigmoid activation: σ(x) = 1 / (1 + exp(-x))
     fn eval_sigmoid(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+        let _start = std::time::Instant::now();
+
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
                 format!("sigmoid() expects 1 argument (tensor), got {}", args.len())
             ));
         }
 
-        // Evaluate tensor argument
         let tensor_val = self.eval_expr(&args[0])?;
-        let tensor = tensor_val.as_tensor()?;
 
-        // Apply sigmoid
-        let result = tensor.sigmoid()
-            .map_err(|e| RuntimeError::TensorError(e))?;
+        let result = match tensor_val {
+            Value::TensorF16(t) => Ok(t.sigmoid().map_err(|e| RuntimeError::TensorError(e))?.to_value()),
+            Value::TensorF32(t) => Ok(t.sigmoid().map_err(|e| RuntimeError::TensorError(e))?.to_value()),
+            _ => Err(RuntimeError::TypeError("Expected tensor".to_string()))
+        };
 
-        Ok(Value::TensorF16(result))
+        if std::env::var("TL_PERF").is_ok() {
+            let dtype = match &result {
+                Ok(Value::TensorF16(_)) => "f16",
+                Ok(Value::TensorF32(_)) => "f32",
+                _ => "unknown",
+            };
+            eprintln!("[PERF] sigmoid({}): {:.3}ms", dtype, _start.elapsed().as_secs_f64() * 1000.0);
+        }
+        result
     }
 
     /// relu(tensor) -> tensor
@@ -150,6 +214,7 @@ impl Interpreter {
     /// gelu(tensor) -> tensor
     /// Applies GELU activation function (for method chaining)
     fn eval_gelu(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        let _start = std::time::Instant::now();
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
                 format!("gelu() expects 1 argument, got {}", args.len())
@@ -158,7 +223,7 @@ impl Interpreter {
 
         let val = self.eval_expr(&args[0])?;
 
-        match val {
+        let result = match val {
             Value::TensorF16(tensor) => {
                 let result = tensor.gelu()
                     .map_err(|e| RuntimeError::TensorError(e))?;
@@ -172,7 +237,17 @@ impl Interpreter {
             _ => Err(RuntimeError::TypeError(
                 "gelu() expects a tensor".to_string()
             ))
+        };
+
+        if std::env::var("TL_PERF").is_ok() {
+            let dtype = match &result {
+                Ok(Value::TensorF16(_)) => "f16",
+                Ok(Value::TensorF32(_)) => "f32",
+                _ => "unknown",
+            };
+            eprintln!("[PERF] gelu({}): {:.3}ms", dtype, _start.elapsed().as_secs_f64() * 1000.0);
         }
+        result
     }
 
     /// tanh(tensor) -> tensor

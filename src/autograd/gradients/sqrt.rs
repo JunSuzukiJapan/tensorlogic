@@ -1,11 +1,9 @@
 use crate::tensor::FloatType;
 use crate::autograd::GradientFunction;
-use std::marker::PhantomData;
 use super::prelude::*;
 use crate::device::Device;
 use crate::error::TensorResult;
 use crate::tensor::Tensor;
-use half::f16;
 
 pub struct SqrtBackward {
     output: Tensor<half::f16>, // sqrt(x)
@@ -39,8 +37,8 @@ impl SqrtBackward {
     }
 
     fn backward_cpu(&self, grad_output: &Tensor<half::f16>) -> TensorResult<Tensor<half::f16>> {
-        let grad_out = grad_output.to_vec();
-        let output = self.output.to_vec();
+        let grad_out = grad_output.sync_and_read();
+        let output = self.output.sync_and_read();
 
         let grad_input: Vec<_> = grad_out
             .iter()
@@ -50,7 +48,7 @@ impl SqrtBackward {
 
         match grad_output.device() {
             Device::Metal(dev) => {
-                <Tensor<half::f16>>::from_vec_metal(dev, grad_input, grad_output.dims().to_vec())
+                <Tensor<half::f16>>::from_vec_gpu(dev, grad_input, grad_output.dims().to_vec())
             }
             _ => <Tensor<half::f16>>::from_vec(grad_input, grad_output.dims().to_vec()),
         }

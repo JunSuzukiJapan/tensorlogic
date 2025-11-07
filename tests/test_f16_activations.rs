@@ -15,6 +15,7 @@ use tensorlogic::device::MetalDevice;
 use tensorlogic::error::TensorResult;
 use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO, TensorAccessors};
 use half::f16;
+use serial_test::serial;
 
 // Helper function
 fn assert_tensor_close_f16(result: &[f16], expected: &[f16], epsilon: f32) {
@@ -32,6 +33,7 @@ fn assert_tensor_close_f16(result: &[f16], expected: &[f16], epsilon: f32) {
 // ReLU Tests
 
 #[test]
+#[serial]
 fn test_f16_relu_basic() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -57,6 +59,7 @@ fn test_f16_relu_basic() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_relu_all_negative() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -78,6 +81,7 @@ fn test_f16_relu_all_negative() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_relu_all_positive() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -103,6 +107,7 @@ fn test_f16_relu_all_positive() -> TensorResult<()> {
 // GELU Tests
 
 #[test]
+#[serial]
 fn test_f16_gelu_basic() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -131,6 +136,7 @@ fn test_f16_gelu_basic() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_gelu_smooth() -> TensorResult<()> {
     // GELU should be smooth (continuous and differentiable)
     let device = MetalDevice::new()?;
@@ -155,6 +161,7 @@ fn test_f16_gelu_smooth() -> TensorResult<()> {
 // Sigmoid Tests
 
 #[test]
+#[serial]
 fn test_f16_sigmoid_basic() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -183,6 +190,7 @@ fn test_f16_sigmoid_basic() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_sigmoid_range() -> TensorResult<()> {
     // Sigmoid output should always be in (0, 1)
     let device = MetalDevice::new()?;
@@ -210,6 +218,7 @@ fn test_f16_sigmoid_range() -> TensorResult<()> {
 // Tanh Tests
 
 #[test]
+#[serial]
 fn test_f16_tanh_basic() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -238,6 +247,7 @@ fn test_f16_tanh_basic() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_tanh_range() -> TensorResult<()> {
     // Tanh output should always be in (-1, 1)
     let device = MetalDevice::new()?;
@@ -265,6 +275,7 @@ fn test_f16_tanh_range() -> TensorResult<()> {
 // Softmax Tests
 
 #[test]
+#[serial]
 fn test_f16_softmax_basic() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -296,6 +307,7 @@ fn test_f16_softmax_basic() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_softmax_uniform() -> TensorResult<()> {
     // Softmax of uniform values should give uniform distribution
     let device = MetalDevice::new()?;
@@ -318,6 +330,7 @@ fn test_f16_softmax_uniform() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_softmax_overflow_safety() -> TensorResult<()> {
     // Softmax should handle large values without overflow
     let device = MetalDevice::new()?;
@@ -346,6 +359,7 @@ fn test_f16_softmax_overflow_safety() -> TensorResult<()> {
 // LeakyReLU Tests
 
 #[test]
+#[serial]
 fn test_f16_leaky_relu() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -375,6 +389,7 @@ fn test_f16_leaky_relu() -> TensorResult<()> {
 // Comparison with F32
 
 #[test]
+#[serial]
 fn test_f16_f32_activation_comparison() -> TensorResult<()> {
     // Compare f16 and f32 activation outputs
     let device = MetalDevice::new()?;
@@ -404,6 +419,7 @@ fn test_f16_f32_activation_comparison() -> TensorResult<()> {
 // Edge Cases
 
 #[test]
+#[serial]
 fn test_f16_activation_with_zeros() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -432,6 +448,7 @@ fn test_f16_activation_with_zeros() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_activation_numerical_stability() -> TensorResult<()> {
     // Test activations with values that might cause numerical issues
     let device = MetalDevice::new()?;
@@ -462,6 +479,7 @@ fn test_f16_activation_numerical_stability() -> TensorResult<()> {
 // Multi-dimensional Tests
 
 #[test]
+#[serial]
 fn test_f16_activation_2d() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
@@ -484,6 +502,7 @@ fn test_f16_activation_2d() -> TensorResult<()> {
 }
 
 #[test]
+#[serial]
 fn test_f16_activation_batched() -> TensorResult<()> {
     // Test activation on batched data
     let device = MetalDevice::new()?;

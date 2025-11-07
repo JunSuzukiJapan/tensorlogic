@@ -109,7 +109,7 @@ main {
 
     // Greedy sampling (temperature = 0.0)
     let t1 = temperature_sample(logits1, 0.0)
-    gen_tokens := append(gen_tokens, t1)
+    gen_tokens = append(gen_tokens, t1)
     print("            Sampled token:", t1)
     print("")
 
@@ -121,7 +121,7 @@ main {
     let final_norm2 = rms_norm(h1_2, output_norm)
     let logits2 = matmul(final_norm2, output_weight)
     let t2 = temperature_sample(logits2, 0.0)
-    gen_tokens := append(gen_tokens, t2)
+    gen_tokens = append(gen_tokens, t2)
     print("            Sampled token:", t2)
     print("")
 
@@ -133,7 +133,7 @@ main {
     let final_norm3 = rms_norm(h1_3, output_norm)
     let logits3 = matmul(final_norm3, output_weight)
     let t3 = temperature_sample(logits3, 0.0)
-    gen_tokens := append(gen_tokens, t3)
+    gen_tokens = append(gen_tokens, t3)
     print("            Sampled token:", t3)
     print("")
 
