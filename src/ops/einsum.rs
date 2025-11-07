@@ -8,14 +8,14 @@
 //! - `ij->`: Sum all elements
 //! - `ij,j->i`: Matrix-vector product
 
-use crate::device::{Device, MetalDevice, MetalBuffer};
+use crate::device::{Device, MetalDevice, MetalBuffer, EncoderProvider};
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorAutograd, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::{TensorAccessors, TensorAutograd, TensorCreation, TensorIO};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{Tensor, TensorShape, BufferHandle};
 use half::f16;
 use std::collections::{HashMap, HashSet};
-use metal::{MTLResourceOptions, MTLSize};
+use metal::MTLSize;
 
 /// Parse einsum notation and execute the operation
 impl<T: FloatType> Tensor<T> {
@@ -70,11 +70,8 @@ impl<T: FloatType> Tensor<T> {
                     return Ok(result);
                 }
 
-                // Fallback: Compute on CPU and convert result back to Metal
-                let cpu_ops: Vec<_> = operands.iter().map(|t| t.to_cpu()).collect::<Result<_, _>>()?;
-                let cpu_refs: Vec<_> = cpu_ops.iter().collect();
-                let cpu_result = einsum_cpu(equation, &input_specs, &output_spec, &cpu_refs)?;
-                cpu_result.to_metal(metal_device)
+                // CPU fallback disabled - must implement GPU kernel
+                panic!("EINSUM CPU FALLBACK: equation='{}' - GPU kernel not implemented", equation)
             }
             Device::NeuralEngine => {
                 // Fallback to CPU for Neural Engine
@@ -146,7 +143,7 @@ where
     Tensor<T>: TensorAutograd<T>,
 {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -216,7 +213,7 @@ fn general_einsum_cpu<T: FloatType>(
     operands: &[&Tensor<T>],
 ) -> TensorResult<Tensor<T>> {
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -309,7 +306,7 @@ fn sum_over_indices<T: FloatType>(
                 .collect();
 
             let linear_idx = coords_to_index(&coords, op.shape().dims());
-            let data_t = op.to_vec();
+            let data_t = op.sync_and_read();
             let data: Vec<f16> = unsafe { std::mem::transmute(data_t) };
             product *= data[linear_idx];
         }
@@ -378,7 +375,7 @@ fn transpose_2d<T: FloatType>(tensor: &Tensor<T>) -> TensorResult<Tensor<T>> {
     }
 
     let (m, n) = (dims[0], dims[1]);
-    let data_t = tensor.to_vec();
+    let data_t = tensor.sync_and_read();
     let data: Vec<f16> = unsafe { std::mem::transmute(data_t) };
     let mut transposed = vec![f16::ZERO; m * n];
 
@@ -402,7 +399,7 @@ fn trace<T: FloatType>(tensor: &Tensor<T>) -> TensorResult<Tensor<T>> {
     }
 
     let n = dims[0];
-    let data = tensor.to_vec();
+    let data = tensor.sync_and_read();
     let data_f16: Vec<f16> = unsafe { std::mem::transmute(data) };
     let mut sum = f16::ZERO;
 
@@ -435,8 +432,8 @@ fn batch_matmul<T: FloatType>(a: &Tensor<T>, b: &Tensor<T>) -> TensorResult<Tens
     let (batch, m, k) = (a_dims[0], a_dims[1], a_dims[2]);
     let n = b_dims[2];
 
-    let a_data = a.to_vec();
-    let b_data = b.to_vec();
+    let a_data = a.sync_and_read();
+    let b_data = b.sync_and_read();
     let a_data_f16: Vec<f16> = unsafe { std::mem::transmute(a_data) };
     let b_data_f16: Vec<f16> = unsafe { std::mem::transmute(b_data) };
     let mut c_data = vec![f16::ZERO; batch * m * n];
@@ -488,7 +485,7 @@ mod tests {
         .unwrap();
 
         let c = Tensor::einsum("ij,jk->ik", &[&a, &b]).unwrap();
-        let result = c.to_vec();
+        let result = c.sync_and_read();
 
         // [[1,2],[3,4]] @ [[5,6],[7,8]] = [[19,22],[43,50]]
         assert_eq!(result[0], f16::from_f32(19.0));
@@ -515,7 +512,7 @@ mod tests {
         let b = Tensor::einsum("ij->ji", &[&a]).unwrap();
         assert_eq!(b.shape().dims(), &[3, 2]);
 
-        let result = b.to_vec();
+        let result = b.sync_and_read();
         assert_eq!(result[0], f16::from_f32(1.0));
         assert_eq!(result[1], f16::from_f32(4.0));
         assert_eq!(result[2], f16::from_f32(2.0));
@@ -536,7 +533,7 @@ mod tests {
         .unwrap();
 
         let trace = Tensor::einsum("ii->", &[&a]).unwrap();
-        let result = trace.to_vec();
+        let result = trace.sync_and_read();
 
         // trace = 1 + 4 = 5
         assert_eq!(result[0], f16::from_f32(5.0));
@@ -567,7 +564,7 @@ mod tests {
         .unwrap();
 
         let c = Tensor::einsum("ij,ij->ij", &[&a, &b]).unwrap();
-        let result = c.to_vec();
+        let result = c.sync_and_read();
 
         assert_eq!(result[0], f16::from_f32(2.0));
         assert_eq!(result[1], f16::from_f32(6.0));
@@ -592,7 +589,7 @@ mod tests {
         let c = Tensor::einsum("i,j->ij", &[&a, &b]).unwrap();
         assert_eq!(c.shape().dims(), &[2, 2]);
 
-        let result = c.to_vec();
+        let result = c.sync_and_read();
         assert_eq!(result[0], f16::from_f32(3.0)); // 1*3
         assert_eq!(result[1], f16::from_f32(4.0)); // 1*4
         assert_eq!(result[2], f16::from_f32(6.0)); // 2*3
@@ -689,13 +686,6 @@ fn einsum_ihd_jhd_ihj_metal<T: FloatType>(
     b: &Tensor<T>,  // [J, H, D]
     device: &MetalDevice,
 ) -> TensorResult<Tensor<T>> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
     let a_buf = a.buffer().as_metal()?;
     let b_buf = b.buffer().as_metal()?;
 
@@ -719,9 +709,9 @@ fn einsum_ihd_jhd_ihj_metal<T: FloatType>(
     let mut device_mut = device.clone();
     if device_mut.library().is_none() {
         // Load all necessary shaders together
-        let elementwise_source = include_str!("../../shaders/elementwise.metal");
-        let matmul_source = include_str!("../../shaders/matmul_tiled.metal");
-        let einsum_source = include_str!("../../shaders/einsum.metal");
+        let elementwise_source = include_str!("../../shaders/unified.metal");
+        let matmul_source = include_str!("../../shaders/unified.metal");
+        let einsum_source = include_str!("../../shaders/unified.metal");
         let combined_source = format!("{}\n\n{}\n\n{}", elementwise_source, matmul_source, einsum_source);
         device_mut.load_library(&combined_source)?;
     }
@@ -730,8 +720,15 @@ fn einsum_ihd_jhd_ihj_metal<T: FloatType>(
         TensorError::InvalidOperation("Failed to load Metal library".to_string())
     })?;
 
-    let kernel = library.get_function("einsum_ihd_jhd_ihj_f16", None)
-        .map_err(|e| TensorError::InvalidOperation(format!("Failed to get kernel: {}", e)))?;
+    // Use f32 kernel for f32 data
+    let kernel_name = if std::mem::size_of::<T>() == 4 {
+        "einsum_ihd_jhd_ihj_f32"
+    } else {
+        "einsum_ihd_jhd_ihj_f16"
+    };
+
+    let kernel = library.get_function(kernel_name, None)
+        .map_err(|e| TensorError::InvalidOperation(format!("Failed to get kernel {}: {}", kernel_name, e)))?;
 
     let pipeline = device_mut
         .metal_device()
@@ -742,10 +739,9 @@ fn einsum_ihd_jhd_ihj_metal<T: FloatType>(
     let output_numel = (i * h * j) as usize;
     let output_buf = MetalBuffer::zeros(device_mut.metal_device(), output_numel)?;
 
-    // Create command buffer
-    let command_queue = device_mut.command_queue();
-    let command_buffer = command_queue.new_command_buffer();
-    let encoder = command_buffer.new_compute_command_encoder();
+    // Get command buffer from batch (candle-style)
+    let (_flushed, command_buffer) = device_mut.command_buffer()?;
+    let encoder = command_buffer.encoder();
 
     encoder.set_compute_pipeline_state(&pipeline);
     encoder.set_buffer(0, Some(a_buf.metal_buffer()), 0);
@@ -766,8 +762,7 @@ fn einsum_ihd_jhd_ihj_metal<T: FloatType>(
     encoder.dispatch_threads(grid_size, threadgroup_size);
 
     encoder.end_encoding();
-    command_buffer.commit();
-    command_buffer.wait_until_completed();
+    // NO commit here - Commands manager will batch and commit automatically
 
     // Create output tensor
     let output_shape = TensorShape::new(vec![i as usize, h as usize, j as usize]);
@@ -788,13 +783,6 @@ fn einsum_ihj_jhd_ihd_metal<T: FloatType>(
     b: &Tensor<T>,  // [J, H, D]
     device: &MetalDevice,
 ) -> TensorResult<Tensor<T>> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
-
     let a_buf = a.buffer().as_metal()?;
     let b_buf = b.buffer().as_metal()?;
 
@@ -818,9 +806,9 @@ fn einsum_ihj_jhd_ihd_metal<T: FloatType>(
     let mut device_mut = device.clone();
     if device_mut.library().is_none() {
         // Load all necessary shaders together
-        let elementwise_source = include_str!("../../shaders/elementwise.metal");
-        let matmul_source = include_str!("../../shaders/matmul_tiled.metal");
-        let einsum_source = include_str!("../../shaders/einsum.metal");
+        let elementwise_source = include_str!("../../shaders/unified.metal");
+        let matmul_source = include_str!("../../shaders/unified.metal");
+        let einsum_source = include_str!("../../shaders/unified.metal");
         let combined_source = format!("{}\n\n{}\n\n{}", elementwise_source, matmul_source, einsum_source);
         device_mut.load_library(&combined_source)?;
     }
@@ -829,8 +817,15 @@ fn einsum_ihj_jhd_ihd_metal<T: FloatType>(
         TensorError::InvalidOperation("Failed to load Metal library".to_string())
     })?;
 
-    let kernel = library.get_function("einsum_ihj_jhd_ihd_f16", None)
-        .map_err(|e| TensorError::InvalidOperation(format!("Failed to get kernel: {}", e)))?;
+    // Use f32 kernel for f32 data
+    let kernel_name = if std::mem::size_of::<T>() == 4 {
+        "einsum_ihj_jhd_ihd_f32"
+    } else {
+        "einsum_ihj_jhd_ihd_f16"
+    };
+
+    let kernel = library.get_function(kernel_name, None)
+        .map_err(|e| TensorError::InvalidOperation(format!("Failed to get kernel {}: {}", kernel_name, e)))?;
 
     let pipeline = device_mut
         .metal_device()
@@ -841,10 +836,9 @@ fn einsum_ihj_jhd_ihd_metal<T: FloatType>(
     let output_numel = (i * h * d) as usize;
     let output_buf = MetalBuffer::zeros(device_mut.metal_device(), output_numel)?;
 
-    // Create command buffer
-    let command_queue = device_mut.command_queue();
-    let command_buffer = command_queue.new_command_buffer();
-    let encoder = command_buffer.new_compute_command_encoder();
+    // Get command buffer from batch (candle-style)
+    let (_flushed, command_buffer) = device_mut.command_buffer()?;
+    let encoder = command_buffer.encoder();
 
     encoder.set_compute_pipeline_state(&pipeline);
     encoder.set_buffer(0, Some(a_buf.metal_buffer()), 0);
@@ -865,8 +859,7 @@ fn einsum_ihj_jhd_ihd_metal<T: FloatType>(
     encoder.dispatch_threads(grid_size, threadgroup_size);
 
     encoder.end_encoding();
-    command_buffer.commit();
-    command_buffer.wait_until_completed();
+    // NO commit here - Commands manager will batch and commit automatically
 
     // Create output tensor
     let output_shape = TensorShape::new(vec![i as usize, h as usize, d as usize]);

@@ -3,9 +3,9 @@
 //! These operations combine multiple operations into single GPU kernels,
 //! reducing memory access overhead and kernel launch overhead.
 
-use crate::device::{Device, MetalBuffer, NeuralEngineOps};
+use crate::device::{Device, MetalBuffer, NeuralEngineOps, EncoderProvider};
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform, TensorAutograd};
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorAutograd};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 use half::f16;
@@ -41,7 +41,7 @@ impl<T: FloatType> Tensor<T> {
     /// Metal GPU implementation of fused add + relu
     fn fused_add_relu_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -57,19 +57,20 @@ impl<T: FloatType> Tensor<T> {
 
         // Load shaders if not already loaded
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/fused_ops.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
         // Create result buffer
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         // Execute kernel
         let mut executor = crate::device::KernelExecutor::new(device.clone());
         let pipeline = executor.get_or_compile_pipeline("fused_add_relu_f16")?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Commands API (candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&a_buf.buffer), 0);
@@ -81,8 +82,7 @@ impl<T: FloatType> Tensor<T> {
 
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+        // Note: wait_until_completed() is NOT called here (matches candle pattern).
 
         Tensor::new(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -93,8 +93,9 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of fused add + relu
     fn fused_add_relu_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        panic!("src/ops/fused.rs:95:5");
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -137,7 +138,7 @@ impl<T: FloatType> Tensor<T> {
     /// Metal GPU implementation of fused mul + relu
     fn fused_mul_relu_metal(&self, other: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -152,17 +153,18 @@ impl<T: FloatType> Tensor<T> {
         };
 
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/fused_ops.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
         let pipeline = executor.get_or_compile_pipeline("fused_mul_relu_f16")?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Commands API (candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&a_buf.buffer), 0);
@@ -174,8 +176,7 @@ impl<T: FloatType> Tensor<T> {
 
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+        // Note: wait_until_completed() is NOT called here (matches candle pattern).
 
         Tensor::new(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -186,8 +187,9 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of fused mul + relu
     fn fused_mul_relu_cpu(&self, other: &Tensor<T>) -> TensorResult<Self> {
+        panic!("src/ops/fused.rs:188:5");
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -266,7 +268,7 @@ impl<T: FloatType> Tensor<T> {
         Tensor<T>: TensorAutograd<T>,
     {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -282,8 +284,8 @@ impl<T: FloatType> Tensor<T> {
 
         // Load shaders (both fused_ops and tiled matmul)
         if device.library().is_none() {
-            let fused_source = include_str!("../../shaders/fused_ops.metal");
-            let tiled_source = include_str!("../../shaders/matmul_tiled.metal");
+            let fused_source = include_str!("../../shaders/unified.metal");
+            let tiled_source = include_str!("../../shaders/unified.metal");
             let combined_source = format!("{}\n\n{}", fused_source, tiled_source);
             device.load_library(&combined_source)?;
         }
@@ -294,7 +296,7 @@ impl<T: FloatType> Tensor<T> {
 
         let output_shape = vec![m as usize, n as usize];
         let output_numel = (m * n) as usize;
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), output_numel)?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), output_numel)?;
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
 
@@ -307,8 +309,8 @@ impl<T: FloatType> Tensor<T> {
 
         let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&a_buf.buffer), 0);
@@ -339,8 +341,6 @@ impl<T: FloatType> Tensor<T> {
         }
 
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
 
         Tensor::new(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -370,7 +370,7 @@ impl<T: FloatType> Tensor<T> {
     /// Metal GPU implementation of fused affine
     fn fused_affine_metal(&self, scale: &Tensor, bias: &Tensor<T>) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -386,17 +386,17 @@ impl<T: FloatType> Tensor<T> {
         };
 
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/fused_ops.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
         let pipeline = executor.get_or_compile_pipeline("fused_affine_f16")?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&x_buf.buffer), 0);
@@ -409,8 +409,6 @@ impl<T: FloatType> Tensor<T> {
 
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
 
         Tensor::new(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -421,8 +419,9 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of fused affine
     fn fused_affine_cpu(&self, scale: &Tensor, bias: &Tensor<T>) -> TensorResult<Self> {
+        panic!("src/ops/fused.rs:423:5");
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -505,14 +504,14 @@ mod tests {
     fn test_fused_add_relu() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(-2.0), f16::from_f32(3.0), f16::from_f32(-4.0)],
             vec![4],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(-1.0), f16::from_f32(3.0), f16::from_f32(-2.0), f16::from_f32(5.0)],
             vec![4],
@@ -520,7 +519,7 @@ mod tests {
         .unwrap();
 
         let result = a.fused_add_relu(&b).unwrap();
-        let result_data = result.to_vec();
+        let result_data = result.sync_and_read();
 
         // Expected: max(1-1, 0) = 0, max(-2+3, 0) = 1, max(3-2, 0) = 1, max(-4+5, 0) = 1
         assert_eq!(result_data[0], f16::from_f32(0.0));
@@ -533,14 +532,14 @@ mod tests {
     fn test_fused_mul_relu() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(2.0), f16::from_f32(-3.0), f16::from_f32(4.0)],
             vec![3],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(0.5), f16::from_f32(2.0), f16::from_f32(-1.0)],
             vec![3],
@@ -548,7 +547,7 @@ mod tests {
         .unwrap();
 
         let result = a.fused_mul_relu(&b).unwrap();
-        let result_data = result.to_vec();
+        let result_data = result.sync_and_read();
 
         // Expected: max(2*0.5, 0) = 1, max(-3*2, 0) = 0, max(4*-1, 0) = 0
         assert_eq!(result_data[0], f16::from_f32(1.0));
@@ -560,21 +559,21 @@ mod tests {
     fn test_fused_affine() {
         let device = get_test_device();
 
-        let x = Tensor::from_vec_metal(
+        let x = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
             vec![3],
         )
         .unwrap();
 
-        let scale = Tensor::from_vec_metal(
+        let scale = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)],
             vec![3],
         )
         .unwrap();
 
-        let bias = Tensor::from_vec_metal(
+        let bias = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
             vec![3],
@@ -582,7 +581,7 @@ mod tests {
         .unwrap();
 
         let result = x.fused_affine(&scale, &bias).unwrap();
-        let result_data = result.to_vec();
+        let result_data = result.sync_and_read();
 
         // Expected: 1*2+1=3, 2*3+2=8, 3*4+3=15
         assert_eq!(result_data[0], f16::from_f32(3.0));
@@ -594,14 +593,14 @@ mod tests {
     fn test_fused_vs_unfused() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(1.0), f16::from_f32(-2.0), f16::from_f32(3.0)],
             vec![3],
         )
         .unwrap();
 
-        let b = Tensor::from_vec_metal(
+        let b = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(-1.0)],
             vec![3],
@@ -615,22 +614,22 @@ mod tests {
         let unfused_result = a.add(&b).unwrap().relu().unwrap();
 
         // Results should be identical
-        assert_eq!(fused_result.to_vec(), unfused_result.to_vec());
+        assert_eq!(fused_result.sync_and_read(), unfused_result.sync_and_read());
     }
 
     #[test]
     fn test_matmul_relu_fusion() {
         let device = get_test_device();
 
-        let a = Tensor::from_vec_metal(&device, vec![f16::ONE; 4], vec![2, 2]).unwrap();
-        let b = Tensor::from_vec_metal(&device, vec![f16::ONE; 4], vec![2, 2]).unwrap();
+        let a = Tensor::from_vec_gpu(&device, vec![f16::ONE; 4], vec![2, 2]).unwrap();
+        let b = Tensor::from_vec_gpu(&device, vec![f16::ONE; 4], vec![2, 2]).unwrap();
 
         let fused = a.matmul_with_activation(&b, Activation::ReLU).unwrap();
         let unfused = a.matmul(&b).unwrap().relu().unwrap();
 
         // Should be equivalent
-        let fused_data = fused.to_vec();
-        let unfused_data = unfused.to_vec();
+        let fused_data = fused.sync_and_read();
+        let unfused_data = unfused.sync_and_read();
 
         for (f, u) in fused_data.iter().zip(unfused_data.iter()) {
             assert!((f.to_f32() - u.to_f32()).abs() < 0.01);

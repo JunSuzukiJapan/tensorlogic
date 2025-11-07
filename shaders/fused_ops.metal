@@ -140,3 +140,134 @@ kernel void fused_div_relu_f16(
     half quotient = a[id] / b[id];
     output[id] = max(quotient, half(0.0));
 }
+
+// F32 version
+kernel void fused_add_relu_f32(
+    device const float* a [[buffer(0)]],
+    device const float* b [[buffer(1)]],
+    device float* output [[buffer(2)]],
+    uint id [[thread_position_in_grid]]
+) {
+    float sum = a[id] + b[id];
+    output[id] = max(sum, float(0.0));
+}
+
+// F32 version
+kernel void fused_mul_relu_f32(
+    device const float* a [[buffer(0)]],
+    device const float* b [[buffer(1)]],
+    device float* output [[buffer(2)]],
+    uint id [[thread_position_in_grid]]
+) {
+    float product = a[id] * b[id];
+    output[id] = max(product, float(0.0));
+}
+
+// F32 version
+kernel void fused_affine_f32(
+    device const float* x [[buffer(0)]],
+    device const float* scale [[buffer(1)]],
+    device const float* bias [[buffer(2)]],
+    device float* output [[buffer(3)]],
+    uint id [[thread_position_in_grid]]
+) {
+    output[id] = x[id] * scale[id] + bias[id];
+}
+
+// F32 version
+kernel void fused_linear_f32(
+    device const float* A [[buffer(0)]],  // Input [M, K]
+    device const float* B [[buffer(1)]],  // Weight [K, N]
+    device const float* bias [[buffer(2)]], // Bias [N] (can be null)
+    device float* C [[buffer(3)]],        // Output [M, N]
+    constant uint& M [[buffer(4)]],
+    constant uint& K [[buffer(5)]],
+    constant uint& N [[buffer(6)]],
+    constant uint& activation [[buffer(7)]], // 0=none, 1=relu, 2=gelu
+    constant bool& has_bias [[buffer(8)]],
+    uint2 gid [[thread_position_in_grid]]
+) {
+    uint row = gid.y;
+    uint col = gid.x;
+
+    if (row >= M || col >= N) {
+        return;
+    }
+
+    // Compute matmul: C[row, col] = sum(A[row, k] * B[k, col])
+    float sum = 0.0f;
+    for (uint k = 0; k < K; k++) {
+        sum += A[row * K + k] * B[k * N + col];
+    }
+
+    // Add bias if present
+    if (has_bias) {
+        sum += bias[col];
+    }
+
+    // Apply activation
+    float result;
+    if (activation == 1) {
+        // ReLU
+        result = max(sum, float(0.0));
+    } else if (activation == 2) {
+        // GELU approximation: 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
+        float x = sum;
+        float x3 = x * x * x;
+        float inner = float(0.7978845608) * (x + float(0.044715) * x3); // sqrt(2/π) ≈ 0.7978845608
+        result = float(0.5) * x * (float(1.0) + tanh(inner));
+    } else {
+        // No activation
+        result = sum;
+    }
+
+    C[row * N + col] = result;
+}
+
+// F32 version
+kernel void fused_matmul_bias_f32(
+    device const float* A [[buffer(0)]],  // [M, K]
+    device const float* B [[buffer(1)]],  // [K, N]
+    device const float* bias [[buffer(2)]], // [N]
+    device float* C [[buffer(3)]],        // [M, N]
+    constant uint& M [[buffer(4)]],
+    constant uint& K [[buffer(5)]],
+    constant uint& N [[buffer(6)]],
+    uint2 gid [[thread_position_in_grid]]
+) {
+    uint row = gid.y;
+    uint col = gid.x;
+
+    if (row >= M || col >= N) {
+        return;
+    }
+
+    float sum = 0.0f;
+    for (uint k = 0; k < K; k++) {
+        sum += A[row * K + k] * B[k * N + col];
+    }
+
+    C[row * N + col] = sum + bias[col];
+}
+
+// F32 version
+kernel void fused_sub_relu_f32(
+    device const float* a [[buffer(0)]],
+    device const float* b [[buffer(1)]],
+    device float* output [[buffer(2)]],
+    uint id [[thread_position_in_grid]]
+) {
+    float diff = a[id] - b[id];
+    output[id] = max(diff, float(0.0));
+}
+
+// F32 version
+kernel void fused_div_relu_f32(
+    device const float* a [[buffer(0)]],
+    device const float* b [[buffer(1)]],
+    device float* output [[buffer(2)]],
+    uint id [[thread_position_in_grid]]
+) {
+    float quotient = a[id] / b[id];
+    output[id] = max(quotient, float(0.0));
+}

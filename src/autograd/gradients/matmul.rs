@@ -67,7 +67,7 @@ mod tests {
         let device = get_test_device();
 
         // A = [[1, 2], [3, 4]] (2x2)
-        let a = <Tensor<half::f16>>::from_vec_metal(
+        let a = <Tensor<half::f16>>::from_vec_gpu(
             &device,
             vec![
                 half::f16::from_f32(1.0),
@@ -80,7 +80,7 @@ mod tests {
         .unwrap();
 
         // B = [[5, 6], [7, 8]] (2x2)
-        let b = <Tensor<half::f16>>::from_vec_metal(
+        let b = <Tensor<half::f16>>::from_vec_gpu(
             &device,
             vec![
                 half::f16::from_f32(5.0),
@@ -94,7 +94,7 @@ mod tests {
 
         // C = A @ B = [[19, 22], [43, 50]]
         // grad_output = [[1, 1], [1, 1]]
-        let grad_output = <Tensor<half::f16>>::from_vec_metal(
+        let grad_output = <Tensor<half::f16>>::from_vec_gpu(
             &device,
             vec![
                 half::f16::from_f32(1.0),
@@ -121,7 +121,7 @@ mod tests {
             half::f16::from_f32(11.0),
             half::f16::from_f32(15.0),
         ];
-        assert_eq!(grads[0].to_vec(), grad_a_expected);
+        assert_eq!(grads[0].sync_and_read(), grad_a_expected);
 
         // grad_b = A^T @ grad_output = [[1,3],[2,4]] @ [[1,1],[1,1]]
         //        = [[4, 4], [6, 6]]
@@ -131,6 +131,6 @@ mod tests {
             half::f16::from_f32(6.0),
             half::f16::from_f32(6.0),
         ];
-        assert_eq!(grads[1].to_vec(), grad_b_expected);
+        assert_eq!(grads[1].sync_and_read(), grad_b_expected);
     }
 }

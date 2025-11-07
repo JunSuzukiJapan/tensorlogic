@@ -14,12 +14,96 @@
 
 use pest::Parser;
 use pest_derive::Parser;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::ast::*;
 
 #[derive(Parser)]
 #[grammar = "parser/grammar.pest"]
 pub struct TensorLogicParser;
+
+/// Function registry for resolving function calls during parsing
+struct FunctionRegistry {
+    /// Builtin functions
+    builtins: HashMap<String, BuiltinFunctionId>,
+    /// User-defined functions (accumulated during parsing)
+    user_functions: HashMap<String, Rc<FunctionDecl>>,
+}
+
+impl FunctionRegistry {
+    fn new() -> Self {
+        let mut builtins = HashMap::new();
+        Self::register_builtins(&mut builtins);
+        FunctionRegistry {
+            builtins,
+            user_functions: HashMap::new(),
+        }
+    }
+
+    fn register_builtins(builtins: &mut HashMap<String, BuiltinFunctionId>) {
+        use BuiltinFunctionId::*;
+
+        // Tensor operations
+        builtins.insert("zeros".to_string(), TensorZeros);
+        builtins.insert("ones".to_string(), TensorOnes);
+        builtins.insert("reshape".to_string(), TensorReshape);
+        builtins.insert("concat".to_string(), TensorConcat);
+        builtins.insert("split".to_string(), TensorSplit);
+        builtins.insert("transpose".to_string(), TensorTranspose);
+        builtins.insert("permute".to_string(), TensorPermute);
+
+        // Neural network operations
+        builtins.insert("linear".to_string(), NNLinear);
+        builtins.insert("rms_norm".to_string(), NNRmsNorm);
+        builtins.insert("softmax".to_string(), NNSoftmax);
+        builtins.insert("rope".to_string(), NNRoPE);
+        builtins.insert("attention_with_cache".to_string(), NNAttentionWithCache);
+        builtins.insert("silu".to_string(), NNSiLU);
+        builtins.insert("gelu".to_string(), NNGeLU);
+        builtins.insert("sigmoid".to_string(), NNSigmoid);
+
+        // Math functions
+        builtins.insert("sin".to_string(), MathSin);
+        builtins.insert("cos".to_string(), MathCos);
+        builtins.insert("exp".to_string(), MathExp);
+        builtins.insert("log".to_string(), MathLog);
+        builtins.insert("sqrt".to_string(), MathSqrt);
+        builtins.insert("abs".to_string(), MathAbs);
+        builtins.insert("pow".to_string(), MathPow);
+        builtins.insert("tanh".to_string(), MathTanh);
+
+        // Sampling functions
+        builtins.insert("sample_temperature".to_string(), SampleTemperature);
+        builtins.insert("sample_top_k".to_string(), SampleTopK);
+        builtins.insert("sample_greedy".to_string(), SampleGreedy);
+
+        // Model I/O
+        builtins.insert("load_f16".to_string(), ModelLoadF16);
+        builtins.insert("load_f32".to_string(), ModelLoadF32);
+        builtins.insert("load_tokenizer".to_string(), TokenizerLoad);
+
+        // Utilities
+        builtins.insert("shape".to_string(), UtilShape);
+        builtins.insert("print".to_string(), UtilPrint);
+        builtins.insert("env".to_string(), UtilEnv);
+    }
+
+    fn register_user_function(&mut self, func_decl: FunctionDecl) {
+        let name = func_decl.name.as_str().to_string();
+        self.user_functions.insert(name, Rc::new(func_decl));
+    }
+
+    fn resolve(&self, name: &str) -> Option<ResolvedFunction> {
+        if let Some(builtin_id) = self.builtins.get(name) {
+            return Some(ResolvedFunction::Builtin(*builtin_id));
+        }
+        if let Some(func_decl) = self.user_functions.get(name) {
+            return Some(ResolvedFunction::UserDefined(Rc::clone(func_decl)));
+        }
+        None
+    }
+}
 
 /// Parse errors
 #[derive(Debug, thiserror::Error)]
@@ -51,11 +135,16 @@ impl TensorLogicParser {
         Lexer::validate_identifiers(source)
             .map_err(|e| ParseError::PestError(format!("Lexer validation error: {}", e)))?;
 
+        // Create function registry with builtin functions
+        let mut registry = FunctionRegistry::new();
+
         // Parse with Pest
         let pairs = Self::parse(Rule::program, source)?;
 
         let mut declarations = Vec::new();
         let mut main_block = None;
+        let mut test_blocks = Vec::new();
+        let mut bench_blocks = Vec::new();
 
         for pair in pairs {
             match pair.as_rule() {
@@ -63,15 +152,21 @@ impl TensorLogicParser {
                     for inner in pair.into_inner() {
                         match inner.as_rule() {
                             Rule::declaration => {
-                                declarations.push(Self::parse_declaration(inner)?);
+                                declarations.push(Self::parse_declaration(inner, &mut registry)?);
                             }
                             Rule::main_block => {
-                                main_block = Some(Self::parse_main_block(inner)?);
+                                main_block = Some(Self::parse_main_block(inner, &registry)?);
+                            }
+                            Rule::test_block => {
+                                test_blocks.push(Self::parse_test_block(inner, &registry)?);
+                            }
+                            Rule::bench_block => {
+                                bench_blocks.push(Self::parse_bench_block(inner, &registry)?);
                             }
                             Rule::EOI => {}
                             _ => {
                                 return Err(ParseError::UnexpectedRule {
-                                    expected: "declaration or main_block".to_string(),
+                                    expected: "declaration, main_block, test_block, or bench_block".to_string(),
                                     found: format!("{:?}", inner.as_rule()),
                                 });
                             }
@@ -85,22 +180,74 @@ impl TensorLogicParser {
         Ok(Program {
             declarations,
             main_block,
+            test_blocks,
+            bench_blocks,
         })
     }
 
-    fn parse_main_block(pair: pest::iterators::Pair<Rule>) -> Result<MainBlock, ParseError> {
+    fn parse_main_block(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<MainBlock, ParseError> {
         let mut statements = Vec::new();
 
         for inner in pair.into_inner() {
             if inner.as_rule() == Rule::statement {
-                statements.push(Self::parse_statement(inner)?);
+                statements.push(Self::parse_statement(inner, registry)?);
             }
         }
 
         Ok(MainBlock { statements })
     }
 
-    fn parse_declaration(pair: pest::iterators::Pair<Rule>) -> Result<Declaration, ParseError> {
+    fn parse_test_block(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TestBlock, ParseError> {
+        let mut name = None;
+        let mut statements = Vec::new();
+
+        for inner in pair.into_inner() {
+            match inner.as_rule() {
+                Rule::identifier => {
+                    name = Some(Identifier(inner.as_str().to_string()));
+                }
+                Rule::statement => {
+                    statements.push(Self::parse_statement(inner, registry)?);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(TestBlock {
+            name: name.ok_or_else(|| ParseError::UnexpectedRule {
+                expected: "test name".to_string(),
+                found: "none".to_string(),
+            })?,
+            statements,
+        })
+    }
+
+    fn parse_bench_block(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<BenchBlock, ParseError> {
+        let mut name = None;
+        let mut statements = Vec::new();
+
+        for inner in pair.into_inner() {
+            match inner.as_rule() {
+                Rule::identifier => {
+                    name = Some(Identifier(inner.as_str().to_string()));
+                }
+                Rule::statement => {
+                    statements.push(Self::parse_statement(inner, registry)?);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(BenchBlock {
+            name: name.ok_or_else(|| ParseError::UnexpectedRule {
+                expected: "bench name".to_string(),
+                found: "none".to_string(),
+            })?,
+            statements,
+        })
+    }
+
+    fn parse_declaration(pair: pest::iterators::Pair<Rule>, registry: &mut FunctionRegistry) -> Result<Declaration, ParseError> {
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("declaration type".to_string())
         })?;
@@ -108,12 +255,17 @@ impl TensorLogicParser {
         match inner.as_rule() {
             Rule::import_decl => Ok(Declaration::Import(Self::parse_import_decl(inner)?)),
             Rule::entity_decl => Ok(Declaration::Entity(Self::parse_entity_decl(inner)?)),
-            Rule::tensor_decl => Ok(Declaration::Tensor(Self::parse_tensor_decl(inner)?)),
+            Rule::tensor_decl => Ok(Declaration::Tensor(Self::parse_tensor_decl(inner, registry)?)),
             Rule::relation_decl => Ok(Declaration::Relation(Self::parse_relation_decl(inner)?)),
-            Rule::rule_decl => Ok(Declaration::Rule(Self::parse_rule_decl(inner)?)),
+            Rule::rule_decl => Ok(Declaration::Rule(Self::parse_rule_decl(inner, registry)?)),
             Rule::embedding_decl => Ok(Declaration::Embedding(Self::parse_embedding_decl(inner)?)),
             Rule::relation_embedding_decl => Ok(Declaration::RelationEmbedding(Self::parse_relation_embedding_decl(inner)?)),
-            Rule::function_decl => Ok(Declaration::Function(Self::parse_function_decl(inner)?)),
+            Rule::function_decl => {
+                let func_decl = Self::parse_function_decl(inner, registry)?;
+                // Register the function immediately after parsing
+                registry.register_user_function(func_decl.clone());
+                Ok(Declaration::Function(func_decl))
+            },
             Rule::struct_decl => Ok(Declaration::Struct(Self::parse_struct_decl(inner)?)),
             Rule::impl_block => Ok(Declaration::Impl(Self::parse_impl_block(inner)?)),
             _ => Err(ParseError::UnexpectedRule {
@@ -161,7 +313,7 @@ impl TensorLogicParser {
         Ok(entities)
     }
 
-    fn parse_tensor_decl(pair: pest::iterators::Pair<Rule>) -> Result<TensorDecl, ParseError> {
+    fn parse_tensor_decl(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorDecl, ParseError> {
         let mut inner = pair.into_inner();
 
         let name = Self::parse_identifier(inner.next().ok_or_else(|| {
@@ -173,7 +325,7 @@ impl TensorLogicParser {
         })?)?;
 
         let init_expr = if let Some(expr_pair) = inner.next() {
-            Some(Self::parse_tensor_expr(expr_pair)?)
+            Some(Self::parse_tensor_expr(expr_pair, registry)?)
         } else {
             None
         };
@@ -353,28 +505,28 @@ impl TensorLogicParser {
         Self::parse_tensor_type(inner)
     }
 
-    fn parse_rule_decl(pair: pest::iterators::Pair<Rule>) -> Result<RuleDecl, ParseError> {
+    fn parse_rule_decl(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<RuleDecl, ParseError> {
         let mut inner = pair.into_inner();
 
         let head = Self::parse_rule_head(inner.next().ok_or_else(|| {
             ParseError::MissingField("rule head".to_string())
-        })?)?;
+        })?, registry)?;
 
         let body = Self::parse_rule_body(inner.next().ok_or_else(|| {
             ParseError::MissingField("rule body".to_string())
-        })?)?;
+        })?, registry)?;
 
         Ok(RuleDecl { head, body })
     }
 
-    fn parse_rule_head(pair: pest::iterators::Pair<Rule>) -> Result<RuleHead, ParseError> {
+    fn parse_rule_head(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<RuleHead, ParseError> {
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("rule head content".to_string())
         })?;
 
         match inner.as_rule() {
-            Rule::atom => Ok(RuleHead::Atom(Self::parse_atom(inner)?)),
-            Rule::tensor_equation => Ok(RuleHead::Equation(Self::parse_tensor_equation(inner)?)),
+            Rule::atom => Ok(RuleHead::Atom(Self::parse_atom(inner, registry)?)),
+            Rule::tensor_equation => Ok(RuleHead::Equation(Self::parse_tensor_equation(inner, registry)?)),
             _ => Err(ParseError::UnexpectedRule {
                 expected: "atom or equation".to_string(),
                 found: format!("{:?}", inner.as_rule()),
@@ -382,21 +534,21 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_rule_body(pair: pest::iterators::Pair<Rule>) -> Result<Vec<BodyTerm>, ParseError> {
+    fn parse_rule_body(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Vec<BodyTerm>, ParseError> {
         pair.into_inner()
-            .map(|term_pair| Self::parse_body_term(term_pair))
+            .map(|term_pair| Self::parse_body_term(term_pair, registry))
             .collect()
     }
 
-    fn parse_body_term(pair: pest::iterators::Pair<Rule>) -> Result<BodyTerm, ParseError> {
+    fn parse_body_term(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<BodyTerm, ParseError> {
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("body term content".to_string())
         })?;
 
         match inner.as_rule() {
-            Rule::atom => Ok(BodyTerm::Atom(Self::parse_atom(inner)?)),
-            Rule::tensor_equation => Ok(BodyTerm::Equation(Self::parse_tensor_equation(inner)?)),
-            Rule::constraint => Ok(BodyTerm::Constraint(Self::parse_constraint(inner)?)),
+            Rule::atom => Ok(BodyTerm::Atom(Self::parse_atom(inner, registry)?)),
+            Rule::tensor_equation => Ok(BodyTerm::Equation(Self::parse_tensor_equation(inner, registry)?)),
+            Rule::constraint => Ok(BodyTerm::Constraint(Self::parse_constraint(inner, registry)?)),
             _ => Err(ParseError::UnexpectedRule {
                 expected: "atom, equation, or constraint".to_string(),
                 found: format!("{:?}", inner.as_rule()),
@@ -404,7 +556,7 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_atom(pair: pest::iterators::Pair<Rule>) -> Result<Atom, ParseError> {
+    fn parse_atom(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Atom, ParseError> {
         let mut inner = pair.into_inner();
 
         let predicate = Self::parse_identifier(inner.next().ok_or_else(|| {
@@ -412,7 +564,7 @@ impl TensorLogicParser {
         })?)?;
 
         let terms = if let Some(term_list) = inner.next() {
-            Self::parse_term_list(term_list)?
+            Self::parse_term_list(term_list, registry)?
         } else {
             Vec::new()
         };
@@ -420,13 +572,13 @@ impl TensorLogicParser {
         Ok(Atom { predicate, terms })
     }
 
-    fn parse_term_list(pair: pest::iterators::Pair<Rule>) -> Result<Vec<Term>, ParseError> {
+    fn parse_term_list(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Vec<Term>, ParseError> {
         pair.into_inner()
-            .map(|term_pair| Self::parse_term(term_pair))
+            .map(|term_pair| Self::parse_term(term_pair, registry))
             .collect()
     }
 
-    fn parse_term(pair: pest::iterators::Pair<Rule>) -> Result<Term, ParseError> {
+    fn parse_term(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Term, ParseError> {
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("term content".to_string())
         })?;
@@ -434,7 +586,7 @@ impl TensorLogicParser {
         match inner.as_rule() {
             Rule::identifier => Ok(Term::Variable(Self::parse_identifier(inner)?)),
             Rule::constant => Ok(Term::Constant(Self::parse_constant(inner)?)),
-            Rule::tensor_expr => Ok(Term::Tensor(Self::parse_tensor_expr(inner)?)),
+            Rule::tensor_expr => Ok(Term::Tensor(Self::parse_tensor_expr(inner, registry)?)),
             _ => Err(ParseError::UnexpectedRule {
                 expected: "identifier, constant, or tensor_expr".to_string(),
                 found: format!("{:?}", inner.as_rule()),
@@ -581,7 +733,7 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_function_decl(pair: pest::iterators::Pair<Rule>) -> Result<FunctionDecl, ParseError> {
+    fn parse_function_decl(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<FunctionDecl, ParseError> {
         let mut inner = pair.into_inner();
 
         let name = Self::parse_identifier(inner.next().ok_or_else(|| {
@@ -601,7 +753,7 @@ impl TensorLogicParser {
                     return_type = Self::parse_return_type(item)?;
                 }
                 Rule::statement => {
-                    body.push(Self::parse_statement(item)?);
+                    body.push(Self::parse_statement(item, registry)?);
                 }
                 _ => {}
             }
@@ -634,27 +786,27 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_tensor_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+    fn parse_tensor_expr(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
         // Expression parser with operator precedence handling
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("tensor expression content".to_string())
         })?;
-        Self::parse_logical_or_expr(inner)
+        Self::parse_logical_or_expr(inner, registry)
     }
 
-    fn parse_logical_or_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+    fn parse_logical_or_expr(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
         let mut pairs = pair.into_inner();
         let first = pairs.next().ok_or_else(|| {
             ParseError::MissingField("logical or expression".to_string())
         })?;
-        let mut expr = Self::parse_logical_and_expr(first)?;
+        let mut expr = Self::parse_logical_and_expr(first, registry)?;
 
         while let Some(op_pair) = pairs.next() {
             // Skip the or_op rule and get the right operand
             let right = pairs.next().ok_or_else(|| {
                 ParseError::MissingField("right operand after ||".to_string())
             })?;
-            let right_expr = Self::parse_logical_and_expr(right)?;
+            let right_expr = Self::parse_logical_and_expr(right, registry)?;
             expr = TensorExpr::BinaryOp {
                 op: BinaryOp::Or,
                 left: Box::new(expr),
@@ -665,18 +817,18 @@ impl TensorLogicParser {
         Ok(expr)
     }
 
-    fn parse_logical_and_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+    fn parse_logical_and_expr(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
         let mut pairs = pair.into_inner();
         let first = pairs.next().ok_or_else(|| {
             ParseError::MissingField("logical and expression".to_string())
         })?;
-        let mut expr = Self::parse_equality_expr(first)?;
+        let mut expr = Self::parse_equality_expr(first, registry)?;
 
         while let Some(_op_pair) = pairs.next() {
             let right = pairs.next().ok_or_else(|| {
                 ParseError::MissingField("right operand after &&".to_string())
             })?;
-            let right_expr = Self::parse_equality_expr(right)?;
+            let right_expr = Self::parse_equality_expr(right, registry)?;
             expr = TensorExpr::BinaryOp {
                 op: BinaryOp::And,
                 left: Box::new(expr),
@@ -687,12 +839,12 @@ impl TensorLogicParser {
         Ok(expr)
     }
 
-    fn parse_equality_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+    fn parse_equality_expr(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
         let mut pairs = pair.into_inner();
         let first = pairs.next().ok_or_else(|| {
             ParseError::MissingField("equality expression".to_string())
         })?;
-        let mut expr = Self::parse_comparison_expr(first)?;
+        let mut expr = Self::parse_comparison_expr(first, registry)?;
 
         while let Some(op_pair) = pairs.next() {
             let op = match op_pair.as_str() {
@@ -703,7 +855,7 @@ impl TensorLogicParser {
             let right = pairs.next().ok_or_else(|| {
                 ParseError::MissingField("right operand".to_string())
             })?;
-            let right_expr = Self::parse_comparison_expr(right)?;
+            let right_expr = Self::parse_comparison_expr(right, registry)?;
             expr = TensorExpr::BinaryOp {
                 op,
                 left: Box::new(expr),
@@ -714,12 +866,12 @@ impl TensorLogicParser {
         Ok(expr)
     }
 
-    fn parse_comparison_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+    fn parse_comparison_expr(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
         let mut pairs = pair.into_inner();
         let first = pairs.next().ok_or_else(|| {
             ParseError::MissingField("comparison expression".to_string())
         })?;
-        let mut expr = Self::parse_additive_expr(first)?;
+        let mut expr = Self::parse_additive_expr(first, registry)?;
 
         while let Some(op_pair) = pairs.next() {
             let op = match op_pair.as_str() {
@@ -732,7 +884,7 @@ impl TensorLogicParser {
             let right = pairs.next().ok_or_else(|| {
                 ParseError::MissingField("right operand".to_string())
             })?;
-            let right_expr = Self::parse_additive_expr(right)?;
+            let right_expr = Self::parse_additive_expr(right, registry)?;
             expr = TensorExpr::BinaryOp {
                 op,
                 left: Box::new(expr),
@@ -743,12 +895,12 @@ impl TensorLogicParser {
         Ok(expr)
     }
 
-    fn parse_additive_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+    fn parse_additive_expr(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
         let mut pairs = pair.into_inner();
         let first = pairs.next().ok_or_else(|| {
             ParseError::MissingField("additive expression".to_string())
         })?;
-        let mut expr = Self::parse_multiplicative_expr(first)?;
+        let mut expr = Self::parse_multiplicative_expr(first, registry)?;
 
         while let Some(op_pair) = pairs.next() {
             let op = match op_pair.as_str() {
@@ -759,7 +911,7 @@ impl TensorLogicParser {
             let right = pairs.next().ok_or_else(|| {
                 ParseError::MissingField("right operand".to_string())
             })?;
-            let right_expr = Self::parse_multiplicative_expr(right)?;
+            let right_expr = Self::parse_multiplicative_expr(right, registry)?;
             expr = TensorExpr::BinaryOp {
                 op,
                 left: Box::new(expr),
@@ -770,17 +922,18 @@ impl TensorLogicParser {
         Ok(expr)
     }
 
-    fn parse_multiplicative_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+    fn parse_multiplicative_expr(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
         let mut pairs = pair.into_inner();
         let first = pairs.next().ok_or_else(|| {
             ParseError::MissingField("multiplicative expression".to_string())
         })?;
-        let mut expr = Self::parse_power_expr(first)?;
+        let mut expr = Self::parse_power_expr(first, registry)?;
 
         while let Some(op_pair) = pairs.next() {
             let op = match op_pair.as_str() {
                 "*" => BinaryOp::Mul,
                 "/" => BinaryOp::Div,
+                "%" => BinaryOp::Mod,
                 "@" => BinaryOp::MatMul,
                 "⊙" => BinaryOp::Hadamard,
                 _ => return Err(ParseError::InvalidValue(format!("unknown multiplicative operator: {}", op_pair.as_str()))),
@@ -788,7 +941,7 @@ impl TensorLogicParser {
             let right = pairs.next().ok_or_else(|| {
                 ParseError::MissingField("right operand".to_string())
             })?;
-            let right_expr = Self::parse_power_expr(right)?;
+            let right_expr = Self::parse_power_expr(right, registry)?;
             expr = TensorExpr::BinaryOp {
                 op,
                 left: Box::new(expr),
@@ -799,12 +952,12 @@ impl TensorLogicParser {
         Ok(expr)
     }
 
-    fn parse_power_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+    fn parse_power_expr(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
         let mut pairs = pair.into_inner();
         let first = pairs.next().ok_or_else(|| {
             ParseError::MissingField("power expression".to_string())
         })?;
-        let mut expr = Self::parse_unary_expr(first)?;
+        let mut expr = Self::parse_unary_expr(first, registry)?;
 
         while let Some(op_pair) = pairs.next() {
             let op = match op_pair.as_str() {
@@ -815,7 +968,7 @@ impl TensorLogicParser {
             let right = pairs.next().ok_or_else(|| {
                 ParseError::MissingField("right operand".to_string())
             })?;
-            let right_expr = Self::parse_unary_expr(right)?;
+            let right_expr = Self::parse_unary_expr(right, registry)?;
             expr = TensorExpr::BinaryOp {
                 op,
                 left: Box::new(expr),
@@ -826,7 +979,7 @@ impl TensorLogicParser {
         Ok(expr)
     }
 
-    fn parse_unary_expr(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+    fn parse_unary_expr(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
         let mut pairs = pair.into_inner();
         let first = pairs.next().ok_or_else(|| {
             ParseError::MissingField("unary expression".to_string())
@@ -838,13 +991,13 @@ impl TensorLogicParser {
                 let operand = pairs.next().ok_or_else(|| {
                     ParseError::MissingField("unary operand".to_string())
                 })?;
-                let operand_expr = Self::parse_unary_expr(operand)?;
+                let operand_expr = Self::parse_unary_expr(operand, registry)?;
                 Ok(TensorExpr::UnaryOp {
                     op,
                     operand: Box::new(operand_expr),
                 })
             }
-            Rule::tensor_term => Self::parse_tensor_term(first),
+            Rule::tensor_term => Self::parse_tensor_term(first, registry),
             _ => Err(ParseError::InvalidValue(format!("unexpected rule in unary expression: {:?}", first.as_rule()))),
         }
     }
@@ -855,6 +1008,7 @@ impl TensorLogicParser {
             "-" => Ok(BinaryOp::Sub),
             "*" => Ok(BinaryOp::Mul),
             "/" => Ok(BinaryOp::Div),
+            "%" => Ok(BinaryOp::Mod),
             "@" => Ok(BinaryOp::MatMul),
             "**" => Ok(BinaryOp::Power),
             "⊗" => Ok(BinaryOp::TensorProd),
@@ -881,7 +1035,7 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_tensor_term(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+    fn parse_tensor_term(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("tensor term content".to_string())
         })?;
@@ -889,7 +1043,7 @@ impl TensorLogicParser {
         match inner.as_rule() {
             Rule::identifier => Ok(TensorExpr::Variable(Self::parse_identifier(inner)?)),
             Rule::tensor_literal => {
-                let lit = Self::parse_tensor_literal(inner)?;
+                let lit = Self::parse_tensor_literal(inner, registry)?;
                 Ok(TensorExpr::Literal(lit))
             }
             Rule::einstein_sum => {
@@ -901,11 +1055,11 @@ impl TensorLogicParser {
                 let tensor_list = inner_pairs.next().ok_or_else(|| {
                     ParseError::MissingField("einsum tensor list".to_string())
                 })?;
-                let tensors = Self::parse_tensor_list(tensor_list)?;
+                let tensors = Self::parse_tensor_list(tensor_list, registry)?;
 
                 Ok(TensorExpr::EinSum { spec, tensors })
             }
-            Rule::function_call => Self::parse_function_call(inner),
+            Rule::function_call => Self::parse_function_call(inner, registry),
             Rule::postfix_expr => {
                 let mut inner_pairs = inner.into_inner();
 
@@ -922,7 +1076,7 @@ impl TensorLogicParser {
                         })?;
                         match inner_primary.as_rule() {
                             Rule::associated_call => Self::parse_associated_call(inner_primary)?,
-                            Rule::function_call => Self::parse_function_call(inner_primary)?,
+                            Rule::function_call => Self::parse_function_call(inner_primary, registry)?,
                             Rule::identifier => TensorExpr::Variable(Self::parse_identifier(inner_primary)?),
                             _ => return Err(ParseError::UnexpectedRule {
                                 expected: "associated_call, function_call or identifier".to_string(),
@@ -930,7 +1084,7 @@ impl TensorLogicParser {
                             }),
                         }
                     }
-                    Rule::function_call => Self::parse_function_call(primary)?,
+                    Rule::function_call => Self::parse_function_call(primary, registry)?,
                     Rule::identifier => TensorExpr::Variable(Self::parse_identifier(primary)?),
                     _ => return Err(ParseError::UnexpectedRule {
                         expected: "primary_expr, function_call, or identifier".to_string(),
@@ -957,7 +1111,7 @@ impl TensorLogicParser {
 
                                     // Parse optional argument list
                                     let args = if let Some(arg_list) = method_inner.next() {
-                                        Self::parse_tensor_list(arg_list)?
+                                        Self::parse_tensor_list(arg_list, registry)?
                                     } else {
                                         vec![]
                                     };
@@ -1019,7 +1173,7 @@ impl TensorLogicParser {
                 Ok(TensorExpr::EmbeddingLookup { embedding, entity })
             }
             Rule::python_call => {
-                Self::parse_python_call(inner)
+                Self::parse_python_call(inner, registry)
             }
             Rule::struct_literal => {
                 Self::parse_struct_literal(inner)
@@ -1036,28 +1190,51 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_function_call(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+    fn parse_function_call(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
         let mut inner_pairs = pair.into_inner();
-        let name = Self::parse_identifier(inner_pairs.next().ok_or_else(|| {
-            ParseError::MissingField("function name".to_string())
-        })?)?;
+
+        // First pair can be type_namespace or identifier
+        let first_pair = inner_pairs.next().ok_or_else(|| {
+            ParseError::MissingField("function name or type namespace".to_string())
+        })?;
+
+        let (type_namespace, name) = match first_pair.as_rule() {
+            Rule::type_namespace => {
+                // type_namespace::function_name format
+                let type_ns = first_pair.as_str().to_string();
+                let name_pair = inner_pairs.next().ok_or_else(|| {
+                    ParseError::MissingField("function name after type namespace".to_string())
+                })?;
+                let name = Self::parse_identifier(name_pair)?;
+                (Some(type_ns), name)
+            }
+            Rule::identifier => {
+                // function_name only
+                let name = Self::parse_identifier(first_pair)?;
+                (None, name)
+            }
+            _ => return Err(ParseError::UnexpectedRule {
+                expected: "type_namespace or identifier".to_string(),
+                found: format!("{:?}", first_pair.as_rule()),
+            })
+        };
 
         let args = if let Some(tensor_list) = inner_pairs.next() {
-            Self::parse_tensor_list(tensor_list)?
+            Self::parse_tensor_list(tensor_list, registry)?
         } else {
             Vec::new()
         };
 
-        Ok(TensorExpr::FunctionCall { name, args })
+        Ok(TensorExpr::FunctionCall { type_namespace, name, args, resolved: None })
     }
 
-    fn parse_tensor_list(pair: pest::iterators::Pair<Rule>) -> Result<Vec<TensorExpr>, ParseError> {
+    fn parse_tensor_list(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Vec<TensorExpr>, ParseError> {
         pair.into_inner()
-            .map(|expr_pair| Self::parse_tensor_expr(expr_pair))
+            .map(|expr_pair| Self::parse_tensor_expr(expr_pair, registry))
             .collect()
     }
 
-    fn parse_tensor_literal(pair: pest::iterators::Pair<Rule>) -> Result<TensorLiteral, ParseError> {
+    fn parse_tensor_literal(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorLiteral, ParseError> {
         // Handle empty arrays: [] has no inner elements
         let mut inner_iter = pair.into_inner();
         let inner = match inner_iter.next() {
@@ -1073,7 +1250,7 @@ impl TensorLogicParser {
             Rule::tensor_elements => {
                 let elements = inner
                     .into_inner()
-                    .map(|elem| Self::parse_tensor_element(elem))
+                    .map(|elem| Self::parse_tensor_element(elem, registry))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(TensorLiteral::Array(elements))
             }
@@ -1084,24 +1261,32 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_tensor_element(pair: pest::iterators::Pair<Rule>) -> Result<ArrayElement, ParseError> {
+    fn parse_tensor_element(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<ArrayElement, ParseError> {
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("tensor element content".to_string())
         })?;
 
         match inner.as_rule() {
             Rule::tensor_literal => {
-                let lit = Self::parse_tensor_literal(inner)?;
+                let lit = Self::parse_tensor_literal(inner, registry)?;
                 Ok(ArrayElement::Literal(lit))
             }
             Rule::tensor_expr => {
                 // Parse tensor_expr (supports variables like seq_len, d_model)
-                let expr = Self::parse_tensor_expr(inner)?;
+                let expr = Self::parse_tensor_expr(inner, registry)?;
                 Ok(ArrayElement::Expression(expr))
             }
             Rule::number => {
-                let value = Self::parse_number(inner)?;
-                Ok(ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Float(value))))
+                let s = inner.as_str();
+                // Check if it's an integer (no decimal point) or float
+                let scalar = if s.contains('.') || s.contains('e') || s.contains('E') {
+                    ScalarLiteral::Float(Self::parse_number(inner)?)
+                } else {
+                    let val = s.parse::<i64>()
+                        .map_err(|e| ParseError::InvalidValue(format!("Invalid integer: {}", e)))?;
+                    ScalarLiteral::Integer(val)
+                };
+                Ok(ArrayElement::Literal(TensorLiteral::Scalar(scalar)))
             }
             _ => Err(ParseError::UnexpectedRule {
                 expected: "tensor literal, number, or tensor expression".to_string(),
@@ -1116,7 +1301,17 @@ impl TensorLogicParser {
         })?;
 
         match inner.as_rule() {
-            Rule::number => Ok(ScalarLiteral::Float(Self::parse_number(inner)?)),
+            Rule::number => {
+                let s = inner.as_str();
+                // Check if it's an integer (no decimal point) or float
+                if s.contains('.') || s.contains('e') || s.contains('E') {
+                    Ok(ScalarLiteral::Float(Self::parse_number(inner)?))
+                } else {
+                    let val = s.parse::<i64>()
+                        .map_err(|e| ParseError::InvalidValue(format!("Invalid integer: {}", e)))?;
+                    Ok(ScalarLiteral::Integer(val))
+                }
+            }
             Rule::boolean => Ok(ScalarLiteral::Boolean(Self::parse_boolean(inner)?)),
             Rule::complex_number => {
                 // Simplified complex parsing
@@ -1141,14 +1336,14 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_constraint(pair: pest::iterators::Pair<Rule>) -> Result<Constraint, ParseError> {
+    fn parse_constraint(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Constraint, ParseError> {
         // constraint = { constraint_term ~ (logical_op ~ constraint_term)* }
         let mut pairs = pair.into_inner();
 
         let first_term = pairs.next().ok_or_else(|| {
             ParseError::MissingField("constraint term".to_string())
         })?;
-        let mut constraint = Self::parse_constraint_term(first_term)?;
+        let mut constraint = Self::parse_constraint_term(first_term, registry)?;
 
         // Parse logical operators (and, or)
         while let Some(op_pair) = pairs.next() {
@@ -1156,7 +1351,7 @@ impl TensorLogicParser {
             let right_term = pairs.next().ok_or_else(|| {
                 ParseError::MissingField("right constraint term".to_string())
             })?;
-            let right = Self::parse_constraint_term(right_term)?;
+            let right = Self::parse_constraint_term(right_term, registry)?;
 
             constraint = match op {
                 "and" => Constraint::And(Box::new(constraint), Box::new(right)),
@@ -1168,7 +1363,7 @@ impl TensorLogicParser {
         Ok(constraint)
     }
 
-    fn parse_constraint_term(pair: pest::iterators::Pair<Rule>) -> Result<Constraint, ParseError> {
+    fn parse_constraint_term(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Constraint, ParseError> {
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("constraint term content".to_string())
         })?;
@@ -1185,20 +1380,20 @@ impl TensorLogicParser {
                     let negated = inner_pairs.next().ok_or_else(|| {
                         ParseError::MissingField("negated constraint".to_string())
                     })?;
-                    Ok(Constraint::Not(Box::new(Self::parse_constraint_term(negated)?)))
+                    Ok(Constraint::Not(Box::new(Self::parse_constraint_term(negated, registry)?)))
                 } else {
-                    Self::parse_constraint_term(first)
+                    Self::parse_constraint_term(first, registry)
                 }
             }
             Rule::constraint => {
                 // Parenthesized constraint
-                Self::parse_constraint(inner)
+                Self::parse_constraint(inner, registry)
             }
             Rule::tensor_constraint => {
-                Self::parse_tensor_constraint(inner)
+                Self::parse_tensor_constraint(inner, registry)
             }
             Rule::comparison => {
-                Self::parse_comparison(inner)
+                Self::parse_comparison(inner, registry)
             }
             _ => Err(ParseError::UnexpectedRule {
                 expected: "constraint term".to_string(),
@@ -1207,7 +1402,7 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_tensor_constraint(pair: pest::iterators::Pair<Rule>) -> Result<Constraint, ParseError> {
+    fn parse_tensor_constraint(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Constraint, ParseError> {
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("tensor constraint content".to_string())
         })?;
@@ -1219,7 +1414,7 @@ impl TensorLogicParser {
             let mut parts = inner.into_inner();
             let tensor_expr = Self::parse_tensor_expr(parts.next().ok_or_else(|| {
                 ParseError::MissingField("tensor in shape constraint".to_string())
-            })?)?;
+            })?, registry)?;
 
             let shape_spec = parts.next().ok_or_else(|| {
                 ParseError::MissingField("shape spec".to_string())
@@ -1232,7 +1427,7 @@ impl TensorLogicParser {
             let mut parts = inner.into_inner();
             let tensor_expr = Self::parse_tensor_expr(parts.next().ok_or_else(|| {
                 ParseError::MissingField("tensor in rank constraint".to_string())
-            })?)?;
+            })?, registry)?;
 
             let comp_op_pair = parts.next().ok_or_else(|| {
                 ParseError::MissingField("comparison operator".to_string())
@@ -1258,7 +1453,7 @@ impl TensorLogicParser {
             let mut parts = inner.into_inner();
             let tensor_expr = Self::parse_tensor_expr(parts.next().ok_or_else(|| {
                 ParseError::MissingField("tensor in norm constraint".to_string())
-            })?)?;
+            })?, registry)?;
 
             let comp_op_pair = parts.next().ok_or_else(|| {
                 ParseError::MissingField("comparison operator".to_string())
@@ -1276,12 +1471,12 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_comparison(pair: pest::iterators::Pair<Rule>) -> Result<Constraint, ParseError> {
+    fn parse_comparison(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Constraint, ParseError> {
         let mut inner = pair.into_inner();
 
         let left = Self::parse_tensor_expr(inner.next().ok_or_else(|| {
             ParseError::MissingField("left side of comparison".to_string())
-        })?)?;
+        })?, registry)?;
 
         let op_pair = inner.next().ok_or_else(|| {
             ParseError::MissingField("comparison operator".to_string())
@@ -1290,7 +1485,7 @@ impl TensorLogicParser {
 
         let right = Self::parse_tensor_expr(inner.next().ok_or_else(|| {
             ParseError::MissingField("right side of comparison".to_string())
-        })?)?;
+        })?, registry)?;
 
         Ok(Constraint::Comparison { op, left, right })
     }
@@ -1308,12 +1503,12 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_tensor_equation(pair: pest::iterators::Pair<Rule>) -> Result<TensorEquation, ParseError> {
+    fn parse_tensor_equation(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorEquation, ParseError> {
         let mut inner = pair.into_inner();
 
         let left = Self::parse_tensor_expr(inner.next().ok_or_else(|| {
             ParseError::MissingField("equation left side".to_string())
-        })?)?;
+        })?, registry)?;
 
         let eq_type = Self::parse_eq_type(inner.next().ok_or_else(|| {
             ParseError::MissingField("equation type".to_string())
@@ -1321,21 +1516,19 @@ impl TensorLogicParser {
 
         let right = Self::parse_tensor_expr(inner.next().ok_or_else(|| {
             ParseError::MissingField("equation right side".to_string())
-        })?)?;
+        })?, registry)?;
 
         Ok(TensorEquation { left, right, eq_type })
     }
 
     fn parse_eq_type(pair: pest::iterators::Pair<Rule>) -> Result<EquationType, ParseError> {
         match pair.as_str() {
-            "=" => Ok(EquationType::Exact),
             "~" => Ok(EquationType::Approx),
-            ":=" => Ok(EquationType::Assign),
             s => Err(ParseError::InvalidValue(format!("Unknown equation type: {}", s))),
         }
     }
 
-    fn parse_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+    fn parse_statement(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Statement, ParseError> {
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("statement content".to_string())
         })?;
@@ -1348,7 +1541,7 @@ impl TensorLogicParser {
                 })?)?;
                 let value = Self::parse_tensor_expr(inner_pairs.next().ok_or_else(|| {
                     ParseError::MissingField("let value".to_string())
-                })?)?;
+                })?, registry)?;
                 Ok(Statement::Let { target, value })
             }
             Rule::break_statement => {
@@ -1357,14 +1550,36 @@ impl TensorLogicParser {
             Rule::return_statement => {
                 let mut inner_pairs = inner.into_inner();
                 let value = if let Some(expr_pair) = inner_pairs.next() {
-                    Some(Self::parse_tensor_expr(expr_pair)?)
+                    Some(Self::parse_tensor_expr(expr_pair, registry)?)
                 } else {
                     None
                 };
                 Ok(Statement::Return { value })
             }
+            Rule::panic_statement => {
+                let format_args = inner.into_inner().next().ok_or_else(|| {
+                    ParseError::MissingField("panic format args".to_string())
+                })?;
+
+                let mut format = String::new();
+                let mut args = Vec::new();
+
+                for arg_pair in format_args.into_inner() {
+                    match arg_pair.as_rule() {
+                        Rule::string_literal => {
+                            format = Self::parse_string_literal(arg_pair)?;
+                        }
+                        Rule::tensor_expr => {
+                            args.push(Self::parse_tensor_expr(arg_pair, registry)?);
+                        }
+                        _ => {}
+                    }
+                }
+
+                Ok(Statement::Panic { format, args })
+            }
             Rule::tensor_decl => {
-                Ok(Statement::TensorDecl(Self::parse_tensor_decl(inner)?))
+                Ok(Statement::TensorDecl(Self::parse_tensor_decl(inner, registry)?))
             }
             Rule::assignment => {
                 let mut inner_pairs = inner.into_inner();
@@ -1373,46 +1588,76 @@ impl TensorLogicParser {
                 })?)?;
                 let value = Self::parse_tensor_expr(inner_pairs.next().ok_or_else(|| {
                     ParseError::MissingField("assignment value".to_string())
-                })?)?;
+                })?, registry)?;
                 Ok(Statement::Assignment { target, value })
             }
             Rule::tensor_equation => {
-                Ok(Statement::Equation(Self::parse_tensor_equation(inner)?))
+                Ok(Statement::Equation(Self::parse_tensor_equation(inner, registry)?))
             }
             Rule::python_import => {
                 Self::parse_python_import(inner)
             }
             Rule::function_call => {
+                let pest_span = inner.as_span();
                 let mut inner_pairs = inner.into_inner();
                 let name = Self::parse_identifier(inner_pairs.next().ok_or_else(|| {
                     ParseError::MissingField("function name".to_string())
                 })?)?;
 
                 let args = if let Some(tensor_list) = inner_pairs.next() {
-                    Self::parse_tensor_list(tensor_list)?
+                    Self::parse_tensor_list(tensor_list, registry)?
                 } else {
                     Vec::new()
                 };
 
-                Ok(Statement::FunctionCall { name, args })
+                // Convert pest::Span to our Span type
+                let (start_line, start_col) = pest_span.start_pos().line_col();
+                let (end_line, end_col) = pest_span.end_pos().line_col();
+                let start = Position {
+                    line: start_line,
+                    column: start_col,
+                    offset: pest_span.start(),
+                };
+                let end = Position {
+                    line: end_line,
+                    column: end_col,
+                    offset: pest_span.end(),
+                };
+                let span = Span::new(start, end);
+
+                Ok(Statement::FunctionCall { name, args, resolved: None, span })
             }
             Rule::fact_assertion => {
-                Self::parse_fact_assertion(inner)
+                Self::parse_fact_assertion(inner, registry)
             }
             Rule::query => {
-                Self::parse_query(inner)
+                Self::parse_query(inner, registry)
             }
             Rule::inference_call => {
-                Self::parse_inference_call(inner)
+                Self::parse_inference_call(inner, registry)
             }
             Rule::learning_call => {
-                Self::parse_learning_call(inner)
+                Self::parse_learning_call(inner, registry)
             }
             Rule::with_block => {
-                Self::parse_with_block(inner)
+                Self::parse_with_block(inner, registry)
             }
             Rule::control_flow => {
-                Self::parse_control_flow(inner).map(Statement::ControlFlow)
+                Self::parse_control_flow(inner, registry).map(Statement::ControlFlow)
+            }
+            Rule::block_statement => {
+                let statements: Result<Vec<_>, _> = inner
+                    .into_inner()
+                    .map(|p| Self::parse_statement(p, registry))
+                    .collect();
+                Ok(Statement::Block {
+                    statements: statements?,
+                })
+            }
+            Rule::tensor_expr => {
+                // Parse expression as an expression statement (for method calls like cache.set(...))
+                let expr = Self::parse_tensor_expr(inner, registry)?;
+                Ok(Statement::Expr { expr })
             }
             _ => Err(ParseError::UnexpectedRule {
                 expected: "statement type".to_string(),
@@ -1421,25 +1666,25 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_fact_assertion(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+    fn parse_fact_assertion(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Statement, ParseError> {
         let mut inner = pair.into_inner();
 
         let atom = Self::parse_atom(inner.next().ok_or_else(|| {
             ParseError::MissingField("fact assertion atom".to_string())
-        })?)?;
+        })?, registry)?;
 
         Ok(Statement::FactAssertion { atom })
     }
 
-    fn parse_query(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+    fn parse_query(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Statement, ParseError> {
         let mut inner = pair.into_inner();
 
         let atom = Self::parse_atom(inner.next().ok_or_else(|| {
             ParseError::MissingField("query atom".to_string())
-        })?)?;
+        })?, registry)?;
 
         let constraints = if let Some(constraint_list) = inner.next() {
-            Self::parse_constraint_list(constraint_list)?
+            Self::parse_constraint_list(constraint_list, registry)?
         } else {
             Vec::new()
         };
@@ -1447,13 +1692,13 @@ impl TensorLogicParser {
         Ok(Statement::Query { atom, constraints })
     }
 
-    fn parse_constraint_list(pair: pest::iterators::Pair<Rule>) -> Result<Vec<Constraint>, ParseError> {
+    fn parse_constraint_list(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Vec<Constraint>, ParseError> {
         pair.into_inner()
-            .map(|constraint_pair| Self::parse_constraint(constraint_pair))
+            .map(|constraint_pair| Self::parse_constraint(constraint_pair, registry))
             .collect()
     }
 
-    fn parse_inference_call(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+    fn parse_inference_call(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Statement, ParseError> {
         let mut inner = pair.into_inner();
 
         let first = inner.next().ok_or_else(|| {
@@ -1463,14 +1708,14 @@ impl TensorLogicParser {
         match first.as_rule() {
             Rule::inference_block => {
                 // Block syntax: infer { ... }
-                Self::parse_inference_block(first)
+                Self::parse_inference_block(first, registry)
             }
             Rule::inference_method => {
                 // Single inference: infer method query
                 let method = Self::parse_inference_method(first)?;
                 let query = Self::parse_query(inner.next().ok_or_else(|| {
                     ParseError::MissingField("query in inference call".to_string())
-                })?)?;
+                })?, registry)?;
 
                 Ok(Statement::Inference {
                     method,
@@ -1483,7 +1728,7 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_inference_block(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+    fn parse_inference_block(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Statement, ParseError> {
         let mut items = Vec::new();
 
         for item_pair in pair.into_inner() {
@@ -1496,7 +1741,7 @@ impl TensorLogicParser {
 
                 let query = Self::parse_query(item_inner.next().ok_or_else(|| {
                     ParseError::MissingField("query in block item".to_string())
-                })?)?;
+                })?, registry)?;
 
                 items.push((method, Box::new(query)));
             }
@@ -1515,17 +1760,17 @@ impl TensorLogicParser {
         }
     }
 
-    fn parse_learning_call(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+    fn parse_learning_call(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Statement, ParseError> {
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("learning spec".to_string())
         })?;
 
-        let learning_spec = Self::parse_learning_spec(inner)?;
+        let learning_spec = Self::parse_learning_spec(inner, registry)?;
         Ok(Statement::Learning(learning_spec))
     }
 
-    fn parse_learning_spec(pair: pest::iterators::Pair<Rule>) -> Result<LearningSpec, ParseError> {
-        let mut inner = pair.into_inner();
+    fn parse_learning_spec(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<LearningSpec, ParseError> {
+        let inner = pair.into_inner();
 
         // Parse optional statements
         let mut statements = Vec::new();
@@ -1537,7 +1782,7 @@ impl TensorLogicParser {
         for pair in inner {
             match pair.as_rule() {
                 Rule::statement => {
-                    statements.push(Self::parse_statement(pair)?);
+                    statements.push(Self::parse_statement(pair, registry)?);
                 }
                 Rule::tensor_expr => {
                     objective_expr = Some(pair);
@@ -1557,7 +1802,7 @@ impl TensorLogicParser {
 
         let objective = Self::parse_tensor_expr(objective_expr.ok_or_else(|| {
             ParseError::MissingField("objective expression".to_string())
-        })?)?;
+        })?, registry)?;
 
         let optimizer = Self::parse_optimizer_spec(optimizer_spec.ok_or_else(|| {
             ParseError::MissingField("optimizer spec".to_string())
@@ -1644,7 +1889,7 @@ impl TensorLogicParser {
             .collect()
     }
 
-    fn parse_with_block(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+    fn parse_with_block(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Statement, ParseError> {
         let mut inner = pair.into_inner();
 
         let entity_type = Self::parse_identifier(inner.next().ok_or_else(|| {
@@ -1652,7 +1897,7 @@ impl TensorLogicParser {
         })?)?;
 
         let statements = inner
-            .map(|p| Self::parse_statement(p))
+            .map(|p| Self::parse_statement(p, registry))
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Statement::WithBlock {
@@ -1661,64 +1906,71 @@ impl TensorLogicParser {
         })
     }
 
-    fn parse_control_flow(pair: pest::iterators::Pair<Rule>) -> Result<ControlFlow, ParseError> {
+    fn parse_control_flow(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<ControlFlow, ParseError> {
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("control flow statement".to_string())
         })?;
 
         match inner.as_rule() {
-            Rule::if_statement => Self::parse_if_statement(inner),
-            Rule::for_statement => Self::parse_for_statement(inner),
-            Rule::while_statement => Self::parse_while_statement(inner),
-            Rule::loop_statement => Self::parse_loop_statement(inner),
+            Rule::if_statement => Self::parse_if_statement(inner, registry),
+            Rule::for_statement => Self::parse_for_statement(inner, registry),
+            Rule::while_statement => Self::parse_while_statement(inner, registry),
+            Rule::loop_statement => Self::parse_loop_statement(inner, registry),
             _ => Err(ParseError::InvalidValue(format!("Invalid control flow: {}", inner.as_str()))),
         }
     }
 
-    fn parse_if_statement(pair: pest::iterators::Pair<Rule>) -> Result<ControlFlow, ParseError> {
-        // Get the input string before consuming pair
+    fn parse_if_statement(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<ControlFlow, ParseError> {
+        // Get the input string and position before consuming pair
         let input_str = pair.as_str();
+        let if_start_pos = pair.as_span().start();
         let has_else = input_str.contains("} else {");
-        
+
         let mut inner = pair.into_inner();
-        
+
         // Parse condition (always first)
         let condition_pair = inner.next().ok_or_else(|| {
             ParseError::MissingField("if condition".to_string())
         })?;
-        let condition = Self::parse_condition(condition_pair)?;
-        
+        let condition = Self::parse_condition(condition_pair, registry)?;
+
+        // Find the absolute position of "} else {" to determine then/else boundary
+        let else_pos = input_str.find("} else {").map(|p| if_start_pos + p + 1); // +1 for the closing }
+
         // Collect all statement pairs
         let remaining: Vec<_> = inner
             .filter(|p| p.as_rule() == Rule::statement)
             .collect();
-        
+
         let mut then_block = Vec::new();
         let mut else_block = None;
-        
+
         if has_else {
-            // Count statements in then block by counting := before "} else {"
-            let before_else = input_str.split("} else {").next().unwrap();
-            let then_stmt_count = before_else.matches(":=").count();
-            
-            // Parse then block
-            for i in 0..then_stmt_count.min(remaining.len()) {
-                then_block.push(Self::parse_statement(remaining[i].clone())?);
+            // Split statements by position: before else_pos goes to then block, after goes to else block
+            let boundary_pos = else_pos.unwrap();
+
+            // Parse then block (statements before the else)
+            for stmt_pair in remaining.iter() {
+                if stmt_pair.as_span().start() < boundary_pos {
+                    then_block.push(Self::parse_statement(stmt_pair.clone(), registry)?);
+                }
             }
-            
-            // Parse else block
+
+            // Parse else block (statements after the else)
             let mut else_stmts = Vec::new();
-            for i in then_stmt_count..remaining.len() {
-                else_stmts.push(Self::parse_statement(remaining[i].clone())?);
+            for stmt_pair in remaining.iter() {
+                if stmt_pair.as_span().start() > boundary_pos {
+                    else_stmts.push(Self::parse_statement(stmt_pair.clone(), registry)?);
+                }
             }
-            
+
             if !else_stmts.is_empty() {
                 else_block = Some(else_stmts);
             }
         } else {
             // No else block - all statements go to then block
             for stmt_pair in remaining {
-                then_block.push(Self::parse_statement(stmt_pair)?);
+                then_block.push(Self::parse_statement(stmt_pair, registry)?);
             }
         }
         
@@ -1729,7 +1981,7 @@ impl TensorLogicParser {
         })
     }
 
-    fn parse_for_statement(pair: pest::iterators::Pair<Rule>) -> Result<ControlFlow, ParseError> {
+    fn parse_for_statement(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<ControlFlow, ParseError> {
         let mut inner = pair.into_inner();
         
         // Parse loop variable
@@ -1742,13 +1994,13 @@ impl TensorLogicParser {
         let iterable_pair = inner.next().ok_or_else(|| {
             ParseError::MissingField("for loop iterable".to_string())
         })?;
-        let iterable = Self::parse_iterable(iterable_pair)?;
+        let iterable = Self::parse_iterable(iterable_pair, registry)?;
         
         // Parse body
         let mut body = Vec::new();
         for stmt_pair in inner {
             if stmt_pair.as_rule() == Rule::statement {
-                body.push(Self::parse_statement(stmt_pair)?);
+                body.push(Self::parse_statement(stmt_pair, registry)?);
             }
         }
         
@@ -1759,20 +2011,20 @@ impl TensorLogicParser {
         })
     }
 
-    fn parse_while_statement(pair: pest::iterators::Pair<Rule>) -> Result<ControlFlow, ParseError> {
+    fn parse_while_statement(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<ControlFlow, ParseError> {
         let mut inner = pair.into_inner();
         
         // Parse condition
         let condition_pair = inner.next().ok_or_else(|| {
             ParseError::MissingField("while condition".to_string())
         })?;
-        let condition = Self::parse_condition(condition_pair)?;
+        let condition = Self::parse_condition(condition_pair, registry)?;
         
         // Parse body
         let mut body = Vec::new();
         for stmt_pair in inner {
             if stmt_pair.as_rule() == Rule::statement {
-                body.push(Self::parse_statement(stmt_pair)?);
+                body.push(Self::parse_statement(stmt_pair, registry)?);
             }
         }
         
@@ -1782,39 +2034,39 @@ impl TensorLogicParser {
         })
     }
 
-    fn parse_loop_statement(pair: pest::iterators::Pair<Rule>) -> Result<ControlFlow, ParseError> {
+    fn parse_loop_statement(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<ControlFlow, ParseError> {
         let inner = pair.into_inner();
 
         // Parse body
         let mut body = Vec::new();
         for stmt_pair in inner {
             if stmt_pair.as_rule() == Rule::statement {
-                body.push(Self::parse_statement(stmt_pair)?);
+                body.push(Self::parse_statement(stmt_pair, registry)?);
             }
         }
 
         Ok(ControlFlow::Loop { body })
     }
 
-    fn parse_condition(pair: pest::iterators::Pair<Rule>) -> Result<Condition, ParseError> {
+    fn parse_condition(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Condition, ParseError> {
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("condition value".to_string())
         })?;
 
         match inner.as_rule() {
-            Rule::constraint => Ok(Condition::Constraint(Self::parse_constraint(inner)?)),
-            Rule::tensor_expr => Ok(Condition::Tensor(Self::parse_tensor_expr(inner)?)),
+            Rule::constraint => Ok(Condition::Constraint(Self::parse_constraint(inner, registry)?)),
+            Rule::tensor_expr => Ok(Condition::Tensor(Self::parse_tensor_expr(inner, registry)?)),
             _ => Err(ParseError::InvalidValue(format!("Invalid condition: {}", inner.as_str()))),
         }
     }
 
-    fn parse_iterable(pair: pest::iterators::Pair<Rule>) -> Result<Iterable, ParseError> {
+    fn parse_iterable(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Iterable, ParseError> {
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("iterable value".to_string())
         })?;
 
         match inner.as_rule() {
-            Rule::tensor_expr => Ok(Iterable::Tensor(Self::parse_tensor_expr(inner)?)),
+            Rule::tensor_expr => Ok(Iterable::Tensor(Self::parse_tensor_expr(inner, registry)?)),
             Rule::entity_set => Ok(Iterable::EntitySet(Self::parse_entity_set(inner)?)),
             Rule::range_expr => {
                 // range(n) -> extract n
@@ -1840,7 +2092,17 @@ impl TensorLogicParser {
         })?;
 
         match inner.as_rule() {
-            Rule::number => Ok(Constant::Float(Self::parse_number(inner)?)),
+            Rule::number => {
+                let s = inner.as_str();
+                // Check if it's an integer (no decimal point) or float
+                if s.contains('.') || s.contains('e') || s.contains('E') {
+                    Ok(Constant::Float(Self::parse_number(inner)?))
+                } else {
+                    let val = s.parse::<i64>()
+                        .map_err(|e| ParseError::InvalidValue(format!("Invalid integer: {}", e)))?;
+                    Ok(Constant::Integer(val))
+                }
+            }
             Rule::string_literal => Ok(Constant::String(Self::parse_string_literal(inner)?)),
             Rule::boolean => Ok(Constant::Boolean(Self::parse_boolean(inner)?)),
             _ => Err(ParseError::InvalidValue(format!("Invalid constant: {}", inner.as_str()))),
@@ -1932,7 +2194,7 @@ impl TensorLogicParser {
         Ok(Statement::PythonImport { module, alias })
     }
 
-    fn parse_python_call(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+    fn parse_python_call(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
         let mut inner = pair.into_inner();
 
         // Parse function name (string literal)
@@ -1942,7 +2204,7 @@ impl TensorLogicParser {
 
         // Parse optional arguments
         let args = if let Some(tensor_list) = inner.next() {
-            Self::parse_tensor_list(tensor_list)?
+            Self::parse_tensor_list(tensor_list, registry)?
         } else {
             Vec::new()
         };

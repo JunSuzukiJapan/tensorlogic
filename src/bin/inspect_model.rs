@@ -1,14 +1,17 @@
-use tensorlogic::model::Model;
-use tensorlogic::device::MetalDevice;
-use tensorlogic::tensor::TensorAccessors;
 use std::env;
+use tensorlogic::device::MetalDevice;
+use tensorlogic::model::Model;
+use tensorlogic::tensor::TensorAccessors;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
         eprintln!("Usage: {} <model_path>", args[0]);
-        eprintln!("Example: {} ~/.llm/models/tinyllama-1.1b-chat-q4_0.gguf", args[0]);
+        eprintln!(
+            "Example: {} ~/.llm/models/tinyllama-1.1b-chat-q4_0.gguf",
+            args[0]
+        );
         std::process::exit(1);
     }
 
@@ -22,7 +25,7 @@ fn main() {
         std::process::exit(1);
     });
 
-    let model = Model::load(model_path, &device).unwrap_or_else(|e| {
+    let model = Model::<half::f16>::load(model_path, &device).unwrap_or_else(|e| {
         eprintln!("Error loading model: {}", e);
         std::process::exit(1);
     });
@@ -64,9 +67,19 @@ fn main() {
 
         // Get tensor and print info
         if let Some(tensor) = model.get_tensor(name) {
-            let shape_str: Vec<String> = tensor.shape().dims().iter().map(|&d| d.to_string()).collect();
+            let shape_str: Vec<String> = tensor
+                .shape()
+                .dims()
+                .iter()
+                .map(|&d| d.to_string())
+                .collect();
             let num_elements: usize = tensor.shape().dims().iter().product();
-            println!("  {} : [{}] ({} elements)", name, shape_str.join(", "), num_elements);
+            println!(
+                "  {} : [{}] ({} elements)",
+                name,
+                shape_str.join(", "),
+                num_elements
+            );
         }
     }
 
@@ -75,7 +88,8 @@ fn main() {
     println!();
 
     // Analyze architecture
-    let num_layers = names.iter()
+    let num_layers = names
+        .iter()
         .filter(|n| n.starts_with("layers."))
         .filter_map(|n| {
             let parts: Vec<&str> = n.split('.').collect();
@@ -126,7 +140,10 @@ fn main() {
         if let Some(tensor) = model.get_tensor(name) {
             println!("{}", name);
             println!("  Shape: {:?}", tensor.shape().dims());
-            println!("  Elements: {}", tensor.shape().dims().iter().product::<usize>());
+            println!(
+                "  Elements: {}",
+                tensor.shape().dims().iter().product::<usize>()
+            );
             println!();
         }
     }

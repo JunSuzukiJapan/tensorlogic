@@ -1,0 +1,170 @@
+//! Metal backward pass precision investigation test
+
+use tensorlogic::autograd::gradients::*;
+use tensorlogic::autograd::GradientFunction;
+use tensorlogic::device::Device;
+use tensorlogic::tensor::Tensor;
+use half::f16;
+
+fn compare_cpu_metal_gradients(
+    name: &str,
+    create_backward: impl Fn(&Tensor) -> Box<dyn GradientFunction>,
+    input_values: Vec<f32>,
+    grad_output_values: Vec<f32>,
+) {
+    println!("\n=== Testing {} ===", name);
+
+    // CPU test
+    let cpu_input = Tensor::from_vec(
+        input_values.iter().map(|&x| f16::from_f32(x)).collect(),
+        vec![input_values.len()],
+    ).unwrap();
+
+    let cpu_grad_output = Tensor::from_vec(
+        grad_output_values.iter().map(|&x| f16::from_f32(x)).collect(),
+        vec![grad_output_values.len()],
+    ).unwrap();
+
+    let cpu_backward = create_backward(&cpu_input);
+    let cpu_grad_input = cpu_backward.backward(&cpu_grad_output, &[]).unwrap();
+    let cpu_results: Vec<f32> = cpu_grad_input[0].sync_and_read().iter().map(|x| x.to_f32()).collect();
+
+    println!("CPU gradients: {:?}", cpu_results);
+
+    // Metal test
+    let metal_device_enum = Device::default_metal().unwrap();
+    let metal_device = match &metal_device_enum {
+        Device::Metal(dev) => dev,
+        _ => panic!("Expected Metal device"),
+    };
+
+    let metal_input = Tensor::from_vec_gpu(
+        metal_device,
+        input_values.iter().map(|&x| f16::from_f32(x)).collect(),
+        vec![input_values.len()],
+    ).unwrap();
+
+    let metal_grad_output = Tensor::from_vec_gpu(
+        metal_device,
+        grad_output_values.iter().map(|&x| f16::from_f32(x)).collect(),
+        vec![grad_output_values.len()],
+    ).unwrap();
+
+    let metal_backward = create_backward(&metal_input);
+    let metal_grad_input = metal_backward.backward(&metal_grad_output, &[]).unwrap();
+    let metal_results: Vec<f32> = metal_grad_input[0].sync_and_read().iter().map(|x| x.to_f32()).collect();
+
+    println!("Metal gradients: {:?}", metal_results);
+
+    // Compare
+    for (i, (&cpu_val, &metal_val)) in cpu_results.iter().zip(metal_results.iter()).enumerate() {
+        let abs_diff = (cpu_val - metal_val).abs();
+        let rel_diff = if cpu_val.abs() > 1e-6 {
+            abs_diff / cpu_val.abs()
+        } else {
+            abs_diff
+        };
+
+        println!("  [{}] CPU: {:.6}, Metal: {:.6}, abs_diff: {:.6}, rel_diff: {:.6}",
+                 i, cpu_val, metal_val, abs_diff, rel_diff);
+
+        // f16 precision tolerance
+        let tolerance = 0.01;
+        if abs_diff > tolerance && rel_diff > tolerance {
+            panic!("Precision difference too large at index {}: CPU={}, Metal={}, diff={}",
+                   i, cpu_val, metal_val, abs_diff);
+        }
+    }
+}
+
+#[test]
+fn test_exp_backward_precision() {
+    compare_cpu_metal_gradients(
+        "exp_backward",
+        |input| {
+            let output = input.exp().unwrap();
+            Box::new(ExpBackward::new(output))
+        },
+        vec![1.0, 2.0, 3.0],
+        vec![1.0, 1.0, 1.0],
+    );
+}
+
+#[test]
+fn test_log_backward_precision() {
+    compare_cpu_metal_gradients(
+        "log_backward",
+        |input| Box::new(LogBackward::new(input.clone())),
+        vec![2.0, 4.0, 8.0],
+        vec![1.0, 1.0, 1.0],
+    );
+}
+
+#[test]
+fn test_sqrt_backward_precision() {
+    compare_cpu_metal_gradients(
+        "sqrt_backward",
+        |input| {
+            let output = input.sqrt().unwrap();
+            Box::new(SqrtBackward::new(output))
+        },
+        vec![4.0, 9.0, 16.0],
+        vec![1.0, 1.0, 1.0],
+    );
+}
+
+#[test]
+fn test_pow_backward_precision() {
+    compare_cpu_metal_gradients(
+        "pow_backward",
+        |input| Box::new(PowBackward::new(input.clone(), 3.0)),
+        vec![2.0, 3.0, 4.0],
+        vec![1.0, 1.0, 1.0],
+    );
+}
+
+#[test]
+fn test_sin_backward_precision() {
+    compare_cpu_metal_gradients(
+        "sin_backward",
+        |input| Box::new(SinBackward::new(input.clone())),
+        vec![0.0, std::f32::consts::PI / 4.0, std::f32::consts::PI / 2.0],
+        vec![1.0, 1.0, 1.0],
+    );
+}
+
+#[test]
+fn test_cos_backward_precision() {
+    compare_cpu_metal_gradients(
+        "cos_backward",
+        |input| Box::new(CosBackward::new(input.clone())),
+        vec![0.0, std::f32::consts::PI / 4.0, std::f32::consts::PI],
+        vec![1.0, 1.0, 1.0],
+    );
+}
+
+#[test]
+fn test_sigmoid_backward_precision() {
+    compare_cpu_metal_gradients(
+        "sigmoid_backward",
+        |input| {
+            let output = input.sigmoid().unwrap();
+            Box::new(SigmoidBackward::new(output))
+        },
+        vec![-2.0, 0.0, 2.0],
+        vec![1.0, 1.0, 1.0],
+    );
+}
+
+#[test]
+fn test_tanh_backward_precision() {
+    compare_cpu_metal_gradients(
+        "tanh_backward",
+        |input| {
+            let output = input.tanh().unwrap();
+            Box::new(TanhBackward::new(output))
+        },
+        vec![-2.0, 0.0, 2.0],
+        vec![1.0, 1.0, 1.0],
+    );
+}

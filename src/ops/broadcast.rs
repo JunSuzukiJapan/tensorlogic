@@ -1,11 +1,10 @@
 //! Broadcasting operations for tensors
 
-use crate::device::{Device, MetalBuffer};
+use crate::device::{Device, MetalBuffer, EncoderProvider};
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor, TensorShape};
-use half::f16;
 
 impl<T: FloatType> Tensor<T> {
     /// Broadcast this tensor to a target shape
@@ -32,86 +31,87 @@ impl<T: FloatType> Tensor<T> {
 
     /// CPU implementation of broadcast
     fn broadcast_to_cpu(&self, target_shape: &TensorShape) -> TensorResult<Self> {
-        // Currently only f16 is supported
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "CPU operations currently only support f16".to_string()
-            ));
-        }
-
-        let input = self.to_vec();
-        let input_dims = self.shape().dims();
-
-        let target_numel = target_shape.numel();
-        let mut output = vec![T::zero(); target_numel];
-
-        // Compute strides for input and output
-        let input_strides = self.shape().compute_strides();
-        let target_strides = target_shape.compute_strides();
-
-        // Align dimensions from the right
-        let rank_diff = target_shape.rank() - self.shape().rank();
-
-        for target_idx in 0..target_numel {
-            // Compute multi-dimensional index for target
-            let mut target_coords = vec![0; target_shape.rank()];
-            let mut remaining = target_idx;
-            for i in 0..target_shape.rank() {
-                target_coords[i] = remaining / target_strides[i];
-                remaining %= target_strides[i];
-            }
-
-            // Map to input index
-            let mut input_idx = 0;
-            for i in rank_diff..target_shape.rank() {
-                let input_i = i - rank_diff;
-                let coord = if input_dims[input_i] == 1 {
-                    0
-                } else {
-                    target_coords[i]
-                };
-                input_idx += coord * input_strides[input_i];
-            }
-
-            output[target_idx] = input[input_idx];
-        }
-
-        Tensor::from_vec(output, target_shape.dims().to_vec())
+        panic!("BROADCAST_TO CPU FALLBACK: GPU kernel must be used - CPU implementation disabled");
     }
 
     /// Metal GPU implementation of broadcast
     fn broadcast_to_metal(&self, target_shape: &TensorShape) -> TensorResult<Self> {
-        // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
-            return Err(TensorError::InvalidOperation(
-                "Metal operations currently only support f16".to_string()
-            ));
-        }
+        let input_buf = self.buffer().as_metal()?;
+        let input_dims = self.shape().dims();
 
-        // For now, fallback to CPU
-        // TODO: Implement efficient Metal kernel for broadcasting
-        let cpu_result = self.to_cpu()?.broadcast_to_cpu(target_shape)?;
+        let target_numel = target_shape.numel();
+        let target_dims = target_shape.dims();
 
-        // Convert back to Metal
-        let device = match self.device() {
+        let mut device = match self.device() {
             Device::Metal(dev) => dev.clone(),
-            _ => return Err(TensorError::DeviceConversionError(
-                "Expected Metal device".to_string(),
-            )),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
 
-        let result_vec = cpu_result.to_vec();
-        let result_f16: Vec<f16> = unsafe { std::mem::transmute(result_vec) };
-        let metal_buf = MetalBuffer::from_f16_slice(
-            device.metal_device(),
-            &result_f16,
-        )?;
+        // Load shader library
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device.load_library(shader_source)?;
+        }
 
-        let metal_buf_t: MetalBuffer<T> = unsafe { std::mem::transmute(metal_buf) };
+        // Create output buffer
+        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), target_numel)?;
+
+        // Select kernel based on type
+        let kernel_name = format!("broadcast{}", T::kernel_suffix());
+
+        let mut executor = crate::device::KernelExecutor::new(device.clone());
+        let pipeline = executor.get_or_compile_pipeline(&kernel_name)?;
+
+        // Prepare shape buffers
+        let input_shape_u32: Vec<u32> = input_dims.iter().map(|&x| x as u32).collect();
+        let target_shape_u32: Vec<u32> = target_dims.iter().map(|&x| x as u32).collect();
+        let input_ndim_u32 = input_dims.len() as u32;
+        let target_ndim_u32 = target_dims.len() as u32;
+
+        let input_shape_buf = device.metal_device().new_buffer_with_data(
+            input_shape_u32.as_ptr() as *const _,
+            (input_shape_u32.len() * std::mem::size_of::<u32>()) as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+        let target_shape_buf = device.metal_device().new_buffer_with_data(
+            target_shape_u32.as_ptr() as *const _,
+            (target_shape_u32.len() * std::mem::size_of::<u32>()) as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+        let input_ndim_buf = device.metal_device().new_buffer_with_data(
+            &input_ndim_u32 as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+        let target_ndim_buf = device.metal_device().new_buffer_with_data(
+            &target_ndim_u32 as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&output_buf.buffer), 0);
+        encoder.set_buffer(2, Some(&input_shape_buf), 0);
+        encoder.set_buffer(3, Some(&target_shape_buf), 0);
+        encoder.set_buffer(4, Some(&input_ndim_buf), 0);
+        encoder.set_buffer(5, Some(&target_ndim_buf), 0);
+
+        let grid_size = metal::MTLSize::new(target_numel as u64, 1, 1);
+        let threadgroup_size = metal::MTLSize::new(256.min(target_numel as u64), 1, 1);
+
+        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.end_encoding();
+        // command_buffer.commit(); // Handled by Commands manager
+        // submit_async - not needed with Commands batching
+
         Tensor::new(
-            BufferHandle::Metal(metal_buf_t),
+            BufferHandle::Metal(unsafe { std::mem::transmute(output_buf) }),
             target_shape.clone(),
-            Device::Metal(device),
+            self.device().clone(),
         )
     }
 }
@@ -120,6 +120,7 @@ impl<T: FloatType> Tensor<T> {
 mod tests {
     use super::*;
     use crate::device::MetalDevice;
+    use half::f16;
 
     #[test]
     fn test_broadcast_1d_to_2d() {
@@ -137,7 +138,7 @@ mod tests {
         let target_shape = TensorShape::new(vec![2, 3]);
         let b = a.broadcast_to(&target_shape).unwrap();
 
-        let result = b.to_vec();
+        let result = b.sync_and_read();
         assert_eq!(
             result,
             vec![
@@ -163,7 +164,7 @@ mod tests {
         let target_shape = TensorShape::new(vec![2, 3]);
         let b = a.broadcast_to(&target_shape).unwrap();
 
-        let result = b.to_vec();
+        let result = b.sync_and_read();
         assert_eq!(
             result,
             vec![
@@ -185,7 +186,7 @@ mod tests {
         let target_shape = TensorShape::new(vec![5]);
         let b = a.broadcast_to(&target_shape).unwrap();
 
-        let result = b.to_vec();
+        let result = b.sync_and_read();
         assert_eq!(result.len(), 5);
         assert!(result.iter().all(|&x| x == f16::from_f32(42.0)));
     }
@@ -211,7 +212,7 @@ mod tests {
     fn test_broadcast_gpu() {
         let device = MetalDevice::new().unwrap();
 
-        let a = Tensor::from_vec_metal(
+        let a = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(1.0),
@@ -225,7 +226,7 @@ mod tests {
         let target_shape = TensorShape::new(vec![2, 3]);
         let b = a.broadcast_to(&target_shape).unwrap();
 
-        let result = b.to_vec();
+        let result = b.sync_and_read();
         assert_eq!(result.len(), 6);
         assert_eq!(result[0], f16::from_f32(1.0));
         assert_eq!(result[3], f16::from_f32(1.0));

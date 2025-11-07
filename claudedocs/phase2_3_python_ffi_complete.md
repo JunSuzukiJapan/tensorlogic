@@ -373,7 +373,7 @@ TensorExpr::PythonCall { function, args } => {
         let tensor_args: Result<Vec<_>, _> = args.iter()
             .map(|arg| {
                 let val = self.eval_expr(arg)?;
-                val.as_tensor().map(|t| t.clone())
+                val.as_tensor_f16().map(|t| t.clone())
             })
             .collect();
 

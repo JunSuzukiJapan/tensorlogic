@@ -88,7 +88,7 @@ impl Diagnostic {
         let mut output = String::new();
 
         // Header: error/warning at location
-        if let Some(span) = self.span {
+        if let Some(ref span) = self.span {
             output.push_str(&format!("{}: {}\n", self.severity, self.message));
             output.push_str(&format!("  --> {}:{}\n", span.start.line, span.start.column));
 

@@ -1,8 +1,8 @@
 //! Rotary Position Embedding (RoPE) with Metal GPU acceleration
 
-use crate::device::Device;
+use crate::device::{Device, EncoderProvider};
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::{TensorAccessors, TensorCreation};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::Tensor;
 use crate::device::MetalBuffer;
@@ -15,6 +15,13 @@ impl<T: FloatType> Tensor<T> {
     /// position_offset: Starting position index for the sequence (for KV cache)
     /// Returns: Same shape with RoPE applied
     pub fn rope(&self, position_offset: usize) -> TensorResult<Self> {
+        use crate::tensor::TensorTransform;
+
+        if std::env::var("TL_DEBUG_ROPE").is_ok() {
+            eprintln!("[ROPE] Called with shape={:?}, strides={:?}, pos_offset={}",
+                     self.dims(), self.strides, position_offset);
+        }
+
         let dims = self.dims();
         if dims.len() < 3 {
             return Err(TensorError::InvalidOperation(
@@ -32,13 +39,32 @@ impl<T: FloatType> Tensor<T> {
             ));
         }
 
-        self.rope_metal(seq_len, n_heads, head_dim, position_offset)
+        // CRITICAL: Ensure tensor is contiguous before GPU operations
+        // reshape() only changes metadata (strides), but rope kernel expects
+        // contiguous memory layout (linear indexing)
+        let is_contig = self.is_contiguous();
+        if std::env::var("TL_DEBUG_ROPE").is_ok() {
+            eprintln!("[ROPE] is_contiguous={}, will {}",
+                     is_contig, if is_contig { "clone" } else { "make contiguous" });
+        }
+
+        let input = if is_contig {
+            self.clone()
+        } else {
+            self.contiguous()?
+        };
+
+        if std::env::var("TL_DEBUG_ROPE").is_ok() {
+            eprintln!("[ROPE] Calling rope_metal...");
+        }
+
+        input.rope_metal(seq_len, n_heads, head_dim, position_offset)
     }
 
     /// Metal GPU implementation of RoPE
     fn rope_metal(&self, seq_len: usize, n_heads: usize, head_dim: usize, position_offset: usize) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -57,12 +83,12 @@ impl<T: FloatType> Tensor<T> {
 
         // Load rope shader if not already loaded
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/rope.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
         // Create output buffer
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         // Create params buffer: [seq_len, n_heads, head_dim, rope_base, position_offset]
         const ROPE_BASE: u32 = 10000;
@@ -82,13 +108,15 @@ impl<T: FloatType> Tensor<T> {
                 metal::MTLResourceOptions::CPUCacheModeDefaultCache,
             );
 
-        // Get kernel function
+        // Get kernel function - select based on type
         let library = device.library()
             .ok_or_else(|| TensorError::MetalError("No shader library loaded".to_string()))?;
 
+        let suffix = T::kernel_suffix();
+        let kernel_name = format!("rope{}", suffix);
         let function = library
-            .get_function("rope_f16", None)
-            .map_err(|e| TensorError::MetalError(format!("Kernel 'rope_f16' not found: {}", e)))?;
+            .get_function(&kernel_name, None)
+            .map_err(|e| TensorError::MetalError(format!("Kernel '{}' not found: {}", kernel_name, e)))?;
 
         // Create pipeline
         let pipeline = device
@@ -97,9 +125,8 @@ impl<T: FloatType> Tensor<T> {
             .map_err(|e| TensorError::MetalError(format!("Failed to create pipeline: {}", e)))?;
 
         // Execute kernel
-        let command_queue = device.command_queue();
-        let command_buffer = command_queue.new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
@@ -124,13 +151,341 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_thread_groups(threadgroups, threadgroup_size);
         encoder.end_encoding();
 
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+        // command_buffer.commit(); // Handled by Commands manager
+        // submit_async - not needed with Commands batching
 
         // Return result tensor
         self.new_from_pool(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
             self.shape().clone(),
         )
+    }
+}
+
+#[cfg(test)]
+mod rope_tests {
+    use super::*;
+    use crate::device::MetalDevice;
+    use crate::tensor::TensorIO;
+    use half::f16;
+
+    #[test]
+    fn test_rope_shape_preservation() {
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        // Test with various shapes: [seq_len, n_heads, head_dim]
+        let test_cases = vec![
+            (1, 4, 64),   // Single token, 4 heads, 64 dim
+            (2, 8, 32),   // 2 tokens, 8 heads, 32 dim
+            (4, 16, 128), // 4 tokens, 16 heads, 128 dim
+        ];
+
+        for (seq_len, n_heads, head_dim) in test_cases {
+            let shape = vec![seq_len, n_heads, head_dim];
+            let data: Vec<f16> = (0..(seq_len * n_heads * head_dim))
+                .map(|i| f16::from_f32(i as f32 * 0.01))
+                .collect();
+
+            let input = Tensor::from_vec_gpu(&device, data, shape.clone()).unwrap();
+            let result = input.rope(0).unwrap();
+
+            assert_eq!(
+                result.dims(),
+                shape,
+                "RoPE should preserve shape: expected {:?}, got {:?}",
+                shape,
+                result.dims()
+            );
+        }
+    }
+
+    #[test]
+    fn test_rope_odd_head_dim_error() {
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        // RoPE requires even head_dim (must operate on pairs)
+        let odd_head_dims = vec![63, 127, 31];
+
+        for head_dim in odd_head_dims {
+            let shape = vec![1, 4, head_dim];
+            let data: Vec<f16> = (0..(1 * 4 * head_dim))
+                .map(|i| f16::from_f32(i as f32 * 0.01))
+                .collect();
+
+            let input = Tensor::from_vec_gpu(&device, data, shape).unwrap();
+            let result = input.rope(0);
+
+            assert!(
+                result.is_err(),
+                "RoPE with odd head_dim={} should fail",
+                head_dim
+            );
+        }
+    }
+
+    #[test]
+    fn test_rope_rotation_per_pair_magnitude() {
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        // RoPE applies 2D rotations to dimension pairs
+        // Each pair's magnitude should be preserved: sqrt(x0^2 + x1^2) remains constant
+        let seq_len = 1;
+        let n_heads = 1;
+        let head_dim = 64;
+
+        // Create simple test data with known magnitudes for each pair
+        let mut data: Vec<f16> = Vec::new();
+        for pair_idx in 0..(head_dim / 2) {
+            // Each pair: [3.0, 4.0] has magnitude 5.0
+            data.push(f16::from_f32(3.0));
+            data.push(f16::from_f32(4.0));
+        }
+
+        let input = Tensor::from_vec_gpu(&device, data.clone(), vec![seq_len, n_heads, head_dim]).unwrap();
+        let result = input.rope(0).unwrap();
+
+        let result_data = result.sync_and_read();
+
+        // Check that each dimension pair preserves its magnitude
+        // Pair magnitude: sqrt(x0^2 + x1^2)
+        let expected_pair_magnitude = (3.0f32 * 3.0 + 4.0 * 4.0).sqrt(); // = 5.0
+
+        for pair_idx in 0..(head_dim / 2) {
+            let idx0 = pair_idx * 2;
+            let idx1 = pair_idx * 2 + 1;
+
+            let x0 = f16::to_f32(result_data[idx0]);
+            let x1 = f16::to_f32(result_data[idx1]);
+            let actual_magnitude = (x0 * x0 + x1 * x1).sqrt();
+
+            let magnitude_error = (actual_magnitude - expected_pair_magnitude).abs();
+            let relative_error = magnitude_error / expected_pair_magnitude;
+
+            assert!(
+                relative_error < 0.02,
+                "Pair {} magnitude should be preserved. Expected: {:.6}, Got: {:.6} (x0={:.6}, x1={:.6}), Relative error: {:.6}",
+                pair_idx, expected_pair_magnitude, actual_magnitude, x0, x1, relative_error
+            );
+        }
+    }
+
+    #[test]
+    fn test_rope_position_offset_effect() {
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        // Different position offsets should produce different results
+        let seq_len = 1;
+        let n_heads = 4;
+        let head_dim = 64;
+
+        let data: Vec<f16> = (0..(seq_len * n_heads * head_dim))
+            .map(|i| f16::from_f32((i % 13) as f32 * 0.3))
+            .collect();
+
+        let input = Tensor::from_vec_gpu(&device, data.clone(), vec![seq_len, n_heads, head_dim]).unwrap();
+
+        let result_pos0 = input.rope(0).unwrap();
+        let result_pos5 = input.rope(5).unwrap();
+        let result_pos10 = input.rope(10).unwrap();
+
+        let data_pos0 = result_pos0.sync_and_read();
+        let data_pos5 = result_pos5.sync_and_read();
+        let data_pos10 = result_pos10.sync_and_read();
+
+        // Results should be different for different positions
+        let mut diff_0_5 = 0;
+        let mut diff_5_10 = 0;
+        for i in 0..data_pos0.len() {
+            if (f16::to_f32(data_pos0[i]) - f16::to_f32(data_pos5[i])).abs() > 0.001 {
+                diff_0_5 += 1;
+            }
+            if (f16::to_f32(data_pos5[i]) - f16::to_f32(data_pos10[i])).abs() > 0.001 {
+                diff_5_10 += 1;
+            }
+        }
+
+        assert!(
+            diff_0_5 > 10,
+            "RoPE with different position offsets (0 vs 5) should produce significantly different results"
+        );
+        assert!(
+            diff_5_10 > 10,
+            "RoPE with different position offsets (5 vs 10) should produce significantly different results"
+        );
+    }
+
+    #[test]
+    fn test_rope_deterministic() {
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        // Same input and position should always produce same output
+        let seq_len = 2;
+        let n_heads = 4;
+        let head_dim = 64;
+
+        let data: Vec<f16> = (0..(seq_len * n_heads * head_dim))
+            .map(|i| f16::from_f32((i % 11) as f32 * 0.2 + 0.5))
+            .collect();
+
+        let input = Tensor::from_vec_gpu(&device, data, vec![seq_len, n_heads, head_dim]).unwrap();
+
+        let result1 = input.rope(5).unwrap();
+        let result2 = input.rope(5).unwrap();
+        let result3 = input.rope(5).unwrap();
+
+        let data1 = result1.sync_and_read();
+        let data2 = result2.sync_and_read();
+        let data3 = result3.sync_and_read();
+
+        for i in 0..data1.len() {
+            assert_eq!(
+                data1[i], data2[i],
+                "RoPE should be deterministic (result1 vs result2 at index {})",
+                i
+            );
+            assert_eq!(
+                data2[i], data3[i],
+                "RoPE should be deterministic (result2 vs result3 at index {})",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_rope_rotation_formula() {
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        // Test the 2D rotation formula for first dimension pair
+        // For head_dim=64, dim_pair=0, position=0, rope_base=10000:
+        // freq = 1.0 / (10000^(0/64)) = 1.0
+        // theta = 0 * 1.0 = 0
+        // cos(0) = 1, sin(0) = 0
+        // So: [x0, x1] -> [x0*1 - x1*0, x0*0 + x1*1] = [x0, x1]
+
+        let seq_len = 1;
+        let n_heads = 1;
+        let head_dim = 64;
+
+        let data: Vec<f16> = vec![f16::from_f32(3.0), f16::from_f32(4.0)]
+            .into_iter()
+            .chain((2..head_dim).map(|i| f16::from_f32(i as f32)))
+            .collect();
+
+        let input = Tensor::from_vec_gpu(&device, data.clone(), vec![seq_len, n_heads, head_dim]).unwrap();
+        let result = input.rope(0).unwrap(); // position_offset = 0
+
+        let result_data = result.sync_and_read();
+
+        // At position=0, theta=0 for first pair, so rotation is identity
+        // First pair should remain approximately unchanged
+        let x0_in = f16::to_f32(data[0]);
+        let x1_in = f16::to_f32(data[1]);
+        let x0_out = f16::to_f32(result_data[0]);
+        let x1_out = f16::to_f32(result_data[1]);
+
+        assert!(
+            (x0_in - x0_out).abs() < 0.01,
+            "At position=0, first element should remain ~unchanged: {} -> {}",
+            x0_in, x0_out
+        );
+        assert!(
+            (x1_in - x1_out).abs() < 0.01,
+            "At position=0, second element should remain ~unchanged: {} -> {}",
+            x1_in, x1_out
+        );
+    }
+
+    #[test]
+    fn test_rope_minimum_3d_tensor() {
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        // RoPE requires at least 3D tensor
+        let invalid_shapes = vec![
+            vec![64],           // 1D
+            vec![4, 64],        // 2D
+        ];
+
+        for shape in invalid_shapes {
+            let numel: usize = shape.iter().product();
+            let data: Vec<f16> = (0..numel).map(|i| f16::from_f32(i as f32)).collect();
+
+            let input = Tensor::from_vec_gpu(&device, data, shape.clone()).unwrap();
+            let result = input.rope(0);
+
+            assert!(
+                result.is_err(),
+                "RoPE should fail on {:?}D tensor (shape: {:?})",
+                shape.len(),
+                shape
+            );
+        }
+    }
+
+    #[test]
+    fn test_rope_batch_dimension() {
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        // RoPE should work with batch dimensions: [batch, seq_len, n_heads, head_dim]
+        let batch_size = 2;
+        let seq_len = 3;
+        let n_heads = 4;
+        let head_dim = 64;
+
+        let shape = vec![batch_size, seq_len, n_heads, head_dim];
+        let numel: usize = shape.iter().product();
+        let data: Vec<f16> = (0..numel).map(|i| f16::from_f32((i % 17) as f32 * 0.1)).collect();
+
+        let input = Tensor::from_vec_gpu(&device, data, shape.clone()).unwrap();
+        let result = input.rope(0).unwrap();
+
+        assert_eq!(
+            result.dims(),
+            shape,
+            "RoPE should preserve shape with batch dimension"
+        );
+    }
+
+    #[test]
+    fn test_rope_f32_rotation_magnitude() {
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        // Test RoPE with f32 precision - verify magnitude preservation
+        let seq_len = 1;
+        let n_heads = 1;
+        let head_dim = 64;
+
+        // Create test data with known magnitudes for each pair
+        let mut data: Vec<f32> = Vec::new();
+        for _pair_idx in 0..(head_dim / 2) {
+            // Each pair: [3.0, 4.0] has magnitude 5.0
+            data.push(3.0);
+            data.push(4.0);
+        }
+
+        let input = Tensor::from_vec_gpu(&device, data.clone(), vec![seq_len, n_heads, head_dim]).unwrap();
+        let result = input.rope(0).unwrap();
+
+        let result_data = result.sync_and_read();
+
+        // Check that each dimension pair preserves its magnitude
+        let expected_pair_magnitude = (3.0f32 * 3.0 + 4.0 * 4.0).sqrt(); // = 5.0
+
+        for pair_idx in 0..(head_dim / 2) {
+            let idx0 = pair_idx * 2;
+            let idx1 = pair_idx * 2 + 1;
+
+            let x0 = result_data[idx0];
+            let x1 = result_data[idx1];
+            let actual_magnitude = (x0 * x0 + x1 * x1).sqrt();
+
+            let magnitude_error = (actual_magnitude - expected_pair_magnitude).abs();
+            let relative_error = magnitude_error / expected_pair_magnitude;
+
+            assert!(
+                relative_error < 0.001, // f32 should be more precise than f16
+                "Pair {} magnitude should be preserved. Expected: {:.6}, Got: {:.6} (x0={:.6}, x1={:.6}), Relative error: {:.6}",
+                pair_idx, expected_pair_magnitude, actual_magnitude, x0, x1, relative_error
+            );
+        }
     }
 }

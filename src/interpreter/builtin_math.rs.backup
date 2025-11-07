@@ -1,0 +1,434 @@
+//! Math operations for TensorLogic interpreter
+
+use super::*;
+use crate::tensor::Tensor;
+
+impl Interpreter {
+    pub(super) fn eval_math_function(&mut self, name: &str, args: &[TensorExpr]) -> Option<RuntimeResult<Value>> {
+        match name {
+            "matmul" => Some(self.eval_matmul(args)),
+            "linear" => Some(self.eval_linear(args)),
+            "sigmoid" => Some(self.eval_sigmoid(args)),
+
+            // Activation functions (for method chaining)
+            "relu" => Some(self.eval_relu(args)),
+            "gelu" => Some(self.eval_gelu(args)),
+            "tanh" => Some(self.eval_tanh(args)),
+
+            // Basic math operations (for method chaining)
+            "exp" => Some(self.eval_exp(args)),
+            "log" => Some(self.eval_log(args)),
+            "sqrt" => Some(self.eval_sqrt(args)),
+            "pow" => Some(self.eval_pow(args)),
+            "sin" => Some(self.eval_sin(args)),
+            "cos" => Some(self.eval_cos(args)),
+            "tan" => Some(self.eval_tan(args)),
+
+            // Not yet implemented
+            "mean" | "max" | "min" => {
+                Some(Err(RuntimeError::NotImplemented(
+                    format!("Math function '{}' migration in progress", name)
+                )))
+            }
+            _ => None,
+        }
+    }
+
+    /// matmul(a, b) -> tensor
+    /// Matrix multiplication: a @ b
+    fn eval_matmul(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("matmul() expects 2 arguments (a, b), got {}", args.len())
+            ));
+        }
+
+        // Evaluate both tensor arguments
+        let a_val = self.eval_expr(&args[0])?;
+        let a = a_val.as_tensor_f16()?;
+
+        let b_val = self.eval_expr(&args[1])?;
+        let b = b_val.as_tensor_f16()?;
+
+        // Perform matrix multiplication
+        let result = a.matmul(&b)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(Value::TensorF16(result))
+    }
+
+    /// linear(x, weight, bias) -> tensor
+    /// Linear transformation: y = x @ weight.T + bias
+    /// Automatically transposes weight matrix like PyTorch/Candle
+    ///
+    /// Args:
+    ///   x: input tensor [batch, in_features] or [in_features]
+    ///   weight: weight matrix [out_features, in_features] (GGUF format after reverse)
+    ///   bias: optional bias vector [out_features]
+    fn eval_linear(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() < 2 || args.len() > 3 {
+            return Err(RuntimeError::TypeError(
+                format!("linear() expects 2-3 arguments (x, weight, [bias]), got {}", args.len())
+            ));
+        }
+
+        // Evaluate input tensor
+        let x_val = self.eval_expr(&args[0])?;
+        let weight_val = self.eval_expr(&args[1])?;
+
+        // Process based on input type (f16 or f32)
+        match (x_val, weight_val) {
+            (Value::TensorF16(x), Value::TensorF16(weight)) => {
+                // Transpose weight: [out_features, in_features] -> [in_features, out_features]
+                let weight_t = weight.transpose()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                // Compute x @ weight.T
+                let mut result = x.matmul(&weight_t)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                // Add bias if provided
+                if args.len() == 3 {
+                    let bias_val = self.eval_expr(&args[2])?;
+                    let bias = bias_val.as_tensor_f16()?;
+                    result = result.add(&bias)
+                        .map_err(|e| RuntimeError::TensorError(e))?;
+                }
+
+                Ok(Value::TensorF16(result))
+            }
+            (Value::TensorF32(x), Value::TensorF32(weight)) => {
+                // Transpose weight: [out_features, in_features] -> [in_features, out_features]
+                let weight_t = weight.transpose()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                // Compute x @ weight.T
+                let mut result = x.matmul(&weight_t)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                // Add bias if provided
+                if args.len() == 3 {
+                    let bias_val = self.eval_expr(&args[2])?;
+                    let bias = bias_val.as_tensor_f32()?;
+                    result = result.add(&bias)
+                        .map_err(|e| RuntimeError::TensorError(e))?;
+                }
+
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "linear() requires x and weight to be same type (both f16 or both f32)".to_string()
+            )),
+        }
+    }
+
+    /// sigmoid(x) -> tensor
+    /// Sigmoid activation: σ(x) = 1 / (1 + exp(-x))
+    fn eval_sigmoid(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("sigmoid() expects 1 argument (tensor), got {}", args.len())
+            ));
+        }
+
+        let tensor_val = self.eval_expr(&args[0])?;
+
+        Ok(match tensor_val {
+            Value::TensorF16(t) => t.sigmoid().map_err(|e| RuntimeError::TensorError(e))?.to_value(),
+            Value::TensorF32(t) => t.sigmoid().map_err(|e| RuntimeError::TensorError(e))?.to_value(),
+            _ => return Err(RuntimeError::TypeError("Expected tensor".to_string()))
+        })
+    }
+
+    /// relu(tensor) -> tensor
+    /// Applies ReLU activation function (for method chaining)
+    fn eval_relu(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("relu() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.relu()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.relu()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "relu() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// gelu(tensor) -> tensor
+    /// Applies GELU activation function (for method chaining)
+    fn eval_gelu(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("gelu() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.gelu()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.gelu()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "gelu() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// tanh(tensor) -> tensor
+    /// Applies Tanh activation function (for method chaining)
+    fn eval_tanh(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("tanh() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.tanh()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.tanh()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "tanh() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// exp(tensor) -> tensor
+    /// Applies exponential function element-wise: e^x
+    fn eval_exp(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("exp() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.exp()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.exp()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "exp() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// log(tensor) -> tensor
+    /// Applies natural logarithm element-wise: ln(x)
+    fn eval_log(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("log() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.log()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.log()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "log() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// sqrt(tensor) -> tensor
+    /// Applies square root element-wise: √x
+    fn eval_sqrt(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("sqrt() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.sqrt()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.sqrt()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "sqrt() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// pow(tensor, exponent) -> tensor
+    /// Raises each element to the power of exponent: x^p
+    fn eval_pow(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("pow() expects 2 arguments (tensor, exponent), got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+        let exp_val = self.eval_expr(&args[1])?;
+
+        let exponent = match exp_val {
+            Value::Float(f) => f as f32,
+            Value::Integer(i) => i as f32,
+            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0],
+            _ => return Err(RuntimeError::TypeError(
+                "pow() exponent must be a scalar".to_string()
+            )),
+        };
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.pow(exponent)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.pow(exponent)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "pow() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// sin(tensor) -> tensor
+    /// Applies sine function element-wise
+    fn eval_sin(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("sin() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.sin()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.sin()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "sin() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// cos(tensor) -> tensor
+    /// Applies cosine function element-wise
+    fn eval_cos(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("cos() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.cos()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.cos()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "cos() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// tan(tensor) -> tensor
+    /// Applies tangent function element-wise
+    fn eval_tan(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("tan() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.tan()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(result))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.tan()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "tan() expects a tensor".to_string()
+            ))
+        }
+    }
+}

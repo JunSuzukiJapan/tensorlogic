@@ -4,7 +4,7 @@
 // SiLU activation function
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
-    result := x * sig
+    result = x * sig
 }
 
 // SwiGLU Feed-Forward Network
@@ -18,7 +18,7 @@ fn swiglu_ffn(
     let gate_act = silu(gate)
     let up = matmul(x, W_up)
     let intermediate = gate_act * up
-    result := matmul(intermediate, W_down)
+    result = matmul(intermediate, W_down)
 }
 
 // Grouped Query Attention (GQA)
@@ -66,7 +66,7 @@ fn gqa_attention(
     let attn_output = matmul(attn_weights, V_flat)
 
     let attn_reshaped = reshape(attn_output, [seq_len, num_q_heads * head_dim])
-    result := matmul(attn_reshaped, W_o)
+    result = matmul(attn_reshaped, W_o)
 }
 
 main {
@@ -172,7 +172,7 @@ main {
     let l1 = matmul(hidden_norm1, output_weight)
 
     let t1 = temperature_sample(l1, 0.8)
-    gen_tokens := append(gen_tokens, t1)
+    gen_tokens = append(gen_tokens, t1)
     print("        Generated token:", t1)
 
     // Token 2
@@ -227,7 +227,7 @@ main {
     let l2 = matmul(hidden_norm2, output_weight)
 
     let t2 = temperature_sample(l2, 0.8)
-    gen_tokens := append(gen_tokens, t2)
+    gen_tokens = append(gen_tokens, t2)
     print("        Generated token:", t2)
 
     // Token 3
@@ -282,7 +282,7 @@ main {
     let l3 = matmul(hidden_norm3, output_weight)
 
     let t3 = temperature_sample(l3, 0.8)
-    gen_tokens := append(gen_tokens, t3)
+    gen_tokens = append(gen_tokens, t3)
     print("        Generated token:", t3)
 
     print("")

@@ -241,7 +241,7 @@ TensorLogic uses `half::f16` by default:
 
 ```rust
 // f16 is default (recommended)
-let tensor = Tensor::from_vec_metal(&device, data_f16, shape)?;
+let tensor = Tensor::from_vec_gpu(&device, data_f16, shape)?;
 
 // f32 for high-precision requirements
 // (Note: Currently f16 only, f32 support planned)
@@ -260,14 +260,14 @@ let tensor = Tensor::from_vec_metal(&device, data_f16, shape)?;
 // Bad: Many small transfers
 for i in 0..100 {
     let cpu_data = compute_on_cpu(i);
-    let gpu_tensor = Tensor::from_vec_metal(&device, cpu_data, shape)?;
+    let gpu_tensor = Tensor::from_vec_gpu(&device, cpu_data, shape)?;
     let result = gpu_tensor.relu()?;
     let cpu_result = result.to_vec();
 }
 
 // Good: Batch transfers
 let all_cpu_data = (0..100).map(compute_on_cpu).flatten().collect();
-let gpu_tensor = Tensor::from_vec_metal(&device, all_cpu_data, batch_shape)?;
+let gpu_tensor = Tensor::from_vec_gpu(&device, all_cpu_data, batch_shape)?;
 let result = gpu_tensor.relu()?;
 let cpu_results = result.to_vec();
 ```
@@ -276,13 +276,13 @@ let cpu_results = result.to_vec();
 
 ```rust
 // Bad: Unnecessary round-trips
-let gpu_a = Tensor::from_vec_metal(&device, data_a, shape)?;
+let gpu_a = Tensor::from_vec_gpu(&device, data_a, shape)?;
 let cpu_temp = gpu_a.relu()?.to_vec();  // GPU → CPU
-let gpu_b = Tensor::from_vec_metal(&device, cpu_temp, shape)?;  // CPU → GPU
+let gpu_b = Tensor::from_vec_gpu(&device, cpu_temp, shape)?;  // CPU → GPU
 let result = gpu_b.add(&gpu_c)?;
 
 // Good: Stay on GPU
-let gpu_a = Tensor::from_vec_metal(&device, data_a, shape)?;
+let gpu_a = Tensor::from_vec_gpu(&device, data_a, shape)?;
 let gpu_b = gpu_a.relu()?;  // Stay on GPU
 let result = gpu_b.add(&gpu_c)?;  // Stay on GPU
 ```

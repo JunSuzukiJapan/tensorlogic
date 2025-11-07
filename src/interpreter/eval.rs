@@ -6,110 +6,113 @@ use super::*;
 use crate::ast::*;
 use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO};
 use crate::tensor::Tensor;
+use crate::device::EncoderProvider;
+use std::collections::HashSet;
 
 impl Interpreter {
     pub(super) fn execute_statement(&mut self, stmt: &Statement) -> RuntimeResult<()> {
         match stmt {
             Statement::TensorDecl(decl) => {
-                // Handle tensor declaration in main block
+                // Handle tensor declaration (same logic as Let statement)
                 if let Some(init_expr) = &decl.init_expr {
                     let value = self.eval_expr(init_expr)?;
-                    self.env
-                        .set_variable(decl.name.as_str().to_string(), value);
+
+                    // Declare in current scope (handled by scope stack)
+                    self.env.declare_variable(decl.name.as_str().to_string(), value)?;
+                    Ok(())
                 } else {
                     // No initializer - create uninitialized tensor (would need default value)
                     return Err(RuntimeError::TypeError(
-                        "Tensor declarations in main block must have initializers".to_string(),
+                        "Tensor declarations must have initializers".to_string(),
                     ));
                 }
-                Ok(())
             }
             Statement::Let { target, value } => {
+                // Evaluate the value
                 let evaluated_value = self.eval_expr(value)?;
 
-                // Check if we're inside a function call
-                if let Some(frame) = self.call_stack.last_mut() {
-                    // Inside function: declare in local scope
-                    frame.local_vars.insert(target.as_str().to_string(), evaluated_value);
-                    Ok(())
-                } else {
-                    // Global scope: declare in environment
-                    self.env
-                        .declare_variable(target.as_str().to_string(), evaluated_value)?;
-                    Ok(())
-                }
+                // Declare in current scope (function, block, loop, or global)
+                // Scope stack handles shadowing automatically
+                self.env.declare_variable(target.as_str().to_string(), evaluated_value)?;
+                Ok(())
             }
             Statement::Assignment { target, value } => {
                 let evaluated_value = self.eval_expr(value)?;
 
-                // Check if we're inside a function call
-                if let Some(frame) = self.call_stack.last_mut() {
-                    // Inside function: set in local scope
-                    frame.local_vars.insert(target.as_str().to_string(), evaluated_value);
+                // Assignment updates existing variable in scope chain
+                // If variable doesn't exist, declare it in current scope (TL allows this)
+                if self.env.has_variable(target.as_str()) {
+                    self.env.set_variable(target.as_str(), evaluated_value)?;
                 } else {
-                    // Global scope: assignment (:=) auto-declares if variable doesn't exist
-                    if self.env.has_variable(target.as_str()) {
-                        self.env.set_variable(target.as_str().to_string(), evaluated_value)?;
-                    } else {
-                        self.env.declare_variable(target.as_str().to_string(), evaluated_value)?;
-                    }
+                    self.env.declare_variable(target.as_str().to_string(), evaluated_value)?;
                 }
                 Ok(())
             }
             Statement::Equation(eq) => {
-                use crate::ast::EquationType;
-
-                match eq.eq_type {
-                    EquationType::Assign => {
-                        // := is assignment with auto-declaration
-                        // Left side must be a simple identifier
-                        if let TensorExpr::Variable(var_name) = &eq.left {
-                            let value = self.eval_expr(&eq.right)?;
-
-                            // Check if we're inside a function call
-                            if let Some(frame) = self.call_stack.last_mut() {
-                                // Inside function: update local variable
-                                frame.local_vars.insert(var_name.as_str().to_string(), value);
-                            } else {
-                                // Global scope: try to set existing variable, if it doesn't exist, declare it
-                                if self.env.has_variable(var_name.as_str()) {
-                                    self.env.set_variable(var_name.as_str().to_string(), value)?;
-                                } else {
-                                    self.env.declare_variable(var_name.as_str().to_string(), value)?;
-                                }
-                            }
-                            Ok(())
-                        } else {
-                            Err(RuntimeError::TypeError(
-                                "Left side of := must be a variable name".to_string()
-                            ))
-                        }
-                    }
-                    _ => {
-                        // For other equation types (=, ~), just execute both sides
-                        let _left = self.eval_expr(&eq.left)?;
-                        let _right = self.eval_expr(&eq.right)?;
-                        // In a full implementation, this would perform unification or constraint solving
-                        Ok(())
-                    }
-                }
+                // Equation types (~) - just execute both sides
+                let _left = self.eval_expr(&eq.left)?;
+                let _right = self.eval_expr(&eq.right)?;
+                Ok(())
             }
-            Statement::FunctionCall { name, args } => {
+            Statement::FunctionCall { name, args, resolved, span } => {
+                // Save span for error reporting
+                self.current_span = Some(span.clone());
                 // Handle function calls as statements (e.g., print)
                 if name.as_str() == "print" {
-                    // Special handling for print
-                    for (i, arg) in args.iter().enumerate() {
-                        if i > 0 {
-                            print!(" ");
-                        }
-                        let val = self.eval_expr(arg)?;
-                        print!("{}", val);
+                    // Special handling for print with format string support
+                    if args.is_empty() {
+                        println!();
+                        return Ok(());
                     }
-                    println!();
+
+                    // Check if first argument is a string literal (format string mode)
+                    let first_val = self.eval_expr(&args[0])?;
+
+                    if let Value::String(ref format_str) = first_val {
+                        // Check if this is format string mode (contains {}) or simple mode
+                        if format_str.contains("{}") {
+                            // Format string mode: print("Hello {}", name)
+                            if args.len() > 1 {
+                                // Evaluate remaining arguments
+                                let mut format_args = Vec::new();
+                                for arg in &args[1..] {
+                                    format_args.push(self.eval_expr(arg)?);
+                                }
+
+                                // Use format_string helper
+                                let formatted = self.format_string(&format_str, &format_args)?;
+                                println!("{}", formatted);
+                            } else {
+                                // Just a string, print it
+                                println!("{}", format_str);
+                            }
+                        } else if args.len() == 1 {
+                            // Just a single string, print it
+                            println!("{}", format_str);
+                        } else {
+                            // Simple mode with multiple arguments: print("A", "B", "C")
+                            print!("{}", self.value_to_display(&first_val));
+                            for arg in &args[1..] {
+                                print!(" ");
+                                let val = self.eval_expr(arg)?;
+                                print!("{}", self.value_to_display(&val));
+                            }
+                            println!();
+                        }
+                    } else {
+                        // Simple mode: print(value1, value2, ...)
+                        print!("{}", self.value_to_display(&first_val));
+                        for arg in &args[1..] {
+                            print!(" ");
+                            let val = self.eval_expr(arg)?;
+                            print!("{}", self.value_to_display(&val));
+                        }
+                        println!();
+                    }
                     Ok(())
                 } else {
                     // Other function calls - evaluate and discard result
-                    self.eval_function_call(name, args)?;
+                    self.eval_function_call(None, name, args, resolved.as_ref())?;
                     Ok(())
                 }
             }
@@ -128,26 +131,13 @@ impl Interpreter {
                         }
                     };
 
-                    // Execute appropriate block
+                    // Execute appropriate block using centralized function
                     if condition_result {
-                        for stmt in then_block {
-                            // Propagate return statements upward
-                            let result = self.execute_statement(stmt);
-                            if let Err(RuntimeError::ReturnValue(_)) = result {
-                                return result;
-                            }
-                            result?;
-                        }
+                        self.execute_block(then_block, false)?;
                     } else if let Some(else_stmts) = else_block {
-                        for stmt in else_stmts {
-                            // Propagate return statements upward
-                            let result = self.execute_statement(stmt);
-                            if let Err(RuntimeError::ReturnValue(_)) = result {
-                                return result;
-                            }
-                            result?;
-                        }
+                        self.execute_block(else_stmts, false)?;
                     }
+
                     Ok(())
                 }
                 ControlFlow::For {
@@ -164,9 +154,21 @@ impl Interpreter {
                         Iterable::Tensor(expr) => {
                             // Iterate over tensor elements
                             let tensor_val = self.eval_expr(expr)?;
-                            let tensor = tensor_val.as_tensor()?;
-                            let data = tensor.to_vec();
-                            data.iter().map(|&v| Value::Float(v.to_f32() as f64)).collect()
+                            match tensor_val {
+                                Value::TensorF16(tensor) => {
+                                    let data = tensor.to_vec();
+                                    data.iter().map(|&v| Value::Float(v.to_f32() as f64)).collect()
+                                }
+                                Value::TensorF32(tensor) => {
+                                    let data = tensor.to_vec();
+                                    data.iter().map(|&v| Value::Float(v as f64)).collect()
+                                }
+                                _ => {
+                                    return Err(RuntimeError::TypeError(
+                                        "Expected tensor (f16 or f32) for iteration".to_string()
+                                    ));
+                                }
+                            }
                         }
                         Iterable::EntitySet(entity_set) => {
                             // Get entities from set
@@ -199,27 +201,25 @@ impl Interpreter {
                     };
 
                     // Execute body for each item
-                    let mut should_break = false;
+                    let loop_var_name = variable.as_str().to_string();
+
                     for item in items {
-                        // For loop variable - directly set without checking
-                        self.env.variables.insert(variable.as_str().to_string(), item);
-                        for stmt in body {
-                            let result = self.execute_statement(stmt);
-                            match result {
-                                Err(RuntimeError::BreakOutsideLoop) => {
-                                    should_break = true;
-                                    break;
-                                }
-                                Err(RuntimeError::ReturnValue(_)) => {
-                                    // Propagate return upward
-                                    return result;
-                                }
-                                Err(e) => return Err(e),
-                                Ok(_) => {}
-                            }
-                        }
-                        if should_break {
-                            break;
+                        // Push loop scope for this iteration
+                        self.env.push_scope(ScopeType::Loop);
+
+                        // Declare loop variable in this iteration's scope
+                        self.env.declare_variable(loop_var_name.clone(), item)?;
+
+                        // Execute body using centralized function (allows break)
+                        let result = self.execute_block(body, true);
+
+                        // Pop loop scope - automatically cleans up loop variable and iteration variables
+                        self.env.pop_scope();
+
+                        match result {
+                            Err(RuntimeError::BreakOutsideLoop) => break,
+                            Err(e) => return Err(e),
+                            Ok(_) => {}
                         }
                     }
 
@@ -229,7 +229,6 @@ impl Interpreter {
                     condition,
                     body,
                 } => {
-                    // Execute while condition is true
                     loop {
                         let condition_result = match condition {
                             Condition::Constraint(c) => self.eval_constraint(c)?,
@@ -243,24 +242,11 @@ impl Interpreter {
                             break;
                         }
 
-                        let mut should_break = false;
-                        for stmt in body {
-                            let result = self.execute_statement(stmt);
-                            match result {
-                                Err(RuntimeError::BreakOutsideLoop) => {
-                                    should_break = true;
-                                    break;
-                                }
-                                Err(RuntimeError::ReturnValue(_)) => {
-                                    // Propagate return upward
-                                    return result;
-                                }
-                                Err(e) => return Err(e),
-                                Ok(_) => {}
-                            }
-                        }
-                        if should_break {
-                            break;
+                        // Execute body using centralized function (allows break)
+                        match self.execute_block(body, true) {
+                            Err(RuntimeError::BreakOutsideLoop) => break,
+                            Err(e) => return Err(e),
+                            Ok(_) => {}
                         }
                     }
 
@@ -268,26 +254,14 @@ impl Interpreter {
                 }
                 ControlFlow::Loop { body } => {
                     loop {
-                        let mut should_break = false;
-                        for stmt in body {
-                            let result = self.execute_statement(stmt);
-                            match result {
-                                Err(RuntimeError::BreakOutsideLoop) => {
-                                    should_break = true;
-                                    break;
-                                }
-                                Err(RuntimeError::ReturnValue(_)) => {
-                                    // Propagate return upward
-                                    return result;
-                                }
-                                Err(e) => return Err(e),
-                                Ok(_) => {}
-                            }
-                        }
-                        if should_break {
-                            break;
+                        // Execute body using centralized function (allows break)
+                        match self.execute_block(body, true) {
+                            Err(RuntimeError::BreakOutsideLoop) => break,
+                            Err(e) => return Err(e),
+                            Ok(_) => {}
                         }
                     }
+
                     Ok(())
                 }
             },
@@ -297,17 +271,57 @@ impl Interpreter {
                 let predicate_name = atom.predicate.as_str();
 
                 if predicate_name == "print" {
-                    // Handle as print function
-                    for (i, term) in atom.terms.iter().enumerate() {
-                        if i > 0 {
-                            print!(" ");
-                        }
-                        // Convert term to expression and evaluate
-                        let expr = self.term_to_expr(term);
-                        let val = self.eval_expr(&expr)?;
-                        print!("{}", val);
+                    // Handle as print function with format string support
+                    if atom.terms.is_empty() {
+                        println!();
+                        return Ok(());
                     }
-                    println!();
+
+                    // Convert first term to expression and evaluate
+                    let first_term = &atom.terms[0];
+                    let first_expr = self.term_to_expr(first_term);
+                    let first_val = self.eval_expr(&first_expr)?;
+
+                    if let Value::String(ref format_str) = first_val {
+                        // Check if this is format string mode (contains {}) or simple mode
+                        if format_str.contains("{}") {
+                            // Format string mode
+                            if atom.terms.len() > 1 {
+                                let mut format_args = Vec::new();
+                                for term in &atom.terms[1..] {
+                                    let expr = self.term_to_expr(term);
+                                    format_args.push(self.eval_expr(&expr)?);
+                                }
+                                let formatted = self.format_string(&format_str, &format_args)?;
+                                println!("{}", formatted);
+                            } else {
+                                println!("{}", format_str);
+                            }
+                        } else if atom.terms.len() == 1 {
+                            // Just a single string, print it
+                            println!("{}", format_str);
+                        } else {
+                            // Simple mode with multiple arguments: print("A", "B", "C")
+                            print!("{}", self.value_to_display(&first_val));
+                            for term in &atom.terms[1..] {
+                                print!(" ");
+                                let expr = self.term_to_expr(term);
+                                let val = self.eval_expr(&expr)?;
+                                print!("{}", self.value_to_display(&val));
+                            }
+                            println!();
+                        }
+                    } else {
+                        // Simple mode
+                        print!("{}", self.value_to_display(&first_val));
+                        for term in &atom.terms[1..] {
+                            print!(" ");
+                            let expr = self.term_to_expr(term);
+                            let val = self.eval_expr(&expr)?;
+                            print!("{}", self.value_to_display(&val));
+                        }
+                        println!();
+                    }
                     return Ok(());
                 }
 
@@ -462,6 +476,9 @@ impl Interpreter {
                 // Learning execution with detailed progress display
                 self.execute_learning(spec)
             }
+            Statement::Block { statements } => {
+                self.execute_block(statements, false)
+            }
             Statement::Break => {
                 Err(RuntimeError::BreakOutsideLoop)
             }
@@ -473,6 +490,19 @@ impl Interpreter {
                     Value::Void
                 };
                 Err(RuntimeError::ReturnValue(return_val))
+            }
+            Statement::Panic { format, args } => {
+                // Evaluate arguments
+                let mut arg_values = Vec::new();
+                for arg in args {
+                    arg_values.push(self.eval_expr(arg)?);
+                }
+
+                // Format the panic message
+                let msg = self.format_string(format, &arg_values)?;
+
+                // Panic with the formatted message
+                panic!("{}", msg);
             }
             Statement::PythonImport { module, alias } => {
                 #[cfg(any(feature = "python", feature = "python-extension"))]
@@ -560,25 +590,254 @@ impl Interpreter {
                 println!("=== With block completed ===\n");
                 Ok(())
             }
+            Statement::Expr { expr } => {
+                // Execute expression statement (for side effects like method calls)
+                self.eval_expr(expr)?;
+                Ok(())
+            }
         }
     }
 
+    /// Read a single element from f16 tensor at linear index
+    /// SIMPLIFIED: Use CPU transfer instead of GPU kernel to avoid command buffer complexity
+    pub(super) fn read_element_f16(&self, tensor: &crate::tensor::Tensor<half::f16>, linear_idx: usize) -> RuntimeResult<f32> {
+        use crate::device::{MetalBuffer, KernelExecutor};
+        use half::f16;
+
+        if linear_idx >= tensor.numel() {
+            return Err(RuntimeError::InvalidOperation(
+                format!("Index {} out of bounds for tensor with {} elements", linear_idx, tensor.numel())
+            ));
+        }
+
+        // Fast path for CPU tensors: direct access without copying
+        use crate::tensor::BufferHandle;
+        if let BufferHandle::CPU(ref vec) = tensor.buffer() {
+            return Ok(vec[linear_idx].to_f32());
+        }
+
+        let device = match tensor.device() {
+            crate::device::Device::Metal(dev) => dev.clone(),
+            _ => return Err(RuntimeError::InvalidOperation("read_element_f16 requires Metal device".to_string())),
+        };
+
+        let mut device_mut = device.clone();
+        if device_mut.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device_mut.load_library(shader_source)
+                .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to load shader: {}", e)))?;
+        }
+
+        let input_buf = tensor.buffer().as_metal()
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to get Metal buffer: {}", e)))?;
+        let output_buf = MetalBuffer::<f16>::new_uninit(device.metal_device(), 1)
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to create output buffer: {}", e)))?;
+
+        let index_data = [linear_idx as u32];
+        let index_buf = device.metal_device().new_buffer_with_data(
+            index_data.as_ptr() as *const _,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        let mut executor = KernelExecutor::new(device_mut);
+
+        let pipeline = executor.get_or_compile_pipeline("read_element_f16")
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to compile kernel: {}", e)))?;
+
+        // Use Commands manager for command buffer (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to get command buffer: {}", e)))?;
+        let encoder = command_buffer.encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&output_buf.buffer), 0);
+        encoder.set_buffer(2, Some(&index_buf), 0);
+
+        // FIXED: Use dispatchThreadgroups for single-thread execution (more reliable than dispatch_threads)
+        let threadgroups = metal::MTLSize::new(1, 1, 1);
+        let threads_per_threadgroup = metal::MTLSize::new(1, 1, 1);
+        encoder.dispatch_thread_groups(threadgroups, threads_per_threadgroup);
+        encoder.end_encoding();
+
+        // Commands manager will flush and commit when needed
+        // Since we need the result immediately, wait for completion
+        device.wait_until_completed()
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to wait for GPU: {}", e)))?;
+
+        // Check for errors
+        if command_buffer.status() != metal::MTLCommandBufferStatus::Completed {
+            return Err(RuntimeError::InvalidOperation(
+                format!("GPU command buffer failed with status: {:?}", command_buffer.status())
+            ));
+        }
+
+        // Read result from GPU
+        let result_slice = unsafe {
+            std::slice::from_raw_parts(output_buf.buffer.contents() as *const f16, 1)
+        };
+        Ok(result_slice[0].to_f32())
+    }
+
+    /// Read a single element from f32 tensor at linear index using GPU
+    pub(super) fn read_element_f32(&self, tensor: &crate::tensor::Tensor<f32>, linear_idx: usize) -> RuntimeResult<f32> {
+        use crate::device::{MetalBuffer, KernelExecutor};
+
+        if linear_idx >= tensor.numel() {
+            return Err(RuntimeError::InvalidOperation(
+                format!("Index {} out of bounds for tensor with {} elements", linear_idx, tensor.numel())
+            ));
+        }
+
+        // Fast path for CPU tensors: direct access without copying
+        use crate::tensor::BufferHandle;
+        if let BufferHandle::CPU(ref vec) = tensor.buffer() {
+            return Ok(vec[linear_idx]);
+        }
+        let device = match tensor.device() {
+            crate::device::Device::Metal(dev) => dev.clone(),
+            _ => return Err(RuntimeError::InvalidOperation("read_element_f32 requires Metal device".to_string())),
+        };
+        let mut device_mut = device.clone();
+        if device_mut.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device_mut.load_library(shader_source)
+                .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to load shader: {}", e)))?;
+        }
+
+        let input_buf = tensor.buffer().as_metal()
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to get Metal buffer: {}", e)))?;
+        let output_buf = MetalBuffer::<f32>::new_uninit(device.metal_device(), 1)
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to create output buffer: {}", e)))?;
+
+        let index_data = [linear_idx as u32];
+        let index_buf = device.metal_device().new_buffer_with_data(
+            index_data.as_ptr() as *const _,
+            std::mem::size_of::<u32>() as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        let mut executor = KernelExecutor::new(device_mut);
+        let pipeline = executor.get_or_compile_pipeline("read_element_f32")
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to compile kernel: {}", e)))?;
+
+        // Use Commands manager for command buffer (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to get command buffer: {}", e)))?;
+        let encoder = command_buffer.encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+        encoder.set_buffer(1, Some(&output_buf.buffer), 0);
+        encoder.set_buffer(2, Some(&index_buf), 0);
+
+        // FIXED: Use dispatchThreadgroups for single-thread execution (more reliable than dispatch_threads)
+        let threadgroups = metal::MTLSize::new(1, 1, 1);
+        let threads_per_threadgroup = metal::MTLSize::new(1, 1, 1);
+        encoder.dispatch_thread_groups(threadgroups, threads_per_threadgroup);
+        encoder.end_encoding();
+
+        // Commands manager will flush and commit when needed
+        // Since we need the result immediately, wait for completion
+        device.wait_until_completed()
+            .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to wait for GPU: {}", e)))?;
+
+        // Check for errors
+        if command_buffer.status() != metal::MTLCommandBufferStatus::Completed {
+            return Err(RuntimeError::InvalidOperation(
+                format!("GPU command buffer failed with status: {:?}", command_buffer.status())
+            ));
+        }
+
+        // Read result from GPU
+        let result_slice = unsafe {
+            std::slice::from_raw_parts(output_buf.buffer.contents() as *const f32, 1)
+        };
+        Ok(result_slice[0])
+    }
+
+
+
     /// Evaluate an expression
+    /// Execute a block of statements with automatic variable cleanup
+    ///
+    /// This is the common function used by all control structures (IF, WHILE, LOOP, FOR, Block)
+    /// to ensure consistent scoping behavior.
+    ///
+    /// Parameters:
+    /// - statements: The statements to execute
+    /// - allow_break: Whether break statements are allowed (true for loops)
+    fn execute_block(&mut self, statements: &[Statement], allow_break: bool) -> RuntimeResult<()> {
+        use crate::interpreter::environment::ScopeType;
+
+        // Push block scope
+        self.env.push_scope(ScopeType::Block);
+
+        // Execute statements in current scope
+        let result = self.execute_statements_in_current_scope(statements, allow_break);
+
+        // Pop block scope (all block-local variables automatically dropped)
+        self.env.pop_scope();
+
+        result
+    }
+
+    /// Execute statements in the current scope without creating a new scope
+    ///
+    /// Used by execute_block, loops, and if/else branches
+    ///
+    /// Parameters:
+    /// - statements: The statements to execute
+    /// - allow_break: Whether break statements are allowed (true for loops)
+    fn execute_statements_in_current_scope(&mut self, statements: &[Statement], allow_break: bool) -> RuntimeResult<()> {
+        for stmt in statements {
+            let result = self.execute_statement(stmt);
+            match result {
+                Err(RuntimeError::BreakOutsideLoop) if allow_break => {
+                    return Err(RuntimeError::BreakOutsideLoop);
+                }
+                Err(RuntimeError::ReturnValue(_)) => {
+                    // Propagate return upward (scopes will be cleaned up by caller)
+                    return result;
+                }
+                Err(e) => return Err(e),
+                Ok(_) => {}
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn eval_expr(&mut self, expr: &TensorExpr) -> RuntimeResult<Value> {
+        // Debug: print expression type
+        let expr_type = match expr {
+            TensorExpr::Variable(_) => "Variable",
+            TensorExpr::Literal(_) => "Literal",
+            TensorExpr::BinaryOp { .. } => "BinaryOp",
+            TensorExpr::UnaryOp { .. } => "UnaryOp",
+            TensorExpr::FunctionCall { .. } => "FunctionCall",
+            TensorExpr::TensorIndex { .. } => "TensorIndex",
+            TensorExpr::EinSum { .. } => "EinSum",
+            TensorExpr::EmbeddingLookup { .. } => "EmbeddingLookup",
+            TensorExpr::PythonCall { .. } => "PythonCall",
+            TensorExpr::PropertyAccess { .. } => "PropertyAccess",
+            TensorExpr::MethodCall { .. } => "MethodCall",
+        };
+        // eprintln!("[DEBUG] eval_expr: type={}", expr_type);
+
         match expr {
             TensorExpr::Variable(id) => {
                 // Use self.get_variable() to check local scope first
-                if let Some(value) = self.get_variable(id.as_str()) {
-                    return Ok(value);
+                match self.get_variable(id.as_str()) {
+                    Ok(value) => return Ok(value),
+                    Err(RuntimeError::UndefinedVariable(_)) => {
+                        // Check if it's an entity type (meta-type)
+                        if self.entity_registry.get_type_info(id.as_str()).is_some() {
+                            return Ok(Value::Type(id.as_str().to_string()));
+                        }
+                        // Re-throw the undefined variable error
+                        Err(RuntimeError::UndefinedVariable(id.as_str().to_string()))
+                    }
+                    Err(e) => Err(e), // Other errors
                 }
-
-                // Check if it's an entity type (meta-type)
-                if self.entity_registry.get_type_info(id.as_str()).is_some() {
-                    return Ok(Value::Type(id.as_str().to_string()));
-                }
-
-                // Not found as variable or type
-                Err(RuntimeError::UndefinedVariable(id.as_str().to_string()))
             }
 
             TensorExpr::Literal(lit) => self.eval_literal(lit),
@@ -594,8 +853,8 @@ impl Interpreter {
                 self.eval_unary_op(op, operand_val)
             }
 
-            TensorExpr::FunctionCall { name, args } => {
-                self.eval_function_call(name, args)
+            TensorExpr::FunctionCall { type_namespace, name, args, resolved } => {
+                self.eval_function_call(type_namespace.as_deref(), name, args, resolved.as_ref())
             }
 
             TensorExpr::TensorIndex { tensor, indices } => {
@@ -613,6 +872,8 @@ impl Interpreter {
             TensorExpr::PythonCall { function, args } => {
                 #[cfg(any(feature = "python", feature = "python-extension"))]
                 {
+                    use crate::interpreter::value::ToValue;
+
                     // Ensure Python environment is initialized
                     if self.python_env.is_none() {
                         return Err(RuntimeError::InvalidOperation(
@@ -621,24 +882,59 @@ impl Interpreter {
                     }
 
                     // Evaluate all arguments
-                    let tensor_args: Result<Vec<_>, _> = args.iter()
-                        .map(|arg| {
-                            let val = self.eval_expr(arg)?;
-                            val.as_tensor().map(|t| t.clone())
-                        })
-                        .collect();
-                    let tensor_args = tensor_args?;
+                    let values: Vec<Value> = args.iter()
+                        .map(|arg| self.eval_expr(arg))
+                        .collect::<Result<_, _>>()?;
 
-                    // Create references for the call
-                    let tensor_refs: Vec<&Tensor> = tensor_args.iter().collect();
+                    // Check if all tensors are f16 or all f32
+                    let all_f16 = values.iter().all(|v| matches!(v, Value::TensorF16(_)));
+                    let all_f32 = values.iter().all(|v| matches!(v, Value::TensorF32(_)));
 
-                    // Call Python function
-                    let result = self.python_env.as_ref().unwrap()
-                        .call_function(function, tensor_refs)
-                        .map_err(|e| RuntimeError::InvalidOperation(e))?;
+                    if !all_f16 && !all_f32 {
+                        return Err(RuntimeError::TypeError(
+                            "Python function call requires all tensors to be the same type (all f16 or all f32)".to_string()
+                        ));
+                    }
 
-                    println!("✓ Python call: {}({} args)", function, args.len());
-                    Ok(Value::TensorF16(result))
+                    if all_f16 {
+                        // Extract f16 tensors
+                        let tensor_args: Vec<_> = values.iter()
+                            .filter_map(|v| match v {
+                                Value::TensorF16(t) => Some(t.clone()),
+                                _ => None
+                            })
+                            .collect();
+
+                        // Create references for the call
+                        let tensor_refs: Vec<&Tensor<f16>> = tensor_args.iter().collect();
+
+                        // Call Python function
+                        let result = self.python_env.as_ref().unwrap()
+                            .call_function(function, tensor_refs)
+                            .map_err(|e| RuntimeError::InvalidOperation(e))?;
+
+                        println!("✓ Python call: {}({} args)", function, args.len());
+                        Ok(result.to_value())
+                    } else {
+                        // Extract f32 tensors
+                        let tensor_args: Vec<_> = values.iter()
+                            .filter_map(|v| match v {
+                                Value::TensorF32(t) => Some(t.clone()),
+                                _ => None
+                            })
+                            .collect();
+
+                        // Create references for the call
+                        let tensor_refs: Vec<&Tensor<f32>> = tensor_args.iter().collect();
+
+                        // Call Python function
+                        let result = self.python_env.as_ref().unwrap()
+                            .call_function(function, tensor_refs)
+                            .map_err(|e| RuntimeError::InvalidOperation(e))?;
+
+                        println!("✓ Python call: {}({} args)", function, args.len());
+                        Ok(result.to_value())
+                    }
                 }
                 #[cfg(not(any(feature = "python", feature = "python-extension")))]
                 {
@@ -649,24 +945,116 @@ impl Interpreter {
             }
 
             TensorExpr::PropertyAccess { object, property } => {
-                // Evaluate the object expression
+                // NEW: Evaluate object first, then access property on the resulting value
                 let obj_value = self.eval_expr(object)?;
-
-                // Access the property based on object type
+                let prop_name = property.as_str();
+                
+                // Handle property access based on object type
                 match obj_value {
-                    Value::Model(ref model) => {
-                        // Access model tensors by name
-                        // Common property names: tok_embeddings, output, norm, etc.
-                        let tensor_name = property.as_str();
-
-                        if let Some(tensor) = model.get_tensor(tensor_name) {
-                            Ok(Value::TensorF16(tensor.clone()))
+                    // Model.property -> returns ModelLayerCollection or ModelFeature
+                    Value::ModelF16(ref model) => {
+                        // Try as layer collection first (e.g., "blk")
+                        if let Some(collection) = model.build_layer_collection(prop_name) {
+                            Ok(Value::ModelLayerCollectionF16(collection))
+                        } else if let Some(feature) = model.get_property(prop_name) {
+                            Ok(Value::ModelFeatureF16(feature))
                         } else {
                             Err(RuntimeError::InvalidOperation(
-                                format!("Model does not have tensor '{}'", tensor_name)
+                                format!("Model does not have property '{}'", prop_name)
                             ))
                         }
                     }
+                    Value::ModelF32(ref model) => {
+                        // Try as layer collection first (e.g., "blk")
+                        if let Some(collection) = model.build_layer_collection(prop_name) {
+                            Ok(Value::ModelLayerCollectionF32(collection))
+                        } else if let Some(feature) = model.get_property(prop_name) {
+                            Ok(Value::ModelFeatureF32(feature))
+                        } else {
+                            Err(RuntimeError::InvalidOperation(
+                                format!("Model does not have property '{}'", prop_name)
+                            ))
+                        }
+                    }
+
+                    // ModelLayer.property -> returns ModelFeature
+                    Value::ModelLayerF16(ref layer) => {
+                        if let Some(feature) = layer.get_feature(prop_name) {
+                            Ok(Value::ModelFeatureF16(feature.clone()))
+                        } else {
+                            Err(RuntimeError::InvalidOperation(
+                                format!("Layer {} does not have feature '{}'", layer.index, prop_name)
+                            ))
+                        }
+                    }
+                    Value::ModelLayerF32(ref layer) => {
+                        if let Some(feature) = layer.get_feature(prop_name) {
+                            Ok(Value::ModelFeatureF32(feature.clone()))
+                        } else {
+                            Err(RuntimeError::InvalidOperation(
+                                format!("Layer {} does not have feature '{}'", layer.index, prop_name)
+                            ))
+                        }
+                    }
+
+                    // ModelFeature.property -> returns Tensor
+                    Value::ModelFeatureF16(ref feature) => {
+                        if let Some(tensor) = feature.get_property(prop_name) {
+                            Ok(Value::TensorF16(tensor.clone()))
+                        } else {
+                            Err(RuntimeError::InvalidOperation(
+                                format!("Feature '{}' does not have property '{}'", feature.name, prop_name)
+                            ))
+                        }
+                    }
+                    Value::ModelFeatureF32(ref feature) => {
+                        if let Some(tensor) = feature.get_property(prop_name) {
+                            Ok(Value::TensorF32(tensor.clone()))
+                        } else {
+                            Err(RuntimeError::InvalidOperation(
+                                format!("Feature '{}' does not have property '{}'", feature.name, prop_name)
+                            ))
+                        }
+                    }
+
+                    // GGUFWeightCache lazy loading support
+                    Value::GGUFWeightCacheF32(ref cache) => {
+                        use crate::interpreter::value::{LazyModelLayerCollectionF32, LazyModelFeatureF32};
+
+                        // Check if property is "blk" (layer collection)
+                        if prop_name == "blk" {
+                            Ok(Value::LazyModelLayerCollectionF32(LazyModelLayerCollectionF32::new(cache.clone(), "blk")))
+                        } else {
+                            // Single feature (e.g., token_embd, output, output_norm)
+                            Ok(Value::LazyModelFeatureF32(LazyModelFeatureF32::new(cache.clone(), prop_name)))
+                        }
+                    }
+
+                    // LazyModelLayer.property -> returns LazyModelFeature
+                    Value::LazyModelLayerF32(ref layer) => {
+                        use crate::interpreter::value::LazyModelFeatureF32;
+                        let feature_name = format!("blk.{}.{}", layer.index, prop_name);
+                        Ok(Value::LazyModelFeatureF32(LazyModelFeatureF32::new(layer.cache.clone(), &feature_name)))
+                    }
+
+                    // LazyModelFeature.property -> loads Tensor from cache
+                    Value::LazyModelFeatureF32(ref feature) => {
+                        let weight_name = format!("{}.{}", feature.name, prop_name);
+                        if std::env::var("TL_DEBUG").is_ok() {
+                            eprintln!("[DEBUG_EVAL] About to load weight: {}", weight_name);
+                        }
+                        match feature.cache.get_weight(&weight_name) {
+                            Ok(tensor) => {
+                                if std::env::var("TL_DEBUG").is_ok() {
+                                    eprintln!("[DEBUG_EVAL] Weight loaded successfully: {}", weight_name);
+                                }
+                                Ok(Value::TensorF32(tensor))
+                            }
+                            Err(e) => Err(RuntimeError::TensorError(e))
+                        }
+                    }
+
+                    // Struct field access
                     Value::Struct { ref fields, .. } => {
                         // Access struct field
                         let field_name = property.as_str();
@@ -678,11 +1066,15 @@ impl Interpreter {
                             ))
                         }
                     }
-                    _ => Err(RuntimeError::TypeError(
-                        format!("Cannot access property '{}' on {:?}", property.as_str(), obj_value)
-                    ))
+
+                    _ => {
+                        Err(RuntimeError::TypeError(
+                            format!("Property access not supported on {:?}", std::mem::discriminant(&obj_value))
+                        ))
+                    }
                 }
             }
+
 
             TensorExpr::MethodCall { object, method, args } => {
                 // Evaluate the object expression
@@ -702,7 +1094,7 @@ impl Interpreter {
                                 let device = t.device().clone();
                                 let shape_tensor = match &device {
                                     crate::device::Device::Metal(metal_device) => {
-                                        crate::tensor::Tensor::from_vec_metal(metal_device, shape_data, vec![t.shape().dims().len()])
+                                        crate::tensor::Tensor::from_vec_gpu(metal_device, shape_data, vec![t.shape().dims().len()])
                                     }
                                     crate::device::Device::CPU => {
                                         crate::tensor::Tensor::from_vec(shape_data, vec![t.shape().dims().len()])
@@ -713,18 +1105,402 @@ impl Interpreter {
                                 }.map_err(|e| RuntimeError::TensorError(e))?;
                                 Ok(Value::TensorF16(shape_tensor))
                             }
+                            Value::TensorF32(ref t) => {
+                                // Create shape tensor from dimensions (f32 version)
+                                let shape_data: Vec<f32> = t.shape().dims().iter()
+                                    .map(|&d| d as f32)
+                                    .collect();
+                                let device = t.device().clone();
+                                let shape_tensor = match &device {
+                                    crate::device::Device::Metal(metal_device) => {
+                                        crate::tensor::Tensor::from_vec_gpu(metal_device, shape_data, vec![t.shape().dims().len()])
+                                    }
+                                    crate::device::Device::CPU => {
+                                        crate::tensor::Tensor::from_vec(shape_data, vec![t.shape().dims().len()])
+                                    }
+                                    crate::device::Device::NeuralEngine => {
+                                        crate::tensor::Tensor::from_vec(shape_data, vec![t.shape().dims().len()])
+                                    }
+                                }.map_err(|e| RuntimeError::TensorError(e))?;
+                                Ok(Value::TensorF32(shape_tensor))
+                            }
                             _ => Err(RuntimeError::TypeError(
                                 format!("Cannot call shape() on {:?}", obj_value)
                             ))
                         }
                     }
                     _ => {
-                        // For other methods, try calling as a regular function with object as first argument
-                        // Build argument list by prepending the object to the method arguments
-                        let mut final_args = vec![(**object).clone()];
-                        final_args.extend_from_slice(args);
+                        // Type-based method dispatch
+                        match (&obj_value, method.as_str()) {
+                            // Tokenizer methods
+                            (Value::Tokenizer(_), "tokenize") => {
+                                let mut method_args = vec![(**object).clone()];
+                                method_args.extend_from_slice(args);
+                                self.eval_tokenize(&method_args)
+                            }
+                            (Value::Tokenizer(_), "detokenize") => {
+                                let mut method_args = vec![(**object).clone()];
+                                method_args.extend_from_slice(args);
+                                self.eval_detokenize(&method_args)
+                            }
 
-                        self.eval_function_call(&Identifier::new(method.as_str()), &final_args)
+                            // TokenIds methods
+                            (Value::TokenIds(_), "append_token") => {
+                                let mut method_args = vec![(**object).clone()];
+                                method_args.extend_from_slice(args);
+                                self.eval_append_token(&method_args)
+                            }
+
+                            // Tensor methods
+                            (Value::TensorF32(_), "append") | (Value::TensorF16(_), "append") => {
+                                let mut method_args = vec![(**object).clone()];
+                                method_args.extend_from_slice(args);
+                                self.eval_append_cache(&method_args)
+                            }
+
+                            // KVCache methods
+                            (Value::KVCacheF16(_), "set") => {
+                                // kv_cache.set(layer_idx: int, k: TensorF16, v: TensorF16) -> Void
+                                if args.len() != 3 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("KVCache.set() expects 3 arguments, got {}", args.len())
+                                    ));
+                                }
+
+                                let cache_arc = match obj_value {
+                                    Value::KVCacheF16(cache) => cache,
+                                    _ => unreachable!()
+                                };
+
+                                let layer_idx = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.set() expects Integer as first argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let k = match self.eval_expr(&args[1])? {
+                                    Value::TensorF16(t) => t,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.set() expects TensorF16 as second argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let v = match self.eval_expr(&args[2])? {
+                                    Value::TensorF16(t) => t,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.set() expects TensorF16 as third argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let mut cache = cache_arc.lock().map_err(|e|
+                                    RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
+                                )?;
+
+                                if layer_idx >= cache.kvs.len() {
+                                    return Err(RuntimeError::InvalidOperation(
+                                        format!("Layer index {} out of bounds (cache has {} layers)", layer_idx, cache.kvs.len())
+                                    ));
+                                }
+
+                                cache.kvs[layer_idx] = Some((k, v));
+                                Ok(Value::Void)
+                            }
+
+                            (Value::KVCacheF32(_), "set") => {
+                                // kv_cache.set(layer_idx: int, k: TensorF32, v: TensorF32) -> Void
+                                if args.len() != 3 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("KVCache.set() expects 3 arguments, got {}", args.len())
+                                    ));
+                                }
+
+                                let cache_arc = match obj_value {
+                                    Value::KVCacheF32(cache) => cache,
+                                    _ => unreachable!()
+                                };
+
+                                let layer_idx = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.set() expects Integer as first argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let k = match self.eval_expr(&args[1])? {
+                                    Value::TensorF32(t) => t,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.set() expects TensorF32 as second argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let v = match self.eval_expr(&args[2])? {
+                                    Value::TensorF32(t) => t,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.set() expects TensorF32 as third argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let mut cache = cache_arc.lock().map_err(|e|
+                                    RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
+                                )?;
+
+                                if layer_idx >= cache.kvs.len() {
+                                    return Err(RuntimeError::InvalidOperation(
+                                        format!("Layer index {} out of bounds (cache has {} layers)", layer_idx, cache.kvs.len())
+                                    ));
+                                }
+
+                                cache.kvs[layer_idx] = Some((k, v));
+                                Ok(Value::Void)
+                            }
+
+                            (Value::KVCacheF16(_), "append") => {
+                                // kv_cache.append(layer_idx: int, k: TensorF16, v: TensorF16) -> Void
+                                if args.len() != 3 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("KVCache.append() expects 3 arguments, got {}", args.len())
+                                    ));
+                                }
+
+                                let cache_arc = match obj_value {
+                                    Value::KVCacheF16(cache) => cache,
+                                    _ => unreachable!()
+                                };
+
+                                let layer_idx = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.append() expects Integer as first argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let k = match self.eval_expr(&args[1])? {
+                                    Value::TensorF16(t) => t,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.append() expects TensorF16 as second argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let v = match self.eval_expr(&args[2])? {
+                                    Value::TensorF16(t) => t,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.append() expects TensorF16 as third argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let mut cache = cache_arc.lock().map_err(|e|
+                                    RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
+                                )?;
+
+                                // Use shared device instance (no need to create new device every time!)
+                                cache.update(layer_idx, k, v, &self.device)
+                                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                                Ok(Value::Void)
+                            }
+
+                            (Value::KVCacheF32(_), "append") => {
+                                // kv_cache.append(layer_idx: int, k: TensorF32, v: TensorF32) -> Void
+                                if args.len() != 3 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("KVCache.append() expects 3 arguments, got {}", args.len())
+                                    ));
+                                }
+
+                                let cache_arc = match obj_value {
+                                    Value::KVCacheF32(cache) => cache,
+                                    _ => unreachable!()
+                                };
+
+                                let layer_idx = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.append() expects Integer as first argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let k = match self.eval_expr(&args[1])? {
+                                    Value::TensorF32(t) => t,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.append() expects TensorF32 as second argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let v = match self.eval_expr(&args[2])? {
+                                    Value::TensorF32(t) => t,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.append() expects TensorF32 as third argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let mut cache = cache_arc.lock().map_err(|e|
+                                    RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
+                                )?;
+
+                                // Use shared device instance (no need to create new device every time!)
+                                cache.update(layer_idx, k, v, &self.device)
+                                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                                Ok(Value::Void)
+                            }
+
+                            (Value::KVCacheF16(_), "get_k") => {
+                                // kv_cache.get_k(layer_idx: int) -> TensorF16
+                                if args.len() != 1 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("KVCache.get_k() expects 1 argument, got {}", args.len())
+                                    ));
+                                }
+
+                                let cache_arc = match obj_value {
+                                    Value::KVCacheF16(cache) => cache,
+                                    _ => unreachable!()
+                                };
+
+                                let layer_idx = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.get_k() expects Integer, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let cache = cache_arc.lock().map_err(|e|
+                                    RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
+                                )?;
+
+                                let (k, _v) = cache.get(layer_idx).ok_or_else(||
+                                    RuntimeError::InvalidOperation(format!("No cache entry for layer {}", layer_idx))
+                                )?;
+
+                                if std::env::var("TL_PERF").is_ok() {
+                                    let start = std::time::Instant::now();
+                                    let result = k.clone();
+                                    eprintln!("[PERF] KVCache.get_k(f16, layer={}): clone={:.3}ms", layer_idx, start.elapsed().as_secs_f64() * 1000.0);
+                                    Ok(Value::TensorF16(result))
+                                } else {
+                                    Ok(Value::TensorF16(k.clone()))
+                                }
+                            }
+
+                            (Value::KVCacheF32(_), "get_k") => {
+                                // kv_cache.get_k(layer_idx: int) -> TensorF32
+                                if args.len() != 1 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("KVCache.get_k() expects 1 argument, got {}", args.len())
+                                    ));
+                                }
+
+                                let cache_arc = match obj_value {
+                                    Value::KVCacheF32(cache) => cache,
+                                    _ => unreachable!()
+                                };
+
+                                let layer_idx = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.get_k() expects Integer, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let cache = cache_arc.lock().map_err(|e|
+                                    RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
+                                )?;
+
+                                let (k, _v) = cache.get(layer_idx).ok_or_else(||
+                                    RuntimeError::InvalidOperation(format!("No cache entry for layer {}", layer_idx))
+                                )?;
+
+                                if std::env::var("TL_PERF").is_ok() {
+                                    let start = std::time::Instant::now();
+                                    let result = k.clone();
+                                    eprintln!("[PERF] KVCache.get_k(f32, layer={}): clone={:.3}ms", layer_idx, start.elapsed().as_secs_f64() * 1000.0);
+                                    Ok(Value::TensorF32(result))
+                                } else {
+                                    Ok(Value::TensorF32(k.clone()))
+                                }
+                            }
+
+                            (Value::KVCacheF16(_), "get_v") => {
+                                // kv_cache.get_v(layer_idx: int) -> TensorF16
+                                if args.len() != 1 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("KVCache.get_v() expects 1 argument, got {}", args.len())
+                                    ));
+                                }
+
+                                let cache_arc = match obj_value {
+                                    Value::KVCacheF16(cache) => cache,
+                                    _ => unreachable!()
+                                };
+
+                                let layer_idx = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.get_v() expects Integer, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let cache = cache_arc.lock().map_err(|e|
+                                    RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
+                                )?;
+
+                                let (_k, v) = cache.get(layer_idx).ok_or_else(||
+                                    RuntimeError::InvalidOperation(format!("No cache entry for layer {}", layer_idx))
+                                )?;
+
+                                if std::env::var("TL_PERF").is_ok() {
+                                    let start = std::time::Instant::now();
+                                    let result = v.clone();
+                                    eprintln!("[PERF] KVCache.get_v(f16, layer={}): clone={:.3}ms", layer_idx, start.elapsed().as_secs_f64() * 1000.0);
+                                    Ok(Value::TensorF16(result))
+                                } else {
+                                    Ok(Value::TensorF16(v.clone()))
+                                }
+                            }
+
+                            (Value::KVCacheF32(_), "get_v") => {
+                                // kv_cache.get_v(layer_idx: int) -> TensorF32
+                                if args.len() != 1 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("KVCache.get_v() expects 1 argument, got {}", args.len())
+                                    ));
+                                }
+
+                                let cache_arc = match obj_value {
+                                    Value::KVCacheF32(cache) => cache,
+                                    _ => unreachable!()
+                                };
+
+                                let layer_idx = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("KVCache.get_v() expects Integer, got {}", v.type_name())
+                                    )),
+                                };
+
+                                let cache = cache_arc.lock().map_err(|e|
+                                    RuntimeError::InvalidOperation(format!("Failed to lock cache: {}", e))
+                                )?;
+
+                                let (_k, v) = cache.get(layer_idx).ok_or_else(||
+                                    RuntimeError::InvalidOperation(format!("No cache entry for layer {}", layer_idx))
+                                )?;
+
+                                if std::env::var("TL_PERF").is_ok() {
+                                    let start = std::time::Instant::now();
+                                    let result = v.clone();
+                                    eprintln!("[PERF] KVCache.get_v(f32, layer={}): clone={:.3}ms", layer_idx, start.elapsed().as_secs_f64() * 1000.0);
+                                    Ok(Value::TensorF32(result))
+                                } else {
+                                    Ok(Value::TensorF32(v.clone()))
+                                }
+                            }
+
+                            _ => Err(RuntimeError::TypeError(
+                                format!("Type {:?} has no method '{}'", obj_value.type_name(), method)
+                            ))
+                        }
                     }
                 }
             }
@@ -784,54 +1560,134 @@ impl Interpreter {
 
     /// Evaluate an array literal to a tensor
     pub(super) fn eval_array_literal(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Value> {
+        let _fn_start = std::time::Instant::now();
+        // eprintln!("[DEBUG] eval_array_literal: Entry, elements.len={}", elements.len());
+
         // Support empty arrays - return empty Tensor
         if elements.is_empty() {
-            use half::f16;
-            let tensor = Tensor::from_vec_metal(self.env.metal_device(), vec![], vec![0])
+            // eprintln!("[DEBUG] eval_array_literal: Empty array, creating empty tensor");
+            let tensor = Tensor::from_vec_gpu(self.env.metal_device(), vec![], vec![0])
                 .map_err(|e| RuntimeError::TensorError(e))?;
             return Ok(Value::TensorF16(tensor));
         }
 
         // Recursively collect all scalar values
+        // eprintln!("[DEBUG] eval_array_literal: Calling collect_scalars...");
+        let collect_start = std::time::Instant::now();
         let values = self.collect_scalars(elements)?;
+        // eprintln!("[DEBUG] eval_array_literal: collect_scalars completed in {:.3}ms, values.len={}",
+        //           collect_start.elapsed().as_secs_f64() * 1000.0, values.len());
 
         // Determine shape
+        // eprintln!("[DEBUG] eval_array_literal: Calling infer_shape...");
+        let shape_start = std::time::Instant::now();
         let shape = self.infer_shape(elements)?;
+        // eprintln!("[DEBUG] eval_array_literal: infer_shape completed in {:.3}ms, shape={:?}",
+        //           shape_start.elapsed().as_secs_f64() * 1000.0, shape);
 
-        // Always create Tensor for array literals (not TokenIdArray)
-        // Convert f32 to f16 for all values
-        let f16_values: Vec<f16> = values.into_iter().map(f16::from_f32).collect();
-        let tensor = Tensor::from_vec_metal(self.env.metal_device(), f16_values, shape)
-            .map_err(|e| RuntimeError::TensorError(e))?;
-        Ok(Value::TensorF16(tensor))
+        // Determine if array contains float literals (f32) or only integers (f16)
+        // eprintln!("[DEBUG] eval_array_literal: Calling has_float_literal...");
+        let float_check_start = std::time::Instant::now();
+        let has_float_literal = self.has_float_literal(elements);
+        // eprintln!("[DEBUG] eval_array_literal: has_float_literal={} ({:.3}ms)",
+        //           has_float_literal, float_check_start.elapsed().as_secs_f64() * 1000.0);
+
+        // OPTIMIZATION: Create array literals on CPU to avoid GPU sync overhead
+        // Builtin functions (ones, zeros, reshape) now support CPU tensors via to_cpu_vec()
+        // This eliminates per-element GPU sync when using arrays as shape parameters
+        let numel = values.len();
+        let use_cpu = true;
+
+        if has_float_literal {
+            // eprintln!("[DEBUG] eval_array_literal: Creating f32 tensor (numel={}, cpu={})...", numel, use_cpu);
+            let create_start = std::time::Instant::now();
+            // Array contains float literals -> create f32 tensor
+            let tensor = if use_cpu {
+                Tensor::from_vec(values, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?
+            } else {
+                Tensor::from_vec_gpu(self.env.metal_device(), values, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?
+            };
+            // eprintln!("[DEBUG] eval_array_literal: f32 tensor created in {:.3}ms", create_start.elapsed().as_secs_f64() * 1000.0);
+            // eprintln!("[DEBUG] eval_array_literal: TOTAL time: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
+            Ok(Value::TensorF32(tensor))
+        } else {
+            // eprintln!("[DEBUG] eval_array_literal: Creating f16 tensor (numel={}, cpu={})...", numel, use_cpu);
+            let convert_start = std::time::Instant::now();
+            // Array contains only integers -> create f16 tensor (backward compatibility)
+            let f16_values: Vec<f16> = values.into_iter().map(f16::from_f32).collect();
+            // eprintln!("[DEBUG] eval_array_literal: f16 conversion complete in {:.3}ms, creating tensor...", convert_start.elapsed().as_secs_f64() * 1000.0);
+            let create_start = std::time::Instant::now();
+            let tensor = if use_cpu {
+                Tensor::from_vec(f16_values, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?
+            } else {
+                Tensor::from_vec_gpu(self.env.metal_device(), f16_values, shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?
+            };
+            // eprintln!("[DEBUG] eval_array_literal: f16 tensor created in {:.3}ms", create_start.elapsed().as_secs_f64() * 1000.0);
+            // eprintln!("[DEBUG] eval_array_literal: TOTAL time: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
+            Ok(Value::TensorF16(tensor))
+        }
+    }
+
+    /// Check if array elements contain float literals (for f32 vs f16 detection)
+    fn has_float_literal(&self, elements: &[ArrayElement]) -> bool {
+        use crate::ast::{ArrayElement, TensorLiteral, ScalarLiteral};
+
+        for elem in elements {
+            match elem {
+                ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Float(_))) => {
+                    return true;
+                }
+                ArrayElement::Literal(TensorLiteral::Array(nested)) => {
+                    if self.has_float_literal(nested) {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
     }
 
     /// Collect all scalar values from nested arrays
     pub(super) fn collect_scalars(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Vec<f32>> {
+        // eprintln!("[DEBUG] collect_scalars: Entry, elements.len={}", elements.len());
         let mut values = Vec::new();
 
-        for elem in elements {
+        for (i, elem) in elements.iter().enumerate() {
+            // eprintln!("[DEBUG] collect_scalars: Processing element[{}]", i);
             match elem {
                 ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Float(f))) => {
+                    // eprintln!("[DEBUG] collect_scalars: element[{}] is Float={}", i, f);
                     values.push(*f as f32);
                 }
-                ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Integer(i))) => {
-                    values.push(*i as f32);
+                ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Integer(i_val))) => {
+                    // eprintln!("[DEBUG] collect_scalars: element[{}] is Integer={}", i, i_val);
+                    values.push(*i_val as f32);
                 }
                 ArrayElement::Literal(TensorLiteral::Array(nested)) => {
+                    // eprintln!("[DEBUG] collect_scalars: element[{}] is nested array", i);
                     values.extend(self.collect_scalars(nested)?);
                 }
                 ArrayElement::Expression(expr) => {
+                    // eprintln!("[DEBUG] collect_scalars: element[{}] is Expression, evaluating...", i);
                     // Evaluate the expression (e.g., variable reference like seq_len, d_model)
                     let value = self.eval_expr(expr)?;
+                    // eprintln!("[DEBUG] collect_scalars: element[{}] eval_expr returned, matching value...", i);
                     match value {
                         Value::Float(f) => {
+                            // eprintln!("[DEBUG] collect_scalars: element[{}] evaluated to Float={}", i, f);
                             values.push(f as f32);
                         }
-                        Value::Integer(i) => {
-                            values.push(i as f32);
+                        Value::Integer(i_val) => {
+                            // eprintln!("[DEBUG] collect_scalars: element[{}] evaluated to Integer={}", i, i_val);
+                            values.push(i_val as f32);
                         }
                         _ => {
+                            // eprintln!("[DEBUG] collect_scalars: element[{}] evaluated to non-scalar type", i);
                             return Err(RuntimeError::TypeError(
                                 "Array element expression must evaluate to a scalar number".to_string(),
                             ));
@@ -868,13 +1724,22 @@ impl Interpreter {
 
     /// Evaluate a binary operation
     pub(super) fn eval_binary_op(&self, op: &BinaryOp, left: Value, right: Value) -> RuntimeResult<Value> {
-        match (left, right) {
+        let _start = std::time::Instant::now();
+
+        if std::env::var("TL_PERF").is_ok() && matches!(op, BinaryOp::Mul | BinaryOp::Add) {
+            eprintln!("[PERF]   eval_binary_op: args_received={:.3}ms", _start.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        let result = match (left, right) {
             (Value::TensorF16(l), Value::TensorF16(r)) => {
                 let result = match op {
                     BinaryOp::Add => l.add(&r),
                     BinaryOp::Sub => l.sub(&r),
                     BinaryOp::Mul => l.mul(&r),
                     BinaryOp::Div => l.div(&r),
+                    BinaryOp::Mod => {
+                        return Err(RuntimeError::NotImplemented("Modulo not yet implemented for tensors".to_string()));
+                    }
                     BinaryOp::MatMul => l.matmul(&r),
                     BinaryOp::Power => {
                         return Err(RuntimeError::NotImplemented("Power not yet implemented".to_string()));
@@ -898,11 +1763,32 @@ impl Interpreter {
                 Ok(Value::TensorF16(result))
             }
             (Value::TensorF32(l), Value::TensorF32(r)) => {
+                let _before_match = std::time::Instant::now();
+                if std::env::var("TL_PERF").is_ok() && matches!(op, BinaryOp::Mul | BinaryOp::Add) {
+                    eprintln!("[PERF]   eval_binary_op: before_match_f32={:.3}ms, shape_l={:?}, shape_r={:?}",
+                             _start.elapsed().as_secs_f64() * 1000.0, l.dims(), r.dims());
+                }
+
                 let result = match op {
                     BinaryOp::Add => l.add(&r),
                     BinaryOp::Sub => l.sub(&r),
-                    BinaryOp::Mul => l.mul(&r),
+                    BinaryOp::Mul => {
+                        let _before_mul = std::time::Instant::now();
+                        if std::env::var("TL_PERF").is_ok() {
+                            eprintln!("[PERF]   eval_binary_op: before_mul_call={:.3}ms", _start.elapsed().as_secs_f64() * 1000.0);
+                        }
+                        let result = l.mul(&r);
+                        if std::env::var("TL_PERF").is_ok() {
+                            eprintln!("[PERF]   eval_binary_op: after_mul_call={:.3}ms (mul_call took {:.3}ms)",
+                                     _start.elapsed().as_secs_f64() * 1000.0,
+                                     _before_mul.elapsed().as_secs_f64() * 1000.0);
+                        }
+                        result
+                    }
                     BinaryOp::Div => l.div(&r),
+                    BinaryOp::Mod => {
+                        return Err(RuntimeError::NotImplemented("Modulo not yet implemented for tensors".to_string()));
+                    }
                     BinaryOp::MatMul => l.matmul(&r),
                     BinaryOp::Power => {
                         return Err(RuntimeError::NotImplemented("Power not yet implemented".to_string()));
@@ -936,6 +1822,12 @@ impl Interpreter {
                         }
                         Ok(Value::Float(l / r))
                     }
+                    BinaryOp::Mod => {
+                        if r == 0.0 {
+                            return Err(RuntimeError::DivisionByZero);
+                        }
+                        Ok(Value::Float(l % r))
+                    }
                     BinaryOp::Power => Ok(Value::Float(l.powf(r))),
                     BinaryOp::Eq => Ok(Value::Boolean(l == r)),
                     BinaryOp::Ne => Ok(Value::Boolean(l != r)),
@@ -961,6 +1853,38 @@ impl Interpreter {
                         "Operation {:?} not supported for booleans",
                         op
                     ))),
+                }
+            }
+            (Value::Integer(l), Value::Integer(r)) => {
+                match op {
+                    BinaryOp::Add => Ok(Value::Integer(l + r)),
+                    BinaryOp::Sub => Ok(Value::Integer(l - r)),
+                    BinaryOp::Mul => Ok(Value::Integer(l * r)),
+                    BinaryOp::Div => {
+                        if r == 0 {
+                            return Err(RuntimeError::DivisionByZero);
+                        }
+                        Ok(Value::Integer(l / r))
+                    }
+                    BinaryOp::Mod => {
+                        if r == 0 {
+                            return Err(RuntimeError::DivisionByZero);
+                        }
+                        Ok(Value::Integer(l % r))
+                    }
+                    BinaryOp::Power => Ok(Value::Integer(l.pow(r as u32))),
+                    BinaryOp::Eq => Ok(Value::Boolean(l == r)),
+                    BinaryOp::Ne => Ok(Value::Boolean(l != r)),
+                    BinaryOp::Lt => Ok(Value::Boolean(l < r)),
+                    BinaryOp::Le => Ok(Value::Boolean(l <= r)),
+                    BinaryOp::Gt => Ok(Value::Boolean(l > r)),
+                    BinaryOp::Ge => Ok(Value::Boolean(l >= r)),
+                    _ => {
+                        return Err(RuntimeError::InvalidOperation(format!(
+                            "Operation {:?} not supported for integers",
+                            op
+                        )));
+                    }
                 }
             }
             (Value::String(l), Value::String(r)) => {
@@ -1054,10 +1978,96 @@ impl Interpreter {
                 .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(Value::TensorF16(result))
             }
+            // TensorF32-Float operations (e.g., tensor * 0.5)
+            (Value::TensorF32(t), Value::Float(s)) => {
+                let scalar_f32 = s as f32;
+                let result = match op {
+                    BinaryOp::Add => t.add_scalar(scalar_f32),
+                    BinaryOp::Sub => t.sub_scalar(scalar_f32),
+                    BinaryOp::Mul => t.mul_scalar(scalar_f32),
+                    BinaryOp::Div => {
+                        if s == 0.0 {
+                            return Err(RuntimeError::DivisionByZero);
+                        }
+                        t.div_scalar(scalar_f32)
+                    }
+                    _ => {
+                        return Err(RuntimeError::InvalidOperation(format!(
+                            "Operation {:?} not supported for TensorF32-Float",
+                            op
+                        )));
+                    }
+                }
+                .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            // Float-TensorF32 operations (e.g., 0.5 * tensor)
+            (Value::Float(s), Value::TensorF32(t)) => {
+                let scalar_f32 = s as f32;
+                let result = match op {
+                    BinaryOp::Add => t.add_scalar(scalar_f32),
+                    BinaryOp::Mul => t.mul_scalar(scalar_f32),
+                    BinaryOp::Sub => {
+                        // s - tensor = -(tensor - s)
+                        let temp = t.sub_scalar(scalar_f32)
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        let zero = Tensor::zeros(self.env.metal_device(), t.shape().dims().to_vec())
+                            .map_err(|e| RuntimeError::TensorError(e))?;
+                        zero.sub(&temp)
+                    }
+                    BinaryOp::Div => {
+                        // s / tensor = s * (1/tensor)
+                        return Err(RuntimeError::InvalidOperation(
+                            "Scalar / Tensor not yet supported".to_string()
+                        ));
+                    }
+                    _ => {
+                        return Err(RuntimeError::InvalidOperation(format!(
+                            "Operation {:?} not supported for Float-TensorF32",
+                            op
+                        )));
+                    }
+                }
+                .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(result))
+            }
+            // Integer-Float mixed operations (convert integer to float)
+            (Value::Integer(l), Value::Float(r)) => {
+                let left_f = l as f64;
+                self.eval_binary_op(op, Value::Float(left_f), Value::Float(r))
+            }
+            (Value::Float(l), Value::Integer(r)) => {
+                let right_f = r as f64;
+                self.eval_binary_op(op, Value::Float(l), Value::Float(right_f))
+            }
+            // TensorF16-Integer operations (convert integer to float)
+            (Value::TensorF16(t), Value::Integer(i)) => {
+                self.eval_binary_op(op, Value::TensorF16(t), Value::Float(i as f64))
+            }
+            (Value::Integer(i), Value::TensorF16(t)) => {
+                self.eval_binary_op(op, Value::Float(i as f64), Value::TensorF16(t))
+            }
+            // TensorF32-Integer operations (convert integer to float)
+            (Value::TensorF32(t), Value::Integer(i)) => {
+                self.eval_binary_op(op, Value::TensorF32(t), Value::Float(i as f64))
+            }
+            (Value::Integer(i), Value::TensorF32(t)) => {
+                self.eval_binary_op(op, Value::Float(i as f64), Value::TensorF32(t))
+            }
             _ => Err(RuntimeError::TypeError(
                 "Binary operation requires compatible types".to_string(),
             )),
+        };
+
+        if std::env::var("TL_PERF").is_ok() && matches!(op, BinaryOp::Mul | BinaryOp::Add) {
+            let (dtype, shape_info) = match &result {
+                Ok(Value::TensorF16(t)) => ("f16", format!("{:?}", t.dims())),
+                Ok(Value::TensorF32(t)) => ("f32", format!("{:?}", t.dims())),
+                _ => return result,
+            };
+            eprintln!("[PERF] binop_{:?}({}, shape={}): {:.3}ms", op, dtype, shape_info, _start.elapsed().as_secs_f64() * 1000.0);
         }
+        result
     }
 
     /// Evaluate a unary operation
@@ -1150,13 +2160,13 @@ impl Interpreter {
                         match var_value {
                             Value::String(s) => {
                                 entity_map
-                                    .get(s)
+                                    .get(&s)
                                     .copied()
                                     .ok_or_else(|| RuntimeError::InvalidOperation(
                                         format!("Unknown entity '{}' in embedding '{}'", s, embed_name)
                                     ))?
                             }
-                            Value::Integer(idx) => *idx as usize,
+                            Value::Integer(idx) => idx as usize,
                             _ => return Err(RuntimeError::TypeError(
                                 format!("Expected String or Integer for entity, found {:?}", var_value)
                             )),
@@ -1194,7 +2204,7 @@ impl Interpreter {
         let entity_embedding = embedding_vec[start_idx..end_idx].to_vec();
 
         // Create tensor from embedding vector on Metal GPU
-        let embedding_tensor = Tensor::from_vec_metal(
+        let embedding_tensor = Tensor::from_vec_gpu(
             self.env.metal_device(),
             entity_embedding,
             vec![dimension]
@@ -1203,13 +2213,139 @@ impl Interpreter {
         Ok(Value::TensorF16(embedding_tensor))
     }
 
-    /// Evaluate tensor indexing: tensor[i, j, ...]
+    /// Evaluate tensor indexing: tensor[i, j, ...] OR collection[i]
     pub(super) fn eval_tensor_index(&mut self, tensor_expr: &TensorExpr, indices: &[IndexExpr]) -> RuntimeResult<Value> {
         use crate::ast::IndexExpr;
 
-        // Evaluate the tensor expression
-        let tensor_value = self.eval_expr(tensor_expr)?;
-        let tensor = tensor_value.as_tensor()?;
+        // Evaluate the tensor/collection expression
+        let value = self.eval_expr(tensor_expr)?;
+        
+        // NEW: Handle ModelLayerCollection[index] -> returns ModelLayer
+        match value {
+            Value::ModelLayerCollectionF16(ref collection) => {
+                if indices.len() != 1 {
+                    return Err(RuntimeError::InvalidOperation(
+                        format!("ModelLayerCollection indexing requires exactly 1 index, got {}", indices.len())
+                    ));
+                }
+                
+                let layer_idx = match &indices[0] {
+                    IndexExpr::Int(i) => {
+                        if *i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        *i as usize
+                    }
+                    IndexExpr::Var(var) => {
+                        let val = self.env.get_variable(var.as_str())?;
+                        let i = val.as_integer()?;
+                        if i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        i as usize
+                    }
+                    IndexExpr::Slice => {
+                        return Err(RuntimeError::NotImplemented(
+                            "Slice indexing not supported on ModelLayerCollection".to_string()
+                        ));
+                    }
+                };
+                
+                if let Some(layer) = collection.get_layer(layer_idx) {
+                    return Ok(Value::ModelLayerF16(layer));
+                } else {
+                    return Err(RuntimeError::InvalidOperation(
+                        format!("Layer index {} not found in collection", layer_idx)
+                    ));
+                }
+            }
+            Value::ModelLayerCollectionF32(ref collection) => {
+                if indices.len() != 1 {
+                    return Err(RuntimeError::InvalidOperation(
+                        format!("ModelLayerCollection indexing requires exactly 1 index, got {}", indices.len())
+                    ));
+                }
+                
+                let layer_idx = match &indices[0] {
+                    IndexExpr::Int(i) => {
+                        if *i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        *i as usize
+                    }
+                    IndexExpr::Var(var) => {
+                        let val = self.env.get_variable(var.as_str())?;
+                        let i = val.as_integer()?;
+                        if i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        i as usize
+                    }
+                    IndexExpr::Slice => {
+                        return Err(RuntimeError::NotImplemented(
+                            "Slice indexing not supported on ModelLayerCollection".to_string()
+                        ));
+                    }
+                };
+                
+                if let Some(layer) = collection.get_layer(layer_idx) {
+                    return Ok(Value::ModelLayerF32(layer));
+                } else {
+                    return Err(RuntimeError::InvalidOperation(
+                        format!("Layer index {} not found in collection", layer_idx)
+                    ));
+                }
+            }
+            Value::LazyModelLayerCollectionF32(ref collection) => {
+                use crate::interpreter::value::LazyModelLayerF32;
+
+                if indices.len() != 1 {
+                    return Err(RuntimeError::InvalidOperation(
+                        format!("LazyModelLayerCollection indexing requires exactly 1 index, got {}", indices.len())
+                    ));
+                }
+
+                let layer_idx = match &indices[0] {
+                    IndexExpr::Int(i) => {
+                        if *i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        *i as usize
+                    }
+                    IndexExpr::Var(var) => {
+                        let val = self.env.get_variable(var.as_str())?;
+                        let i = val.as_integer()?;
+                        if i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        i as usize
+                    }
+                    IndexExpr::Slice => {
+                        return Err(RuntimeError::NotImplemented(
+                            "Slice indexing not supported on LazyModelLayerCollection".to_string()
+                        ));
+                    }
+                };
+
+                return Ok(Value::LazyModelLayerF32(LazyModelLayerF32::new(collection.cache.clone(), layer_idx)));
+            }
+            _ => {}
+        }
+        
+        // Continue with original tensor indexing logic
+        let tensor_value = value;
 
         // Convert indices to usizes
         let mut idx_values = Vec::new();
@@ -1241,55 +2377,355 @@ impl Interpreter {
             }
         }
 
-        // Calculate linear index
-        let dims = tensor.dims();
-        if idx_values.len() != dims.len() {
-            return Err(RuntimeError::InvalidOperation(format!(
-                "Index dimension mismatch: tensor has {} dimensions, got {} indices",
-                dims.len(),
-                idx_values.len()
-            )));
-        }
+        // Handle both f16 and f32 tensors
+        match tensor_value {
+            Value::TensorF16(tensor) => {
+                // Calculate linear index
+                let dims = tensor.dims();
+                if idx_values.len() != dims.len() {
+                    return Err(RuntimeError::InvalidOperation(format!(
+                        "Index dimension mismatch: tensor has {} dimensions, got {} indices",
+                        dims.len(),
+                        idx_values.len()
+                    )));
+                }
 
-        // Compute linear index
-        let mut linear_idx = 0;
-        let mut stride = 1;
-        for i in (0..dims.len()).rev() {
-            if idx_values[i] >= dims[i] {
-                return Err(RuntimeError::InvalidOperation(format!(
-                    "Index out of bounds: index {} = {}, dimension size = {}",
-                    i, idx_values[i], dims[i]
-                )));
+                // Compute linear index
+                let mut linear_idx = 0;
+                let mut stride = 1;
+                for i in (0..dims.len()).rev() {
+                    if idx_values[i] >= dims[i] {
+                        return Err(RuntimeError::InvalidOperation(format!(
+                            "Index out of bounds: index {} = {}, dimension size = {}",
+                            i, idx_values[i], dims[i]
+                        )));
+                    }
+                    linear_idx += idx_values[i] * stride;
+                    stride *= dims[i];
+                }
+
+                // OPTIMIZATION: Fast path for CPU tensors (no clone needed)
+                let value = if tensor.buffer().is_cpu() {
+                    // Direct access to CPU buffer (zero-copy)
+                    let cpu_vec = tensor.buffer().as_cpu()
+                        .map_err(|e| RuntimeError::InvalidOperation(e.to_string()))?;
+                    cpu_vec[linear_idx]
+                } else {
+                    // GPU tensor: transfer to CPU
+                    let cpu_data = tensor.buffer().to_cpu_vec();
+                    cpu_data[linear_idx]
+                };
+
+                // Return as a scalar float
+                Ok(Value::Float(value.to_f32() as f64))
             }
-            linear_idx += idx_values[i] * stride;
-            stride *= dims[i];
+            Value::TensorF32(tensor) => {
+                // Calculate linear index
+                let dims = tensor.dims();
+                if idx_values.len() != dims.len() {
+                    return Err(RuntimeError::InvalidOperation(format!(
+                        "Index dimension mismatch: tensor has {} dimensions, got {} indices",
+                        dims.len(),
+                        idx_values.len()
+                    )));
+                }
+
+                // Compute linear index
+                let mut linear_idx = 0;
+                let mut stride = 1;
+                for i in (0..dims.len()).rev() {
+                    if idx_values[i] >= dims[i] {
+                        return Err(RuntimeError::InvalidOperation(format!(
+                            "Index out of bounds: index {} = {}, dimension size = {}",
+                            i, idx_values[i], dims[i]
+                        )));
+                    }
+                    linear_idx += idx_values[i] * stride;
+                    stride *= dims[i];
+                }
+
+                // OPTIMIZATION: Fast path for CPU tensors (no clone needed)
+                let value = if tensor.buffer().is_cpu() {
+                    // Direct access to CPU buffer (zero-copy)
+                    let cpu_vec = tensor.buffer().as_cpu()
+                        .map_err(|e| RuntimeError::InvalidOperation(e.to_string()))?;
+                    cpu_vec[linear_idx]
+                } else {
+                    // GPU tensor: transfer to CPU
+                    let cpu_data = tensor.buffer().to_cpu_vec();
+                    cpu_data[linear_idx]
+                };
+
+                // Return as a scalar float
+                Ok(Value::Float(value as f64))
+            }
+            _ => Err(RuntimeError::TypeError("Expected tensor (f16 or f32) for indexing".to_string()))
         }
-
-        // Get the value at the index
-        let data = tensor.to_vec();
-        let value = data[linear_idx];
-
-        // Return as a scalar float
-        Ok(Value::Float(value.to_f32() as f64))
     }
 
     /// Evaluate Einstein summation: einsum("ij,jk->ik", A, B)
     pub(super) fn eval_einsum(&mut self, spec: &str, tensor_exprs: &[TensorExpr]) -> RuntimeResult<Value> {
-        // Evaluate all tensor expressions
-        let mut tensors = Vec::new();
-        for expr in tensor_exprs {
-            let value = self.eval_expr(expr)?;
-            let tensor = value.as_tensor()?;
-            tensors.push(tensor.clone());
+        use crate::interpreter::value::ToValue;
+
+        if tensor_exprs.is_empty() {
+            return Err(RuntimeError::TypeError("einsum requires at least one tensor".to_string()));
         }
 
-        // Create references for einsum call
-        let tensor_refs: Vec<&Tensor> = tensors.iter().collect();
+        // Evaluate all tensor expressions
+        let values: Vec<Value> = tensor_exprs.iter()
+            .map(|expr| self.eval_expr(expr))
+            .collect::<Result<_, _>>()?;
 
-        // Call einsum operation
-        let result = Tensor::einsum(spec, &tensor_refs)
-            .map_err(|e| RuntimeError::TensorError(e))?;
+        // Check if all tensors are f16
+        let all_f16 = values.iter().all(|v| matches!(v, Value::TensorF16(_)));
+        let all_f32 = values.iter().all(|v| matches!(v, Value::TensorF32(_)));
 
-        Ok(Value::TensorF16(result))
+        if !all_f16 && !all_f32 {
+            return Err(RuntimeError::TypeError(
+                "einsum requires all tensors to be the same type (all f16 or all f32)".to_string()
+            ));
+        }
+
+        if all_f16 {
+            // Extract f16 tensors
+            let tensors: Vec<_> = values.iter()
+                .filter_map(|v| match v {
+                    Value::TensorF16(t) => Some(t.clone()),
+                    _ => None
+                })
+                .collect();
+
+            // Create references for einsum call
+            let tensor_refs: Vec<&Tensor<f16>> = tensors.iter().collect();
+
+            // Call einsum operation
+            let result = Tensor::einsum(spec, &tensor_refs)
+                .map_err(|e| RuntimeError::TensorError(e))?;
+
+            Ok(result.to_value())
+        } else {
+            // Extract f32 tensors
+            let tensors: Vec<_> = values.iter()
+                .filter_map(|v| match v {
+                    Value::TensorF32(t) => Some(t.clone()),
+                    _ => None
+                })
+                .collect();
+
+            // Create references for einsum call
+            let tensor_refs: Vec<&Tensor<f32>> = tensors.iter().collect();
+
+            // Call einsum operation
+            let result = Tensor::einsum(spec, &tensor_refs)
+                .map_err(|e| RuntimeError::TensorError(e))?;
+
+            Ok(result.to_value())
+        }
+    }
+
+    /// Format a string with arguments (like Rust's println!)
+    pub(crate) fn format_string(&self, format: &str, args: &[Value]) -> RuntimeResult<String> {
+        let mut result = String::new();
+        let mut arg_idx = 0;
+        let mut chars = format.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            if ch == '{' {
+                if chars.peek() == Some(&'}') {
+                    chars.next(); // consume '}'
+                    if arg_idx < args.len() {
+                        result.push_str(&Self::value_to_string(&args[arg_idx])?);
+                        arg_idx += 1;
+                    } else {
+                        return Err(RuntimeError::TypeError(
+                            "Not enough arguments for format string".to_string()
+                        ));
+                    }
+                } else {
+                    result.push(ch);
+                }
+            } else if ch == '\\' {
+                // Handle escape sequences
+                if let Some(&next_ch) = chars.peek() {
+                    chars.next();
+                    match next_ch {
+                        'n' => result.push('\n'),
+                        't' => result.push('\t'),
+                        'r' => result.push('\r'),
+                        '\\' => result.push('\\'),
+                        _ => {
+                            result.push('\\');
+                            result.push(next_ch);
+                        }
+                    }
+                } else {
+                    result.push(ch);
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Convert Value to string for display
+    fn value_to_string(value: &Value) -> RuntimeResult<String> {
+        Ok(match value {
+            Value::TensorF16(t) => {
+                format!("Tensor<f16>(shape={:?})", t.dims())
+            }
+            Value::TensorF32(t) => {
+                // For small tensors, show data values instead of just shape
+                let dims = t.dims();
+                let numel: usize = dims.iter().product();
+
+                if numel <= 10 {
+                    // Small tensor: show actual data values
+                    let data = t.sync_and_read();
+                    let mut result = String::from("[");
+                    for (i, val) in data.iter().enumerate() {
+                        if i > 0 {
+                            result.push_str(", ");
+                        }
+                        // Display as integer if it's a whole number (common for shapes)
+                        if val.fract() == 0.0 && val.abs() < 1e9 {
+                            result.push_str(&format!("{}", *val as i64));
+                        } else {
+                            result.push_str(&format!("{}", val));
+                        }
+                    }
+                    result.push(']');
+                    result
+                } else {
+                    // Large tensor: just show shape to avoid expensive transfer
+                    format!("Tensor<f32>(shape={:?})", dims)
+                }
+            }
+            Value::Boolean(b) => b.to_string(),
+            Value::Integer(i) => i.to_string(),
+            Value::Float(f) => f.to_string(),
+            Value::String(s) => s.clone(),
+            Value::Void => "void".to_string(),
+            Value::ModelF16(_) => "<ModelF16>".to_string(),
+            Value::ModelF32(_) => "<ModelF32>".to_string(),
+            Value::ModelLayerCollectionF16(_) => "<ModelLayerCollectionF16>".to_string(),
+            Value::ModelLayerCollectionF32(_) => "<ModelLayerCollectionF32>".to_string(),
+            Value::ModelLayerF16(_) => "<ModelLayerF16>".to_string(),
+            Value::ModelLayerF32(_) => "<ModelLayerF32>".to_string(),
+            Value::ModelFeatureF16(_) => "<ModelFeatureF16>".to_string(),
+            Value::ModelFeatureF32(_) => "<ModelFeatureF32>".to_string(),
+            Value::Tokenizer(_) => "<Tokenizer>".to_string(),
+            Value::TokenIds(ids) => format!("{:?}", ids),
+            Value::TokenIdArray(arr) => format!("{:?}", arr.data()),
+            Value::Type(t) => format!("<Type: {}>", t),
+            Value::KVCacheF16(cache) => {
+                let c = cache.lock().unwrap();
+                format!("<KVCache: {} layers>", c.kvs.len())
+            }
+            Value::KVCacheF32(cache) => {
+                let c = cache.lock().unwrap();
+                format!("<KVCache: {} layers>", c.kvs.len())
+            }
+            Value::WeightCacheF16(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                format!("<WeightCache<f16>: {}/{} cached>", cached, capacity)
+            }
+            Value::WeightCacheF32(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                format!("<WeightCache<f32>: {}/{} cached>", cached, capacity)
+            }
+            Value::GGUFWeightCacheF16(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                format!("<GGUFWeightCache<f16>: {}/{} cached>", cached, capacity)
+            }
+            Value::GGUFWeightCacheF32(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                format!("<GGUFWeightCache<f32>: {}/{} cached>", cached, capacity)
+            }
+            Value::LazyModelLayerCollectionF32(_) => "<LazyModelLayerCollectionF32>".to_string(),
+            Value::LazyModelLayerF32(_) => "<LazyModelLayerF32>".to_string(),
+            Value::LazyModelFeatureF32(_) => "<LazyModelFeatureF32>".to_string(),
+        })
+    }
+
+    /// Convert Value to display string for simple print mode
+    pub(crate) fn value_to_display(&self, value: &Value) -> String {
+        match value {
+            Value::TensorF16(t) => {
+                format!("Tensor<f16>(shape={:?})", t.dims())
+            }
+            Value::TensorF32(t) => {
+                // For small tensors, show data values instead of just shape
+                let dims = t.dims();
+                let numel: usize = dims.iter().product();
+
+                if numel <= 10 {
+                    // Small tensor: show actual data values
+                    let data = t.sync_and_read();
+                    let mut result = String::from("[");
+                    for (i, val) in data.iter().enumerate() {
+                        if i > 0 {
+                            result.push_str(", ");
+                        }
+                        // Display as integer if it's a whole number (common for shapes)
+                        if val.fract() == 0.0 && val.abs() < 1e9 {
+                            result.push_str(&format!("{}", *val as i64));
+                        } else {
+                            result.push_str(&format!("{}", val));
+                        }
+                    }
+                    result.push(']');
+                    result
+                } else {
+                    // Large tensor: just show shape to avoid expensive transfer
+                    format!("Tensor<f32>(shape={:?})", dims)
+                }
+            }
+            Value::Boolean(b) => b.to_string(),
+            Value::Integer(i) => i.to_string(),
+            Value::Float(f) => f.to_string(),
+            Value::String(s) => s.clone(),
+            Value::Void => "void".to_string(),
+            Value::ModelF16(_) => "<ModelF16>".to_string(),
+            Value::ModelF32(_) => "<ModelF32>".to_string(),
+            Value::ModelLayerCollectionF16(_) => "<ModelLayerCollectionF16>".to_string(),
+            Value::ModelLayerCollectionF32(_) => "<ModelLayerCollectionF32>".to_string(),
+            Value::ModelLayerF16(_) => "<ModelLayerF16>".to_string(),
+            Value::ModelLayerF32(_) => "<ModelLayerF32>".to_string(),
+            Value::ModelFeatureF16(_) => "<ModelFeatureF16>".to_string(),
+            Value::ModelFeatureF32(_) => "<ModelFeatureF32>".to_string(),
+            Value::Tokenizer(_) => "<Tokenizer>".to_string(),
+            Value::TokenIds(ids) => format!("{:?}", ids),
+            Value::TokenIdArray(arr) => format!("{:?}", arr.data()),
+            Value::Type(t) => format!("<Type: {}>", t),
+            Value::KVCacheF16(cache) => {
+                let c = cache.lock().unwrap();
+                format!("<KVCache: {} layers>", c.kvs.len())
+            }
+            Value::KVCacheF32(cache) => {
+                let c = cache.lock().unwrap();
+                format!("<KVCache: {} layers>", c.kvs.len())
+            }
+            Value::WeightCacheF16(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                format!("<WeightCache<f16>: {}/{} cached>", cached, capacity)
+            }
+            Value::WeightCacheF32(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                format!("<WeightCache<f32>: {}/{} cached>", cached, capacity)
+            }
+            Value::GGUFWeightCacheF16(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                format!("<GGUFWeightCache<f16>: {}/{} cached>", cached, capacity)
+            }
+            Value::GGUFWeightCacheF32(cache) => {
+                let (cached, capacity) = cache.cache_stats();
+                format!("<GGUFWeightCache<f32>: {}/{} cached>", cached, capacity)
+            }
+            Value::LazyModelLayerCollectionF32(_) => "<LazyModelLayerCollectionF32>".to_string(),
+            Value::LazyModelLayerF32(_) => "<LazyModelLayerF32>".to_string(),
+            Value::LazyModelFeatureF32(_) => "<LazyModelFeatureF32>".to_string(),
+        }
     }
 }

@@ -24,11 +24,29 @@ pub struct Program {
     pub declarations: Vec<Declaration>,
     /// Optional main block
     pub main_block: Option<MainBlock>,
+    /// Test blocks
+    pub test_blocks: Vec<TestBlock>,
+    /// Benchmark blocks
+    pub bench_blocks: Vec<BenchBlock>,
 }
 
 /// Main execution block
 #[derive(Debug, Clone, PartialEq)]
 pub struct MainBlock {
+    pub statements: Vec<Statement>,
+}
+
+/// Test block
+#[derive(Debug, Clone, PartialEq)]
+pub struct TestBlock {
+    pub name: Identifier,
+    pub statements: Vec<Statement>,
+}
+
+/// Benchmark block
+#[derive(Debug, Clone, PartialEq)]
+pub struct BenchBlock {
+    pub name: Identifier,
     pub statements: Vec<Statement>,
 }
 
@@ -390,8 +408,12 @@ pub enum TensorExpr {
     },
     /// Function call
     FunctionCall {
+        type_namespace: Option<String>,
         name: Identifier,
         args: Vec<TensorExpr>,
+        /// Resolved function reference (populated during semantic analysis)
+        /// None means not yet resolved (fallback to runtime lookup)
+        resolved: Option<ResolvedFunction>,
     },
     /// Tensor indexing: tensor[i, j, ...] or expression[i]
     TensorIndex {
@@ -457,6 +479,7 @@ pub enum BinaryOp {
     Sub,          // -
     Mul,          // *
     Div,          // /
+    Mod,          // %
     MatMul,       // @
     Power,        // **
     TensorProd,   // ⊗
@@ -578,9 +601,7 @@ pub struct TensorEquation {
 /// Equation type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EquationType {
-    Exact,      // =
     Approx,     // ~
-    Assign,     // :=
 }
 
 // ============================================================================
@@ -608,6 +629,10 @@ pub enum Statement {
     FunctionCall {
         name: Identifier,
         args: Vec<TensorExpr>,
+        /// Resolved function reference (populated during semantic analysis)
+        resolved: Option<ResolvedFunction>,
+        /// Source location of the function call
+        span: Span,
     },
     /// Fact assertion: <- pred(a, b)
     FactAssertion {
@@ -636,16 +661,29 @@ pub enum Statement {
     Learning(LearningSpec),
     /// Control flow
     ControlFlow(ControlFlow),
+    /// Block statement: { statements }
+    Block {
+        statements: Vec<Statement>,
+    },
     /// Break statement
     Break,
     /// Return statement: return [expr]
     Return {
         value: Option<TensorExpr>,
     },
+    /// Panic statement: panic("format", args...)
+    Panic {
+        format: String,
+        args: Vec<TensorExpr>,
+    },
     /// Python import: python import module [as alias]
     PythonImport {
         module: String,
         alias: Option<String>,
+    },
+    /// Expression statement (e.g., method calls like cache.set(...))
+    Expr {
+        expr: TensorExpr,
     },
 }
 
@@ -754,6 +792,140 @@ impl fmt::Display for Identifier {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+// ============================================================================
+// Semantic Analysis Types
+// ============================================================================
+
+/// Resolved function reference after semantic analysis
+/// This is populated during the semantic analysis pass to avoid runtime HashMap lookups
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedFunction {
+    /// Builtin function with direct ID-based dispatch
+    Builtin(BuiltinFunctionId),
+    /// User-defined function with shared reference
+    UserDefined(std::rc::Rc<FunctionDecl>),
+}
+
+/// Builtin function identifiers for direct dispatch without string comparison
+/// Organized by category for maintainability
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BuiltinFunctionId {
+    // Tensor creation functions
+    TensorZeros,
+    TensorOnes,
+    TensorRand,
+    TensorRandn,
+    TensorEye,
+    TensorArange,
+    TensorLinspace,
+
+    // Tensor shape operations
+    TensorReshape,
+    TensorFlatten,
+    TensorTranspose,
+    TensorPermute,
+    TensorSqueeze,
+    TensorUnsqueeze,
+    TensorConcat,
+    TensorStack,
+    TensorSplit,
+    TensorChunk,
+
+    // Mathematical functions
+    MathSin,
+    MathCos,
+    MathTan,
+    MathAsin,
+    MathAcos,
+    MathAtan,
+    MathSinh,
+    MathCosh,
+    MathTanh,
+    MathExp,
+    MathLog,
+    MathLog10,
+    MathSqrt,
+    MathAbs,
+    MathPow,
+    MathFloor,
+    MathCeil,
+    MathRound,
+
+    // Neural network operations
+    NNLinear,
+    NNRmsNorm,
+    NNLayerNorm,
+    NNBatchNorm,
+    NNSoftmax,
+    NNLogSoftmax,
+    NNReLU,
+    NNGeLU,
+    NNSiLU,
+    NNTanh,
+    NNSigmoid,
+    NNDropout,
+    NNAttention,
+    NNAttentionWithCache,
+    NNRoPE,
+
+    // Embedding operations
+    NNEmbedding,
+    NNEmbeddingLookup,
+
+    // Activation functions
+    ActReLU,
+    ActLeakyReLU,
+    ActELU,
+    ActSELU,
+    ActGeLU,
+    ActSiLU,
+    ActMish,
+    ActSwish,
+
+    // Loss functions
+    LossMSE,
+    LossCrossEntropy,
+    LossBCE,
+    LossKLDiv,
+
+    // Sampling functions
+    SampleTemperature,
+    SampleTopK,
+    SampleTopP,
+    SampleGreedy,
+    SampleArgmax,
+
+    // Model I/O functions
+    ModelLoad,
+    ModelLoadF16,
+    ModelLoadF32,
+    ModelSave,
+    ModelGetTensor,
+
+    // Tokenizer functions
+    TokenizerLoad,
+    TokenizerTokenize,
+    TokenizerDetokenize,
+    TokenizerDetokenizeSingle,
+
+    // Utility functions
+    UtilShape,
+    UtilRank,
+    UtilSize,
+    UtilPrint,
+    UtilEnv,
+    UtilIntToTokenIds,
+
+    // Knowledge graph functions (for future)
+    KGTransE,
+    KGDistMult,
+    KGComplEx,
+
+    // Graph neural network functions (for future)
+    GNNGCNLayer,
+    GNNGATLayer,
 }
 
 // ============================================================================
@@ -900,6 +1072,7 @@ impl fmt::Display for BinaryOp {
             BinaryOp::Sub => write!(f, "-"),
             BinaryOp::Mul => write!(f, "*"),
             BinaryOp::Div => write!(f, "/"),
+            BinaryOp::Mod => write!(f, "%"),
             BinaryOp::MatMul => write!(f, "@"),
             BinaryOp::Power => write!(f, "**"),
             BinaryOp::TensorProd => write!(f, "⊗"),

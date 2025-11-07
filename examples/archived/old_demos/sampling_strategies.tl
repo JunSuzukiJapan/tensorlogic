@@ -41,17 +41,17 @@ main {
     let e1 = embedding(embed_table, greedy_tokens)
     let l1 = matmul(e1, output_weight)
     let t1 = to_int(argmax(l1))
-    greedy_tokens := append(greedy_tokens, t1)
+    greedy_tokens = append(greedy_tokens, t1)
 
     let e2 = embedding(embed_table, greedy_tokens)
     let l2 = matmul(e2, output_weight)
     let t2 = to_int(argmax(l2))
-    greedy_tokens := append(greedy_tokens, t2)
+    greedy_tokens = append(greedy_tokens, t2)
 
     let e3 = embedding(embed_table, greedy_tokens)
     let l3 = matmul(e3, output_weight)
     let t3 = to_int(argmax(l3))
-    greedy_tokens := append(greedy_tokens, t3)
+    greedy_tokens = append(greedy_tokens, t3)
 
     let greedy_text = detokenize(tokenizer, greedy_tokens, true)
     print("  Generated:", greedy_text)
@@ -69,17 +69,17 @@ main {
     let te1 = embedding(embed_table, temp_tokens)
     let tl1 = matmul(te1, output_weight)
     let tt1 = temperature_sample(tl1, 0.7)
-    temp_tokens := append(temp_tokens, tt1)
+    temp_tokens = append(temp_tokens, tt1)
 
     let te2 = embedding(embed_table, temp_tokens)
     let tl2 = matmul(te2, output_weight)
     let tt2 = temperature_sample(tl2, 0.7)
-    temp_tokens := append(temp_tokens, tt2)
+    temp_tokens = append(temp_tokens, tt2)
 
     let te3 = embedding(embed_table, temp_tokens)
     let tl3 = matmul(te3, output_weight)
     let tt3 = temperature_sample(tl3, 0.7)
-    temp_tokens := append(temp_tokens, tt3)
+    temp_tokens = append(temp_tokens, tt3)
 
     let temp_text = detokenize(tokenizer, temp_tokens, true)
     print("  Generated:", temp_text)
@@ -97,17 +97,17 @@ main {
     let he1 = embedding(embed_table, hot_tokens)
     let hl1 = matmul(he1, output_weight)
     let ht1 = temperature_sample(hl1, 1.5)
-    hot_tokens := append(hot_tokens, ht1)
+    hot_tokens = append(hot_tokens, ht1)
 
     let he2 = embedding(embed_table, hot_tokens)
     let hl2 = matmul(he2, output_weight)
     let ht2 = temperature_sample(hl2, 1.5)
-    hot_tokens := append(hot_tokens, ht2)
+    hot_tokens = append(hot_tokens, ht2)
 
     let he3 = embedding(embed_table, hot_tokens)
     let hl3 = matmul(he3, output_weight)
     let ht3 = temperature_sample(hl3, 1.5)
-    hot_tokens := append(hot_tokens, ht3)
+    hot_tokens = append(hot_tokens, ht3)
 
     let hot_text = detokenize(tokenizer, hot_tokens, true)
     print("  Generated:", hot_text)
@@ -125,17 +125,17 @@ main {
     let ne1 = embedding(embed_table, nucleus_tokens)
     let nl1 = matmul(ne1, output_weight)
     let nt1 = top_p_sample(nl1, 0.9)
-    nucleus_tokens := append(nucleus_tokens, nt1)
+    nucleus_tokens = append(nucleus_tokens, nt1)
 
     let ne2 = embedding(embed_table, nucleus_tokens)
     let nl2 = matmul(ne2, output_weight)
     let nt2 = top_p_sample(nl2, 0.9)
-    nucleus_tokens := append(nucleus_tokens, nt2)
+    nucleus_tokens = append(nucleus_tokens, nt2)
 
     let ne3 = embedding(embed_table, nucleus_tokens)
     let nl3 = matmul(ne3, output_weight)
     let nt3 = top_p_sample(nl3, 0.9)
-    nucleus_tokens := append(nucleus_tokens, nt3)
+    nucleus_tokens = append(nucleus_tokens, nt3)
 
     let nucleus_text = detokenize(tokenizer, nucleus_tokens, true)
     print("  Generated:", nucleus_text)

@@ -2,10 +2,9 @@ use crate::tensor::FloatType;
 use crate::autograd::GradientFunctionGeneric;
 use std::marker::PhantomData;
 use super::prelude::*;
-use crate::device::{Device, MetalBuffer};
+use crate::device::{Device, MetalBuffer, EncoderProvider};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
-use half::f16;
 
 /// GELU演算の勾配関数
 ///
@@ -52,19 +51,21 @@ impl<T: FloatType> GELUBackward<T> {
 
         // Load gradient shaders if not already loaded
         if device.library().is_none() {
-            let shader_source = include_str!("../../../shaders/gradients.metal");
+            let shader_source = include_str!("../../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
         // Create result buffer
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), grad_output.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), grad_output.numel())?;
 
         // Execute kernel
         let mut executor = crate::device::KernelExecutor::new(device.clone());
+
         let pipeline = executor.get_or_compile_pipeline("gelu_backward_f16")?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Use Commands manager for command buffer (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&grad_out_buf.buffer), 0);
@@ -76,8 +77,9 @@ impl<T: FloatType> GELUBackward<T> {
 
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+
+        // Commands manager will flush and commit when needed
+        // Result stays on GPU - no wait needed (batching-friendly)
 
         Tensor::<T>::new(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -88,8 +90,8 @@ impl<T: FloatType> GELUBackward<T> {
 
     /// CPU fallback for GELU backward
     fn backward_cpu(&self, grad_output: &Tensor<T>) -> TensorResult<Tensor<T>> {
-        let grad_output_data = grad_output.to_vec();
-        let input_data = self.input.to_vec();
+        let grad_output_data = grad_output.sync_and_read();
+        let input_data = self.input.sync_and_read();
 
         let sqrt_2_over_pi_f32 = (2.0_f32 / std::f32::consts::PI).sqrt();
 
@@ -132,7 +134,7 @@ mod tests {
         let device = get_test_device();
 
         // input = [0.0, 1.0]
-        let input = <Tensor<half::f16>>::from_vec_metal(
+        let input = <Tensor<half::f16>>::from_vec_gpu(
             &device,
             vec![half::f16::from_f32(0.0), half::f16::from_f32(1.0)],
             vec![2],
@@ -140,7 +142,7 @@ mod tests {
         .unwrap();
 
         // grad_output = [1.0, 1.0]
-        let grad_output = <Tensor<half::f16>>::from_vec_metal(
+        let grad_output = <Tensor<half::f16>>::from_vec_gpu(
             &device,
             vec![half::f16::from_f32(1.0), half::f16::from_f32(1.0)],
             vec![2],
@@ -154,7 +156,7 @@ mod tests {
         assert_eq!(grads[0].dims(), &[2]);
 
         // 勾配が計算されていることを確認（具体的な値は数値微分で検証が望ましい）
-        let grad_values = grads[0].to_vec();
+        let grad_values = grads[0].sync_and_read();
         assert!(grad_values[0].to_f32() > 0.0); // x=0での勾配は正
         assert!(grad_values[1].to_f32() > 0.0); // x=1での勾配は正
     }

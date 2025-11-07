@@ -201,7 +201,7 @@ pub fn mlmultiarray_to_tensor(
     println!("  Copied {} f16 elements from MLMultiArray", data.len());
 
     // Create Tensor from data using Metal-backed constructor
-    Tensor::from_vec_metal(device, data, shape).map_err(CoreMLError::TensorError)
+    Tensor::from_vec_gpu(device, data, shape).map_err(CoreMLError::TensorError)
 }
 
 #[cfg(not(target_os = "macos"))]

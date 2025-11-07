@@ -2,7 +2,7 @@
 
 use crate::tensor::Tensor;
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO};
 use crate::TensorResult;
 use crate::error::TensorError;
 use half::f16;
@@ -42,29 +42,128 @@ impl<T: FloatType> Tensor<T> {
             });
         }
 
-        // Create large negative value for masked positions
-        let mask_value = f16::from_f32(-10000.0);
+        // Use GPU implementation if available, otherwise fallback to CPU
+        if self.buffer().is_metal() {
+            self.apply_attention_mask_metal(mask)
+        } else {
+            self.apply_attention_mask_cpu(mask)
+        }
+    }
 
-        // For each element: if mask == 0, use mask_value, else use original value
-        let self_data = self.to_vec();
-        let mask_data = mask.to_vec();
-        let self_f16: Vec<f16> = unsafe { std::mem::transmute(self_data) };
-        let mask_f16: Vec<f16> = unsafe { std::mem::transmute(mask_data) };
+    /// Metal GPU implementation of apply_attention_mask
+    fn apply_attention_mask_metal(&self, mask: &Tensor<T>) -> TensorResult<Self> {
+        use crate::device::{Device, MetalBuffer};
 
-        let result_data: Vec<f16> = self_f16
+        let size = self.numel();
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        // Load shader if not already loaded
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device.load_library(shader_source)?;
+        }
+
+        // Get input buffers
+        let scores_buf = self.buffer().as_metal()?;
+        let mask_buf = mask.buffer().as_metal()?;
+
+        // Create output buffer
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), size)?;
+
+        // Choose kernel based on type
+        let suffix = T::kernel_suffix();
+        let kernel_name = format!("apply_attention_mask{}", suffix);
+
+        // Get kernel function
+        let library = device.library()
+            .ok_or_else(|| TensorError::MetalError("No shader library loaded".to_string()))?;
+        let function = library
+            .get_function(&kernel_name, None)
+            .map_err(|e| TensorError::MetalError(format!("Kernel '{}' not found: {}", kernel_name, e)))?;
+
+        // Create pipeline
+        let pipeline = device
+            .metal_device()
+            .new_compute_pipeline_state_with_function(&function)
+            .map_err(|e| TensorError::MetalError(format!("Failed to create pipeline: {}", e)))?;
+
+        // Create size parameter buffer
+        let size_u32 = size as u32;
+        let size_bytes = unsafe {
+            std::slice::from_raw_parts(
+                &size_u32 as *const u32 as *const u8,
+                std::mem::size_of::<u32>()
+            )
+        };
+        let size_buf = device
+            .metal_device()
+            .new_buffer_with_data(
+                size_bytes.as_ptr() as *const std::ffi::c_void,
+                size_bytes.len() as u64,
+                metal::MTLResourceOptions::CPUCacheModeDefaultCache,
+            );
+
+        // Execute kernel
+        let command_queue = device.command_queue();
+        let command_buffer = command_queue.new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(scores_buf.metal_buffer()), 0);
+        encoder.set_buffer(1, Some(mask_buf.metal_buffer()), 0);
+        encoder.set_buffer(2, Some(result_buf.metal_buffer()), 0);
+        encoder.set_buffer(3, Some(&size_buf), 0);
+
+        // Calculate thread group sizes
+        let max_threads = pipeline.max_total_threads_per_threadgroup().min(256);
+        let threadgroup_size = metal::MTLSize {
+            width: max_threads,
+            height: 1,
+            depth: 1,
+        };
+        let threadgroups = metal::MTLSize {
+            width: ((size as u64 + max_threads - 1) / max_threads),
+            height: 1,
+            depth: 1,
+        };
+
+        encoder.dispatch_thread_groups(threadgroups, threadgroup_size);
+        encoder.end_encoding();
+
+        command_buffer.commit();
+        crate::ops::async_exec::submit_async(&command_buffer);
+
+        // Create result tensor
+        self.new_from_pool(
+            crate::tensor::BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
+            self.shape().clone(),
+        )
+    }
+
+    /// CPU fallback for apply_attention_mask
+    fn apply_attention_mask_cpu(&self, mask: &Tensor<T>) -> TensorResult<Self> {
+        // For CPU, we need to implement the logic
+        let self_data = self.sync_and_read();
+        let mask_data = mask.sync_and_read();
+
+        let result_data: Vec<T> = self_data
             .iter()
-            .zip(mask_f16.iter())
+            .zip(mask_data.iter())
             .map(|(&val, &mask_val)| {
-                if mask_val == f16::ZERO {
-                    mask_value
+                // mask_val: 1=keep, 0=mask
+                if T::to_f32(mask_val) == 0.0 {
+                    T::from_f32(-10000.0) // Large negative value for masked positions
                 } else {
                     val
                 }
             })
             .collect();
 
-        let result_t: Vec<T> = unsafe { std::mem::transmute(result_data) };
-        Tensor::from_vec(result_t, self.dims().to_vec())
+        Tensor::from_vec(result_data, self.dims().to_vec())
     }
 
     /// Create a causal mask for autoregressive attention
@@ -172,8 +271,8 @@ impl<T: FloatType> Tensor<T> {
             });
         }
 
-        let self_data = self.to_vec();
-        let other_data = other.to_vec();
+        let self_data = self.sync_and_read();
+        let other_data = other.sync_and_read();
         let self_f16: Vec<f16> = unsafe { std::mem::transmute(self_data) };
         let other_f16: Vec<f16> = unsafe { std::mem::transmute(other_data) };
 
@@ -200,7 +299,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_apply_attention_mask() {
+    fn test_apply_attention_mask_f16() {
         let scores = Tensor::from_vec(
             vec![
                 f16::from_f32(1.0), f16::from_f32(2.0),
@@ -215,7 +314,7 @@ mod tests {
         ).unwrap();
 
         let result = scores.apply_attention_mask(&mask).unwrap();
-        let data = result.to_vec();
+        let data = result.sync_and_read();
 
         assert_eq!(data[0], f16::from_f32(1.0));
         assert_eq!(data[1], f16::from_f32(-10000.0)); // masked
@@ -224,9 +323,44 @@ mod tests {
     }
 
     #[test]
+    fn test_apply_attention_mask_f32_gpu() {
+        use crate::device::MetalDevice;
+
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let scores = Tensor::from_vec_gpu(
+            &device,
+            vec![1.0f32, 2.0, 3.0, 4.0],
+            vec![2, 2],
+        ).unwrap();
+
+        let mask = Tensor::from_vec_gpu(
+            &device,
+            vec![1.0f32, 0.0, 1.0, 1.0],
+            vec![2, 2],
+        ).unwrap();
+
+        // Debug: verify input
+        let scores_data = scores.sync_and_read();
+        let mask_data = mask.sync_and_read();
+        println!("Scores: {:?}", scores_data);
+        println!("Mask: {:?}", mask_data);
+
+        let result = scores.apply_attention_mask(&mask).unwrap();
+        let data = result.sync_and_read();
+
+        println!("Result: {:?}", data);
+
+        assert_eq!(data[0], 1.0, "Expected scores[0]=1.0 to be kept");
+        assert_eq!(data[1], -10000.0, "Expected scores[1]=2.0 to be masked"); // masked
+        assert_eq!(data[2], 3.0, "Expected scores[2]=3.0 to be kept");
+        assert_eq!(data[3], 4.0, "Expected scores[3]=4.0 to be kept");
+    }
+
+    #[test]
     fn test_causal_mask() {
         let mask = Tensor::<f16>::causal_mask(3).unwrap();
-        let data = mask.to_vec();
+        let data = mask.sync_and_read();
 
         // Expected: [[1, 0, 0],
         //            [1, 1, 0],
@@ -247,7 +381,7 @@ mod tests {
     #[test]
     fn test_padding_mask() {
         let mask = Tensor::<f16>::padding_mask(&[2, 3], 4).unwrap();
-        let data = mask.to_vec();
+        let data = mask.sync_and_read();
 
         // Expected: [[1, 1, 0, 0],
         //            [1, 1, 1, 0]]
@@ -278,7 +412,7 @@ mod tests {
         ).unwrap();
 
         let combined = mask1.combine_masks(&mask2).unwrap();
-        let data = combined.to_vec();
+        let data = combined.sync_and_read();
 
         // Logical AND
         assert_eq!(data[0], f16::ONE);  // 1 & 1 = 1

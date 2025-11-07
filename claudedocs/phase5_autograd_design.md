@@ -735,26 +735,26 @@ fn linear_regression_example() -> TensorResult<()> {
     let device = MetalDevice::new()?;
 
     // データ: y = 2x + 3 + noise
-    let x = Tensor::from_vec_metal(
+    let x = Tensor::from_vec_gpu(
         &device,
         vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)],
         vec![3, 1]
     )?;
 
-    let y_target = Tensor::from_vec_metal(
+    let y_target = Tensor::from_vec_gpu(
         &device,
         vec![f16::from_f32(5.0), f16::from_f32(7.0), f16::from_f32(9.0)],
         vec![3, 1]
     )?;
 
     // パラメータ（学習対象）
-    let mut w = Tensor::from_vec_metal(
+    let mut w = Tensor::from_vec_gpu(
         &device,
         vec![f16::from_f32(0.1)],
         vec![1, 1]
     )?.requires_grad(true);
 
-    let mut b = Tensor::from_vec_metal(
+    let mut b = Tensor::from_vec_gpu(
         &device,
         vec![f16::from_f32(0.0)],
         vec![1]

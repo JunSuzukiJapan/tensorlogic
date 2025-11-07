@@ -2,7 +2,7 @@
 // Efficiently generates multiple tokens with position encoding
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
-    result := x * sigmoid(x)
+    result = x * sigmoid(x)
 }
 
 fn swiglu_ffn(
@@ -13,7 +13,7 @@ fn swiglu_ffn(
 ) -> float16[?, ?] {
     let gate = matmul(x, W_gate)
     let up = matmul(x, W_up)
-    result := matmul(silu(gate) * up, W_down)
+    result = matmul(silu(gate) * up, W_down)
 }
 
 // Attention with cached KV (K,V already have RoPE applied)
@@ -53,7 +53,7 @@ fn attention_with_cache(
 
     // Output projection
     let reshaped = reshape(out, [seq_len_f, 2048.0])
-    result := matmul(reshaped, W_o)
+    result = matmul(reshaped, W_o)
 }
 
 main {

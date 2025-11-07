@@ -2,7 +2,7 @@
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
-    result := x * sig
+    result = x * sig
 }
 
 fn swiglu_ffn(x: float16[?, ?], W_gate: float16[?, ?], W_up: float16[?, ?], W_down: float16[?, ?]) -> float16[?, ?] {
@@ -10,7 +10,7 @@ fn swiglu_ffn(x: float16[?, ?], W_gate: float16[?, ?], W_up: float16[?, ?], W_do
     let gate_act = silu(gate)
     let up = linear(x, W_up)
     let intermediate = gate_act * up
-    result := linear(intermediate, W_down)
+    result = linear(intermediate, W_down)
 }
 
 fn transformer_layer(h: float16[?, ?], layer_idx: int) -> float16[?, ?] {
@@ -58,7 +58,7 @@ fn transformer_layer(h: float16[?, ?], layer_idx: int) -> float16[?, ?] {
     let normed_ffn = rms_norm(h_after_attn, ffn_norm_weight)
     let ffn_output = swiglu_ffn(normed_ffn, W_gate, W_up, W_down)
 
-    result := h_after_attn + ffn_output
+    result = h_after_attn + ffn_output
 }
 
 let global_model: Model

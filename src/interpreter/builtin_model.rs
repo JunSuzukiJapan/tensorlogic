@@ -9,11 +9,25 @@ impl Interpreter {
             "save" => Some(self.eval_save(args)),
             "load" => Some(self.eval_load(args)),
             "load_model" => Some(self.eval_load_model(args)),
-            "get_tensor" => Some(self.eval_get_tensor(args)),
+            "load_model_f16" => Some(self.eval_load_model_f16(args)),
+            "load_model_f32" => Some(self.eval_load_model_f32(args)),
+            "load_weight_cache_f16" => Some(self.eval_load_weight_cache_f16(args)),
+            "load_weight_cache_f32" => Some(self.eval_load_weight_cache_f32(args)),
+            "load_weight_cache_gguf_f16" => Some(self.eval_load_weight_cache_gguf_f16(args)),
+            "load_weight_cache_gguf_f32" => Some(self.eval_load_weight_cache_gguf_f32(args)),
+
             "print" => Some(self.eval_print(args)),
+            "assert" => Some(self.eval_assert(args)),
+            "assert_eq" => Some(self.eval_assert_eq(args)),
+            "assert_about_eq" => Some(self.eval_assert_about_eq(args)),
             "load_tokenizer" => Some(self.eval_load_tokenizer(args)),
-            "tokenize" => Some(self.eval_tokenize(args)),
-            "detokenize" => Some(self.eval_detokenize(args)),
+            // tokenize, detokenize, append_token are now type methods only
+            // Use: tokenizer.tokenize() / tokenizer.detokenize() / tokens.append_token()
+            "detokenize_single" => Some(self.eval_detokenize_single(args)),
+            "detokenize_incremental" => Some(self.eval_detokenize_incremental(args)),
+            "int_to_tokenids" => Some(self.eval_int_to_tokenids(args)),
+            "string_length" => Some(self.eval_string_length(args)),
+            "string_substring" => Some(self.eval_string_substring(args)),
             "generate" | "print_top_k" => {
                 Some(Err(RuntimeError::NotImplemented(
                     format!("Model/IO function '{}' migration in progress", name)
@@ -103,87 +117,308 @@ impl Interpreter {
             )),
         };
 
-        // Load model using Metal device
+        // Load model as f16 using Metal device
         let device = self.env.metal_device();
-        let model = Model::load(&path, device)
+        let model = Model::<half::f16>::load(&path, device)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        println!("Loaded model from: {}", path);
-        Ok(Value::Model(model))
+        println!("Loaded model from: {} (f16)", path);
+        Ok(Value::ModelF16(model))
     }
 
-    /// get_tensor(model, "tensor_name")
-    /// Extract a tensor from a model by name
-    fn eval_get_tensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
-        if args.len() != 2 {
+    /// load_model_f16("path/to/model.gguf")
+    /// Load a GGUF model using fast mmap loader with f16 support
+    /// This is significantly faster than load_model() and load_model_f32()
+    fn eval_load_model_f16(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::model::formats::MmapGGUFLoader;
+
+        if args.len() != 1 {
             return Err(RuntimeError::TypeError(
-                format!("get_tensor() expects 2 arguments (model, tensor_name), got {}", args.len())
+                format!("load_model_f16() expects 1 argument (path), got {}", args.len())
             ));
         }
 
-        // Evaluate model argument
-        let model_val = self.eval_expr(&args[0])?;
-        let model = match model_val {
-            Value::Model(m) => m,
-            _ => return Err(RuntimeError::TypeError(
-                "get_tensor() first argument must be a Model".to_string()
-            )),
-        };
-
-        // Evaluate tensor name argument
-        let name_val = self.eval_expr(&args[1])?;
-        let tensor_name = match name_val {
+        // Evaluate path argument
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
             Value::String(s) => s,
             _ => return Err(RuntimeError::TypeError(
-                "get_tensor() second argument must be a string (tensor name)".to_string()
+                "load_model_f16() argument must be a string (path)".to_string()
             )),
         };
 
-        // Get tensor from model
-        let tensor = model.get_tensor(&tensor_name)
-            .ok_or_else(|| RuntimeError::InvalidOperation(
-                format!("Tensor '{}' not found in model", tensor_name)
-            ))?;
+        // Create mmap loader
+        let loader = MmapGGUFLoader::new(&path)
+            .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::TensorF16(tensor.clone()))
+        println!("Created mmap loader for: {}", path);
+        println!("  Tensors: {}", loader.metadata().tensor_count);
+        println!("  Version: {}", loader.metadata().version);
+
+        // Load model as f16 using Metal device
+        let device = self.env.metal_device();
+        let model = loader.load_f16_model(device)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        println!("Loaded model as f16 (mmap zero-copy)");
+        Ok(Value::ModelF16(model))
+    }
+
+    /// load_model_f32("path/to/model.gguf")
+    /// Load a GGUF model as f32 with lazy loading support
+    fn eval_load_model_f32(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::model::GGUFWeightCache;
+
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("load_model_f32() expects 1 argument (path), got {}", args.len())
+            ));
+        }
+
+        // Evaluate path argument
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "load_model_f32() argument must be a string (path)".to_string()
+            )),
+        };
+
+        // Create GGUF weight cache for lazy loading (capacity=200 for full weight retention)
+        let device = self.env.metal_device();
+        let cache = GGUFWeightCache::<f32>::new(&path, device.clone(), 200)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        println!("Loaded model from: {} (f32, lazy)", path);
+        println!("  Weights available: {}", cache.weight_names().len());
+
+        Ok(Value::GGUFWeightCacheF32(cache))
+    }
+
+    /// load_weight_cache_f16("path/to/model.safetensors", cache_capacity)
+    /// Create a lazy-loading weight cache for f16 weights
+    /// Uses memory mapping + LRU cache for efficient memory usage
+    fn eval_load_weight_cache_f16(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::model::WeightCache;
+
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("load_weight_cache_f16() expects 2 arguments (path, cache_capacity), got {}", args.len())
+            ));
+        }
+
+        // Evaluate path argument
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "load_weight_cache_f16() first argument must be a string (path)".to_string()
+            )),
+        };
+
+        // Evaluate cache_capacity argument
+        let capacity_val = self.eval_expr(&args[1])?;
+        let capacity = match capacity_val {
+            Value::Integer(i) => i as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "load_weight_cache_f16() second argument must be an integer (cache_capacity)".to_string()
+            )),
+        };
+
+        // Create weight cache with mmap
+        let device = self.env.metal_device();
+        let cache = WeightCache::<half::f16>::new(&path, device.clone(), capacity)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        println!("Created weight cache for: {} (f16, capacity={})", path, capacity);
+        println!("  Weights available: {}", cache.weight_names().len());
+
+        Ok(Value::WeightCacheF16(cache))
+    }
+
+    /// load_weight_cache_f32("path/to/model.safetensors", cache_capacity)
+    /// Create a lazy-loading weight cache for f32 weights
+    /// Uses memory mapping + LRU cache for efficient memory usage
+    fn eval_load_weight_cache_f32(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::model::WeightCache;
+
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("load_weight_cache_f32() expects 2 arguments (path, cache_capacity), got {}", args.len())
+            ));
+        }
+
+        // Evaluate path argument
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "load_weight_cache_f32() first argument must be a string (path)".to_string()
+            )),
+        };
+
+        // Evaluate cache_capacity argument
+        let capacity_val = self.eval_expr(&args[1])?;
+        let capacity = match capacity_val {
+            Value::Integer(i) => i as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "load_weight_cache_f32() second argument must be an integer (cache_capacity)".to_string()
+            )),
+        };
+
+        // Create weight cache with mmap
+        let device = self.env.metal_device();
+        let cache = WeightCache::<f32>::new(&path, device.clone(), capacity)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        println!("Created weight cache for: {} (f32, capacity={})", path, capacity);
+        println!("  Weights available: {}", cache.weight_names().len());
+
+        Ok(Value::WeightCacheF32(cache))
+    }
+
+    /// load_weight_cache_gguf_f16(path, cache_capacity)
+    /// Create a lazy-loading weight cache for GGUF quantized model (f16 precision)
+    ///
+    /// Uses memory mapping + LRU cache for efficient loading of quantized weights.
+    /// Weights are dequantized on-demand to f16 precision.
+    fn eval_load_weight_cache_gguf_f16(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::model::GGUFWeightCache;
+
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("load_weight_cache_gguf_f16() expects 2 arguments (path, cache_capacity), got {}", args.len())
+            ));
+        }
+
+        // Evaluate path argument
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "load_weight_cache_gguf_f16() first argument must be a string (path)".to_string()
+            )),
+        };
+
+        // Evaluate cache_capacity argument
+        let capacity_val = self.eval_expr(&args[1])?;
+        let capacity = match capacity_val {
+            Value::Integer(i) => i as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "load_weight_cache_gguf_f16() second argument must be an integer (cache_capacity)".to_string()
+            )),
+        };
+
+        // Create GGUF weight cache with mmap
+        let device = self.env.metal_device();
+        let cache = GGUFWeightCache::<half::f16>::new(&path, device.clone(), capacity)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        println!("Created GGUF weight cache for: {} (f16, capacity={})", path, capacity);
+        println!("  Weights available: {}", cache.weight_names().len());
+
+        Ok(Value::GGUFWeightCacheF16(cache))
+    }
+
+    /// load_weight_cache_gguf_f32(path, cache_capacity)
+    /// Create a lazy-loading weight cache for GGUF quantized model (f32 precision)
+    ///
+    /// Uses memory mapping + LRU cache for efficient loading of quantized weights.
+    /// Weights are dequantized on-demand to f32 precision.
+    fn eval_load_weight_cache_gguf_f32(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::model::GGUFWeightCache;
+
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("load_weight_cache_gguf_f32() expects 2 arguments (path, cache_capacity), got {}", args.len())
+            ));
+        }
+
+        // Evaluate path argument
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "load_weight_cache_gguf_f32() first argument must be a string (path)".to_string()
+            )),
+        };
+
+        // Evaluate cache_capacity argument
+        let capacity_val = self.eval_expr(&args[1])?;
+        let capacity = match capacity_val {
+            Value::Integer(i) => i as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "load_weight_cache_gguf_f32() second argument must be an integer (cache_capacity)".to_string()
+            )),
+        };
+
+        // Create GGUF weight cache with mmap
+        let device = self.env.metal_device();
+        let cache = GGUFWeightCache::<f32>::new(&path, device.clone(), capacity)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        println!("Created GGUF weight cache for: {} (f32, capacity={})", path, capacity);
+        println!("  Weights available: {}", cache.weight_names().len());
+
+        Ok(Value::GGUFWeightCacheF32(cache))
     }
 
     /// print(args...)
     /// Print values to stdout
     fn eval_print(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
-        let mut output = String::new();
+        // print(value1, value2, ...) - simple mode
+        // print("format {}", arg1, arg2, ...) - format string mode
 
-        for (i, arg) in args.iter().enumerate() {
-            if i > 0 {
-                output.push(' ');
-            }
-
-            let val = self.eval_expr(arg)?;
-            match val {
-                Value::String(s) => output.push_str(&s),
-                Value::Integer(n) => output.push_str(&n.to_string()),
-                Value::Float(f) => output.push_str(&f.to_string()),
-                Value::Boolean(b) => output.push_str(&b.to_string()),
-                Value::TensorF16(ref t) => {
-                    output.push_str(&format!("Tensor(shape={:?})", t.dims()));
-                }
-                Value::TensorF32(ref t) => {
-                    output.push_str(&format!("Tensor(shape={:?})", t.dims()));
-                }
-                Value::Model(_) => output.push_str("Model(...)"),
-                Value::Tokenizer(_) => output.push_str("Tokenizer(...)"),
-                Value::TokenIds(ref ids) => {
-                    output.push_str(&format!("TokenIds(len={})", ids.len()));
-                }
-                Value::TokenIdArray(ref arr) => {
-                    output.push_str(&format!("{}", arr.data().iter().map(|&id| id.to_string()).collect::<Vec<_>>().join(", ")));
-                }
-                Value::Type(ref ty) => output.push_str(&format!("Type({})", ty)),
-                Value::Void => output.push_str("void"),
-            }
+        if args.is_empty() {
+            println!();
+            return Ok(Value::Void);
         }
 
-        println!("{}", output);
+        // Check if first argument is a string literal (format string mode)
+        let first_val = self.eval_expr(&args[0])?;
+
+        if let Value::String(ref format_str) = first_val {
+            // Check if this is format string mode (contains {}) or simple mode
+            if format_str.contains("{}") {
+                // Format string mode: print("Hello {}", name)
+                if args.len() > 1 {
+                    // Evaluate remaining arguments
+                    let mut format_args = Vec::new();
+                    for arg in &args[1..] {
+                        format_args.push(self.eval_expr(arg)?);
+                    }
+
+                    // Use format_string helper from eval.rs
+                    let formatted = self.format_string(&format_str, &format_args)?;
+                    println!("{}", formatted);
+                } else {
+                    // Just a string, print it
+                    println!("{}", format_str);
+                }
+            } else if args.len() == 1 {
+                // Just a single string, print it
+                println!("{}", format_str);
+            } else {
+                // Simple mode with multiple arguments: print("A", "B", "C")
+                print!("{}", self.value_to_display(&first_val));
+                for arg in &args[1..] {
+                    print!(" ");
+                    let val = self.eval_expr(arg)?;
+                    print!("{}", self.value_to_display(&val));
+                }
+                println!();
+            }
+        } else {
+            // Simple mode: print(value1, value2, ...)
+            print!("{}", self.value_to_display(&first_val));
+            for arg in &args[1..] {
+                print!(" ");
+                let val = self.eval_expr(arg)?;
+                print!("{}", self.value_to_display(&val));
+            }
+            println!();
+        }
+
         Ok(Value::Void)
     }
 
@@ -217,7 +452,7 @@ impl Interpreter {
 
     /// tokenize(tokenizer, "text", add_special_tokens)
     /// Convert text to token IDs
-    fn eval_tokenize(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub(super) fn eval_tokenize(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 3 {
             return Err(RuntimeError::TypeError(
                 format!("tokenize() expects 3 arguments (tokenizer, text, add_special_tokens), got {}", args.len())
@@ -260,7 +495,7 @@ impl Interpreter {
 
     /// detokenize(tokenizer, token_ids, skip_special_tokens)
     /// Convert token IDs to text
-    fn eval_detokenize(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub(super) fn eval_detokenize(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 3 {
             return Err(RuntimeError::TypeError(
                 format!("detokenize() expects 3 arguments (tokenizer, token_ids, skip_special_tokens), got {}", args.len())
@@ -299,5 +534,566 @@ impl Interpreter {
             .map_err(|e| RuntimeError::TensorError(e))?;
 
         Ok(Value::String(text))
+    }
+
+    /// detokenize_single(tokenizer, token_id, skip_special_tokens)
+    /// Convert a single token ID (Integer) to text
+    fn eval_detokenize_single(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 3 {
+            return Err(RuntimeError::TypeError(
+                format!("detokenize_single() expects 3 arguments (tokenizer, token_id, skip_special_tokens), got {}", args.len())
+            ));
+        }
+
+        // Get tokenizer
+        let tokenizer_val = self.eval_expr(&args[0])?;
+        let tokenizer = match tokenizer_val {
+            Value::Tokenizer(t) => t,
+            _ => return Err(RuntimeError::TypeError(
+                "detokenize_single() first argument must be a Tokenizer".to_string()
+            )),
+        };
+
+        // Get token ID (Integer)
+        let token_id_val = self.eval_expr(&args[1])?;
+        let token_id = match token_id_val {
+            Value::Integer(id) => id as u32,
+            _ => return Err(RuntimeError::TypeError(
+                "detokenize_single() second argument must be an Integer (token ID)".to_string()
+            )),
+        };
+
+        // Get skip_special_tokens flag
+        let skip_val = self.eval_expr(&args[2])?;
+        let skip_special = match skip_val {
+            Value::Boolean(b) => b,
+            _ => return Err(RuntimeError::TypeError(
+                "detokenize_single() third argument must be a boolean".to_string()
+            )),
+        };
+
+        // Convert single token to TokenIds array
+        let token_ids = vec![token_id];
+
+        // Detokenize
+        let text = tokenizer.decode(&token_ids, skip_special)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(Value::String(text))
+    }
+
+    /// detokenize_incremental(tokenizer, token_ids_array)
+    /// Detokenize all tokens and return only the new text since last call
+    /// This handles multi-byte UTF-8 characters correctly by decoding all tokens together
+    fn eval_detokenize_incremental(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("detokenize_incremental() expects 2 arguments (tokenizer, token_ids), got {}", args.len())
+            ));
+        }
+
+        // Get tokenizer
+        let tokenizer_val = self.eval_expr(&args[0])?;
+        let tokenizer = match tokenizer_val {
+            Value::Tokenizer(t) => t,
+            _ => return Err(RuntimeError::TypeError(
+                "detokenize_incremental() first argument must be a Tokenizer".to_string()
+            )),
+        };
+
+        // Get token IDs array
+        let token_ids_val = self.eval_expr(&args[1])?;
+        let token_ids = match token_ids_val {
+            Value::TokenIds(ids) => ids,
+            _ => return Err(RuntimeError::TypeError(
+                "detokenize_incremental() second argument must be TokenIds array".to_string()
+            )),
+        };
+
+        // Decode all tokens
+        let full_text = tokenizer.decode(&token_ids, false)
+            .map_err(|e| RuntimeError::TensorError(e))?;
+
+        Ok(Value::String(full_text))
+    }
+
+    /// int_to_tokenids(token_id)
+    /// Convert a single token ID (Integer) to TokenIds array
+    fn eval_int_to_tokenids(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("int_to_tokenids() expects 1 argument (token_id), got {}", args.len())
+            ));
+        }
+
+        // Get token ID (Integer)
+        let token_id_val = self.eval_expr(&args[0])?;
+        let token_id = match token_id_val {
+            Value::Integer(id) => id as u32,
+            _ => return Err(RuntimeError::TypeError(
+                "int_to_tokenids() argument must be an Integer (token ID)".to_string()
+            )),
+        };
+
+        // Create single-element TokenIds vector
+        let token_ids = vec![token_id];
+
+        Ok(Value::TokenIds(token_ids))
+    }
+
+    /// append_token(token_ids, token_id)
+    /// Append a token ID to TokenIds array (returns new array)
+    pub(super) fn eval_append_token(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("append_token() expects 2 arguments (token_ids, token_id), got {}", args.len())
+            ));
+        }
+
+        // Get existing token IDs array
+        let token_ids_val = self.eval_expr(&args[0])?;
+        let mut token_ids = match token_ids_val {
+            Value::TokenIds(ids) => ids,
+            _ => return Err(RuntimeError::TypeError(
+                "append_token() first argument must be TokenIds array".to_string()
+            )),
+        };
+
+        // Get new token ID to append
+        let token_id_val = self.eval_expr(&args[1])?;
+        let new_token_id = match token_id_val {
+            Value::Integer(id) => id as u32,
+            _ => return Err(RuntimeError::TypeError(
+                "append_token() second argument must be an Integer (token ID)".to_string()
+            )),
+        };
+
+        // Append new token
+        token_ids.push(new_token_id);
+
+        Ok(Value::TokenIds(token_ids))
+    }
+
+    /// string_length(text)
+    /// Get the length of a string
+    fn eval_string_length(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("string_length() expects 1 argument (text), got {}", args.len())
+            ));
+        }
+
+        let text_val = self.eval_expr(&args[0])?;
+        let text = match text_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "string_length() argument must be a String".to_string()
+            )),
+        };
+
+        Ok(Value::Integer(text.len() as i64))
+    }
+
+    /// string_substring(text, start, length)
+    /// Get a substring from a string
+    fn eval_string_substring(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 3 {
+            return Err(RuntimeError::TypeError(
+                format!("string_substring() expects 3 arguments (text, start, length), got {}", args.len())
+            ));
+        }
+
+        let text_val = self.eval_expr(&args[0])?;
+        let text = match text_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "string_substring() first argument must be a String".to_string()
+            )),
+        };
+
+        let start_val = self.eval_expr(&args[1])?;
+        let start = match start_val {
+            Value::Integer(i) => i as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "string_substring() second argument must be an Integer (start)".to_string()
+            )),
+        };
+
+        let length_val = self.eval_expr(&args[2])?;
+        let length = match length_val {
+            Value::Integer(i) => i as usize,
+            _ => return Err(RuntimeError::TypeError(
+                "string_substring() third argument must be an Integer (length)".to_string()
+            )),
+        };
+
+        let substring = text.chars().skip(start).take(length).collect::<String>();
+        Ok(Value::String(substring))
+    }
+
+    /// assert(condition)
+    /// Panic if condition is false (like Rust's assert! macro)
+    fn eval_assert(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("assert() expects 1 argument (condition), got {}", args.len())
+            ));
+        }
+
+        let condition_val = self.eval_expr(&args[0])?;
+        let condition = match condition_val {
+            Value::Boolean(b) => b,
+            _ => return Err(RuntimeError::TypeError(
+                "assert() argument must be a boolean".to_string()
+            )),
+        };
+
+        if !condition {
+            let location = if let Some(ref span) = self.current_span {
+                let file = self.current_file
+                    .as_ref()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("<unknown>");
+                format!("{}:{}:{}", file, span.start.line, span.start.column)
+            } else {
+                self.current_file
+                    .as_ref()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("<unknown>")
+                    .to_string()
+            };
+            panic!("Assertion failed!\n  at {}", location);
+        }
+
+        Ok(Value::Void)
+    }
+
+    /// assert_eq(left, right)
+    /// Panic if values are not equal (like Rust's assert_eq! macro)
+    fn eval_assert_eq(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("assert_eq() expects 2 arguments (left, right), got {}", args.len())
+            ));
+        }
+
+        let left_val = self.eval_expr(&args[0])?;
+        let right_val = self.eval_expr(&args[1])?;
+
+        // Compare values based on type
+        let are_equal = match (&left_val, &right_val) {
+            (Value::Integer(a), Value::Integer(b)) => a == b,
+            (Value::Float(a), Value::Float(b)) => a == b,
+            (Value::Boolean(a), Value::Boolean(b)) => a == b,
+            (Value::String(a), Value::String(b)) => a == b,
+            (Value::TensorF16(a), Value::TensorF16(b)) => {
+                // Compare tensors by shape and values
+                a.dims() == b.dims() && {
+                    let a_data = a.sync_and_read_f32();
+                    let b_data = b.sync_and_read_f32();
+                    a_data == b_data
+                }
+            }
+            (Value::TensorF32(a), Value::TensorF32(b)) => {
+                // Compare tensors by shape and values
+                a.dims() == b.dims() && {
+                    let a_data = a.sync_and_read_f32();
+                    let b_data = b.sync_and_read_f32();
+                    a_data == b_data
+                }
+            }
+            _ => false, // Different types are not equal
+        };
+
+        if !are_equal {
+            let location = if let Some(ref span) = self.current_span {
+                let file = self.current_file
+                    .as_ref()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("<unknown>");
+                format!("{}:{}:{}", file, span.start.line, span.start.column)
+            } else {
+                self.current_file
+                    .as_ref()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("<unknown>")
+                    .to_string()
+            };
+            panic!("Assertion failed: {:?} != {:?}\n  at {}",
+                   self.value_to_display(&left_val),
+                   self.value_to_display(&right_val),
+                   location);
+        }
+
+        Ok(Value::Void)
+    }
+
+    /// assert_about_eq(left, right, epsilon)
+    /// Panic if values are not approximately equal within epsilon (uses ≈ comparison)
+    fn eval_assert_about_eq(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 3 {
+            return Err(RuntimeError::TypeError(
+                format!("assert_about_eq() expects 3 arguments (left, right, epsilon), got {}", args.len())
+            ));
+        }
+
+        let left_val = self.eval_expr(&args[0])?;
+        let right_val = self.eval_expr(&args[1])?;
+        let epsilon_val = self.eval_expr(&args[2])?;
+
+        let epsilon = match epsilon_val {
+            Value::Float(e) => e,
+            Value::Integer(e) => e as f64,
+            _ => return Err(RuntimeError::TypeError(
+                "assert_about_eq() third argument (epsilon) must be a number".to_string()
+            )),
+        };
+
+        // Compare values based on type with epsilon tolerance
+        let are_approx_equal = match (&left_val, &right_val) {
+            (Value::Integer(a), Value::Integer(b)) => {
+                (*a as f64 - *b as f64).abs() < epsilon
+            }
+            (Value::Float(a), Value::Float(b)) => {
+                (a - b).abs() < epsilon
+            }
+            (Value::Integer(a), Value::Float(b)) | (Value::Float(b), Value::Integer(a)) => {
+                (*a as f64 - b).abs() < epsilon
+            }
+            (Value::TensorF16(a), Value::TensorF16(b)) => {
+                if a.dims() != b.dims() {
+                    false
+                } else {
+                    let a_data = a.sync_and_read_f32();
+                    let b_data = b.sync_and_read_f32();
+                    a_data.iter().zip(b_data.iter()).all(|(av, bv)| {
+                        (av - bv).abs() < epsilon as f32
+                    })
+                }
+            }
+            (Value::TensorF32(a), Value::TensorF32(b)) => {
+                if a.dims() != b.dims() {
+                    false
+                } else {
+                    let a_data = a.sync_and_read_f32();
+                    let b_data = b.sync_and_read_f32();
+                    a_data.iter().zip(b_data.iter()).all(|(av, bv)| {
+                        (av - bv).abs() < epsilon as f32
+                    })
+                }
+            }
+            _ => return Err(RuntimeError::TypeError(
+                format!("assert_about_eq() cannot compare {} and {}",
+                        std::any::type_name_of_val(&left_val),
+                        std::any::type_name_of_val(&right_val))
+            )),
+        };
+
+        if !are_approx_equal {
+            let location = if let Some(ref span) = self.current_span {
+                let file = self.current_file
+                    .as_ref()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("<unknown>");
+                format!("{}:{}:{}", file, span.start.line, span.start.column)
+            } else {
+                self.current_file
+                    .as_ref()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("<unknown>")
+                    .to_string()
+            };
+            panic!("Assertion failed: {:?} ≈ {:?} (within epsilon {})\n  at {}",
+                   self.value_to_display(&left_val),
+                   self.value_to_display(&right_val),
+                   epsilon,
+                   location);
+        }
+
+        Ok(Value::Void)
+    }
+}
+
+#[cfg(test)]
+mod detokenize_tests {
+    use super::*;
+    use crate::tokenizer::Tokenizer;
+    use std::sync::Arc;
+
+    /// Helper function to load TinyLlama tokenizer for testing
+    /// Returns None if tokenizer file is not available (optional test)
+    fn load_test_tokenizer() -> Option<Arc<Tokenizer>> {
+        let home = std::env::var("HOME").ok()?;
+        let tokenizer_path = format!("{}/.llm/tokenizers/tinyllama-tokenizer.json", home);
+
+        if !std::path::Path::new(&tokenizer_path).exists() {
+            return None;
+        }
+
+        Tokenizer::from_file(&tokenizer_path).ok().map(Arc::new)
+    }
+
+    #[test]
+    fn test_detokenize_single_special_tokens() {
+        let Some(tokenizer) = load_test_tokenizer() else {
+            eprintln!("Skipping test: TinyLlama tokenizer not available");
+            return;
+        };
+
+        // Test BOS token <s> (ID: 1)
+        let bos_text = tokenizer.decode(&[1], false).unwrap();
+        assert_eq!(bos_text, "<s>", "Token ID 1 should decode to <s>");
+
+        // Test EOS token </s> (ID: 2)
+        let eos_text = tokenizer.decode(&[2], false).unwrap();
+        assert_eq!(eos_text, "</s>", "Token ID 2 should decode to </s>");
+
+        // Test UNK token <unk> (ID: 0)
+        let unk_text = tokenizer.decode(&[0], false).unwrap();
+        assert_eq!(unk_text, "<unk>", "Token ID 0 should decode to <unk>");
+    }
+
+    #[test]
+    fn test_detokenize_single_skip_special_tokens() {
+        let Some(tokenizer) = load_test_tokenizer() else {
+            eprintln!("Skipping test: TinyLlama tokenizer not available");
+            return;
+        };
+
+        // When skip_special_tokens=true, special tokens should be empty or filtered
+        let bos_text_skip = tokenizer.decode(&[1], true).unwrap();
+        assert!(
+            bos_text_skip.is_empty() || bos_text_skip == " ",
+            "BOS token should be skipped when skip_special_tokens=true, got: '{}'",
+            bos_text_skip
+        );
+
+        let eos_text_skip = tokenizer.decode(&[2], true).unwrap();
+        assert!(
+            eos_text_skip.is_empty() || eos_text_skip == " ",
+            "EOS token should be skipped when skip_special_tokens=true, got: '{}'",
+            eos_text_skip
+        );
+    }
+
+    #[test]
+    fn test_detokenize_single_regular_tokens() {
+        let Some(tokenizer) = load_test_tokenizer() else {
+            eprintln!("Skipping test: TinyLlama tokenizer not available");
+            return;
+        };
+
+        // Test known single-character token mappings from debug_sampling.tl
+        // Token ID 100 should produce 'a' or similar common character
+        let token_100 = tokenizer.decode(&[100], false).unwrap();
+        assert!(!token_100.is_empty(), "Token ID 100 should decode to non-empty string");
+
+        // For TinyLlama, token 100 is known to be a valid character
+        assert!(
+            token_100.len() <= 10,
+            "Single token should not produce unreasonably long text, got: '{}'",
+            token_100
+        );
+    }
+
+    #[test]
+    fn test_detokenize_single_utf8_handling() {
+        let Some(tokenizer) = load_test_tokenizer() else {
+            eprintln!("Skipping test: TinyLlama tokenizer not available");
+            return;
+        };
+
+        // Test that decoder properly handles UTF-8 encoding
+        // We'll test with a sequence of tokens that should form valid UTF-8
+        let hello_tokens = tokenizer.encode("Hello", false).unwrap();
+        let decoded = tokenizer.decode(&hello_tokens, false).unwrap();
+
+        assert_eq!(decoded, "Hello", "UTF-8 encoding/decoding should be consistent");
+        assert!(decoded.is_ascii(), "Hello should decode as ASCII");
+    }
+
+    #[test]
+    fn test_detokenize_single_consistency() {
+        let Some(tokenizer) = load_test_tokenizer() else {
+            eprintln!("Skipping test: TinyLlama tokenizer not available");
+            return;
+        };
+
+        // Test encode-decode consistency (mathematical property: decode(encode(x)) == x)
+        let test_texts = vec![
+            "Hello, world!",
+            "The quick brown fox",
+            "123456",
+            "Special chars: !@#$%",
+        ];
+
+        for text in test_texts {
+            let tokens = tokenizer.encode(text, false).unwrap();
+            let decoded = tokenizer.decode(&tokens, false).unwrap();
+
+            assert_eq!(
+                decoded, text,
+                "Encode-decode should be consistent: encode('{}') → {:?} → decode → '{}'",
+                text, tokens, decoded
+            );
+        }
+    }
+
+    #[test]
+    fn test_detokenize_single_empty_behavior() {
+        let Some(tokenizer) = load_test_tokenizer() else {
+            eprintln!("Skipping test: TinyLlama tokenizer not available");
+            return;
+        };
+
+        // Test that decoding empty token array produces empty string
+        let empty_decoded = tokenizer.decode(&[], false).unwrap();
+        assert_eq!(empty_decoded, "", "Empty token array should decode to empty string");
+    }
+
+    #[test]
+    fn test_detokenize_single_token_id_bounds() {
+        let Some(tokenizer) = load_test_tokenizer() else {
+            eprintln!("Skipping test: TinyLlama tokenizer not available");
+            return;
+        };
+
+        let vocab_size = tokenizer.vocab_size();
+        println!("TinyLlama vocab size: {}", vocab_size);
+
+        // Test that valid token IDs within vocabulary bounds decode successfully
+        // TinyLlama has 32000 tokens in vocabulary
+        assert!(vocab_size > 0, "Vocabulary size should be positive");
+        assert!(vocab_size <= 100000, "Vocabulary size should be reasonable");
+
+        // Test first token (usually <unk>)
+        let first_token = tokenizer.decode(&[0], false);
+        assert!(first_token.is_ok(), "First token (ID 0) should decode successfully");
+
+        // Test a mid-range token
+        let mid_token = tokenizer.decode(&[vocab_size as u32 / 2], false);
+        assert!(mid_token.is_ok(), "Mid-range token should decode successfully");
+
+        // Test last valid token
+        let last_token = tokenizer.decode(&[(vocab_size - 1) as u32], false);
+        assert!(last_token.is_ok(), "Last valid token should decode successfully");
+    }
+
+    #[test]
+    fn test_detokenize_single_deterministic() {
+        let Some(tokenizer) = load_test_tokenizer() else {
+            eprintln!("Skipping test: TinyLlama tokenizer not available");
+            return;
+        };
+
+        // Test that same token ID always produces same output (deterministic property)
+        let token_id = 100u32;
+
+        let result1 = tokenizer.decode(&[token_id], false).unwrap();
+        let result2 = tokenizer.decode(&[token_id], false).unwrap();
+        let result3 = tokenizer.decode(&[token_id], false).unwrap();
+
+        assert_eq!(result1, result2, "Decoding should be deterministic");
+        assert_eq!(result2, result3, "Decoding should be deterministic");
     }
 }

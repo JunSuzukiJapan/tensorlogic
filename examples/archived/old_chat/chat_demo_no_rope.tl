@@ -4,7 +4,7 @@
 // SiLU activation
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
-    result := x * sig
+    result = x * sig
 }
 
 // SwiGLU FFN
@@ -18,7 +18,7 @@ fn swiglu_ffn(
     let gate_act = silu(gate)
     let up = linear(x, W_up)
     let intermediate = gate_act * up
-    result := linear(intermediate, W_down)
+    result = linear(intermediate, W_down)
 }
 
 // Grouped Query Attention (GQA) - Dynamic seq_len version
@@ -80,7 +80,7 @@ fn tinyllama_gqa_attention(
     let d_model = 2048.0
     let shape_output = [seq_len_f, d_model]
     let attn_reshaped = reshape(attn_output, shape_output)
-    result := linear(attn_reshaped, W_o)
+    result = linear(attn_reshaped, W_o)
 }
 
 // Single Transformer Layer
@@ -117,7 +117,7 @@ fn transformer_layer(
     let ffn_out = swiglu_ffn(x_norm2, W_gate, W_up, W_down)
 
     // Final residual
-    result := x1 + ffn_out
+    result = x1 + ffn_out
 }
 
 main {
@@ -435,7 +435,7 @@ main {
     let final_norm1 = rms_norm(h21, output_norm)
     let logits1 = linear(final_norm1, output_weight)
     let t1 = temperature_sample(logits1, 0.8)
-    gen_tokens := append(gen_tokens, t1)
+    gen_tokens = append(gen_tokens, t1)
     print("            Token:", t1)
 
     // Token 2
@@ -466,7 +466,7 @@ main {
     let final_norm2 = rms_norm(h21_2, output_norm)
     let logits2 = linear(final_norm2, output_weight)
     let t2 = temperature_sample(logits2, 0.8)
-    gen_tokens := append(gen_tokens, t2)
+    gen_tokens = append(gen_tokens, t2)
     print("            Token:", t2)
 
     // Token 3
@@ -497,7 +497,7 @@ main {
     let final_norm3 = rms_norm(h21_3, output_norm)
     let logits3 = linear(final_norm3, output_weight)
     let t3 = temperature_sample(logits3, 0.8)
-    gen_tokens := append(gen_tokens, t3)
+    gen_tokens = append(gen_tokens, t3)
     print("            Token:", t3)
 
     // Token 4
@@ -528,7 +528,7 @@ main {
     let final_norm4 = rms_norm(h21_4, output_norm)
     let logits4 = linear(final_norm4, output_weight)
     let t4 = temperature_sample(logits4, 0.8)
-    gen_tokens := append(gen_tokens, t4)
+    gen_tokens = append(gen_tokens, t4)
     print("            Token:", t4)
 
     // Token 5
@@ -559,7 +559,7 @@ main {
     let final_norm5 = rms_norm(h21_5, output_norm)
     let logits5 = linear(final_norm5, output_weight)
     let t5 = temperature_sample(logits5, 0.8)
-    gen_tokens := append(gen_tokens, t5)
+    gen_tokens = append(gen_tokens, t5)
     print("            Token:", t5)
 
     print("")

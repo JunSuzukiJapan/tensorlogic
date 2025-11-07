@@ -8,9 +8,9 @@
 //! - LayerNorm + Linear
 //! - GELU + Linear
 
-use crate::device::{Device, MetalBuffer};
+use crate::device::{Device, MetalBuffer, EncoderProvider};
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorTransform, TensorAutograd};
+use crate::tensor::{TensorAccessors, TensorCreation, TensorIO, TensorAutograd};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, Tensor};
 
@@ -90,7 +90,7 @@ impl<T: FloatType> Tensor<T> {
         Tensor<T>: TensorAutograd<T>,
     {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -112,11 +112,11 @@ impl<T: FloatType> Tensor<T> {
 
         // Load shader
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/advanced_fusion.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), m * n)?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), m * n)?;
 
         let m_u32 = m as u32;
         let k_u32 = k as u32;
@@ -125,8 +125,8 @@ impl<T: FloatType> Tensor<T> {
         let mut executor = crate::device::KernelExecutor::new(device.clone());
         let pipeline = executor.get_or_compile_pipeline("fused_linear_residual_relu_f16")?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(x_buf.metal_buffer()), 0);
@@ -155,8 +155,6 @@ impl<T: FloatType> Tensor<T> {
 
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
 
         Tensor::new(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -177,8 +175,9 @@ impl<T: FloatType> Tensor<T> {
     where
         Tensor<T>: TensorAutograd<T>,
     {
+        panic!("src/ops/advanced_fusion.rs:168:5");
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -237,7 +236,7 @@ impl<T: FloatType> Tensor<T> {
         n: usize,
     ) -> TensorResult<Self> {
         // Currently only f16 is supported for Metal operations
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "Metal operations currently only support f16".to_string()
             ));
@@ -257,11 +256,11 @@ impl<T: FloatType> Tensor<T> {
         };
 
         if device.library().is_none() {
-            let shader_source = include_str!("../../shaders/advanced_fusion.metal");
+            let shader_source = include_str!("../../shaders/unified.metal");
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), m * n)?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), m * n)?;
 
         let m_u32 = m as u32;
         let k_u32 = k as u32;
@@ -270,8 +269,8 @@ impl<T: FloatType> Tensor<T> {
         let mut executor = crate::device::KernelExecutor::new(device.clone());
         let pipeline = executor.get_or_compile_pipeline("fused_gelu_linear_f16")?;
 
-        let command_buffer = device.command_queue().new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(x_buf.metal_buffer()), 0);
@@ -299,8 +298,6 @@ impl<T: FloatType> Tensor<T> {
 
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
 
         Tensor::new(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -320,8 +317,9 @@ impl<T: FloatType> Tensor<T> {
     where
         Tensor<T>: TensorAutograd<T>,
     {
+        panic!("src/ops/advanced_fusion.rs:312:5");
         // Currently only f16 is supported
-        if !T::is_f16() {
+        if false {
             return Err(TensorError::InvalidOperation(
                 "CPU operations currently only support f16".to_string()
             ));
@@ -344,7 +342,7 @@ mod tests {
         let device = MetalDevice::new().unwrap();
 
         // Create test tensors: x=[2,3], w=[3,2], bias=[2], residual=[2,2]
-        let x = Tensor::from_vec_metal(
+        let x = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(1.0),
@@ -358,7 +356,7 @@ mod tests {
         )
         .unwrap();
 
-        let w = Tensor::from_vec_metal(
+        let w = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(0.1),
@@ -372,14 +370,14 @@ mod tests {
         )
         .unwrap();
 
-        let bias = Tensor::from_vec_metal(
+        let bias = Tensor::from_vec_gpu(
             &device,
             vec![f16::from_f32(0.1), f16::from_f32(0.2)],
             vec![2],
         )
         .unwrap();
 
-        let residual = Tensor::from_vec_metal(
+        let residual = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(0.5),
@@ -396,7 +394,7 @@ mod tests {
         assert_eq!(result.shape().dims(), &[2, 2]);
 
         // Values should be positive (ReLU applied)
-        let data = result.to_vec();
+        let data = result.sync_and_read();
         for &val in &data {
             assert!(val >= f16::ZERO);
         }
@@ -406,7 +404,7 @@ mod tests {
     fn test_fused_gelu_linear() {
         let device = MetalDevice::new().unwrap();
 
-        let x = Tensor::from_vec_metal(
+        let x = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(1.0),
@@ -418,7 +416,7 @@ mod tests {
         )
         .unwrap();
 
-        let w = Tensor::from_vec_metal(
+        let w = Tensor::from_vec_gpu(
             &device,
             vec![
                 f16::from_f32(0.5),
@@ -431,7 +429,7 @@ mod tests {
         .unwrap();
 
         let bias =
-            Tensor::from_vec_metal(&device, vec![f16::from_f32(0.1), f16::from_f32(0.1)], vec![2])
+            Tensor::from_vec_gpu(&device, vec![f16::from_f32(0.1), f16::from_f32(0.1)], vec![2])
                 .unwrap();
 
         let result = x.fused_gelu_linear(&w, &bias).unwrap();
@@ -439,7 +437,7 @@ mod tests {
         assert_eq!(result.shape().dims(), &[2, 2]);
 
         // GELU should produce positive values for positive inputs
-        let data = result.to_vec();
+        let data = result.sync_and_read();
         for &val in &data {
             assert!(val > f16::ZERO);
         }

@@ -1,7 +1,7 @@
 // Detailed profiling for 5-layer Token 1 only
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
-    result := x * sigmoid(x)
+    result = x * sigmoid(x)
 }
 
 fn swiglu_ffn(
@@ -12,7 +12,7 @@ fn swiglu_ffn(
 ) -> float16[?, ?] {
     let gate = matmul(x, W_gate)
     let up = matmul(x, W_up)
-    result := matmul(silu(gate) * up, W_down)
+    result = matmul(silu(gate) * up, W_down)
 }
 
 fn attention_with_cache(
@@ -58,7 +58,7 @@ fn attention_with_cache(
     let reshaped = reshape(out, [seq_len_f, 2048.0])
     let attn_result = matmul(reshaped, W_o)
     print("          [Attn] Done")
-    result := attn_result
+    result = attn_result
 }
 
 main {

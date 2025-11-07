@@ -13,11 +13,25 @@ pub trait TensorIO<T: FloatType>: Sized {
     /// Transfer tensor to Metal device
     fn to_metal(&self, device: &MetalDevice) -> TensorResult<Self>;
 
-    /// Get data as Vec<T> (copies from GPU if needed)
+    /// ⚠️ DEPRECATED: Use sync_and_read() instead
+    /// Get data as Vec<T> - THIS WILL PANIC to identify call sites
     fn to_vec(&self) -> Vec<T>;
 
-    /// Get data as Vec<f32> (copies from GPU if needed)
+    /// ⚠️ DEPRECATED: Use sync_and_read_f32() instead
+    /// Get data as Vec<f32> - THIS WILL PANIC to identify call sites
     fn to_vec_f32(&self) -> Vec<f32>;
+
+    /// Flush all pending GPU command buffers without reading data
+    /// Use this when you need to ensure GPU operations complete but don't need CPU data
+    /// Much faster than sync_and_read() as it avoids expensive GPU->CPU transfer
+    fn flush_gpu(&self) -> TensorResult<()>;
+
+    /// Sync all pending GPU operations and read data as Vec<T>
+    /// Use this when you actually need CPU data (print, final output, etc)
+    fn sync_and_read(&self) -> Vec<T>;
+
+    /// Sync all pending GPU operations and read data as Vec<f32>
+    fn sync_and_read_f32(&self) -> Vec<f32>;
 
     /// Save tensor to a binary file
     ///
@@ -59,10 +73,48 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
     }
 
     fn to_vec(&self) -> Vec<T> {
-        self.buffer.to_cpu_vec()
+        panic!("⚠️ to_vec() called without sync! Use sync_and_read() instead.\n\
+                Call site: {}",
+               std::panic::Location::caller());
     }
 
     fn to_vec_f32(&self) -> Vec<f32> {
+        panic!("⚠️ to_vec_f32() called without sync! Use sync_and_read_f32() instead.\n\
+                Call site: {}",
+               std::panic::Location::caller());
+    }
+
+    fn flush_gpu(&self) -> TensorResult<()> {
+        // Flush all pending GPU command buffers without reading data
+        // This is much faster than sync_and_read() as it avoids GPU->CPU transfer
+        use crate::tensor::TensorAccessors;
+        if let crate::device::Device::Metal(ref device) = self.device() {
+            device.wait_until_completed()?;
+        }
+        Ok(())
+    }
+
+    fn sync_and_read(&self) -> Vec<T> {
+        // Candle-style: Single GPU sync before reading (like candle's to_cpu())
+        // This is the ONLY sync point - buffer.to_cpu_vec() doesn't wait
+        use crate::tensor::TensorAccessors;
+        if let crate::device::Device::Metal(ref device) = self.device() {
+            // CRITICAL: Flush pending operations before sync to prevent deadlock
+            device.flush_if_needed().ok();
+            device.wait_until_completed().ok();
+        }
+        self.buffer.to_cpu_vec()
+    }
+
+    fn sync_and_read_f32(&self) -> Vec<f32> {
+        // Candle-style: Single GPU sync before reading (like candle's to_cpu())
+        // This is the ONLY sync point - buffer.to_cpu_vec() doesn't wait
+        use crate::tensor::TensorAccessors;
+        if let crate::device::Device::Metal(ref device) = self.device() {
+            // CRITICAL: Flush pending operations before sync to prevent deadlock
+            device.flush_if_needed().ok();
+            device.wait_until_completed().ok();
+        }
         self.buffer.to_cpu_vec().iter().map(|x| x.to_f32()).collect()
     }
 
@@ -93,8 +145,8 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
             format!("Failed to write type size: {}", e)
         ))?;
 
-        // Write tensor data
-        let data = self.to_vec();
+        // Write tensor data (need to sync before saving)
+        let data = self.sync_and_read();
         let bytes: Vec<u8> = unsafe {
             std::slice::from_raw_parts(
                 data.as_ptr() as *const u8,
@@ -167,13 +219,13 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
 
         // Create tensor on specified device
         match device {
-            Device::Metal(metal_device) => Self::from_vec_metal(metal_device, data, shape),
+            Device::Metal(metal_device) => Self::from_vec_gpu(metal_device, data, shape),
             Device::CPU => Self::from_vec(data, shape),
             Device::NeuralEngine => {
                 // NeuralEngine uses Metal backend for tensor storage
                 // We need a Metal device - for now, create a new one
                 let metal = MetalDevice::new()?;
-                Self::from_vec_metal(&metal, data, shape)
+                Self::from_vec_gpu(&metal, data, shape)
             }
         }
     }
