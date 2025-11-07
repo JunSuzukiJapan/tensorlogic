@@ -55,8 +55,8 @@ lru = "0.12"     # LRUキャッシュ（遅延ロード用）
 tokenizers = "0.20"
 
 # Candle (for comparison testing)
-candle-core = "0.8"
-candle-transformers = "0.8"
+candle-core = "0.9.1"
+candle-transformers = "0.9.1"
 candle-nn = "0.9.1"
 hf-hub = "0.4.3"
 

@@ -370,6 +370,7 @@ fn print_variables(interpreter: &Interpreter) {
     print_varialbes_sub(interpreter);
 }
 
+#[allow(dead_code)]
 fn print_final_state(interpreter: &Interpreter) {
     println!("\nFinal state:");
     print_varialbes_sub(interpreter);

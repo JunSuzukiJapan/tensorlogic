@@ -424,8 +424,6 @@ fn test_cndl_rope_f32() -> TensorResult<()> {
 #[test]
 #[serial]
 fn test_cndl_save_load_safetensor_f32() -> TensorResult<()> {
-    use std::env;
-
     let code = r#"
         main {
             // Create a test tensor
@@ -594,7 +592,7 @@ fn test_cndl_load_gguf_tensor() -> TensorResult<()> {
         .map_err(|e| TensorError::InvalidOperation(format!("Get variable error: {}", e)))?;
 
     match result {
-        tensorlogic::interpreter::Value::TensorF32(t) | tensorlogic::interpreter::Value::TensorF16(_) => {
+        tensorlogic::interpreter::Value::TensorF32(_) | tensorlogic::interpreter::Value::TensorF16(_) => {
             println!("✓ cndl_load_gguf_tensor test passed");
         }
         _ => panic!("Expected tensor"),
@@ -691,6 +689,7 @@ fn test_cndl_model_save_load_round_trip() -> TensorResult<()> {
                    Tensor::<f32>::from_vec_gpu(&device, vec![5.0, 6.0, 7.0, 8.0], vec![2, 2])?);
 
     let metadata = ModelMetadata {
+        name: "test_model".to_string(),
         format: ModelFormat::SafeTensors,
         quantization: None,
     };
@@ -710,8 +709,8 @@ fn test_cndl_model_save_load_round_trip() -> TensorResult<()> {
     let mut interpreter = Interpreter::new();
 
     // Manually set the model in the environment for testing
-    interpreter.env.set_variable("test_model".to_string(),
-        tensorlogic::interpreter::Value::ModelF32(model))?;
+    interpreter.set_variable("test_model".to_string(),
+        tensorlogic::interpreter::Value::ModelF32(model));
 
     // Execute save
     let save_code = r#"

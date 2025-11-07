@@ -1,6 +1,5 @@
-use tensorlogic::{GGUFWeightCache, MetalDevice};
+use tensorlogic::MetalDevice;
 use tensorlogic::tensor::{Tensor, TensorAccessors, TensorCreation, TensorIO, TensorTransform};
-use std::env;
 use serial_test::serial;
 
 #[test]

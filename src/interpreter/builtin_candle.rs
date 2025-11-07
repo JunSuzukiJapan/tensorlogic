@@ -958,7 +958,7 @@ impl Interpreter {
         let x_val = self.eval_expr(&args[0])?;
         let shape_val = self.eval_expr(&args[1])?;
 
-        let shape = match shape_val {
+        let shape: Vec<usize> = match shape_val {
             Value::TensorF32(ref t) => {
                 let data = t.buffer().to_cpu_vec();
                 data.iter().map(|&v| v as usize).collect()
@@ -1180,14 +1180,20 @@ impl Interpreter {
                 crate::error::TensorError::InvalidOperation(format!("Failed to load GGUF file: {}", e))
             ))?;
 
-        // Try to get the tensor
-        let tensor = vb.get_no_shape(&tensor_name)
+        // Try to get the tensor (returns Arc<QTensor>)
+        let qtensor = vb.get_no_shape(&tensor_name)
             .map_err(|e| RuntimeError::TensorError(
                 crate::error::TensorError::InvalidOperation(format!("Failed to get tensor '{}': {}", tensor_name, e))
             ))?;
 
+        // Dequantize the tensor to get a regular Tensor
+        let tensor = qtensor.dequantize(&device)
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::InvalidOperation(format!("Failed to dequantize tensor '{}': {}", tensor_name, e))
+            ))?;
+
         // Convert to TensorLogic tensor
-        // Note: GGUF tensors might be quantized, so we convert to f32 for simplicity
+        // Check the dtype and convert accordingly
         let tensor_f32 = if tensor.dtype() == DType::F32 {
             tensor
         } else if tensor.dtype() == DType::F16 {
@@ -1229,27 +1235,25 @@ impl Interpreter {
         let file = File::open(&path)
             .map_err(|e| RuntimeError::IoError(e))?;
 
-        let mut reader = BufReader::new(file);
+        let reader = BufReader::new(file);
 
         // Use gguf-rs-lib to parse the file
-        use gguf_rs_lib::GGUFFile;
+        use gguf_rs_lib::prelude::*;
 
-        let gguf = GGUFFile::from_reader(&mut reader)
+        let gguf = GGUFFileReader::new(reader)
             .map_err(|e| RuntimeError::TensorError(
                 crate::error::TensorError::InvalidOperation(format!("Failed to parse GGUF file: {}", e))
             ))?;
 
         println!("Tensors in {}:", path);
-        println!("  GGUF version: {}", gguf.header.version);
-        println!("  Total: {} tensors", gguf.tensor_infos.len());
+        println!("  GGUF version: {}", gguf.header().version);
+        println!("  Total: {} tensors", gguf.tensor_count());
         println!("");
 
-        let mut tensor_names: Vec<_> = gguf.tensor_infos.keys().collect();
-        tensor_names.sort();
+        let tensor_infos = gguf.tensor_infos();
 
-        for name in tensor_names {
-            let info = &gguf.tensor_infos[name];
-            println!("  - {} : {:?} {:?}", name, info.ggml_dtype, info.dimensions);
+        for info in tensor_infos {
+            println!("  - {} : {:?} {:?}", info.name, info.tensor_type, info.shape);
         }
 
         Ok(Value::Void)
@@ -1362,7 +1366,13 @@ impl Interpreter {
 
                 // Create model with metadata
                 use crate::model::{Model, ModelMetadata, ModelFormat};
+                let model_name = std::path::Path::new(&path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("model")
+                    .to_string();
                 let metadata = ModelMetadata {
+                    name: model_name,
                     format: ModelFormat::SafeTensors,
                     quantization: None,
                 };
@@ -1381,7 +1391,13 @@ impl Interpreter {
 
                 // Create model with metadata
                 use crate::model::{Model, ModelMetadata, ModelFormat};
+                let model_name = std::path::Path::new(&path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("model")
+                    .to_string();
                 let metadata = ModelMetadata {
+                    name: model_name,
                     format: ModelFormat::SafeTensors,
                     quantization: None,
                 };
@@ -1405,7 +1421,13 @@ impl Interpreter {
 
                 // Create model with metadata
                 use crate::model::{Model, ModelMetadata, ModelFormat};
+                let model_name = std::path::Path::new(&path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("model")
+                    .to_string();
                 let metadata = ModelMetadata {
+                    name: model_name,
                     format: ModelFormat::SafeTensors,
                     quantization: None,
                 };

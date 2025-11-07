@@ -10,7 +10,7 @@
 
 use tensorlogic::device::MetalDevice;
 use tensorlogic::error::TensorResult;
-use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO, TensorAccessors};
+use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO};
 
 // Helper function to assert tensors are close
 fn assert_tensor_close_f32(result: &[f32], expected: &[f32], epsilon: f32) {

@@ -15,7 +15,7 @@
 
 use tensorlogic::device::MetalDevice;
 use tensorlogic::error::TensorResult;
-use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO, TensorAccessors};
+use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO};
 use half::f16;
 use serial_test::serial;
 
