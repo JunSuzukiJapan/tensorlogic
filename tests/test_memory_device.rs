@@ -218,7 +218,7 @@ fn test_zeros_like() -> TensorResult<()> {
         vec![4, 5],
     )?;
 
-    let b = Tensor::zeros(&device, a.shape().dims().to_vec())?;
+    let b = Tensor::<f16>::zeros(&device, a.shape().dims().to_vec())?;
 
     assert_eq!(b.shape().dims(), &[4, 5]);
     let values = b.sync_and_read();
@@ -237,7 +237,7 @@ fn test_ones_like() -> TensorResult<()> {
         vec![4, 5],
     )?;
 
-    let b = Tensor::ones(&device, a.shape().dims().to_vec())?;
+    let b = Tensor::<f16>::ones(&device, a.shape().dims().to_vec())?;
 
     assert_eq!(b.shape().dims(), &[4, 5]);
     let values = b.sync_and_read();
@@ -455,7 +455,7 @@ fn test_nested_operations() -> TensorResult<()> {
     )?;
 
     // Nested operations that create intermediate tensors
-    let b = a.add(&Tensor::ones(&device, a.shape().dims().to_vec())?)?;
+    let b = a.add(&Tensor::<f16>::ones(&device, a.shape().dims().to_vec())?)?;
     let c = b.mul(&Tensor::from_vec(vec![f16::from_f32(2.0); 100], vec![10, 10])?)?;
     let sum = c.sum()?;
 
