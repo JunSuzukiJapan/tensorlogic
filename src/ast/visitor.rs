@@ -214,6 +214,13 @@ pub fn walk_tensor_expr<V: Visitor>(visitor: &mut V, expr: &TensorExpr) -> Resul
             }
             Ok(())
         }
+        TensorExpr::TypeFunctionCall { type_namespace, name, args } => {
+            visitor.visit_identifier(name)?;
+            for arg in args {
+                visitor.visit_tensor_expr(arg)?;
+            }
+            Ok(())
+        }
         TensorExpr::TensorIndex { tensor, indices } => {
             visitor.visit_tensor_expr(tensor)?;
             for idx_expr in indices {

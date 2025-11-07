@@ -1225,7 +1225,20 @@ impl TensorLogicParser {
             Vec::new()
         };
 
-        Ok(TensorExpr::FunctionCall { type_namespace, name, args, resolved: None })
+        // Return TypeFunctionCall for type-qualified calls, FunctionCall otherwise
+        match type_namespace {
+            Some(type_ns) => Ok(TensorExpr::TypeFunctionCall {
+                type_namespace: type_ns,
+                name,
+                args
+            }),
+            None => Ok(TensorExpr::FunctionCall {
+                type_namespace: None,
+                name,
+                args,
+                resolved: None
+            })
+        }
     }
 
     fn parse_tensor_list(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Vec<TensorExpr>, ParseError> {

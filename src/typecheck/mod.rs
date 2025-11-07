@@ -662,6 +662,16 @@ impl TypeChecker {
                     .ok_or(TypeError::CannotInferType)
             }
 
+            TensorExpr::TypeFunctionCall { type_namespace, name, args } => {
+                // Type-qualified function calls (e.g., KVCache::new_f32)
+                // For now, return a dynamic type since we don't have full type info
+                // TODO: Add proper type resolution for static methods
+                Ok(TensorTypeInfo::new(
+                    BaseType::Float32,
+                    vec![Dimension::Dynamic],
+                ))
+            }
+
             TensorExpr::EinSum { .. } => {
                 // Simplified: einsum type inference deferred
                 Ok(TensorTypeInfo::new(

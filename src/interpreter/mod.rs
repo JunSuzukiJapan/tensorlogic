@@ -928,7 +928,14 @@ impl Interpreter {
                 // Save span for error reporting
                 self.current_span = Some(span.clone());
                 // Function call result can be implicitly returned
-                let value = self.eval_function_call(None, name, args, resolved.as_ref())?;
+                // Check if name contains :: for type namespace (e.g., KVCache::new_f32)
+                let (type_ns, func_name) = if name.0.contains("::") {
+                    let parts: Vec<&str> = name.0.splitn(2, "::").collect();
+                    (Some(parts[0]), &crate::ast::Identifier(parts[1].to_string()))
+                } else {
+                    (None, name)
+                };
+                let value = self.eval_function_call(type_ns, func_name, args, resolved.as_ref())?;
                 Ok(Some(value))
             }
             Statement::Expr { expr } => {
@@ -1128,9 +1135,6 @@ impl Interpreter {
 
     /// Evaluate typed function call (e.g., f32::zeros, f16::ones)
     fn eval_typed_function_call(&mut self, type_namespace: &str, name: &str, args: &[TensorExpr]) -> RuntimeResult<Value> {
-        
-        
-
         match type_namespace {
             "f32" => {
                 // f32-specific function calls

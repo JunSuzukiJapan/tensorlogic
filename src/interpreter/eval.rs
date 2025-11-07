@@ -814,6 +814,7 @@ impl Interpreter {
             TensorExpr::BinaryOp { .. } => "BinaryOp",
             TensorExpr::UnaryOp { .. } => "UnaryOp",
             TensorExpr::FunctionCall { .. } => "FunctionCall",
+            TensorExpr::TypeFunctionCall { .. } => "TypeFunctionCall",
             TensorExpr::TensorIndex { .. } => "TensorIndex",
             TensorExpr::EinSum { .. } => "EinSum",
             TensorExpr::EmbeddingLookup { .. } => "EmbeddingLookup",
@@ -857,6 +858,12 @@ impl Interpreter {
 
             TensorExpr::FunctionCall { type_namespace, name, args, resolved } => {
                 self.eval_function_call(type_namespace.as_deref(), name, args, resolved.as_ref())
+            }
+
+            TensorExpr::TypeFunctionCall { type_namespace, name, args } => {
+                // Type-qualified function call: Type::method(args)
+                // Examples: KVCache::new_f32(22), f32::zeros([3, 4])
+                self.eval_typed_function_call(type_namespace, name.as_str(), args)
             }
 
             TensorExpr::TensorIndex { tensor, indices } => {
@@ -1205,7 +1212,13 @@ impl Interpreter {
                                     ));
                                 }
 
-                                cache.kvs[layer_idx] = Some((k, v));
+                                // CRITICAL: Make contiguous copy to ensure independent buffers per layer
+                                // Without this, all layers share the same buffer and overwrite each other
+                                use crate::tensor::TensorTransform;
+                                let k_copy = k.contiguous().map_err(|e| RuntimeError::TensorError(e))?;
+                                let v_copy = v.contiguous().map_err(|e| RuntimeError::TensorError(e))?;
+
+                                cache.kvs[layer_idx] = Some((k_copy, v_copy));
                                 Ok(Value::Void)
                             }
 
@@ -1253,7 +1266,13 @@ impl Interpreter {
                                     ));
                                 }
 
-                                cache.kvs[layer_idx] = Some((k, v));
+                                // CRITICAL: Make contiguous copy to ensure independent buffers per layer
+                                // Without this, all layers share the same buffer and overwrite each other
+                                use crate::tensor::TensorTransform;
+                                let k_copy = k.contiguous().map_err(|e| RuntimeError::TensorError(e))?;
+                                let v_copy = v.contiguous().map_err(|e| RuntimeError::TensorError(e))?;
+
+                                cache.kvs[layer_idx] = Some((k_copy, v_copy));
                                 Ok(Value::Void)
                             }
 
@@ -1523,20 +1542,9 @@ impl Interpreter {
             }
 
             TensorExpr::AssociatedCall { struct_type, function, args } => {
-                // Associated calls are like static methods on structs
-                // For now, we treat them as regular function calls
-                // but we could implement constructor patterns here
-
-                // The function name should be qualified with the struct name
-                let qualified_name = format!("{}::{}", struct_type.name.as_str(), function.as_str());
-
-                // Try the qualified name first
-                if let Ok(result) = self.eval_function_call(None, &Identifier::new(&qualified_name), args, None) {
-                    return Ok(result);
-                }
-
-                // Fall back to unqualified name
-                self.eval_function_call(None, function, args, None)
+                // Associated calls are like static methods on structs: Type::method()
+                // Dispatch to eval_typed_function_call for proper namespace handling
+                self.eval_typed_function_call(struct_type.name.as_str(), function.as_str(), args)
             }
         }
     }

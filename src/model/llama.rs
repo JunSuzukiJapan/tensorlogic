@@ -11,6 +11,7 @@ use crate::tensor::Tensor;
 use crate::device::MetalDevice;
 use crate::error::{TensorError, TensorResult};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// LLaMA model configuration
 #[derive(Debug, Clone)]
@@ -85,9 +86,29 @@ impl<T: crate::tensor::FloatType> Cache<T> {
             // Decode: concat along sequence dimension
             let new_k = Tensor::concat(&[k_cache, &k], 0)?;
             let new_v = Tensor::concat(&[v_cache, &v], 0)?;
+
+            // Debug: print buffer pointers
+            if std::env::var("TL_DEBUG_CACHE").is_ok() {
+                use crate::tensor::TensorAccessors;
+                if let Ok(buf) = new_k.buffer().as_metal() {
+                    eprintln!("[Cache UPDATE layer {}] new_k buffer ptr: {:p}, shape: {:?}",
+                        layer_idx, Arc::as_ptr(&buf.buffer), new_k.dims());
+                }
+            }
+
             self.kvs[layer_idx] = Some((new_k, new_v));
         } else {
             // Prefill: set initial cache
+
+            // Debug: print buffer pointers
+            if std::env::var("TL_DEBUG_CACHE").is_ok() {
+                use crate::tensor::TensorAccessors;
+                if let Ok(buf) = k.buffer().as_metal() {
+                    eprintln!("[Cache SET layer {}] k buffer ptr: {:p}, shape: {:?}",
+                        layer_idx, Arc::as_ptr(&buf.buffer), k.dims());
+                }
+            }
+
             self.kvs[layer_idx] = Some((k, v));
         }
         Ok(())

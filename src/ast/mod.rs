@@ -415,6 +415,13 @@ pub enum TensorExpr {
         /// None means not yet resolved (fallback to runtime lookup)
         resolved: Option<ResolvedFunction>,
     },
+    /// Type-qualified function call: Type::method(args)
+    /// Examples: KVCache::new_f32(22), f32::zeros([3, 4])
+    TypeFunctionCall {
+        type_namespace: String,
+        name: Identifier,
+        args: Vec<TensorExpr>,
+    },
     /// Tensor indexing: tensor[i, j, ...] or expression[i]
     TensorIndex {
         tensor: Box<TensorExpr>,
