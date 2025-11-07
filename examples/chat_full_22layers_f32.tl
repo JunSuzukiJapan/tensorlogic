@@ -59,9 +59,17 @@ fn apply_rope_k(K: float32[?, ?], seq_len: float, pos: float) -> float32[?, ?] {
     result = reshape(K_r, [seq_len, 256.0])
 }
 
-// NOTE: Rust builtin attention_with_cache (f32) modified to NOT apply RoPE to K
+// Helper: Apply RoPE to Q (32 Q heads for MHA)
+fn apply_rope_q(Q: float32[?, ?], seq_len: float, pos: float) -> float32[?, ?] {
+    print("[DEBUG apply_rope_q] seq_len: {}, pos: {}", seq_len, pos)
+    let Q_h = reshape(Q, [seq_len, 32.0, 64.0])
+    let Q_r = rope(Q_h, pos)
+    result = reshape(Q_r, [seq_len, 2048.0])
+}
+
+// NOTE: Rust builtin attention_with_cache (f32) modified to NOT apply RoPE to Q/K
 // It expects K/V cache to already have RoPE applied
-// We apply RoPE during prefill/decode before caching
+// We apply RoPE during prefill/decode before caching and to Q before attention
 
 // Original TL implementation (kept for reference, commented out):
 // fn attention_with_cache(
@@ -103,17 +111,21 @@ fn apply_rope_k(K: float32[?, ?], seq_len: float, pos: float) -> float32[?, ?] {
 // Now using Rust builtin: attention_with_cache(Q, K_cache, V_cache, W_o)
 // The builtin handles GQA expansion automatically
 
-// transformer_layer: Transformer decoder block for PREFILL phase only
+// transformer_layer: Transformer decoder block for both PREFILL and DECODE
 //
 // W_k, W_v are NOT parameters because:
 // - PREFILL phase: K/V caches are pre-built BEFORE this function is called
 //   (see lines 213-279: K0-K21, V0-V21 computed from x via linear(x, W_k/W_v))
-// - DECODE phase: This function is NOT used; K/V computed and cached manually
+// - DECODE phase: K/V computed and cached manually before calling this function
 //   (see lines 429-436: each layer computes nK/nV and calls kv_cache.append())
 //
 // This design separates cache construction from attention computation:
 // 1. Build all K/V caches first (parallel across layers)
 // 2. Run transformer_layer with pre-built caches (sequential through layers)
+//
+// position: Position offset for RoPE encoding
+//   - PREFILL: 0 (all tokens start from position 0)
+//   - DECODE: current_pos (incrementing position for each new token)
 fn transformer_layer(
     x: float32[?, ?],
     W_attn_norm: float32[?],
@@ -124,10 +136,19 @@ fn transformer_layer(
     W_up: float32[?, ?],
     W_down: float32[?, ?],
     K_cache: float32[?, ?],
-    V_cache: float32[?, ?]
+    V_cache: float32[?, ?],
+    position: float,
+    seq_len: float
 ) -> float32[?, ?] {
     let normed = rms_norm(x, W_attn_norm)
-    let Q = linear(normed, W_q)
+    let Q_raw = linear(normed, W_q)
+
+    // CRITICAL FIX: Apply RoPE to Q at the same position as K
+    // seq_len passed from caller to avoid shape() tensor bug
+    // PREFILL: seq_len = input length (variable)
+    // DECODE: seq_len = 1 (always)
+    let Q = apply_rope_q(Q_raw, seq_len, position)
+
     let attn_out = attention_with_cache(Q, K_cache, V_cache, W_o)
     let after_attn = x + attn_out
     let normed2 = rms_norm(after_attn, W_ffn_norm)
@@ -203,9 +224,9 @@ main {
 
     let x = embedding(tok_embd, tokens)
 
-    // Track sequence length on CPU (Candle-style: avoid shape() GPU syncs)
-    let x_shape = shape(x)
-    let seq_len = x_shape[0]
+    // Track sequence length: Hard-coded for this fixed prompt (34 tokens)
+    // This avoids shape() tensor bug where x_shape[0] returns a tensor instead of scalar
+    let seq_len = 34.0
 
     // ============================================================
     // PREFILL PHASE: Build initial KV caches for all 22 layers
@@ -284,17 +305,19 @@ main {
     // ============================================================
     print("[DEBUG] KV caches built, running prompt through all transformer layers...")
     print("[DEBUG] Processing layer 0...")
-    let h = transformer_layer(x, L0.attn_norm.weight, L0.attn_q.weight, L0.attn_output.weight, L0.ffn_norm.weight, L0.ffn_gate.weight, L0.ffn_up.weight, L0.ffn_down.weight, K0, V0)
+    let h = transformer_layer(x, L0.attn_norm.weight, L0.attn_q.weight, L0.attn_output.weight, L0.ffn_norm.weight, L0.ffn_gate.weight, L0.ffn_up.weight, L0.ffn_down.weight, K0, V0, 0.0, seq_len)
     print("[DEBUG] Layer 0 completed!")
     print("[DEBUG] Processing layer 1...")
-    let h = transformer_layer(h, L1.attn_norm.weight, L1.attn_q.weight, L1.attn_output.weight, L1.ffn_norm.weight, L1.ffn_gate.weight, L1.ffn_up.weight, L1.ffn_down.weight, K1, V1)
+    let h = transformer_layer(h, L1.attn_norm.weight, L1.attn_q.weight, L1.attn_output.weight, L1.ffn_norm.weight, L1.ffn_gate.weight, L1.ffn_up.weight, L1.ffn_down.weight, K1, V1, 0.0, seq_len)
     print("[DEBUG] Layer 1 completed!")
     print("[DEBUG] Processing layer 2...")
     // Inline transformer_layer for Layer 2 with debug logs
     print("[DEBUG]   L2: Starting rms_norm (attention)...")
     let normed2 = rms_norm(h, L2.attn_norm.weight)
     print("[DEBUG]   L2: rms_norm done, computing Q...")
-    let Q2 = linear(normed2, L2.attn_q.weight)
+    let Q2_raw = linear(normed2, L2.attn_q.weight)
+    print("[DEBUG]   L2: Applying RoPE to Q with seq_len...")
+    let Q2 = apply_rope_q(Q2_raw, seq_len, 0.0)
     print("[DEBUG]   L2: Q done, calling attention_with_cache...")
     let attn_out2 = attention_with_cache(Q2, K2, V2, L2.attn_output.weight)
     print("[DEBUG]   L2: attention done, adding residual...")
@@ -307,45 +330,45 @@ main {
     let h = after_attn2 + ffn_out2
     print("[DEBUG] Layer 2 completed!")
     print("[DEBUG] Processing layer 3...")
-    let h = transformer_layer(h, L3.attn_norm.weight, L3.attn_q.weight, L3.attn_output.weight, L3.ffn_norm.weight, L3.ffn_gate.weight, L3.ffn_up.weight, L3.ffn_down.weight, K3, V3)
+    let h = transformer_layer(h, L3.attn_norm.weight, L3.attn_q.weight, L3.attn_output.weight, L3.ffn_norm.weight, L3.ffn_gate.weight, L3.ffn_up.weight, L3.ffn_down.weight, K3, V3, 0.0, seq_len)
     print("[DEBUG] Layer 3 completed!")
     print("[DEBUG] Processing layer 4...")
-    let h = transformer_layer(h, L4.attn_norm.weight, L4.attn_q.weight, L4.attn_output.weight, L4.ffn_norm.weight, L4.ffn_gate.weight, L4.ffn_up.weight, L4.ffn_down.weight, K4, V4)
+    let h = transformer_layer(h, L4.attn_norm.weight, L4.attn_q.weight, L4.attn_output.weight, L4.ffn_norm.weight, L4.ffn_gate.weight, L4.ffn_up.weight, L4.ffn_down.weight, K4, V4, 0.0, seq_len)
     print("[DEBUG] Layer 4 completed!")
-    let h = transformer_layer(h, L5.attn_norm.weight, L5.attn_q.weight, L5.attn_output.weight, L5.ffn_norm.weight, L5.ffn_gate.weight, L5.ffn_up.weight, L5.ffn_down.weight, K5, V5)
+    let h = transformer_layer(h, L5.attn_norm.weight, L5.attn_q.weight, L5.attn_output.weight, L5.ffn_norm.weight, L5.ffn_gate.weight, L5.ffn_up.weight, L5.ffn_down.weight, K5, V5, 0.0, seq_len)
     print("[DEBUG] Layer 5 completed!")
-    let h = transformer_layer(h, L6.attn_norm.weight, L6.attn_q.weight, L6.attn_output.weight, L6.ffn_norm.weight, L6.ffn_gate.weight, L6.ffn_up.weight, L6.ffn_down.weight, K6, V6)
+    let h = transformer_layer(h, L6.attn_norm.weight, L6.attn_q.weight, L6.attn_output.weight, L6.ffn_norm.weight, L6.ffn_gate.weight, L6.ffn_up.weight, L6.ffn_down.weight, K6, V6, 0.0, seq_len)
     print("[DEBUG] Layer 6 completed!")
-    let h = transformer_layer(h, L7.attn_norm.weight, L7.attn_q.weight, L7.attn_output.weight, L7.ffn_norm.weight, L7.ffn_gate.weight, L7.ffn_up.weight, L7.ffn_down.weight, K7, V7)
+    let h = transformer_layer(h, L7.attn_norm.weight, L7.attn_q.weight, L7.attn_output.weight, L7.ffn_norm.weight, L7.ffn_gate.weight, L7.ffn_up.weight, L7.ffn_down.weight, K7, V7, 0.0, seq_len)
     print("[DEBUG] Layer 7 completed!")
-    let h = transformer_layer(h, L8.attn_norm.weight, L8.attn_q.weight, L8.attn_output.weight, L8.ffn_norm.weight, L8.ffn_gate.weight, L8.ffn_up.weight, L8.ffn_down.weight, K8, V8)
+    let h = transformer_layer(h, L8.attn_norm.weight, L8.attn_q.weight, L8.attn_output.weight, L8.ffn_norm.weight, L8.ffn_gate.weight, L8.ffn_up.weight, L8.ffn_down.weight, K8, V8, 0.0, seq_len)
     print("[DEBUG] Layer 8 completed!")
-    let h = transformer_layer(h, L9.attn_norm.weight, L9.attn_q.weight, L9.attn_output.weight, L9.ffn_norm.weight, L9.ffn_gate.weight, L9.ffn_up.weight, L9.ffn_down.weight, K9, V9)
+    let h = transformer_layer(h, L9.attn_norm.weight, L9.attn_q.weight, L9.attn_output.weight, L9.ffn_norm.weight, L9.ffn_gate.weight, L9.ffn_up.weight, L9.ffn_down.weight, K9, V9, 0.0, seq_len)
     print("[DEBUG] Layer 9 completed!")
-    let h = transformer_layer(h, L10.attn_norm.weight, L10.attn_q.weight, L10.attn_output.weight, L10.ffn_norm.weight, L10.ffn_gate.weight, L10.ffn_up.weight, L10.ffn_down.weight, K10, V10)
+    let h = transformer_layer(h, L10.attn_norm.weight, L10.attn_q.weight, L10.attn_output.weight, L10.ffn_norm.weight, L10.ffn_gate.weight, L10.ffn_up.weight, L10.ffn_down.weight, K10, V10, 0.0, seq_len)
     print("[DEBUG] Layer 10 completed!")
-    let h = transformer_layer(h, L11.attn_norm.weight, L11.attn_q.weight, L11.attn_output.weight, L11.ffn_norm.weight, L11.ffn_gate.weight, L11.ffn_up.weight, L11.ffn_down.weight, K11, V11)
+    let h = transformer_layer(h, L11.attn_norm.weight, L11.attn_q.weight, L11.attn_output.weight, L11.ffn_norm.weight, L11.ffn_gate.weight, L11.ffn_up.weight, L11.ffn_down.weight, K11, V11, 0.0, seq_len)
     print("[DEBUG] Layer 11 completed!")
     print("[DEBUG] About to start Layer 12...")
-    let h = transformer_layer(h, L12.attn_norm.weight, L12.attn_q.weight, L12.attn_output.weight, L12.ffn_norm.weight, L12.ffn_gate.weight, L12.ffn_up.weight, L12.ffn_down.weight, K12, V12)
+    let h = transformer_layer(h, L12.attn_norm.weight, L12.attn_q.weight, L12.attn_output.weight, L12.ffn_norm.weight, L12.ffn_gate.weight, L12.ffn_up.weight, L12.ffn_down.weight, K12, V12, 0.0, seq_len)
     print("[DEBUG] Layer 12 completed!")
-    let h = transformer_layer(h, L13.attn_norm.weight, L13.attn_q.weight, L13.attn_output.weight, L13.ffn_norm.weight, L13.ffn_gate.weight, L13.ffn_up.weight, L13.ffn_down.weight, K13, V13)
+    let h = transformer_layer(h, L13.attn_norm.weight, L13.attn_q.weight, L13.attn_output.weight, L13.ffn_norm.weight, L13.ffn_gate.weight, L13.ffn_up.weight, L13.ffn_down.weight, K13, V13, 0.0, seq_len)
     print("[DEBUG] Layer 13 completed!")
-    let h = transformer_layer(h, L14.attn_norm.weight, L14.attn_q.weight, L14.attn_output.weight, L14.ffn_norm.weight, L14.ffn_gate.weight, L14.ffn_up.weight, L14.ffn_down.weight, K14, V14)
+    let h = transformer_layer(h, L14.attn_norm.weight, L14.attn_q.weight, L14.attn_output.weight, L14.ffn_norm.weight, L14.ffn_gate.weight, L14.ffn_up.weight, L14.ffn_down.weight, K14, V14, 0.0, seq_len)
     print("[DEBUG] Layer 14 completed!")
-    let h = transformer_layer(h, L15.attn_norm.weight, L15.attn_q.weight, L15.attn_output.weight, L15.ffn_norm.weight, L15.ffn_gate.weight, L15.ffn_up.weight, L15.ffn_down.weight, K15, V15)
+    let h = transformer_layer(h, L15.attn_norm.weight, L15.attn_q.weight, L15.attn_output.weight, L15.ffn_norm.weight, L15.ffn_gate.weight, L15.ffn_up.weight, L15.ffn_down.weight, K15, V15, 0.0, seq_len)
     print("[DEBUG] Layer 15 completed!")
-    let h = transformer_layer(h, L16.attn_norm.weight, L16.attn_q.weight, L16.attn_output.weight, L16.ffn_norm.weight, L16.ffn_gate.weight, L16.ffn_up.weight, L16.ffn_down.weight, K16, V16)
+    let h = transformer_layer(h, L16.attn_norm.weight, L16.attn_q.weight, L16.attn_output.weight, L16.ffn_norm.weight, L16.ffn_gate.weight, L16.ffn_up.weight, L16.ffn_down.weight, K16, V16, 0.0, seq_len)
     print("[DEBUG] Layer 16 completed!")
-    let h = transformer_layer(h, L17.attn_norm.weight, L17.attn_q.weight, L17.attn_output.weight, L17.ffn_norm.weight, L17.ffn_gate.weight, L17.ffn_up.weight, L17.ffn_down.weight, K17, V17)
+    let h = transformer_layer(h, L17.attn_norm.weight, L17.attn_q.weight, L17.attn_output.weight, L17.ffn_norm.weight, L17.ffn_gate.weight, L17.ffn_up.weight, L17.ffn_down.weight, K17, V17, 0.0, seq_len)
     print("[DEBUG] Layer 17 completed!")
-    let h = transformer_layer(h, L18.attn_norm.weight, L18.attn_q.weight, L18.attn_output.weight, L18.ffn_norm.weight, L18.ffn_gate.weight, L18.ffn_up.weight, L18.ffn_down.weight, K18, V18)
+    let h = transformer_layer(h, L18.attn_norm.weight, L18.attn_q.weight, L18.attn_output.weight, L18.ffn_norm.weight, L18.ffn_gate.weight, L18.ffn_up.weight, L18.ffn_down.weight, K18, V18, 0.0, seq_len)
     print("[DEBUG] Layer 18 completed!")
-    let h = transformer_layer(h, L19.attn_norm.weight, L19.attn_q.weight, L19.attn_output.weight, L19.ffn_norm.weight, L19.ffn_gate.weight, L19.ffn_up.weight, L19.ffn_down.weight, K19, V19)
+    let h = transformer_layer(h, L19.attn_norm.weight, L19.attn_q.weight, L19.attn_output.weight, L19.ffn_norm.weight, L19.ffn_gate.weight, L19.ffn_up.weight, L19.ffn_down.weight, K19, V19, 0.0, seq_len)
     print("[DEBUG] Layer 19 completed!")
-    let h = transformer_layer(h, L20.attn_norm.weight, L20.attn_q.weight, L20.attn_output.weight, L20.ffn_norm.weight, L20.ffn_gate.weight, L20.ffn_up.weight, L20.ffn_down.weight, K20, V20)
+    let h = transformer_layer(h, L20.attn_norm.weight, L20.attn_q.weight, L20.attn_output.weight, L20.ffn_norm.weight, L20.ffn_gate.weight, L20.ffn_up.weight, L20.ffn_down.weight, K20, V20, 0.0, seq_len)
     print("[DEBUG] Layer 20 completed!")
-    let h = transformer_layer(h, L21.attn_norm.weight, L21.attn_q.weight, L21.attn_output.weight, L21.ffn_norm.weight, L21.ffn_gate.weight, L21.ffn_up.weight, L21.ffn_down.weight, K21, V21)
+    let h = transformer_layer(h, L21.attn_norm.weight, L21.attn_q.weight, L21.attn_output.weight, L21.ffn_norm.weight, L21.ffn_gate.weight, L21.ffn_up.weight, L21.ffn_down.weight, K21, V21, 0.0, seq_len)
     print("[DEBUG] Layer 21 completed!")
 
     // Final normalization and output projection
@@ -422,25 +445,34 @@ main {
             // Each step processes through all 22 layers sequentially
             // Using KVCache builtin for efficient GPU-only operations
             // ========================================================
+            print("[DEBUG] About to call embedding - checking tok_embd shape: {}", shape(tok_embd))
             let token_ids_single = int_to_tokenids(token_id)
+            print("[DEBUG] token_ids_single created, about to call embedding()")
             let new_token_emb = embedding(tok_embd, token_ids_single)
-            let emb_shape = shape(new_token_emb)
-            print("[DEBUG] Embedding done, new_token_emb shape: {}", emb_shape)
+            print("[DEBUG] Embedding done for token_id={}", token_id)
+            print("[DEBUG] new_token_emb shape: {}", shape(new_token_emb))
             print("[DEBUG] Processing Layer 0...")
 
             // Layer 0: Update KV cache and transform
             // Use CPU-tracked position (Candle-style: no shape() sync)
             let nK0_raw = linear(new_token_emb, L0.attn_k.weight)
+            print("[DEBUG] nK0_raw shape: {}", shape(nK0_raw))
             let nK0 = apply_rope_k(nK0_raw, 1.0, current_pos)
+            print("[DEBUG] nK0 (after RoPE) shape: {}", shape(nK0))
             let nV0 = linear(new_token_emb, L0.attn_v.weight)
+            print("[DEBUG] nV0 shape: {}", shape(nV0))
             kv_cache.append(0, nK0, nV0)
             let KV0 = kv_cache.get_k(0)
             let KV0_V = kv_cache.get_v(0)
+            print("[DEBUG] Before shape() - about to call shape(KV0)")
             let kv0_shape = shape(KV0)
+            print("[DEBUG] After shape(KV0) - result type and value: {}", kv0_shape)
+            print("[DEBUG] Before shape() - about to call shape(KV0_V)")
             let kv0v_shape = shape(KV0_V)
-            print("[DEBUG] KV0 shape: {}, KV0_V shape: {}", kv0_shape, kv0v_shape)
+            print("[DEBUG] After shape(KV0_V) - result type and value: {}", kv0v_shape)
+            print("[DEBUG] Summary: KV0 shape result: {}, KV0_V shape result: {}", kv0_shape, kv0v_shape)
 
-            let nh0 = transformer_layer(new_token_emb, L0.attn_norm.weight, L0.attn_q.weight, L0.attn_output.weight, L0.ffn_norm.weight, L0.ffn_gate.weight, L0.ffn_up.weight, L0.ffn_down.weight, KV0, KV0_V)
+            let nh0 = transformer_layer(new_token_emb, L0.attn_norm.weight, L0.attn_q.weight, L0.attn_output.weight, L0.ffn_norm.weight, L0.ffn_gate.weight, L0.ffn_up.weight, L0.ffn_down.weight, KV0, KV0_V, current_pos, 1.0)
 
             // Layer 1
             let nK1_raw = linear(nh0, L1.attn_k.weight)
@@ -450,7 +482,7 @@ main {
             let KV1 = kv_cache.get_k(1)
             let KV1_V = kv_cache.get_v(1)
 
-            let nh = transformer_layer(nh0, L1.attn_norm.weight, L1.attn_q.weight, L1.attn_output.weight, L1.ffn_norm.weight, L1.ffn_gate.weight, L1.ffn_up.weight, L1.ffn_down.weight, KV1, KV1_V)
+            let nh = transformer_layer(nh0, L1.attn_norm.weight, L1.attn_q.weight, L1.attn_output.weight, L1.ffn_norm.weight, L1.ffn_gate.weight, L1.ffn_up.weight, L1.ffn_down.weight, KV1, KV1_V, current_pos, 1.0)
 
             let nK2_raw = linear(nh, L2.attn_k.weight)
             let nK2 = apply_rope_k(nK2_raw, 1.0, current_pos)
@@ -459,7 +491,7 @@ main {
             let KV2 = kv_cache.get_k(2)
             let KV2_V = kv_cache.get_v(2)
 
-            let nh = transformer_layer(nh, L2.attn_norm.weight, L2.attn_q.weight, L2.attn_output.weight, L2.ffn_norm.weight, L2.ffn_gate.weight, L2.ffn_up.weight, L2.ffn_down.weight, KV2, KV2_V)
+            let nh = transformer_layer(nh, L2.attn_norm.weight, L2.attn_q.weight, L2.attn_output.weight, L2.ffn_norm.weight, L2.ffn_gate.weight, L2.ffn_up.weight, L2.ffn_down.weight, KV2, KV2_V, current_pos, 1.0)
 
             let nK3_raw = linear(nh, L3.attn_k.weight)
             let nK3 = apply_rope_k(nK3_raw, 1.0, current_pos)
@@ -468,7 +500,7 @@ main {
             let KV3 = kv_cache.get_k(3)
             let KV3_V = kv_cache.get_v(3)
 
-            let nh = transformer_layer(nh, L3.attn_norm.weight, L3.attn_q.weight, L3.attn_output.weight, L3.ffn_norm.weight, L3.ffn_gate.weight, L3.ffn_up.weight, L3.ffn_down.weight, KV3, KV3_V)
+            let nh = transformer_layer(nh, L3.attn_norm.weight, L3.attn_q.weight, L3.attn_output.weight, L3.ffn_norm.weight, L3.ffn_gate.weight, L3.ffn_up.weight, L3.ffn_down.weight, KV3, KV3_V, current_pos, 1.0)
 
             let nK4_raw = linear(nh, L4.attn_k.weight)
             let nK4 = apply_rope_k(nK4_raw, 1.0, current_pos)
@@ -477,7 +509,7 @@ main {
             let KV4 = kv_cache.get_k(4)
             let KV4_V = kv_cache.get_v(4)
 
-            let nh = transformer_layer(nh, L4.attn_norm.weight, L4.attn_q.weight, L4.attn_output.weight, L4.ffn_norm.weight, L4.ffn_gate.weight, L4.ffn_up.weight, L4.ffn_down.weight, KV4, KV4_V)
+            let nh = transformer_layer(nh, L4.attn_norm.weight, L4.attn_q.weight, L4.attn_output.weight, L4.ffn_norm.weight, L4.ffn_gate.weight, L4.ffn_up.weight, L4.ffn_down.weight, KV4, KV4_V, current_pos, 1.0)
 
             let nK5_raw = linear(nh, L5.attn_k.weight)
             let nK5 = apply_rope_k(nK5_raw, 1.0, current_pos)
@@ -486,7 +518,7 @@ main {
             let KV5 = kv_cache.get_k(5)
             let KV5_V = kv_cache.get_v(5)
 
-            let nh = transformer_layer(nh, L5.attn_norm.weight, L5.attn_q.weight, L5.attn_output.weight, L5.ffn_norm.weight, L5.ffn_gate.weight, L5.ffn_up.weight, L5.ffn_down.weight, KV5, KV5_V)
+            let nh = transformer_layer(nh, L5.attn_norm.weight, L5.attn_q.weight, L5.attn_output.weight, L5.ffn_norm.weight, L5.ffn_gate.weight, L5.ffn_up.weight, L5.ffn_down.weight, KV5, KV5_V, current_pos, 1.0)
 
             let nK6_raw = linear(nh, L6.attn_k.weight)
             let nK6 = apply_rope_k(nK6_raw, 1.0, current_pos)
@@ -495,7 +527,7 @@ main {
             let KV6 = kv_cache.get_k(6)
             let KV6_V = kv_cache.get_v(6)
 
-            let nh = transformer_layer(nh, L6.attn_norm.weight, L6.attn_q.weight, L6.attn_output.weight, L6.ffn_norm.weight, L6.ffn_gate.weight, L6.ffn_up.weight, L6.ffn_down.weight, KV6, KV6_V)
+            let nh = transformer_layer(nh, L6.attn_norm.weight, L6.attn_q.weight, L6.attn_output.weight, L6.ffn_norm.weight, L6.ffn_gate.weight, L6.ffn_up.weight, L6.ffn_down.weight, KV6, KV6_V, current_pos, 1.0)
 
             let nK7_raw = linear(nh, L7.attn_k.weight)
             let nK7 = apply_rope_k(nK7_raw, 1.0, current_pos)
@@ -504,7 +536,7 @@ main {
             let KV7 = kv_cache.get_k(7)
             let KV7_V = kv_cache.get_v(7)
 
-            let nh = transformer_layer(nh, L7.attn_norm.weight, L7.attn_q.weight, L7.attn_output.weight, L7.ffn_norm.weight, L7.ffn_gate.weight, L7.ffn_up.weight, L7.ffn_down.weight, KV7, KV7_V)
+            let nh = transformer_layer(nh, L7.attn_norm.weight, L7.attn_q.weight, L7.attn_output.weight, L7.ffn_norm.weight, L7.ffn_gate.weight, L7.ffn_up.weight, L7.ffn_down.weight, KV7, KV7_V, current_pos, 1.0)
 
             let nK8_raw = linear(nh, L8.attn_k.weight)
             let nK8 = apply_rope_k(nK8_raw, 1.0, current_pos)
@@ -513,7 +545,7 @@ main {
             let KV8 = kv_cache.get_k(8)
             let KV8_V = kv_cache.get_v(8)
 
-            let nh = transformer_layer(nh, L8.attn_norm.weight, L8.attn_q.weight, L8.attn_output.weight, L8.ffn_norm.weight, L8.ffn_gate.weight, L8.ffn_up.weight, L8.ffn_down.weight, KV8, KV8_V)
+            let nh = transformer_layer(nh, L8.attn_norm.weight, L8.attn_q.weight, L8.attn_output.weight, L8.ffn_norm.weight, L8.ffn_gate.weight, L8.ffn_up.weight, L8.ffn_down.weight, KV8, KV8_V, current_pos, 1.0)
 
             let nK9_raw = linear(nh, L9.attn_k.weight)
             let nK9 = apply_rope_k(nK9_raw, 1.0, current_pos)
@@ -522,7 +554,7 @@ main {
             let KV9 = kv_cache.get_k(9)
             let KV9_V = kv_cache.get_v(9)
 
-            let nh = transformer_layer(nh, L9.attn_norm.weight, L9.attn_q.weight, L9.attn_output.weight, L9.ffn_norm.weight, L9.ffn_gate.weight, L9.ffn_up.weight, L9.ffn_down.weight, KV9, KV9_V)
+            let nh = transformer_layer(nh, L9.attn_norm.weight, L9.attn_q.weight, L9.attn_output.weight, L9.ffn_norm.weight, L9.ffn_gate.weight, L9.ffn_up.weight, L9.ffn_down.weight, KV9, KV9_V, current_pos, 1.0)
 
             print("[DEBUG] Reached Layer 10 (midpoint)...")
             // Layer 10 (midpoint)
@@ -533,7 +565,7 @@ main {
             let KV10 = kv_cache.get_k(10)
             let KV10_V = kv_cache.get_v(10)
 
-            let nh = transformer_layer(nh, L10.attn_norm.weight, L10.attn_q.weight, L10.attn_output.weight, L10.ffn_norm.weight, L10.ffn_gate.weight, L10.ffn_up.weight, L10.ffn_down.weight, KV10, KV10_V)
+            let nh = transformer_layer(nh, L10.attn_norm.weight, L10.attn_q.weight, L10.attn_output.weight, L10.ffn_norm.weight, L10.ffn_gate.weight, L10.ffn_up.weight, L10.ffn_down.weight, KV10, KV10_V, current_pos, 1.0)
 
             let nK11_raw = linear(nh, L11.attn_k.weight)
             let nK11 = apply_rope_k(nK11_raw, 1.0, current_pos)
@@ -542,7 +574,7 @@ main {
             let KV11 = kv_cache.get_k(11)
             let KV11_V = kv_cache.get_v(11)
 
-            let nh = transformer_layer(nh, L11.attn_norm.weight, L11.attn_q.weight, L11.attn_output.weight, L11.ffn_norm.weight, L11.ffn_gate.weight, L11.ffn_up.weight, L11.ffn_down.weight, KV11, KV11_V)
+            let nh = transformer_layer(nh, L11.attn_norm.weight, L11.attn_q.weight, L11.attn_output.weight, L11.ffn_norm.weight, L11.ffn_gate.weight, L11.ffn_up.weight, L11.ffn_down.weight, KV11, KV11_V, current_pos, 1.0)
 
             let nK12_raw = linear(nh, L12.attn_k.weight)
             let nK12 = apply_rope_k(nK12_raw, 1.0, current_pos)
@@ -551,7 +583,7 @@ main {
             let KV12 = kv_cache.get_k(12)
             let KV12_V = kv_cache.get_v(12)
 
-            let nh = transformer_layer(nh, L12.attn_norm.weight, L12.attn_q.weight, L12.attn_output.weight, L12.ffn_norm.weight, L12.ffn_gate.weight, L12.ffn_up.weight, L12.ffn_down.weight, KV12, KV12_V)
+            let nh = transformer_layer(nh, L12.attn_norm.weight, L12.attn_q.weight, L12.attn_output.weight, L12.ffn_norm.weight, L12.ffn_gate.weight, L12.ffn_up.weight, L12.ffn_down.weight, KV12, KV12_V, current_pos, 1.0)
 
             let nK13_raw = linear(nh, L13.attn_k.weight)
             let nK13 = apply_rope_k(nK13_raw, 1.0, current_pos)
@@ -560,7 +592,7 @@ main {
             let KV13 = kv_cache.get_k(13)
             let KV13_V = kv_cache.get_v(13)
 
-            let nh = transformer_layer(nh, L13.attn_norm.weight, L13.attn_q.weight, L13.attn_output.weight, L13.ffn_norm.weight, L13.ffn_gate.weight, L13.ffn_up.weight, L13.ffn_down.weight, KV13, KV13_V)
+            let nh = transformer_layer(nh, L13.attn_norm.weight, L13.attn_q.weight, L13.attn_output.weight, L13.ffn_norm.weight, L13.ffn_gate.weight, L13.ffn_up.weight, L13.ffn_down.weight, KV13, KV13_V, current_pos, 1.0)
 
             let nK14_raw = linear(nh, L14.attn_k.weight)
             let nK14 = apply_rope_k(nK14_raw, 1.0, current_pos)
@@ -569,7 +601,7 @@ main {
             let KV14 = kv_cache.get_k(14)
             let KV14_V = kv_cache.get_v(14)
 
-            let nh = transformer_layer(nh, L14.attn_norm.weight, L14.attn_q.weight, L14.attn_output.weight, L14.ffn_norm.weight, L14.ffn_gate.weight, L14.ffn_up.weight, L14.ffn_down.weight, KV14, KV14_V)
+            let nh = transformer_layer(nh, L14.attn_norm.weight, L14.attn_q.weight, L14.attn_output.weight, L14.ffn_norm.weight, L14.ffn_gate.weight, L14.ffn_up.weight, L14.ffn_down.weight, KV14, KV14_V, current_pos, 1.0)
 
             let nK15_raw = linear(nh, L15.attn_k.weight)
             let nK15 = apply_rope_k(nK15_raw, 1.0, current_pos)
@@ -578,7 +610,7 @@ main {
             let KV15 = kv_cache.get_k(15)
             let KV15_V = kv_cache.get_v(15)
 
-            let nh = transformer_layer(nh, L15.attn_norm.weight, L15.attn_q.weight, L15.attn_output.weight, L15.ffn_norm.weight, L15.ffn_gate.weight, L15.ffn_up.weight, L15.ffn_down.weight, KV15, KV15_V)
+            let nh = transformer_layer(nh, L15.attn_norm.weight, L15.attn_q.weight, L15.attn_output.weight, L15.ffn_norm.weight, L15.ffn_gate.weight, L15.ffn_up.weight, L15.ffn_down.weight, KV15, KV15_V, current_pos, 1.0)
 
             let nK16_raw = linear(nh, L16.attn_k.weight)
             let nK16 = apply_rope_k(nK16_raw, 1.0, current_pos)
@@ -587,7 +619,7 @@ main {
             let KV16 = kv_cache.get_k(16)
             let KV16_V = kv_cache.get_v(16)
 
-            let nh = transformer_layer(nh, L16.attn_norm.weight, L16.attn_q.weight, L16.attn_output.weight, L16.ffn_norm.weight, L16.ffn_gate.weight, L16.ffn_up.weight, L16.ffn_down.weight, KV16, KV16_V)
+            let nh = transformer_layer(nh, L16.attn_norm.weight, L16.attn_q.weight, L16.attn_output.weight, L16.ffn_norm.weight, L16.ffn_gate.weight, L16.ffn_up.weight, L16.ffn_down.weight, KV16, KV16_V, current_pos, 1.0)
 
             let nK17_raw = linear(nh, L17.attn_k.weight)
             let nK17 = apply_rope_k(nK17_raw, 1.0, current_pos)
@@ -596,7 +628,7 @@ main {
             let KV17 = kv_cache.get_k(17)
             let KV17_V = kv_cache.get_v(17)
 
-            let nh = transformer_layer(nh, L17.attn_norm.weight, L17.attn_q.weight, L17.attn_output.weight, L17.ffn_norm.weight, L17.ffn_gate.weight, L17.ffn_up.weight, L17.ffn_down.weight, KV17, KV17_V)
+            let nh = transformer_layer(nh, L17.attn_norm.weight, L17.attn_q.weight, L17.attn_output.weight, L17.ffn_norm.weight, L17.ffn_gate.weight, L17.ffn_up.weight, L17.ffn_down.weight, KV17, KV17_V, current_pos, 1.0)
 
             let nK18_raw = linear(nh, L18.attn_k.weight)
             let nK18 = apply_rope_k(nK18_raw, 1.0, current_pos)
@@ -605,7 +637,7 @@ main {
             let KV18 = kv_cache.get_k(18)
             let KV18_V = kv_cache.get_v(18)
 
-            let nh = transformer_layer(nh, L18.attn_norm.weight, L18.attn_q.weight, L18.attn_output.weight, L18.ffn_norm.weight, L18.ffn_gate.weight, L18.ffn_up.weight, L18.ffn_down.weight, KV18, KV18_V)
+            let nh = transformer_layer(nh, L18.attn_norm.weight, L18.attn_q.weight, L18.attn_output.weight, L18.ffn_norm.weight, L18.ffn_gate.weight, L18.ffn_up.weight, L18.ffn_down.weight, KV18, KV18_V, current_pos, 1.0)
 
             let nK19_raw = linear(nh, L19.attn_k.weight)
             let nK19 = apply_rope_k(nK19_raw, 1.0, current_pos)
@@ -614,7 +646,7 @@ main {
             let KV19 = kv_cache.get_k(19)
             let KV19_V = kv_cache.get_v(19)
 
-            let nh = transformer_layer(nh, L19.attn_norm.weight, L19.attn_q.weight, L19.attn_output.weight, L19.ffn_norm.weight, L19.ffn_gate.weight, L19.ffn_up.weight, L19.ffn_down.weight, KV19, KV19_V)
+            let nh = transformer_layer(nh, L19.attn_norm.weight, L19.attn_q.weight, L19.attn_output.weight, L19.ffn_norm.weight, L19.ffn_gate.weight, L19.ffn_up.weight, L19.ffn_down.weight, KV19, KV19_V, current_pos, 1.0)
 
             let nK20_raw = linear(nh, L20.attn_k.weight)
             let nK20 = apply_rope_k(nK20_raw, 1.0, current_pos)
@@ -623,7 +655,7 @@ main {
             let KV20 = kv_cache.get_k(20)
             let KV20_V = kv_cache.get_v(20)
 
-            let nh = transformer_layer(nh, L20.attn_norm.weight, L20.attn_q.weight, L20.attn_output.weight, L20.ffn_norm.weight, L20.ffn_gate.weight, L20.ffn_up.weight, L20.ffn_down.weight, KV20, KV20_V)
+            let nh = transformer_layer(nh, L20.attn_norm.weight, L20.attn_q.weight, L20.attn_output.weight, L20.ffn_norm.weight, L20.ffn_gate.weight, L20.ffn_up.weight, L20.ffn_down.weight, KV20, KV20_V, current_pos, 1.0)
 
             print("[DEBUG] Reached Layer 21 (final layer)...")
             // Layer 21 (final layer)
@@ -634,14 +666,23 @@ main {
             let KV21 = kv_cache.get_k(21)
             let KV21_V = kv_cache.get_v(21)
 
-            let nh = transformer_layer(nh, L21.attn_norm.weight, L21.attn_q.weight, L21.attn_output.weight, L21.ffn_norm.weight, L21.ffn_gate.weight, L21.ffn_up.weight, L21.ffn_down.weight, KV21, KV21_V)
+            let nh = transformer_layer(nh, L21.attn_norm.weight, L21.attn_q.weight, L21.attn_output.weight, L21.ffn_norm.weight, L21.ffn_gate.weight, L21.ffn_up.weight, L21.ffn_down.weight, KV21, KV21_V, current_pos, 1.0)
+            print("[DEBUG] Before shape() - about to call shape(nh) for final layer L21")
+            let nh_shape = shape(nh)
+            print("[DEBUG] After shape(nh) - result type and value: {}", nh_shape)
 
             // Increment position for next token (Candle-style: CPU tracking)
             current_pos = current_pos + 1.0
 
             // Final output projection to vocabulary logits
             let norm_new = rms_norm(nh, output_norm)
+            print("[DEBUG] Before shape() - about to call shape(norm_new)")
+            let norm_new_shape = shape(norm_new)
+            print("[DEBUG] After shape(norm_new) - result type and value: {}", norm_new_shape)
             current_logits = linear(norm_new, output)  // [1, vocab_size]
+            print("[DEBUG] Before shape() - about to call shape(current_logits)")
+            let current_logits_shape = shape(current_logits)
+            print("[DEBUG] After shape(current_logits) - result type and value: {}", current_logits_shape)
             print("[DEBUG] Token iteration complete, logits computed")
         }
     }
