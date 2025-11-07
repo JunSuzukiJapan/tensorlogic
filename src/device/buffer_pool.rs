@@ -196,6 +196,18 @@ impl BufferPool {
                     self.check_and_shrink();
                 }
 
+                // DEBUG: Log buffer contents for large buffers (likely logits)
+                if std::env::var("TL_BUFFER_DEBUG").is_ok() && size_class > 1_000_000 {
+                    let ptr = buffer.contents() as *const f32;
+                    if !ptr.is_null() {
+                        let slice = unsafe { std::slice::from_raw_parts(ptr, 10.min(length)) };
+                        eprintln!(
+                            "[BufferPool::allocate] LARGE BUFFER REUSED (logits?) size_class={}, length={}, buffer_ptr={:p}, first_10={:?}",
+                            size_class, length, buffer.as_ref(), slice
+                        );
+                    }
+                }
+
                 if std::env::var("TL_BUFFER_DEBUG").is_ok() {
                     eprintln!("[BufferPool::allocate] ✓ reused buffer from pool, size_class={}", size_class);
                 }
@@ -407,6 +419,19 @@ impl BufferPool {
         // If there are other references (strong_count > 1), don't return to pool
         // to prevent buffer sharing between layers
         let ref_count = Arc::strong_count(buffer);
+
+        // DEBUG: Log buffer contents for large buffers (likely logits)
+        if std::env::var("TL_BUFFER_DEBUG").is_ok() && size_class > 1_000_000 {
+            let ptr = buffer.contents() as *const f32;
+            if !ptr.is_null() {
+                let slice = unsafe { std::slice::from_raw_parts(ptr, 10.min(length)) };
+                eprintln!(
+                    "[BufferPool::try_return_buffer] LARGE BUFFER (logits?) size_class={}, length={}, ref_count={}, buffer_ptr={:p}, first_10={:?}",
+                    size_class, length, ref_count, buffer.as_ref(), slice
+                );
+            }
+        }
+
         if ref_count > 1 {
             if std::env::var("TL_BUFFER_DEBUG").is_ok() {
                 eprintln!(

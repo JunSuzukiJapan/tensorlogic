@@ -370,10 +370,19 @@ main {
     print("[DEBUG] Layer 20 completed!")
     let h = transformer_layer(h, L21.attn_norm.weight, L21.attn_q.weight, L21.attn_output.weight, L21.ffn_norm.weight, L21.ffn_gate.weight, L21.ffn_up.weight, L21.ffn_down.weight, K21, V21, 0.0, seq_len)
     print("[DEBUG] Layer 21 completed!")
+    print("[DEBUG] h after all layers shape: {}", shape(h))
 
     // Final normalization and output projection
+    print("[DEBUG] BEFORE rms_norm: h shape={}", shape(h))
     let final_norm = rms_norm(h, output_norm)
-    let logits = linear(final_norm, output)
+    print("[DEBUG] AFTER rms_norm: final_norm shape={}", shape(final_norm))
+
+    // CRITICAL FIX: TinyLlama uses weight tying (output.weight == tok_embd.weight)
+    // The GGUF file might not have output.weight, so use tok_embd.weight instead
+    print("[DEBUG] BEFORE linear: final_norm shape={}, tok_embd shape={}", shape(final_norm), shape(tok_embd))
+    let logits = linear(final_norm, tok_embd)
+    print("[DEBUG] AFTER linear: logits shape={}", shape(logits))
+    print("[DEBUG] Using tok_embd for logits (weight tying)")
 
     // ============================================================
     // AUTOREGRESSIVE GENERATION LOOP

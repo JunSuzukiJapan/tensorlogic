@@ -132,6 +132,29 @@ impl Interpreter {
         use crate::tensor::{TensorIO, TensorAccessors};
         use rand::Rng;
 
+        // CRITICAL: Extra sync to ensure GPU→CPU transfer is complete
+        // This fixes an issue where logits buffer was being reused before sampling
+        if let crate::device::Device::Metal(ref device) = logits.device() {
+            device.flush_if_needed().ok();
+            device.wait_until_completed().ok();
+            // Double sync for safety - ensures all pending operations are complete
+            device.wait_until_completed().ok();
+
+            // DEBUG: Check GPU buffer contents BEFORE CPU read
+            if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+                if let Ok(metal_buf) = logits.buffer().as_metal() {
+                    let ptr = metal_buf.buffer.contents() as *const f32;
+                    if !ptr.is_null() {
+                        let slice = unsafe { std::slice::from_raw_parts(ptr, 10) };
+                        eprintln!(
+                            "[temperature_sample_cpu] GPU buffer BEFORE read: buffer_ptr={:p}, first_10={:?}",
+                            metal_buf.buffer.as_ref(), slice
+                        );
+                    }
+                }
+            }
+        }
+
         // Get logits as f32 vector (sync all pending GPU ops before reading)
         let all_logits: Vec<f32> = logits.sync_and_read_f32();
 
@@ -146,6 +169,15 @@ impl Interpreter {
         };
 
         // Debug: dump logits distribution before sampling
+        // ALWAYS show logits for first few tokens to debug repetition issue
+        let mut indexed: Vec<(usize, f32)> = logits_data.iter().enumerate().map(|(i, &v)| (i, v)).collect();
+        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        eprintln!("\n[SAMPLING DEBUG] Top 10 logits:");
+        for (rank, (idx, val)) in indexed.iter().take(10).enumerate() {
+            eprintln!("  #{}: token_id={} logit={:.6}", rank+1, idx, val);
+        }
+
         if std::env::var("TL_DEBUG_ATTN").is_ok() {
             eprintln!("\n=== Logits Distribution (before sampling) ===");
             eprintln!("Logits shape: {:?}", logits.dims());
@@ -157,14 +189,6 @@ impl Interpreter {
             let min = logits_data.iter().fold(f32::INFINITY, |a, &b| a.min(b));
             let max = logits_data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
             eprintln!("Logits stats: mean={:.6}, min={:.6}, max={:.6}, range={:.6}", mean, min, max, max - min);
-
-            // Find top 5 logits
-            let mut indexed: Vec<(usize, f32)> = logits_data.iter().enumerate().map(|(i, &v)| (i, v)).collect();
-            indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            eprintln!("Top 5 logits:");
-            for (idx, val) in indexed.iter().take(5) {
-                eprintln!("  token_id={}: {:.6}", idx, val);
-            }
         }
 
         // Handle temperature=0.0 as greedy decoding (argmax)

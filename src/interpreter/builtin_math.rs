@@ -118,10 +118,40 @@ impl Interpreter {
                 Ok(Value::TensorF16(result))
             }
             (Value::TensorF32(x), Value::TensorF32(weight)) => {
+                // DEBUG: Check for final output layer (vocab_size x hidden_dim)
+                if weight.dims()[0] > 30000 && std::env::var("TL_DEBUG").is_ok() {
+                    use crate::tensor::TensorIO;
+                    eprintln!("[DEBUG linear] Large weight matrix detected: {:?}", weight.dims());
+                    eprintln!("[DEBUG linear] Input x dims: {:?}", x.dims());
+
+                    let x_data = x.sync_and_read();
+                    let weight_data = weight.sync_and_read();
+
+                    let x_mean = x_data.iter().sum::<f32>() / x_data.len() as f32;
+                    let x_abs_max = x_data.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
+                    let w_mean = weight_data.iter().sum::<f32>() / weight_data.len() as f32;
+                    let w_abs_max = weight_data.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
+
+                    eprintln!("[DEBUG linear] Input: mean={:.6}, abs_max={:.6}, first_10={:?}",
+                        x_mean, x_abs_max, &x_data[..10.min(x_data.len())]);
+                    eprintln!("[DEBUG linear] Weight: mean={:.6}, abs_max={:.6}, first_10={:?}",
+                        w_mean, w_abs_max, &weight_data[..10.min(weight_data.len())]);
+                }
+
                 // Use fused transpose-matmul: x @ weight.T
                 // This is 20-30% faster than separate transpose + matmul
                 let mut result = x.matmul_transposed_b(&weight)
                     .map_err(|e| RuntimeError::TensorError(e))?;
+
+                // DEBUG: Check result
+                if weight.dims()[0] > 30000 && std::env::var("TL_DEBUG").is_ok() {
+                    use crate::tensor::TensorIO;
+                    let result_data = result.sync_and_read();
+                    let r_mean = result_data.iter().sum::<f32>() / result_data.len() as f32;
+                    let r_abs_max = result_data.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
+                    eprintln!("[DEBUG linear] Result: mean={:.6}, abs_max={:.6}, first_10={:?}",
+                        r_mean, r_abs_max, &result_data[..10.min(result_data.len())]);
+                }
 
                 // Add bias if provided
                 if args.len() == 3 {
@@ -132,6 +162,21 @@ impl Interpreter {
                     };
                     result = result.add(&bias)
                         .map_err(|e| RuntimeError::TensorError(e))?;
+                }
+
+                // DEBUG: Log buffer pointer BEFORE returning
+                if weight.dims()[0] > 30000 && std::env::var("TL_BUFFER_DEBUG").is_ok() {
+                    use crate::tensor::TensorAccessors;
+                    if let Ok(metal_buf) = result.buffer().as_metal() {
+                        let ptr = metal_buf.buffer.contents() as *const f32;
+                        if !ptr.is_null() {
+                            let slice = unsafe { std::slice::from_raw_parts(ptr, 10) };
+                            eprintln!(
+                                "[DEBUG linear] BEFORE RETURN: buffer_ptr={:p}, first_10={:?}",
+                                metal_buf.buffer.as_ref(), slice
+                            );
+                        }
+                    }
                 }
 
                 Ok(Value::TensorF32(result))
