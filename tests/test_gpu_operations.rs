@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 //! Comprehensive GPU Operations Test Suite
 //!
 //! Tests all GPU operations to ensure correctness, memory safety, and performance.

@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 /// Comprehensive tests for Error Handling
 ///
 /// Robust error handling is crucial for production systems.
@@ -383,7 +384,6 @@ fn test_pow_special_cases() -> TensorResult<()> {
 
     // println!("✓ Pow special cases test passed");
     unimplemented!("pow() with Tensor argument not yet available");
-    Ok(())
 }
 
 // Empty Tensor Errors

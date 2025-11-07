@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 // Mathematical verification of attention computation
 use tensorlogic::device::MetalDevice;
 use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO, TensorAccessors};

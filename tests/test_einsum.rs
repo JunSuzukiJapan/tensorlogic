@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 /// Comprehensive tests for Einstein summation (einsum) operations
 ///
 /// Tests cover:

@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 /// Comprehensive tests for f16 activation functions
 ///
 /// Activation functions are critical for neural networks.

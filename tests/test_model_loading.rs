@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 /// Comprehensive tests for Model Loading and Management
 ///
 /// Model loading is critical for production ML systems.

@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 /// Comprehensive tests for f16 tensor basic operations
 ///
 /// These tests mirror test_f32_basic_ops.rs but use f16 (half precision).

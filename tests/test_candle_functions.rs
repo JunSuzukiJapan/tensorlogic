@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 /// Tests for Candle-based operations (cndl_* functions)
 ///
 /// These tests verify that the Candle-based wrappers work correctly
@@ -9,6 +10,7 @@ use tensorlogic::parser::TensorLogicParser;
 use serial_test::serial;
 
 /// Helper to run TensorLogic code and return result
+#[allow(dead_code)]
 fn run_tl_code(code: &str) -> Result<String, Box<dyn std::error::Error>> {
     let program = TensorLogicParser::parse_program(code)?;
     let mut interpreter = Interpreter::new();

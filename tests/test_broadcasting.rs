@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 //! Comprehensive tests for broadcasting operations
 //! Tests broadcast_to with various shape combinations and edge cases
 

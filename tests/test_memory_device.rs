@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 //! Comprehensive tests for memory management and device operations
 //! Tests tensor creation, cloning, device transfer, and memory efficiency
 

@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 /// Comprehensive tests for optimizers (SGD, Adam, AdamW)
 ///
 /// Optimizers are critical for training neural networks.
@@ -30,6 +31,7 @@ fn assert_close_f16(a: f16, b: f16, epsilon: f32) {
     );
 }
 
+#[allow(dead_code)]
 fn assert_tensor_close(result: &[f16], expected: &[f16], epsilon: f32) {
     assert_eq!(result.len(), expected.len());
     for (i, (&r, &e)) in result.iter().zip(expected.iter()).enumerate() {
@@ -415,7 +417,8 @@ fn test_sgd_state_dict() -> TensorResult<()> {
     let state = optimizer.state_dict();
 
     // Should be able to get state (even if empty initially)
-    assert!(state.param_state.len() >= 0);
+    // Note: len() is always >= 0, so just verify state exists
+    let _ = state.param_state.len();
 
     println!("✓ SGD state dict test passed");
     Ok(())
@@ -429,7 +432,8 @@ fn test_adam_state_dict() -> TensorResult<()> {
 
     let state = optimizer.state_dict();
 
-    assert!(state.param_state.len() >= 0);
+    // Note: len() is always >= 0, so just verify state exists
+    let _ = state.param_state.len();
 
     println!("✓ Adam state dict test passed");
     Ok(())

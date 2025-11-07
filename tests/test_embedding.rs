@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 /// Comprehensive tests for Embedding (Token Lookup) operations
 ///
 /// Embedding is fundamental for NLP tasks, especially language models.

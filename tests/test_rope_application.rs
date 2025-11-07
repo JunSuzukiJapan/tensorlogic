@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 use tensorlogic::MetalDevice;
 use tensorlogic::tensor::{Tensor, TensorAccessors, TensorCreation, TensorIO, TensorTransform};
 use serial_test::serial;

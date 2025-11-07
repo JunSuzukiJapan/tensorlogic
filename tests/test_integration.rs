@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 //! Integration tests for multi-operation pipelines
 //! Tests combinations of operations that represent real-world usage patterns
 
