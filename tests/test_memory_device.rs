@@ -80,8 +80,8 @@ fn test_tensor_clone() -> TensorResult<()> {
     assert_eq!(a.shape().dims(), b.shape().dims());
     assert_eq!(a.numel(), b.numel());
 
-    let a_vals = a.to_vec();
-    let b_vals = b.to_vec();
+    let a_vals = a.sync_and_read();
+    let b_vals = b.sync_and_read();
 
     for i in 0..100 {
         assert!((a_vals[i].to_f32() - b_vals[i].to_f32()).abs() < 1e-3);
@@ -175,7 +175,7 @@ fn test_zeros_tensor() -> TensorResult<()> {
     let a: Tensor<f16> = Tensor::zeros(vec![5, 5])?;
 
     assert_eq!(a.numel(), 25);
-    let values = a.to_vec();
+    let values = a.sync_and_read();
     for val in values {
         assert!((val.to_f32()).abs() < 1e-6);
     }
@@ -187,7 +187,7 @@ fn test_ones_tensor() -> TensorResult<()> {
     let a: Tensor<f16> = Tensor::ones(vec![5, 5])?;
 
     assert_eq!(a.numel(), 25);
-    let values = a.to_vec();
+    let values = a.sync_and_read();
     for val in values {
         assert!((val.to_f32() - 1.0).abs() < 1e-3);
     }
@@ -204,7 +204,7 @@ fn test_zeros_like() -> TensorResult<()> {
     let b = Tensor::zeros_like(&a)?;
 
     assert_eq!(b.shape().dims(), &[4, 5]);
-    let values = b.to_vec();
+    let values = b.sync_and_read();
     for val in values {
         assert!((val.to_f32()).abs() < 1e-6);
     }
@@ -221,7 +221,7 @@ fn test_ones_like() -> TensorResult<()> {
     let b = Tensor::ones_like(&a)?;
 
     assert_eq!(b.shape().dims(), &[4, 5]);
-    let values = b.to_vec();
+    let values = b.sync_and_read();
     for val in values {
         assert!((val.to_f32() - 1.0).abs() < 1e-3);
     }
@@ -289,7 +289,7 @@ fn test_to_vec_and_back() -> TensorResult<()> {
     let original_data: Vec<f16> = (0..100).map(|i| f16::from_f32(i as f32)).collect();
     let a = Tensor::from_vec(original_data.clone(), vec![10, 10])?;
 
-    let retrieved = a.to_vec();
+    let retrieved = a.sync_and_read();
 
     assert_eq!(original_data.len(), retrieved.len());
     for i in 0..100 {
@@ -304,7 +304,7 @@ fn test_large_to_vec() -> TensorResult<()> {
     let data: Vec<f16> = vec![f16::from_f32(1.0); numel];
     let a = Tensor::from_vec(data, vec![1000, 1000])?;
 
-    let retrieved = a.to_vec();
+    let retrieved = a.sync_and_read();
 
     assert_eq!(retrieved.len(), 1_000_000);
     Ok(())
@@ -362,7 +362,7 @@ fn test_single_element_tensor() -> TensorResult<()> {
     let a = Tensor::from_vec(vec![f16::from_f32(42.0)], vec![1])?;
 
     assert_eq!(a.numel(), 1);
-    assert_eq!(a.to_vec()[0].to_f32(), 42.0);
+    assert_eq!(a.sync_and_read()[0].to_f32(), 42.0);
     Ok(())
 }
 

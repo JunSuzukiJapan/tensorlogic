@@ -186,7 +186,7 @@ fn test_division_by_zero() -> TensorResult<()> {
     let b = Tensor::<f32>::zeros(vec![2, 2])?;
 
     let c = a.div(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     // Should be Inf, not NaN or crash
     for &val in &result {
@@ -205,7 +205,7 @@ fn test_nan_propagation_add() -> TensorResult<()> {
     let b = Tensor::<f32>::ones(vec![3])?;
 
     let c = a.add(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     assert!(result[0].is_finite());
     assert!(result[1].is_nan(), "NaN should propagate in addition");
@@ -223,7 +223,7 @@ fn test_nan_propagation_mul() -> TensorResult<()> {
     let b = Tensor::<f32>::from_vec(vec![0.0, 5.0], vec![2])?;
 
     let c = a.mul(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     assert!(result[0].is_nan(), "NaN * 0 should be NaN");
     assert!(result[1].is_nan(), "NaN * 5 should be NaN");
@@ -240,7 +240,7 @@ fn test_inf_propagation() -> TensorResult<()> {
     let b = Tensor::<f32>::from_vec(vec![2.0, 2.0], vec![2])?;
 
     let c = a.mul(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     assert!(result[0].is_infinite() && result[0] > 0.0, "Inf * 2 should be Inf");
     assert!(result[1].is_infinite() && result[1] < 0.0, "-Inf * 2 should be -Inf");
@@ -257,7 +257,7 @@ fn test_inf_minus_inf() -> TensorResult<()> {
     let b = Tensor::<f32>::from_vec(vec![f32::INFINITY], vec![1])?;
 
     let c = a.sub(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     assert!(result[0].is_nan(), "Inf - Inf should be NaN");
 
@@ -272,7 +272,7 @@ fn test_exp_overflow() -> TensorResult<()> {
     let a = Tensor::<f32>::from_vec(vec![1000.0], vec![1])?;
 
     let b = a.exp()?;
-    let result = b.to_vec();
+    let result = b.sync_and_read();
 
     assert!(result[0].is_infinite(), "exp(1000) should be Inf");
 
@@ -287,7 +287,7 @@ fn test_log_negative() -> TensorResult<()> {
     let a = Tensor::<f32>::from_vec(vec![-1.0, -10.0], vec![2])?;
 
     let b = a.log()?;
-    let result = b.to_vec();
+    let result = b.sync_and_read();
 
     assert!(result[0].is_nan(), "log(-1) should be NaN");
     assert!(result[1].is_nan(), "log(-10) should be NaN");
@@ -303,7 +303,7 @@ fn test_log_zero() -> TensorResult<()> {
     let a = Tensor::<f32>::from_vec(vec![0.0], vec![1])?;
 
     let b = a.log()?;
-    let result = b.to_vec();
+    let result = b.sync_and_read();
 
     assert!(
         result[0].is_infinite() && result[0] < 0.0,
@@ -321,7 +321,7 @@ fn test_sqrt_negative() -> TensorResult<()> {
     let a = Tensor::<f32>::from_vec(vec![-4.0], vec![1])?;
 
     let b = a.sqrt()?;
-    let result = b.to_vec();
+    let result = b.sync_and_read();
 
     assert!(result[0].is_nan(), "sqrt(-4) should be NaN");
 
@@ -343,7 +343,7 @@ fn test_pow_special_cases() -> TensorResult<()> {
     )?;
 
     let c = a.pow(&b)?;
-    let result = c.to_vec();
+    let result = c.sync_and_read();
 
     // 0^0 = 1 (by convention)
     assert!((result[0] - 1.0).abs() < 1e-5, "0^0 should be 1");
@@ -384,7 +384,7 @@ fn test_empty_tensor_sum() -> TensorResult<()> {
     let a = Tensor::<f32>::zeros(vec![0, 3])?;
 
     let sum = a.sum()?;
-    let result = sum.to_vec();
+    let result = sum.sync_and_read();
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], 0.0);
@@ -434,7 +434,7 @@ fn test_f16_precision_loss() -> TensorResult<()> {
     let a = Tensor::<f32>::from_vec(vec![large_f32], vec![1])?;
 
     // Convert to f16
-    let a_f16_vec: Vec<f16> = a.to_vec().iter().map(|&x| f16::from_f32(x)).collect();
+    let a_f16_vec: Vec<f16> = a.sync_and_read().iter().map(|&x| f16::from_f32(x)).collect();
 
     // f16 representation may be Inf
     assert!(
@@ -509,7 +509,7 @@ fn test_relu_negative() -> TensorResult<()> {
     let a = Tensor::<f32>::from_vec(vec![-5.0, -1.0, 0.0, 1.0, 5.0], vec![5])?;
 
     let b = a.relu()?;
-    let result = b.to_vec();
+    let result = b.sync_and_read();
 
     assert_eq!(result[0], 0.0);
     assert_eq!(result[1], 0.0);
@@ -528,7 +528,7 @@ fn test_sigmoid_extreme_values() -> TensorResult<()> {
     let a = Tensor::<f32>::from_vec(vec![-1000.0, 0.0, 1000.0], vec![3])?;
 
     let b = a.sigmoid()?;
-    let result = b.to_vec();
+    let result = b.sync_and_read();
 
     // sigmoid(-1000) ≈ 0
     assert!(result[0] < 0.001, "sigmoid(-1000) should be ~0");
@@ -550,7 +550,7 @@ fn test_softmax_overflow_safety() -> TensorResult<()> {
     let a = Tensor::<f32>::from_vec(vec![1000.0, 1001.0, 1002.0], vec![1, 3])?;
 
     let b = a.softmax(1)?;
-    let result = b.to_vec();
+    let result = b.sync_and_read();
 
     // Should not be NaN or Inf
     for &val in &result {
@@ -648,7 +648,7 @@ fn test_chain_operations_with_error() -> TensorResult<()> {
     let c = b.add_scalar(1.0)?;
 
     // This should succeed
-    assert_eq!(c.to_vec(), vec![3.0, 3.0, 3.0, 3.0]);
+    assert_eq!(c.sync_and_read(), vec![3.0, 3.0, 3.0, 3.0]);
 
     println!("✓ Chain operations test passed");
     Ok(())

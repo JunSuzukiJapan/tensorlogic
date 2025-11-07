@@ -63,7 +63,7 @@ fn test_sum_dim_rows() -> TensorResult<()> {
     // Sum along rows (dim 0) -> [5, 7, 9]
     let sum0 = a.sum_dim(0, false)?;
     assert_eq!(sum0.shape().dims(), &[3]);
-    let result = sum0.to_vec();
+    let result = sum0.sync_and_read();
     assert!((result[0].to_f32() - 5.0).abs() < 1e-3);
     assert!((result[1].to_f32() - 7.0).abs() < 1e-3);
     assert!((result[2].to_f32() - 9.0).abs() < 1e-3);
@@ -87,7 +87,7 @@ fn test_sum_dim_cols() -> TensorResult<()> {
     // Sum along cols (dim 1) -> [6, 15]
     let sum1 = a.sum_dim(1, false)?;
     assert_eq!(sum1.shape().dims(), &[2]);
-    let result = sum1.to_vec();
+    let result = sum1.sync_and_read();
     assert!((result[0].to_f32() - 6.0).abs() < 1e-3);
     assert!((result[1].to_f32() - 15.0).abs() < 1e-3);
     Ok(())
@@ -204,7 +204,7 @@ fn test_mean_dim() -> TensorResult<()> {
 
     // Mean along dim 1 -> [(2+4)/2, (6+8)/2] = [3.0, 7.0]
     let mean1 = a.mean_dim(1, false)?;
-    let result = mean1.to_vec();
+    let result = mean1.sync_and_read();
     assert!((result[0].to_f32() - 3.0).abs() < 1e-3);
     assert!((result[1].to_f32() - 7.0).abs() < 1e-3);
     Ok(())
@@ -393,7 +393,7 @@ fn test_argmax_1d() -> TensorResult<()> {
     )?;
 
     let idx = a.argmax(None, false)?;
-    let values = idx.to_vec();
+    let values = idx.sync_and_read();
     assert!((values[0].to_f32() - 3.0).abs() < 1e-3); // Index 3
     Ok(())
 }
@@ -412,7 +412,7 @@ fn test_argmin_1d() -> TensorResult<()> {
     )?;
 
     let idx = a.argmin(None, false)?;
-    let values = idx.to_vec();
+    let values = idx.sync_and_read();
     assert!((values[0].to_f32() - 4.0).abs() < 1e-3); // Index 4
     Ok(())
 }
@@ -435,7 +435,7 @@ fn test_argmax_dim() -> TensorResult<()> {
 
     // Argmax along dim 1 (columns) -> [1, 0] (indices of max in each row)
     let idx = a.argmax(Some(1), false)?;
-    let values = idx.to_vec();
+    let values = idx.sync_and_read();
     assert!((values[0].to_f32() - 1.0).abs() < 1e-3); // Max of row 0 is at index 1
     assert!((values[1].to_f32() - 0.0).abs() < 1e-3); // Max of row 1 is at index 0
     Ok(())
@@ -457,7 +457,7 @@ fn test_argmin_dim() -> TensorResult<()> {
 
     // Argmin along dim 1 (columns) -> [0, 1] (indices of min in each row)
     let idx = a.argmin(Some(1), false)?;
-    let values = idx.to_vec();
+    let values = idx.sync_and_read();
     assert!((values[0].to_f32() - 0.0).abs() < 1e-3); // Min of row 0 is at index 0
     assert!((values[1].to_f32() - 1.0).abs() < 1e-3); // Min of row 1 is at index 1
     Ok(())

@@ -18,7 +18,7 @@ fn test_reshape_1d_to_2d() -> TensorResult<()> {
     let b = a.reshape(vec![2, 3])?;
 
     assert_eq!(b.shape().dims(), &[2, 3]);
-    let values = b.to_vec();
+    let values = b.sync_and_read();
     for i in 0..6 {
         assert!((values[i].to_f32() - i as f32).abs() < 1e-3);
     }
@@ -35,7 +35,7 @@ fn test_reshape_2d_to_1d() -> TensorResult<()> {
     let b = a.reshape(vec![12])?;
 
     assert_eq!(b.shape().dims(), &[12]);
-    let values = b.to_vec();
+    let values = b.sync_and_read();
     for i in 0..12 {
         assert!((values[i].to_f32() - i as f32).abs() < 1e-3);
     }
@@ -95,7 +95,7 @@ fn test_reshape_to_scalar_like() -> TensorResult<()> {
     let b = a.reshape(vec![1])?;
 
     assert_eq!(b.shape().dims(), &[1]);
-    assert!((b.to_vec()[0].to_f32() - 42.0).abs() < 1e-3);
+    assert!((b.sync_and_read()[0].to_f32() - 42.0).abs() < 1e-3);
     Ok(())
 }
 
@@ -157,7 +157,7 @@ fn test_flatten_2d() -> TensorResult<()> {
     let b = a.flatten()?;
 
     assert_eq!(b.shape().dims(), &[12]);
-    let values = b.to_vec();
+    let values = b.sync_and_read();
     for i in 0..12 {
         assert!((values[i].to_f32() - i as f32).abs() < 1e-3);
     }
@@ -224,7 +224,7 @@ fn test_transpose_square_matrix() -> TensorResult<()> {
     let b = a.transpose()?;
 
     assert_eq!(b.shape().dims(), &[3, 3]);
-    let values = b.to_vec();
+    let values = b.sync_and_read();
 
     // Transposed: [[1, 4, 7], [2, 5, 8], [3, 6, 9]]
     assert!((values[0].to_f32() - 1.0).abs() < 1e-3);
@@ -247,7 +247,7 @@ fn test_transpose_rectangular() -> TensorResult<()> {
     let b = a.transpose()?;
 
     assert_eq!(b.shape().dims(), &[3, 2]);
-    let values = b.to_vec();
+    let values = b.sync_and_read();
 
     // Original: [[1, 2, 3], [4, 5, 6]]
     // Transposed: [[1, 4], [2, 5], [3, 6]]
@@ -300,8 +300,8 @@ fn test_transpose_twice() -> TensorResult<()> {
 
     assert_eq!(c.shape().dims(), &[2, 3]);
 
-    let a_vals = a.to_vec();
-    let c_vals = c.to_vec();
+    let a_vals = a.sync_and_read();
+    let c_vals = c.sync_and_read();
 
     for i in 0..6 {
         assert!((a_vals[i].to_f32() - c_vals[i].to_f32()).abs() < 1e-3);
@@ -368,8 +368,8 @@ fn test_permute_identity() -> TensorResult<()> {
 
     assert_eq!(b.shape().dims(), &[2, 3, 4]);
 
-    let a_vals = a.to_vec();
-    let b_vals = b.to_vec();
+    let a_vals = a.sync_and_read();
+    let b_vals = b.sync_and_read();
 
     for i in 0..24 {
         assert!((a_vals[i].to_f32() - b_vals[i].to_f32()).abs() < 1e-3);
@@ -390,8 +390,8 @@ fn test_permute_2d_as_transpose() -> TensorResult<()> {
 
     assert_eq!(transposed.shape().dims(), permuted.shape().dims());
 
-    let t_vals = transposed.to_vec();
-    let p_vals = permuted.to_vec();
+    let t_vals = transposed.sync_and_read();
+    let p_vals = permuted.sync_and_read();
 
     for i in 0..6 {
         assert!((t_vals[i].to_f32() - p_vals[i].to_f32()).abs() < 1e-3);
@@ -595,7 +595,7 @@ fn test_operations_preserve_data() -> TensorResult<()> {
     let b = a.reshape(vec![3, 4])?;
     let c = b.flatten()?;
 
-    let c_vals = c.to_vec();
+    let c_vals = c.sync_and_read();
 
     for i in 0..12 {
         assert!((data[i].to_f32() - c_vals[i].to_f32()).abs() < 1e-3);
@@ -613,8 +613,8 @@ fn test_reshape_identity_preserves_order() -> TensorResult<()> {
     let flat = a.flatten()?;
     let reshaped = flat.reshape(vec![2, 3, 4])?;
 
-    let a_vals = a.to_vec();
-    let r_vals = reshaped.to_vec();
+    let a_vals = a.sync_and_read();
+    let r_vals = reshaped.sync_and_read();
 
     for i in 0..24 {
         assert!((a_vals[i].to_f32() - r_vals[i].to_f32()).abs() < 1e-3);

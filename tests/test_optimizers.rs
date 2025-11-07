@@ -79,7 +79,7 @@ fn test_sgd_basic_step() -> TensorResult<()> {
 
     // Get updated parameter
     let updated_x = &optimizer.params()[0];
-    let value = updated_x.to_vec()[0];
+    let value = updated_x.sync_and_read()[0];
 
     assert_close_f16(value, f16::from_f32(1.9), 0.01);
 
@@ -109,7 +109,7 @@ fn test_sgd_multiple_steps() -> TensorResult<()> {
     }
 
     // After 10 steps: x = 10.0 - 10 * 0.1 * 1.0 = 9.0
-    let value = optimizer.params()[0].to_vec()[0];
+    let value = optimizer.params()[0].sync_and_read()[0];
     assert_close_f16(value, f16::from_f32(9.0), 0.05);
 
     println!("✓ SGD multiple steps test passed");
@@ -203,10 +203,10 @@ fn test_adam_basic_step() -> TensorResult<()> {
     let mut optimizer = Adam::new(vec![x.clone()], 0.1);
 
     // Adam should take a step (exact value depends on moment estimates)
-    let before = x.to_vec()[0].to_f32();
+    let before = x.sync_and_read()[0].to_f32();
     optimizer.step()?;
 
-    let after = optimizer.params()[0].to_vec()[0].to_f32();
+    let after = optimizer.params()[0].sync_and_read()[0].to_f32();
 
     // Value should decrease (since gradient is positive)
     assert!(after < before, "Adam should decrease parameter value");
@@ -224,7 +224,7 @@ fn test_adam_multiple_steps() -> TensorResult<()> {
 
     let mut optimizer = Adam::new(vec![x.clone()], 0.1);
 
-    let initial = x.to_vec()[0].to_f32();
+    let initial = x.sync_and_read()[0].to_f32();
 
     // Perform multiple steps
     for _ in 0..10 {
@@ -238,7 +238,7 @@ fn test_adam_multiple_steps() -> TensorResult<()> {
         optimizer.step()?;
     }
 
-    let final_val = optimizer.params()[0].to_vec()[0].to_f32();
+    let final_val = optimizer.params()[0].sync_and_read()[0].to_f32();
 
     // Value should have decreased significantly
     assert!(final_val < initial - 1.0, "Adam should make progress over multiple steps");
@@ -306,10 +306,10 @@ fn test_adamw_basic_step() -> TensorResult<()> {
 
     let mut optimizer = AdamW::new(vec![x.clone()], 0.1, 0.01);
 
-    let before = x.to_vec()[0].to_f32();
+    let before = x.sync_and_read()[0].to_f32();
     optimizer.step()?;
 
-    let after = optimizer.params()[0].to_vec()[0].to_f32();
+    let after = optimizer.params()[0].sync_and_read()[0].to_f32();
 
     // AdamW should decrease parameter (gradient + weight decay)
     assert!(after < before);
@@ -334,7 +334,7 @@ fn test_sgd_simple_optimization() -> TensorResult<()> {
     // Perform optimization steps
     for _ in 0..20 {
         // Gradient of (x - 3)^2 is 2(x - 3)
-        let current = optimizer.get_params_mut()[0].to_vec()[0].to_f32();
+        let current = optimizer.get_params_mut()[0].sync_and_read()[0].to_f32();
         let grad_val = 2.0 * (current - 3.0);
 
         let grad = Tensor::from_vec(vec![f16::from_f32(grad_val)], vec![1])?;
@@ -349,7 +349,7 @@ fn test_sgd_simple_optimization() -> TensorResult<()> {
     }
 
     // Should converge close to 3.0
-    let final_val = optimizer.params()[0].to_vec()[0].to_f32();
+    let final_val = optimizer.params()[0].sync_and_read()[0].to_f32();
     assert!((final_val - 3.0).abs() < 0.5, "SGD should converge close to optimum");
 
     println!("✓ SGD simple optimization test passed");
@@ -367,7 +367,7 @@ fn test_adam_simple_optimization() -> TensorResult<()> {
     let mut optimizer = Adam::new(vec![x.clone()], 0.1);
 
     for _ in 0..20 {
-        let current = optimizer.get_params_mut()[0].to_vec()[0].to_f32();
+        let current = optimizer.get_params_mut()[0].sync_and_read()[0].to_f32();
         let grad_val = 2.0 * (current - 3.0);
 
         let grad = Tensor::from_vec(vec![f16::from_f32(grad_val)], vec![1])?;
@@ -381,7 +381,7 @@ fn test_adam_simple_optimization() -> TensorResult<()> {
         optimizer.zero_grad();
     }
 
-    let final_val = optimizer.params()[0].to_vec()[0].to_f32();
+    let final_val = optimizer.params()[0].sync_and_read()[0].to_f32();
     assert!((final_val - 3.0).abs() < 0.5, "Adam should converge close to optimum");
 
     println!("✓ Adam simple optimization test passed");
@@ -497,9 +497,9 @@ fn test_optimizer_zero_learning_rate() -> TensorResult<()> {
 
     let mut optimizer = SGD::new(vec![x.clone()], 0.0); // lr = 0
 
-    let before = x.to_vec()[0];
+    let before = x.sync_and_read()[0];
     optimizer.step()?;
-    let after = optimizer.params()[0].to_vec()[0];
+    let after = optimizer.params()[0].sync_and_read()[0];
 
     // With lr=0, parameter should not change
     assert_close_f16(before, after, 1e-6);
