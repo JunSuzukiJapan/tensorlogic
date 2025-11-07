@@ -96,7 +96,8 @@ pub enum Token {
     Python,
     Import,
     As,
-    
+    Match,
+
     // Type keywords
     Float16,
     Int16,
@@ -129,7 +130,9 @@ pub enum Token {
     
     // Logical
     Bang,           // !
-    
+    Pipe,           // |
+    DoublePipe,     // ||
+
     // Delimiters
     LParen,         // (
     RParen,         // )

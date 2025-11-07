@@ -495,6 +495,17 @@ impl<'ctx> LLVMCodeGen<'ctx> {
             TensorExpr::FunctionCall { name, args, .. } => {
                 self.compile_function_call(&name.0, args)
             }
+            TensorExpr::Match { .. } => {
+                // TODO: Implement LLVM code generation for pattern matching
+                // This would require:
+                // 1. Generating comparison code for each pattern
+                // 2. Creating basic blocks for each match arm
+                // 3. Generating PHI nodes to merge results
+                // 4. Implementing pattern destructuring for complex patterns
+                Err(TensorError::CompilationError(
+                    "Pattern matching (match expressions) not yet supported in LLVM compilation".to_string(),
+                ))
+            }
             _ => Err(TensorError::CompilationError(
                 format!("Expression type not yet supported: {:?}", expr),
             )),

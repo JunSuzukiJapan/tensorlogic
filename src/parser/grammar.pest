@@ -225,6 +225,7 @@ unary_expr = { unary_op ~ unary_expr | tensor_term }
 tensor_term = {
     postfix_expr
     | "(" ~ tensor_expr ~ ")"
+    | match_expr
     | embedding_lookup
     | einstein_sum
     | python_call
@@ -306,6 +307,48 @@ tensor_elements = { tensor_element ~ ("," ~ tensor_element)* }
 tensor_element = { number | tensor_literal | tensor_expr }
 
 scalar_literal = { complex_number | number | boolean }
+
+// ============================================================================
+// Pattern Matching
+// ============================================================================
+
+match_expr = { "match" ~ tensor_expr ~ "{" ~ match_arm ~ ("," ~ match_arm)* ~ ","? ~ "}" }
+
+match_arm = { pattern ~ ("if" ~ tensor_expr)? ~ "=>" ~ tensor_expr }
+
+pattern = {
+    pattern_or
+}
+
+pattern_or = { pattern_term ~ ("|" ~ pattern_term)* }
+
+pattern_term = {
+    wildcard_pattern
+    | number_pattern
+    | boolean_pattern
+    | string_pattern
+    | tuple_pattern
+    | struct_pattern
+    | variable_pattern
+}
+
+wildcard_pattern = { "_" }
+
+number_pattern = { number }
+
+boolean_pattern = { boolean }
+
+string_pattern = { string_literal }
+
+tuple_pattern = { "(" ~ pattern ~ ("," ~ pattern)* ~ ")" }
+
+struct_pattern = { struct_type ~ "{" ~ field_pattern_list? ~ "}" }
+
+field_pattern_list = { field_pattern ~ ("," ~ field_pattern)* ~ ","? }
+
+field_pattern = { identifier ~ ":" ~ pattern }
+
+variable_pattern = { identifier }
 
 // ============================================================================
 // Constraints
@@ -491,7 +534,7 @@ identifier = @{
             | "objective" | "optimizer" | "epochs" | "auto"
             | "void"
             | "float32" | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
-            | "python" | "import" | "as"
+            | "python" | "import" | "as" | "match"
         )
         ~ !(ASCII_ALPHANUMERIC | "_")
     )
@@ -510,7 +553,7 @@ keyword = @{
         | "objective" | "optimizer" | "epochs" | "auto"
         | "void"
         | "float32" | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
-        | "python" | "import" | "as"
+        | "python" | "import" | "as" | "match"
     ) ~ !(ASCII_ALPHANUMERIC | "_")
 }
 
@@ -525,7 +568,7 @@ reserved_keyword = {
     | "objective" | "optimizer" | "epochs" | "auto"
     | "void"
     | "float32" | "float16" | "int16" | "int32" | "int64" | "bool" | "complex16"
-    | "python" | "import" | "as"
+    | "python" | "import" | "as" | "match"
 }
 
 // ============================================================================
