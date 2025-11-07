@@ -40,9 +40,37 @@ fn main() {
                 std::process::exit(1);
             }
             let file_path = &args[2];
-            if let Err(e) = run_file(file_path, debug_mode, test_mode, bench_mode) {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
+
+            #[cfg(feature = "llvm")]
+            {
+                // Parse LLVM-related options
+                let use_jit = args.contains(&"--jit".to_string());
+                let emit_llvm = parse_option_value(&args, "--emit-llvm");
+                let emit_asm = parse_option_value(&args, "--emit-asm");
+                let opt_level = parse_option_value(&args, "--opt-level")
+                    .and_then(|s| s.parse::<u8>().ok())
+                    .unwrap_or(2);
+
+                if let Err(e) = run_file(
+                    file_path,
+                    debug_mode,
+                    test_mode,
+                    bench_mode,
+                    use_jit,
+                    emit_llvm,
+                    emit_asm,
+                    opt_level,
+                ) {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+            #[cfg(not(feature = "llvm"))]
+            {
+                if let Err(e) = run_file(file_path, debug_mode, test_mode, bench_mode) {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
             }
         }
         "repl" => {
@@ -65,6 +93,17 @@ fn main() {
     }
 }
 
+/// Parse option value from command line arguments
+/// Example: parse_option_value(&["prog", "--emit-llvm", "out.ll"], "--emit-llvm") => Some("out.ll")
+fn parse_option_value(args: &[String], option: &str) -> Option<String> {
+    for i in 0..args.len() {
+        if args[i] == option && i + 1 < args.len() {
+            return Some(args[i + 1].clone());
+        }
+    }
+    None
+}
+
 fn print_usage(program_name: &str) {
     println!("TensorLogic v{}", env!("CARGO_PKG_VERSION"));
     println!();
@@ -78,23 +117,72 @@ fn print_usage(program_name: &str) {
     println!("    version       Print version information");
     println!();
     println!("OPTIONS:");
-    println!("    --debug, -d   Enable debug mode with detailed error information");
-    println!("    --test        Run test blocks instead of main block");
-    println!("    --bench       Run benchmark blocks with timing");
+    println!("    --debug, -d          Enable debug mode with detailed error information");
+    println!("    --test               Run test blocks instead of main block");
+    println!("    --bench              Run benchmark blocks with timing");
+    #[cfg(feature = "llvm")]
+    println!("    --jit                Use JIT compilation for faster execution");
+    #[cfg(feature = "llvm")]
+    println!("    --emit-llvm <file>   Emit LLVM IR to the specified file");
+    #[cfg(feature = "llvm")]
+    println!("    --emit-asm <file>    Emit native assembly to the specified file");
+    #[cfg(feature = "llvm")]
+    println!("    --opt-level <0-3>    Set optimization level (default: 2)");
     println!();
     println!("EXAMPLES:");
     println!("    {} run examples/linear_regression.tl", program_name);
     println!("    {} run examples/test.tl --debug", program_name);
     println!("    {} run examples/test.tl --test", program_name);
     println!("    {} run examples/benchmark.tl --bench", program_name);
+    #[cfg(feature = "llvm")]
+    println!("    {} run examples/compute.tl --jit", program_name);
+    #[cfg(feature = "llvm")]
+    println!("    {} run examples/compute.tl --emit-llvm output.ll", program_name);
+    #[cfg(feature = "llvm")]
+    println!("    {} run examples/compute.tl --emit-asm output.s", program_name);
     println!("    {} repl --debug", program_name);
 }
 
+#[cfg(feature = "llvm")]
 fn run_file(
     file_path: &str,
     debug_mode: bool,
     test_mode: bool,
     bench_mode: bool,
+    use_jit: bool,
+    emit_llvm: Option<String>,
+    emit_asm: Option<String>,
+    opt_level: u8,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use tensorlogic::compiler::{CompilationMode, CompilerOptions, JITCompiler, OutputFormat, OutputWriter};
+    use inkwell::{context::Context, OptimizationLevel};
+
+    run_file_impl(
+        file_path,
+        debug_mode,
+        test_mode,
+        bench_mode,
+        Some((use_jit, emit_llvm, emit_asm, opt_level)),
+    )
+}
+
+#[cfg(not(feature = "llvm"))]
+fn run_file(
+    file_path: &str,
+    debug_mode: bool,
+    test_mode: bool,
+    bench_mode: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    run_file_impl(file_path, debug_mode, test_mode, bench_mode, None)
+}
+
+fn run_file_impl(
+    file_path: &str,
+    debug_mode: bool,
+    test_mode: bool,
+    bench_mode: bool,
+    #[allow(unused_variables)]
+    llvm_options: Option<(bool, Option<String>, Option<String>, u8)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if file exists
     let path = Path::new(file_path);
@@ -146,7 +234,73 @@ fn run_file(
         }
     }
 
-    // Execute program
+    // Handle LLVM compilation if requested
+    #[cfg(feature = "llvm")]
+    if let Some((use_jit, emit_llvm, emit_asm, opt_level)) = llvm_options {
+        use tensorlogic::compiler::{JITCompiler, OutputFormat, OutputWriter};
+        use inkwell::{context::Context, OptimizationLevel};
+
+        let opt = match opt_level {
+            0 => OptimizationLevel::None,
+            1 => OptimizationLevel::Less,
+            2 => OptimizationLevel::Default,
+            _ => OptimizationLevel::Aggressive,
+        };
+
+        // Handle --emit-llvm
+        if let Some(output_path) = emit_llvm {
+            println!("\n=== Compiling to LLVM IR ===\n");
+            let context = Context::create();
+            let writer = OutputWriter::new(&context);
+            writer.write(&program, &output_path, OutputFormat::LLVMAssembly, opt)?;
+            return Ok(());
+        }
+
+        // Handle --emit-asm
+        if let Some(output_path) = emit_asm {
+            println!("\n=== Compiling to Native Assembly ===\n");
+            let context = Context::create();
+            let writer = OutputWriter::new(&context);
+            match writer.write(&program, &output_path, OutputFormat::NativeAssembly, opt) {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        // Handle --jit
+        if use_jit {
+            println!("\n=== Running with JIT Compilation ===\n");
+            let context = Context::create();
+            let mut jit = JITCompiler::new(&context);
+
+            if let Err(e) = jit.compile(&program, opt) {
+                eprintln!("JIT compilation failed: {}", e);
+                eprintln!("Falling back to interpreter...");
+            } else {
+                // Try to execute with JIT
+                unsafe {
+                    match jit.execute_main() {
+                        Ok(exit_code) => {
+                            println!("\n✅ Program executed successfully (JIT)!");
+                            if exit_code != 0 {
+                                println!("Exit code: {}", exit_code);
+                            }
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            eprintln!("JIT execution failed: {}", e);
+                            eprintln!("Falling back to interpreter...");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Execute program with interpreter
     let mut interpreter = Interpreter::new();
 
     // Set current file path for import resolution

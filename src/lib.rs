@@ -33,6 +33,10 @@ pub mod tensor;
 pub mod tokenizer;
 pub mod typecheck;
 
+// LLVM compiler (optional, enabled with "llvm" feature)
+#[cfg(feature = "llvm")]
+pub mod compiler;
+
 // Python bindings (optional, enabled with "python" or "python-extension" feature)
 #[cfg(any(feature = "python", feature = "python-extension"))]
 pub mod python;
