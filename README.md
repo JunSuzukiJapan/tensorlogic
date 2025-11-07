@@ -107,6 +107,13 @@ Models are cached in `~/.tensorlogic/models/` for reuse.
   - Python bindings via PyO3
   - Jupyter-ready architecture
 
+- **LLVM Compiler** (Experimental) ⚡ NEW
+  - JIT compilation for faster execution
+  - LLVM IR (.ll) output
+  - Native assembly (.s) output
+  - Optimization levels (0-3)
+  - See [LLVM Compiler Documentation](docs/llvm_compiler.md)
+
 ### 🚧 Advanced Features (Optional)
 
 - **Neural Engine Inference**: Full CoreML model integration (foundation complete, deferred)
@@ -137,6 +144,21 @@ cd tensorlogic
 cargo build --release
 # Binary will be at: target/release/tl
 ```
+
+**Optional: Enable LLVM Compiler** ⚡
+
+To enable LLVM JIT compilation and code generation:
+
+```bash
+cargo build --release --features llvm
+```
+
+This enables:
+- `--jit`: JIT compilation for faster execution
+- `--emit-llvm <file>`: LLVM IR output
+- `--emit-asm <file>`: Native assembly output
+
+See [LLVM Compiler Documentation](docs/llvm_compiler.md) for details.
 
 **Option 2: Python Module** 🐍 NEW
 

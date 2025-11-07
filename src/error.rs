@@ -40,4 +40,7 @@ pub enum TensorError {
 
     #[error("Model loading error: {0}")]
     LoadError(String),
+
+    #[error("Compilation error: {0}")]
+    CompilationError(String),
 }

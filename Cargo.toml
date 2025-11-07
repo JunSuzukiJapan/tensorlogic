@@ -60,6 +60,9 @@ candle-transformers = "0.9.1"
 candle-nn = "0.9.1"
 hf-hub = "0.4.3"
 
+# LLVM compilation support
+inkwell = { version = "0.5", features = ["llvm18-0"], optional = true }
+
 # Language Server Protocol
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["full"] }
@@ -78,6 +81,8 @@ default = []
 python = ["pyo3", "numpy"]
 # python-extension: Pythonモジュール(.so)用 (extension-module)
 python-extension = ["pyo3/extension-module", "pyo3/abi3-py38", "numpy"]
+# llvm: LLVM compilation support
+llvm = ["inkwell"]
 
 [profile.release]
 opt-level = 3
