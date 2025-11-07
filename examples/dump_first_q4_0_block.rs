@@ -1,6 +1,6 @@
 // Dump first Q4_0 block of token_embd to verify dequantization
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{BufReader, Read};
 
 fn main() {
     let model_path = std::env::var("HOME").unwrap() + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf";
