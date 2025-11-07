@@ -38,13 +38,13 @@ fn test_rope_basic() -> TensorResult<()> {
     let head_dim = 4;
 
     // Create input tensor: [seq_len, n_heads, head_dim]
-    let input = Tensor::<f16>::ones(vec![seq_len, n_heads, head_dim])?;
+    let input = Tensor::<f16>::ones(&device, vec![seq_len, n_heads, head_dim])?;
 
     // Apply RoPE with position offset 0
     let output = input.rope(0)?;
 
     // Check shape is preserved
-    assert_eq!(output.shape(), vec![seq_len, n_heads, head_dim]);
+    assert_eq!(output.shape().dims(), &[seq_len, n_heads, head_dim]);
 
     // Output should be different from input (rotation applied)
     let input_vec = input.to_vec();

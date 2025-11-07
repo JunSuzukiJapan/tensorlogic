@@ -4,6 +4,7 @@
 //! for convenient use in examples and user code.
 
 pub use crate::tensor::Tensor;
+pub use crate::tensor::{TensorCreation, TensorAccessors, TensorTransform, TensorIO};
 pub use crate::device::{Device, MetalDevice};
 pub use crate::error::{TensorError, TensorResult};
 pub use crate::planner::ExecutionPlanner;
