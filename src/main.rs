@@ -47,6 +47,10 @@ fn main() {
                 let use_jit = args.contains(&"--jit".to_string());
                 let emit_llvm = parse_option_value(&args, "--emit-llvm");
                 let emit_asm = parse_option_value(&args, "--emit-asm");
+                let emit_obj = parse_option_value(&args, "--emit-obj");
+                let emit_lib = parse_option_value(&args, "--emit-lib");
+                let emit_shared = parse_option_value(&args, "--emit-shared");
+                let emit_bin = parse_option_value(&args, "--emit-bin");
                 let opt_level = parse_option_value(&args, "--opt-level")
                     .and_then(|s| s.parse::<u8>().ok())
                     .unwrap_or(2);
@@ -59,6 +63,10 @@ fn main() {
                     use_jit,
                     emit_llvm,
                     emit_asm,
+                    emit_obj,
+                    emit_lib,
+                    emit_shared,
+                    emit_bin,
                     opt_level,
                 ) {
                     eprintln!("Error: {}", e);
@@ -127,6 +135,14 @@ fn print_usage(program_name: &str) {
     #[cfg(feature = "llvm")]
     println!("    --emit-asm <file>    Emit native assembly to the specified file");
     #[cfg(feature = "llvm")]
+    println!("    --emit-obj <file>    Emit object file (.o/.obj)");
+    #[cfg(feature = "llvm")]
+    println!("    --emit-lib <file>    Emit static library (.a/.lib)");
+    #[cfg(feature = "llvm")]
+    println!("    --emit-shared <file> Emit shared library (.so/.dll/.dylib)");
+    #[cfg(feature = "llvm")]
+    println!("    --emit-bin <file>    Emit executable binary");
+    #[cfg(feature = "llvm")]
     println!("    --opt-level <0-3>    Set optimization level (default: 2)");
     println!();
     println!("EXAMPLES:");
@@ -140,6 +156,14 @@ fn print_usage(program_name: &str) {
     println!("    {} run examples/compute.tl --emit-llvm output.ll", program_name);
     #[cfg(feature = "llvm")]
     println!("    {} run examples/compute.tl --emit-asm output.s", program_name);
+    #[cfg(feature = "llvm")]
+    println!("    {} run examples/compute.tl --emit-obj output.o", program_name);
+    #[cfg(feature = "llvm")]
+    println!("    {} run examples/compute.tl --emit-lib libcompute.a", program_name);
+    #[cfg(feature = "llvm")]
+    println!("    {} run examples/compute.tl --emit-shared libcompute.so", program_name);
+    #[cfg(feature = "llvm")]
+    println!("    {} run examples/compute.tl --emit-bin compute", program_name);
     println!("    {} repl --debug", program_name);
 }
 
@@ -152,6 +176,10 @@ fn run_file(
     use_jit: bool,
     emit_llvm: Option<String>,
     emit_asm: Option<String>,
+    emit_obj: Option<String>,
+    emit_lib: Option<String>,
+    emit_shared: Option<String>,
+    emit_bin: Option<String>,
     opt_level: u8,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use tensorlogic::compiler::{CompilationMode, CompilerOptions, JITCompiler, OutputFormat, OutputWriter};
@@ -162,7 +190,7 @@ fn run_file(
         debug_mode,
         test_mode,
         bench_mode,
-        Some((use_jit, emit_llvm, emit_asm, opt_level)),
+        Some((use_jit, emit_llvm, emit_asm, emit_obj, emit_lib, emit_shared, emit_bin, opt_level)),
     )
 }
 
@@ -182,7 +210,7 @@ fn run_file_impl(
     test_mode: bool,
     bench_mode: bool,
     #[allow(unused_variables)]
-    llvm_options: Option<(bool, Option<String>, Option<String>, u8)>,
+    llvm_options: Option<(bool, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, u8)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if file exists
     let path = Path::new(file_path);
@@ -236,7 +264,7 @@ fn run_file_impl(
 
     // Handle LLVM compilation if requested
     #[cfg(feature = "llvm")]
-    if let Some((use_jit, emit_llvm, emit_asm, opt_level)) = llvm_options {
+    if let Some((use_jit, emit_llvm, emit_asm, emit_obj, emit_lib, emit_shared, emit_bin, opt_level)) = llvm_options {
         use tensorlogic::compiler::{JITCompiler, OutputFormat, OutputWriter};
         use inkwell::{context::Context, OptimizationLevel};
 
@@ -268,6 +296,42 @@ fn run_file_impl(
                     std::process::exit(1);
                 }
             }
+        }
+
+        // Handle --emit-obj
+        if let Some(output_path) = emit_obj {
+            println!("\n=== Compiling to Object File ===\n");
+            let context = Context::create();
+            let writer = OutputWriter::new(&context);
+            writer.write(&program, &output_path, OutputFormat::ObjectFile, opt)?;
+            return Ok(());
+        }
+
+        // Handle --emit-lib
+        if let Some(output_path) = emit_lib {
+            println!("\n=== Compiling to Static Library ===\n");
+            let context = Context::create();
+            let writer = OutputWriter::new(&context);
+            writer.write(&program, &output_path, OutputFormat::StaticLibrary, opt)?;
+            return Ok(());
+        }
+
+        // Handle --emit-shared
+        if let Some(output_path) = emit_shared {
+            println!("\n=== Compiling to Shared Library ===\n");
+            let context = Context::create();
+            let writer = OutputWriter::new(&context);
+            writer.write(&program, &output_path, OutputFormat::SharedLibrary, opt)?;
+            return Ok(());
+        }
+
+        // Handle --emit-bin
+        if let Some(output_path) = emit_bin {
+            println!("\n=== Compiling to Executable ===\n");
+            let context = Context::create();
+            let writer = OutputWriter::new(&context);
+            writer.write(&program, &output_path, OutputFormat::Executable, opt)?;
+            return Ok(());
         }
 
         // Handle --jit
