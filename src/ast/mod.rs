@@ -43,6 +43,8 @@ pub enum Declaration {
     Embedding(EmbeddingDecl),
     RelationEmbedding(RelationEmbeddingDecl),
     Function(FunctionDecl),
+    Struct(StructDecl),
+    Impl(ImplBlock),
 }
 
 // ============================================================================
@@ -86,7 +88,7 @@ pub struct TensorDecl {
 }
 
 /// Tensor type specification
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TensorType {
     pub base_type: BaseType,
     pub dimensions: Vec<Dimension>,
@@ -94,7 +96,7 @@ pub struct TensorType {
 }
 
 /// Base scalar types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BaseType {
     Float32,  // Used for float16 (16-bit float)
     Float64,
@@ -106,7 +108,7 @@ pub enum BaseType {
 }
 
 /// Dimension specification
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Dimension {
     Fixed(usize),
     Variable(Identifier),
@@ -114,7 +116,7 @@ pub enum Dimension {
 }
 
 /// Learnable parameter status
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LearnableStatus {
     Learnable,
     Frozen,
@@ -141,7 +143,7 @@ pub struct Param {
 }
 
 /// Scalar types for function parameters
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ScalarType {
     Int,
     Float,
@@ -162,6 +164,8 @@ pub enum EntityType {
     Scalar(ScalarType),
     /// Tensor type with shape and base type
     Tensor(TensorType),
+    /// Struct type
+    Struct(StructType),
 }
 
 // ============================================================================
@@ -273,7 +277,85 @@ pub struct FunctionDecl {
 pub enum ReturnType {
     Scalar(ScalarType),
     Tensor(TensorType),
+    Struct(StructType),
     Void,
+}
+
+// ============================================================================
+// Struct Declarations
+// ============================================================================
+
+/// Type parameter (for generics)
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TypeParam {
+    pub name: Identifier,
+}
+
+/// Struct declaration
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructDecl {
+    pub name: Identifier,
+    pub type_params: Vec<TypeParam>,
+    pub fields: Vec<StructField>,
+}
+
+/// Struct field
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructField {
+    pub name: Identifier,
+    pub field_type: FieldType,
+}
+
+/// Field type (can be scalar, tensor, or struct)
+#[derive(Debug, Clone, PartialEq)]
+pub enum FieldType {
+    Scalar(ScalarType),
+    Tensor(TensorType),
+    Struct(StructType),
+    TypeParam(Identifier),
+}
+
+/// Struct type with optional type arguments
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StructType {
+    pub name: Identifier,
+    pub type_args: Vec<TypeArg>,
+}
+
+/// Type argument for generic structs
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TypeArg {
+    Tensor(TensorType),
+    Scalar(ScalarType),
+    Struct(Box<StructType>),
+}
+
+// ============================================================================
+// Impl Blocks
+// ============================================================================
+
+/// Implementation block
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImplBlock {
+    pub type_params: Vec<TypeParam>,
+    pub struct_type: StructType,
+    pub methods: Vec<MethodDecl>,
+}
+
+/// Method declaration
+#[derive(Debug, Clone, PartialEq)]
+pub struct MethodDecl {
+    pub name: Identifier,
+    pub params: Vec<MethodParam>,
+    pub return_type: ReturnType,
+    pub body: Vec<Statement>,
+}
+
+/// Method parameter (includes self)
+#[derive(Debug, Clone, PartialEq)]
+pub enum MethodParam {
+    SelfParam,
+    Regular(Param),
 }
 
 // ============================================================================
@@ -334,6 +416,17 @@ pub enum TensorExpr {
         method: Identifier,
         args: Vec<TensorExpr>,
     },
+    /// Struct literal: StructName { field1: expr1, field2: expr2, ... }
+    StructLiteral {
+        struct_type: StructType,
+        fields: Vec<FieldInit>,
+    },
+    /// Associated function call: Type::function(args)
+    AssociatedCall {
+        struct_type: StructType,
+        function: Identifier,
+        args: Vec<TensorExpr>,
+    },
 }
 
 /// Index expression for tensor indexing
@@ -345,6 +438,13 @@ pub enum IndexExpr {
     Var(Identifier),
     /// Slice (colon)
     Slice,
+}
+
+/// Field initialization in struct literal
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldInit {
+    pub name: Identifier,
+    pub value: TensorExpr,
 }
 
 /// Binary operators

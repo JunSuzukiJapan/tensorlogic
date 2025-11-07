@@ -114,6 +114,8 @@ impl TensorLogicParser {
             Rule::embedding_decl => Ok(Declaration::Embedding(Self::parse_embedding_decl(inner)?)),
             Rule::relation_embedding_decl => Ok(Declaration::RelationEmbedding(Self::parse_relation_embedding_decl(inner)?)),
             Rule::function_decl => Ok(Declaration::Function(Self::parse_function_decl(inner)?)),
+            Rule::struct_decl => Ok(Declaration::Struct(Self::parse_struct_decl(inner)?)),
+            Rule::impl_block => Ok(Declaration::Impl(Self::parse_impl_block(inner)?)),
             _ => Err(ParseError::UnexpectedRule {
                 expected: "declaration type".to_string(),
                 found: format!("{:?}", inner.as_rule()),
@@ -322,6 +324,7 @@ impl TensorLogicParser {
             match inner.as_rule() {
                 Rule::scalar_type => Ok(EntityType::Scalar(Self::parse_scalar_type(inner)?)),
                 Rule::tensor_type => Ok(EntityType::Tensor(Self::parse_tensor_type(inner)?)),
+                Rule::struct_type => Ok(EntityType::Struct(Self::parse_struct_type(inner)?)),
                 Rule::identifier => {
                     // Named entity type (e.g., Person, City)
                     Ok(EntityType::NamedEntity(Self::parse_identifier(inner)?))
@@ -626,6 +629,7 @@ impl TensorLogicParser {
         match inner.as_rule() {
             Rule::scalar_type => Ok(ReturnType::Scalar(Self::parse_scalar_type(inner)?)),
             Rule::tensor_type => Ok(ReturnType::Tensor(Self::parse_tensor_type(inner)?)),
+            Rule::struct_type => Ok(ReturnType::Struct(Self::parse_struct_type(inner)?)),
             _ => Err(ParseError::InvalidValue(format!("Invalid return type: {}", inner.as_str()))),
         }
     }
@@ -917,10 +921,11 @@ impl TensorLogicParser {
                             ParseError::MissingField("primary_expr content".to_string())
                         })?;
                         match inner_primary.as_rule() {
+                            Rule::associated_call => Self::parse_associated_call(inner_primary)?,
                             Rule::function_call => Self::parse_function_call(inner_primary)?,
                             Rule::identifier => TensorExpr::Variable(Self::parse_identifier(inner_primary)?),
                             _ => return Err(ParseError::UnexpectedRule {
-                                expected: "function_call or identifier".to_string(),
+                                expected: "associated_call, function_call or identifier".to_string(),
                                 found: format!("{:?}", inner_primary.as_rule()),
                             }),
                         }
@@ -1015,6 +1020,9 @@ impl TensorLogicParser {
             }
             Rule::python_call => {
                 Self::parse_python_call(inner)
+            }
+            Rule::struct_literal => {
+                Self::parse_struct_literal(inner)
             }
             Rule::string_literal => {
                 // String literals in expressions (e.g., for save/load filenames)
@@ -1940,6 +1948,315 @@ impl TensorLogicParser {
         };
 
         Ok(TensorExpr::PythonCall { function, args })
+    }
+
+    // ========================================================================
+    // Struct and Impl Parsing
+    // ========================================================================
+
+    fn parse_struct_decl(pair: pest::iterators::Pair<Rule>) -> Result<StructDecl, ParseError> {
+        let mut inner = pair.into_inner();
+
+        // Parse struct name
+        let name = Self::parse_identifier(inner.next().ok_or_else(|| {
+            ParseError::MissingField("struct name".to_string())
+        })?)?;
+
+        let mut type_params = Vec::new();
+        let mut fields = Vec::new();
+
+        // Parse type parameters if present, then fields
+        for item in inner {
+            match item.as_rule() {
+                Rule::type_params => {
+                    type_params = Self::parse_type_params(item)?;
+                }
+                Rule::field_list => {
+                    fields = Self::parse_field_list(item)?;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(StructDecl {
+            name,
+            type_params,
+            fields,
+        })
+    }
+
+    fn parse_impl_block(pair: pest::iterators::Pair<Rule>) -> Result<ImplBlock, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let mut type_params = Vec::new();
+        let mut struct_type = None;
+        let mut methods = Vec::new();
+
+        for item in inner {
+            match item.as_rule() {
+                Rule::type_params => {
+                    type_params = Self::parse_type_params(item)?;
+                }
+                Rule::struct_type => {
+                    struct_type = Some(Self::parse_struct_type(item)?);
+                }
+                Rule::method_decl => {
+                    methods.push(Self::parse_method_decl(item)?);
+                }
+                _ => {}
+            }
+        }
+
+        let struct_type = struct_type.ok_or_else(|| {
+            ParseError::MissingField("struct type in impl block".to_string())
+        })?;
+
+        Ok(ImplBlock {
+            type_params,
+            struct_type,
+            methods,
+        })
+    }
+
+    fn parse_type_params(pair: pest::iterators::Pair<Rule>) -> Result<Vec<TypeParam>, ParseError> {
+        let mut type_params = Vec::new();
+
+        for inner in pair.into_inner() {
+            if inner.as_rule() == Rule::type_param_list {
+                for param in inner.into_inner() {
+                    if param.as_rule() == Rule::identifier {
+                        type_params.push(TypeParam {
+                            name: Self::parse_identifier(param)?,
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(type_params)
+    }
+
+    fn parse_field_list(pair: pest::iterators::Pair<Rule>) -> Result<Vec<StructField>, ParseError> {
+        let mut fields = Vec::new();
+
+        for inner in pair.into_inner() {
+            if inner.as_rule() == Rule::field {
+                fields.push(Self::parse_struct_field(inner)?);
+            }
+        }
+
+        Ok(fields)
+    }
+
+    fn parse_struct_field(pair: pest::iterators::Pair<Rule>) -> Result<StructField, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let name = Self::parse_identifier(inner.next().ok_or_else(|| {
+            ParseError::MissingField("field name".to_string())
+        })?)?;
+
+        let field_type_pair = inner.next().ok_or_else(|| {
+            ParseError::MissingField("field type".to_string())
+        })?;
+
+        let mut field_type = Self::parse_field_type(field_type_pair)?;
+
+        // Check for learnable modifier
+        if let Some(learnable_pair) = inner.next() {
+            if learnable_pair.as_rule() == Rule::learnable {
+                // Apply learnable to tensor type
+                if let FieldType::Tensor(ref mut tensor_type) = field_type {
+                    let learnable_str = learnable_pair.as_str();
+                    tensor_type.learnable = match learnable_str {
+                        "learnable" => LearnableStatus::Learnable,
+                        "frozen" => LearnableStatus::Frozen,
+                        _ => LearnableStatus::Default,
+                    };
+                }
+            }
+        }
+
+        Ok(StructField { name, field_type })
+    }
+
+    fn parse_field_type(pair: pest::iterators::Pair<Rule>) -> Result<FieldType, ParseError> {
+        let inner = pair.into_inner().next().ok_or_else(|| {
+            ParseError::MissingField("field type content".to_string())
+        })?;
+
+        match inner.as_rule() {
+            Rule::tensor_type => Ok(FieldType::Tensor(Self::parse_tensor_type(inner)?)),
+            Rule::scalar_type => Ok(FieldType::Scalar(Self::parse_scalar_type(inner)?)),
+            Rule::struct_type => Ok(FieldType::Struct(Self::parse_struct_type(inner)?)),
+            Rule::identifier => {
+                // This is a type parameter reference
+                Ok(FieldType::TypeParam(Self::parse_identifier(inner)?))
+            }
+            _ => Err(ParseError::UnexpectedRule {
+                expected: "field type".to_string(),
+                found: format!("{:?}", inner.as_rule()),
+            }),
+        }
+    }
+
+    fn parse_struct_type(pair: pest::iterators::Pair<Rule>) -> Result<StructType, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let name = Self::parse_identifier(inner.next().ok_or_else(|| {
+            ParseError::MissingField("struct type name".to_string())
+        })?)?;
+
+        let mut type_args = Vec::new();
+
+        // Parse type arguments if present
+        if let Some(type_arg_list) = inner.next() {
+            if type_arg_list.as_rule() == Rule::type_arg_list {
+                for arg in type_arg_list.into_inner() {
+                    if arg.as_rule() == Rule::type_arg {
+                        type_args.push(Self::parse_type_arg(arg)?);
+                    }
+                }
+            }
+        }
+
+        Ok(StructType { name, type_args })
+    }
+
+    fn parse_type_arg(pair: pest::iterators::Pair<Rule>) -> Result<TypeArg, ParseError> {
+        let inner = pair.into_inner().next().ok_or_else(|| {
+            ParseError::MissingField("type argument content".to_string())
+        })?;
+
+        match inner.as_rule() {
+            Rule::tensor_type => Ok(TypeArg::Tensor(Self::parse_tensor_type(inner)?)),
+            Rule::scalar_type => Ok(TypeArg::Scalar(Self::parse_scalar_type(inner)?)),
+            Rule::struct_type => Ok(TypeArg::Struct(Box::new(Self::parse_struct_type(inner)?))),
+            _ => Err(ParseError::UnexpectedRule {
+                expected: "type argument".to_string(),
+                found: format!("{:?}", inner.as_rule()),
+            }),
+        }
+    }
+
+    fn parse_method_decl(pair: pest::iterators::Pair<Rule>) -> Result<MethodDecl, ParseError> {
+        let mut inner = pair.into_inner();
+
+        // Parse method name
+        let name = Self::parse_identifier(inner.next().ok_or_else(|| {
+            ParseError::MissingField("method name".to_string())
+        })?)?;
+
+        let mut params = Vec::new();
+        let mut return_type = ReturnType::Void;
+        let mut body = Vec::new();
+
+        for item in inner {
+            match item.as_rule() {
+                Rule::method_param_list => {
+                    params = Self::parse_method_param_list(item)?;
+                }
+                Rule::return_type => {
+                    return_type = Self::parse_return_type(item)?;
+                }
+                Rule::statement => {
+                    body.push(Self::parse_statement(item)?);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(MethodDecl {
+            name,
+            params,
+            return_type,
+            body,
+        })
+    }
+
+    fn parse_method_param_list(pair: pest::iterators::Pair<Rule>) -> Result<Vec<MethodParam>, ParseError> {
+        let mut params = Vec::new();
+
+        for inner in pair.into_inner() {
+            match inner.as_rule() {
+                Rule::method_param => {
+                    let param_inner = inner.into_inner().next().ok_or_else(|| {
+                        ParseError::MissingField("method param content".to_string())
+                    })?;
+
+                    if param_inner.as_str() == "self" {
+                        params.push(MethodParam::SelfParam);
+                    } else {
+                        params.push(MethodParam::Regular(Self::parse_param(param_inner)?));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(params)
+    }
+
+    fn parse_struct_literal(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let struct_type = Self::parse_struct_type(inner.next().ok_or_else(|| {
+            ParseError::MissingField("struct type in literal".to_string())
+        })?)?;
+
+        let mut fields = Vec::new();
+
+        if let Some(field_init_list) = inner.next() {
+            if field_init_list.as_rule() == Rule::field_init_list {
+                for field_init in field_init_list.into_inner() {
+                    if field_init.as_rule() == Rule::field_init {
+                        fields.push(Self::parse_field_init(field_init)?);
+                    }
+                }
+            }
+        }
+
+        Ok(TensorExpr::StructLiteral {
+            struct_type,
+            fields,
+        })
+    }
+
+    fn parse_associated_call(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let struct_type = Self::parse_struct_type(inner.next().ok_or_else(|| {
+            ParseError::MissingField("struct type in associated call".to_string())
+        })?)?;
+
+        let function = Self::parse_identifier(inner.next().ok_or_else(|| {
+            ParseError::MissingField("function name in associated call".to_string())
+        })?)?;
+
+        let args = if let Some(tensor_list) = inner.next() {
+            Self::parse_tensor_list(tensor_list)?
+        } else {
+            Vec::new()
+        };
+
+        Ok(TensorExpr::AssociatedCall {
+            struct_type,
+            function,
+            args,
+        })
+    }
+
+    fn parse_field_init(pair: pest::iterators::Pair<Rule>) -> Result<FieldInit, ParseError> {
+        let mut inner = pair.into_inner();
+
+        let name = Self::parse_identifier(inner.next().ok_or_else(|| {
+            ParseError::MissingField("field name in field init".to_string())
+        })?)?;
+
+        let value = Self::parse_tensor_expr(inner.next().ok_or_else(|| {
+            ParseError::MissingField("field value in field init".to_string())
+        })?)?;
+
+        Ok(FieldInit { name, value })
     }
 }
 
