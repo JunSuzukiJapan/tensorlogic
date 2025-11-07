@@ -1989,6 +1989,7 @@ impl TensorLogicParser {
         let mut inner = pair.into_inner();
 
         let mut type_params = Vec::new();
+        let mut trait_name = None;
         let mut struct_type = None;
         let mut methods = Vec::new();
 
@@ -1996,6 +1997,23 @@ impl TensorLogicParser {
             match item.as_rule() {
                 Rule::type_params => {
                     type_params = Self::parse_type_params(item)?;
+                }
+                Rule::trait_impl_for => {
+                    // Parse "TraitName for" part
+                    let trait_id = item.into_inner().next().ok_or_else(|| {
+                        ParseError::MissingField("trait name in impl for".to_string())
+                    })?;
+                    let trait_str = Self::parse_identifier(trait_id)?;
+
+                    // Currently only "Drop" trait is supported
+                    if trait_str.as_str() != "Drop" {
+                        return Err(ParseError::InvalidValue(format!(
+                            "Trait '{}' is not yet supported. Only 'Drop' trait is currently implemented.",
+                            trait_str.as_str()
+                        )));
+                    }
+
+                    trait_name = Some(trait_str);
                 }
                 Rule::struct_type => {
                     struct_type = Some(Self::parse_struct_type(item)?);
@@ -2013,6 +2031,7 @@ impl TensorLogicParser {
 
         Ok(ImplBlock {
             type_params,
+            trait_name,
             struct_type,
             methods,
         })

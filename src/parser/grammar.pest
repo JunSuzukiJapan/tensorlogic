@@ -173,8 +173,11 @@ type_arg = { tensor_type | scalar_type | struct_type }
 // ============================================================================
 
 impl_block = {
-    "impl" ~ type_params? ~ struct_type ~ "{" ~ method_decl* ~ "}"
+    "impl" ~ type_params? ~ trait_impl_for? ~ struct_type ~ "{" ~ method_decl* ~ "}"
 }
+
+// Optional "TraitName for" part (e.g., "Drop for")
+trait_impl_for = { identifier ~ "for" }
 
 method_decl = {
     "fn" ~ identifier ~ "(" ~ method_param_list? ~ ")"

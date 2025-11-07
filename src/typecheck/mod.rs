@@ -503,6 +503,13 @@ impl TypeChecker {
             self.env.add_type_param(type_param.name.as_str().to_string());
         }
 
+        // If this is a Drop trait implementation, perform special checks
+        if let Some(ref trait_name) = impl_block.trait_name {
+            if trait_name.as_str() == "Drop" {
+                self.check_drop_impl(impl_block)?;
+            }
+        }
+
         // Check each method
         for method in &impl_block.methods {
             // Add method to environment
@@ -517,6 +524,53 @@ impl TypeChecker {
 
         // Clear type parameters after impl block
         self.env.clear_type_params();
+
+        Ok(())
+    }
+
+    /// Type check a Drop trait implementation
+    fn check_drop_impl(&self, impl_block: &ImplBlock) -> TypeResult<()> {
+        // Drop trait must have exactly one method named "drop"
+        if impl_block.methods.len() != 1 {
+            return Err(TypeError::TypeMismatch {
+                expected: "exactly one method named 'drop'".to_string(),
+                found: format!("{} methods", impl_block.methods.len()),
+            });
+        }
+
+        let method = &impl_block.methods[0];
+
+        // Method must be named "drop"
+        if method.name.as_str() != "drop" {
+            return Err(TypeError::TypeMismatch {
+                expected: "method named 'drop'".to_string(),
+                found: format!("method named '{}'", method.name.as_str()),
+            });
+        }
+
+        // drop method must have exactly one parameter: self
+        if method.params.len() != 1 {
+            return Err(TypeError::ArgumentCountMismatch {
+                expected: 1,
+                found: method.params.len(),
+            });
+        }
+
+        // The parameter must be self
+        if !matches!(method.params[0], MethodParam::SelfParam) {
+            return Err(TypeError::TypeMismatch {
+                expected: "self parameter".to_string(),
+                found: "regular parameter".to_string(),
+            });
+        }
+
+        // Return type must be void
+        if !matches!(method.return_type, ReturnType::Void) {
+            return Err(TypeError::TypeMismatch {
+                expected: "void return type".to_string(),
+                found: format!("{:?}", method.return_type),
+            });
+        }
 
         Ok(())
     }

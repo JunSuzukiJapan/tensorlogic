@@ -338,6 +338,9 @@ pub enum TypeArg {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImplBlock {
     pub type_params: Vec<TypeParam>,
+    /// Trait name for trait implementations (e.g., "Drop")
+    /// None for regular impl blocks, Some(name) for "impl Trait for Struct"
+    pub trait_name: Option<Identifier>,
     pub struct_type: StructType,
     pub methods: Vec<MethodDecl>,
 }
