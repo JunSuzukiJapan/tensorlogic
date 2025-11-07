@@ -1075,7 +1075,7 @@ impl TensorLogicParser {
                             ParseError::MissingField("primary_expr content".to_string())
                         })?;
                         match inner_primary.as_rule() {
-                            Rule::associated_call => Self::parse_associated_call(inner_primary)?,
+                            Rule::associated_call => Self::parse_associated_call(inner_primary, registry)?,
                             Rule::function_call => Self::parse_function_call(inner_primary, registry)?,
                             Rule::identifier => TensorExpr::Variable(Self::parse_identifier(inner_primary)?),
                             _ => return Err(ParseError::UnexpectedRule {
@@ -1176,7 +1176,7 @@ impl TensorLogicParser {
                 Self::parse_python_call(inner, registry)
             }
             Rule::struct_literal => {
-                Self::parse_struct_literal(inner)
+                Self::parse_struct_literal(inner, registry)
             }
             Rule::string_literal => {
                 // String literals in expressions (e.g., for save/load filenames)
@@ -2477,7 +2477,7 @@ impl TensorLogicParser {
         Ok(params)
     }
 
-    fn parse_struct_literal(pair: pest::iterators::Pair<Rule>) -> Result<TensorExpr, ParseError> {
+    fn parse_struct_literal(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
         let mut inner = pair.into_inner();
 
         let struct_type = Self::parse_struct_type(inner.next().ok_or_else(|| {
@@ -2490,7 +2490,7 @@ impl TensorLogicParser {
             if field_init_list.as_rule() == Rule::field_init_list {
                 for field_init in field_init_list.into_inner() {
                     if field_init.as_rule() == Rule::field_init {
-                        fields.push(Self::parse_field_init(field_init)?);
+                        fields.push(Self::parse_field_init(field_init, registry)?);
                     }
                 }
             }
@@ -2526,7 +2526,7 @@ impl TensorLogicParser {
         })
     }
 
-    fn parse_field_init(pair: pest::iterators::Pair<Rule>) -> Result<FieldInit, ParseError> {
+    fn parse_field_init(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<FieldInit, ParseError> {
         let mut inner = pair.into_inner();
 
         let name = Self::parse_identifier(inner.next().ok_or_else(|| {
@@ -2535,7 +2535,7 @@ impl TensorLogicParser {
 
         let value = Self::parse_tensor_expr(inner.next().ok_or_else(|| {
             ParseError::MissingField("field value in field init".to_string())
-        })?)?;
+        })?, registry)?;
 
         Ok(FieldInit { name, value })
     }

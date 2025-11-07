@@ -504,7 +504,7 @@ impl Interpreter {
             self.env.push_scope(ScopeType::Function);
 
             // Bind self parameter to the struct value in environment
-            self.env.set_variable("self".to_string(), value.clone());
+            self.env.set_variable("self", value.clone())?;
 
             // Execute drop method body
             for stmt in &drop_method.body {
