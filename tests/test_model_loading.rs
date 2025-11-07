@@ -83,7 +83,7 @@ fn test_model_insert_multiple_tensors() -> TensorResult<()> {
     let device = MetalDevice::new()?;
         name: "multi_layer".to_string(),
         format: ModelFormat::GGUF,
-        quantization: Some(QuantizationType::Q4_0),
+        quantization: Some(QuantizationType::Q4),
     };
 
     let mut model = Model::<f16>::new(metadata);
@@ -263,7 +263,7 @@ fn test_model_metadata_gguf_quantized() -> TensorResult<()> {
     let metadata = ModelMetadata {
         name: "gguf_model".to_string(),
         format: ModelFormat::GGUF,
-        quantization: Some(QuantizationType::Q4_0),
+        quantization: Some(QuantizationType::Q4),
     };
 
     let model = Model::<f16>::new(metadata);
@@ -272,7 +272,7 @@ fn test_model_metadata_gguf_quantized() -> TensorResult<()> {
     assert!(matches!(model.metadata.format, ModelFormat::GGUF));
     assert!(matches!(
         model.metadata.quantization,
-        Some(QuantizationType::Q4_0)
+        Some(QuantizationType::Q4)
     ));
 
     println!("✓ Model metadata GGUF quantized test passed");
@@ -310,7 +310,7 @@ fn test_model_typical_llm_structure() -> TensorResult<()> {
     let device = MetalDevice::new()?;
         name: "tiny_llm".to_string(),
         format: ModelFormat::GGUF,
-        quantization: Some(QuantizationType::Q4_0),
+        quantization: Some(QuantizationType::Q4),
     });
 
     // Simulate typical LLM structure
@@ -640,11 +640,11 @@ fn test_model_quantization_types() -> TensorResult<()> {
     let device = MetalDevice::new()?;
     let quantization_types = vec![
         None,
-        Some(QuantizationType::Q4_0),
-        Some(QuantizationType::Q4_1),
-        Some(QuantizationType::Q5_0),
-        Some(QuantizationType::Q5_1),
-        Some(QuantizationType::Q8_0),
+        Some(QuantizationType::Q4),
+        Some(QuantizationType::Q4),
+        Some(QuantizationType::Q6),
+        Some(QuantizationType::Q6),
+        Some(QuantizationType::Q8),
     ];
 
     for quant in quantization_types {
