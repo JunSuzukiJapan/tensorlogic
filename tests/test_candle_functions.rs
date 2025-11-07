@@ -416,3 +416,216 @@ fn test_cndl_rope_f32() -> TensorResult<()> {
 
     Ok(())
 }
+
+// ============================================================================
+// Model loading and saving tests
+// ============================================================================
+
+#[test]
+#[serial]
+fn test_cndl_save_load_safetensor_f32() -> TensorResult<()> {
+    use std::env;
+
+    let code = r#"
+        main {
+            // Create a test tensor
+            x := f32::from_array([1.0, 2.0, 3.0, 4.0])
+
+            // Save it
+            cndl_save_safetensor(x, "/tmp/test_candle_tensor.safetensors", "test_tensor")
+
+            // Load it back
+            result := cndl_load_safetensor("/tmp/test_candle_tensor.safetensors", "test_tensor")
+
+            print("cndl_save_load_safetensor result:", result)
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    let result = interpreter.get_variable("result")
+        .map_err(|e| TensorError::InvalidOperation(format!("Get variable error: {}", e)))?;
+
+    match result {
+        tensorlogic::interpreter::Value::TensorF32(t) => {
+            assert_eq!(t.dims(), &[4]);
+
+            let data = t.buffer().to_cpu_vec();
+            let expected = vec![1.0, 2.0, 3.0, 4.0];
+
+            for (i, (&result, &expected)) in data.iter().zip(expected.iter()).enumerate() {
+                assert!((result - expected).abs() < 1e-5,
+                    "Tensor value mismatch at index {}: got {}, expected {}", i, result, expected);
+            }
+
+            println!("✓ cndl_save_load_safetensor f32 test passed");
+        }
+        _ => panic!("Expected TensorF32"),
+    }
+
+    // Clean up
+    let _ = std::fs::remove_file("/tmp/test_candle_tensor.safetensors");
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_cndl_save_load_safetensor_f16() -> TensorResult<()> {
+    let code = r#"
+        main {
+            // Create a test tensor (f16)
+            x := f16::from_array([1.0, 2.0, 3.0, 4.0])
+
+            // Save it
+            cndl_save_safetensor(x, "/tmp/test_candle_tensor_f16.safetensors", "test_tensor")
+
+            // Load it back
+            result := cndl_load_safetensor("/tmp/test_candle_tensor_f16.safetensors", "test_tensor")
+
+            print("cndl_save_load_safetensor f16 result:", result)
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    let result = interpreter.get_variable("result")
+        .map_err(|e| TensorError::InvalidOperation(format!("Get variable error: {}", e)))?;
+
+    match result {
+        tensorlogic::interpreter::Value::TensorF16(t) => {
+            assert_eq!(t.dims(), &[4]);
+
+            let data = t.buffer().to_cpu_vec();
+            let expected = vec![1.0, 2.0, 3.0, 4.0];
+
+            for (i, (&result, &expected)) in data.iter().zip(expected.iter()).enumerate() {
+                assert!((result.to_f32() - expected).abs() < 1e-2,
+                    "Tensor value mismatch at index {}: got {}, expected {}", i, result.to_f32(), expected);
+            }
+
+            println!("✓ cndl_save_load_safetensor f16 test passed");
+        }
+        _ => panic!("Expected TensorF16"),
+    }
+
+    // Clean up
+    let _ = std::fs::remove_file("/tmp/test_candle_tensor_f16.safetensors");
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_cndl_list_safetensors() -> TensorResult<()> {
+    // First create a test file with a tensor
+    let code_save = r#"
+        main {
+            x := f32::from_array([1.0, 2.0, 3.0, 4.0])
+            cndl_save_safetensor(x, "/tmp/test_list_safetensors.safetensors", "my_tensor")
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(code_save)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    // Now list the tensors
+    let code_list = r#"
+        main {
+            cndl_list_safetensors("/tmp/test_list_safetensors.safetensors")
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(code_list)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    println!("✓ cndl_list_safetensors test passed");
+
+    // Clean up
+    let _ = std::fs::remove_file("/tmp/test_list_safetensors.safetensors");
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+#[ignore] // This test requires a GGUF file to exist
+fn test_cndl_load_gguf_tensor() -> TensorResult<()> {
+    use std::env;
+
+    // This test assumes a GGUF model file exists
+    let model_path = env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
+        + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf";
+
+    let code = format!(r#"
+        main {{
+            // Load a specific tensor from GGUF
+            result := cndl_load_gguf_tensor("{}", "token_embd.weight")
+            print("Loaded tensor shape:", shape(result))
+        }}
+    "#, model_path);
+
+    let program = TensorLogicParser::parse_program(&code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    let result = interpreter.get_variable("result")
+        .map_err(|e| TensorError::InvalidOperation(format!("Get variable error: {}", e)))?;
+
+    match result {
+        tensorlogic::interpreter::Value::TensorF32(t) | tensorlogic::interpreter::Value::TensorF16(_) => {
+            println!("✓ cndl_load_gguf_tensor test passed");
+        }
+        _ => panic!("Expected tensor"),
+    }
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+#[ignore] // This test requires a GGUF file to exist
+fn test_cndl_list_gguf_tensors() -> TensorResult<()> {
+    use std::env;
+
+    let model_path = env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
+        + "/.llm/models/tinyllama-1.1b-chat-q4_0.gguf";
+
+    let code = format!(r#"
+        main {{
+            cndl_list_gguf_tensors("{}")
+        }}
+    "#, model_path);
+
+    let program = TensorLogicParser::parse_program(&code)
+        .map_err(|e| TensorError::InvalidOperation(format!("Parse error: {}", e)))?;
+
+    let mut interpreter = Interpreter::new();
+    interpreter.execute(&program)
+        .map_err(|e| TensorError::InvalidOperation(format!("Execution error: {}", e)))?;
+
+    println!("✓ cndl_list_gguf_tensors test passed");
+
+    Ok(())
+}

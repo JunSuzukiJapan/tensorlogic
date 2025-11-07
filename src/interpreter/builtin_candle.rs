@@ -31,6 +31,13 @@ impl Interpreter {
             // Position embeddings
             "cndl_rope" => Some(self.eval_cndl_rope(args)),
 
+            // Model loading and saving
+            "cndl_load_safetensor" => Some(self.eval_cndl_load_safetensor(args)),
+            "cndl_save_safetensor" => Some(self.eval_cndl_save_safetensor(args)),
+            "cndl_list_safetensors" => Some(self.eval_cndl_list_safetensors(args)),
+            "cndl_load_gguf_tensor" => Some(self.eval_cndl_load_gguf_tensor(args)),
+            "cndl_list_gguf_tensors" => Some(self.eval_cndl_list_gguf_tensors(args)),
+
             _ => None,
         }
     }
@@ -980,5 +987,267 @@ impl Interpreter {
             }
             _ => Err(RuntimeError::TypeError("cndl_reshape() requires a tensor".to_string()))
         }
+    }
+
+    // ============================================================================
+    // Model loading and saving operations
+    // ============================================================================
+
+    /// cndl_load_safetensor(path, tensor_name) -> tensor
+    /// Load a specific tensor from a Safetensors file using Candle
+    fn eval_cndl_load_safetensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("cndl_load_safetensor() expects 2 arguments (path, tensor_name), got {}", args.len())
+            ));
+        }
+
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError("path must be a string".to_string())),
+        };
+
+        let tensor_name_val = self.eval_expr(&args[1])?;
+        let tensor_name = match tensor_name_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError("tensor_name must be a string".to_string())),
+        };
+
+        // Load the safetensors file
+        let device = CandleDevice::new_metal(0)
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::InvalidOperation(format!("Failed to create Candle Metal device: {}", e))
+            ))?;
+
+        let tensors = candle_core::safetensors::load(&path, &device)
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::InvalidOperation(format!("Failed to load safetensors file: {}", e))
+            ))?;
+
+        // Get the specific tensor
+        let tensor = tensors.get(&tensor_name)
+            .ok_or_else(|| RuntimeError::TensorError(
+                crate::error::TensorError::InvalidOperation(format!("Tensor '{}' not found in file", tensor_name))
+            ))?;
+
+        // Convert to TensorLogic tensor based on dtype
+        match tensor.dtype() {
+            DType::F32 => {
+                let result_tl = self.candle_to_tl_f32(tensor.clone())?;
+                println!("Loaded tensor '{}' from {} (f32, shape: {:?})", tensor_name, path, tensor.dims());
+                Ok(Value::TensorF32(result_tl))
+            }
+            DType::F16 => {
+                let result_tl = self.candle_to_tl_f16(tensor.clone())?;
+                println!("Loaded tensor '{}' from {} (f16, shape: {:?})", tensor_name, path, tensor.dims());
+                Ok(Value::TensorF16(result_tl))
+            }
+            dtype => {
+                // Try to convert to f32
+                let tensor_f32 = tensor.to_dtype(DType::F32)
+                    .map_err(|e| RuntimeError::TensorError(
+                        crate::error::TensorError::InvalidOperation(format!("Failed to convert tensor to f32: {}", e))
+                    ))?;
+                let result_tl = self.candle_to_tl_f32(tensor_f32)?;
+                println!("Loaded tensor '{}' from {} (converted from {:?} to f32, shape: {:?})",
+                         tensor_name, path, dtype, tensor.dims());
+                Ok(Value::TensorF32(result_tl))
+            }
+        }
+    }
+
+    /// cndl_save_safetensor(tensor, path, tensor_name) -> void
+    /// Save a tensor to a Safetensors file using Candle
+    fn eval_cndl_save_safetensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 3 {
+            return Err(RuntimeError::TypeError(
+                format!("cndl_save_safetensor() expects 3 arguments (tensor, path, tensor_name), got {}", args.len())
+            ));
+        }
+
+        let tensor_val = self.eval_expr(&args[0])?;
+
+        let path_val = self.eval_expr(&args[1])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError("path must be a string".to_string())),
+        };
+
+        let tensor_name_val = self.eval_expr(&args[2])?;
+        let tensor_name = match tensor_name_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError("tensor_name must be a string".to_string())),
+        };
+
+        // Convert TensorLogic tensor to Candle tensor
+        let candle_tensor = match tensor_val {
+            Value::TensorF32(ref t) => self.tl_to_candle_f32(t)?,
+            Value::TensorF16(ref t) => self.tl_to_candle_f16(t)?,
+            _ => return Err(RuntimeError::TypeError("First argument must be a tensor".to_string())),
+        };
+
+        // Create a HashMap with the tensor
+        let mut tensors = std::collections::HashMap::new();
+        tensors.insert(tensor_name.clone(), candle_tensor);
+
+        // Save to file
+        candle_core::safetensors::save(&tensors, &path)
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::InvalidOperation(format!("Failed to save safetensors file: {}", e))
+            ))?;
+
+        println!("Saved tensor '{}' to {}", tensor_name, path);
+        Ok(Value::Void)
+    }
+
+    /// cndl_list_safetensors(path) -> void
+    /// List all tensor names in a Safetensors file
+    fn eval_cndl_list_safetensors(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("cndl_list_safetensors() expects 1 argument (path), got {}", args.len())
+            ));
+        }
+
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError("path must be a string".to_string())),
+        };
+
+        // Load the safetensors file
+        let device = CandleDevice::new_metal(0)
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::InvalidOperation(format!("Failed to create Candle Metal device: {}", e))
+            ))?;
+
+        let tensors = candle_core::safetensors::load(&path, &device)
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::InvalidOperation(format!("Failed to load safetensors file: {}", e))
+            ))?;
+
+        println!("Tensors in {}:", path);
+        println!("  Total: {} tensors", tensors.len());
+        println!("");
+
+        let mut tensor_names: Vec<_> = tensors.keys().collect();
+        tensor_names.sort();
+
+        for name in tensor_names {
+            let tensor = &tensors[name];
+            println!("  - {} : {:?} {:?}", name, tensor.dtype(), tensor.dims());
+        }
+
+        Ok(Value::Void)
+    }
+
+    /// cndl_load_gguf_tensor(path, tensor_name) -> tensor
+    /// Load a specific tensor from a GGUF file using Candle
+    fn eval_cndl_load_gguf_tensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("cndl_load_gguf_tensor() expects 2 arguments (path, tensor_name), got {}", args.len())
+            ));
+        }
+
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError("path must be a string".to_string())),
+        };
+
+        let tensor_name_val = self.eval_expr(&args[1])?;
+        let tensor_name = match tensor_name_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError("tensor_name must be a string".to_string())),
+        };
+
+        // Load the GGUF file using Candle's VarBuilder
+        let device = CandleDevice::new_metal(0)
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::InvalidOperation(format!("Failed to create Candle Metal device: {}", e))
+            ))?;
+
+        use candle_transformers::quantized_var_builder::VarBuilder;
+
+        let vb = VarBuilder::from_gguf(&path, &device)
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::InvalidOperation(format!("Failed to load GGUF file: {}", e))
+            ))?;
+
+        // Try to get the tensor
+        let tensor = vb.get_no_shape(&tensor_name)
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::InvalidOperation(format!("Failed to get tensor '{}': {}", tensor_name, e))
+            ))?;
+
+        // Convert to TensorLogic tensor
+        // Note: GGUF tensors might be quantized, so we convert to f32 for simplicity
+        let tensor_f32 = if tensor.dtype() == DType::F32 {
+            tensor
+        } else if tensor.dtype() == DType::F16 {
+            // Try f16 first
+            let result_tl = self.candle_to_tl_f16(tensor.clone())?;
+            println!("Loaded tensor '{}' from {} (f16, shape: {:?})", tensor_name, path, tensor.dims());
+            return Ok(Value::TensorF16(result_tl));
+        } else {
+            tensor.to_dtype(DType::F32)
+                .map_err(|e| RuntimeError::TensorError(
+                    crate::error::TensorError::InvalidOperation(format!("Failed to convert tensor to f32: {}", e))
+                ))?
+        };
+
+        let result_tl = self.candle_to_tl_f32(tensor_f32.clone())?;
+        println!("Loaded tensor '{}' from {} (f32, shape: {:?})", tensor_name, path, tensor_f32.dims());
+        Ok(Value::TensorF32(result_tl))
+    }
+
+    /// cndl_list_gguf_tensors(path) -> void
+    /// List all tensor names in a GGUF file
+    fn eval_cndl_list_gguf_tensors(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("cndl_list_gguf_tensors() expects 1 argument (path), got {}", args.len())
+            ));
+        }
+
+        let path_val = self.eval_expr(&args[0])?;
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError("path must be a string".to_string())),
+        };
+
+        // Open GGUF file and read metadata
+        use std::fs::File;
+        use std::io::BufReader;
+
+        let file = File::open(&path)
+            .map_err(|e| RuntimeError::IoError(e))?;
+
+        let mut reader = BufReader::new(file);
+
+        // Use gguf-rs-lib to parse the file
+        use gguf_rs_lib::GGUFFile;
+
+        let gguf = GGUFFile::from_reader(&mut reader)
+            .map_err(|e| RuntimeError::TensorError(
+                crate::error::TensorError::InvalidOperation(format!("Failed to parse GGUF file: {}", e))
+            ))?;
+
+        println!("Tensors in {}:", path);
+        println!("  GGUF version: {}", gguf.header.version);
+        println!("  Total: {} tensors", gguf.tensor_infos.len());
+        println!("");
+
+        let mut tensor_names: Vec<_> = gguf.tensor_infos.keys().collect();
+        tensor_names.sort();
+
+        for name in tensor_names {
+            let info = &gguf.tensor_infos[name];
+            println!("  - {} : {:?} {:?}", name, info.ggml_dtype, info.dimensions);
+        }
+
+        Ok(Value::Void)
     }
 }
