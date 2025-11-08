@@ -70,10 +70,7 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_threads(grid_size, tg_size);
         encoder.end_encoding();
 
-        // CRITICAL: Flush pending operations before wait to prevent deadlock
-        device.flush_if_needed()
-            .map_err(|e| TensorError::MetalError(format!("Failed to flush: {}", e)))?;
-
+        // Candle-style: No manual flush needed, batching is automatic
         // Since we need results immediately for stage 2, wait for completion
         device.wait_until_completed()?;
 
@@ -444,10 +441,7 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_threads(grid_size, tg_size);
         encoder.end_encoding();
 
-        // CRITICAL: Flush pending operations before wait to prevent deadlock
-        device.flush_if_needed()
-            .map_err(|e| TensorError::MetalError(format!("Failed to flush: {}", e)))?;
-
+        // Candle-style: No manual flush needed, batching is automatic
         // Since we need results immediately for stage 2, wait for completion
         device.wait_until_completed()?;
 
@@ -554,10 +548,7 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_threads(grid_size, tg_size);
         encoder.end_encoding();
 
-        // CRITICAL: Flush pending operations before wait to prevent deadlock
-        device.flush_if_needed()
-            .map_err(|e| TensorError::MetalError(format!("Failed to flush: {}", e)))?;
-
+        // Candle-style: No manual flush needed, batching is automatic
         // Since we need results immediately for stage 2, wait for completion
         device.wait_until_completed()?;
 

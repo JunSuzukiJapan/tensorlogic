@@ -5,210 +5,152 @@
 //!
 //! This module provides efficient batching of GPU operations by:
 //! 1. Grouping multiple operations into a single CommandBuffer
-//! 2. Deferring commit until necessary (batch is full or explicit sync)
-//! 3. Managing per-thread CommandBuffers to avoid contention
+//! 2. Deferring commit until batch size limit or explicit sync
+//! 3. Managing thread-safe access to command buffers via semaphore
 
-use crate::device::{CommandBuffer, CommandBufferThreadMap};
+use crate::device::{CommandBuffer, CommandSemaphore, CommandStatus};
 use crate::error::{TensorError, TensorResult};
 use metal::{CommandQueue, MTLCommandBufferStatus};
-use std::io::Write;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, RwLock,
+};
 
 pub struct Commands {
     /// Single command queue for the entire device
     command_queue: Arc<CommandQueue>,
 
-    /// Thread-local command buffers
-    /// Each thread gets its own CommandBuffer to avoid lock contention
-    command_buffers: Arc<Mutex<CommandBufferThreadMap>>,
+    /// One command buffer at a time
+    /// Arc + RwLock for interior mutability and thread safety
+    command_buffer: Arc<RwLock<CommandBuffer>>,
 
-    /// Number of compute operations on the current command buffer
-    command_buffer_index: usize,
+    /// Tracks the current amount of compute operations on the current command buffer
+    /// AtomicUsize for thread-safe access
+    compute_count: AtomicUsize,
 
     /// Maximum number of compute operations per command buffer
-    /// Default: 50 (can be configured with TL_COMPUTE_PER_BUFFER env var)
+    /// Default: 200 (can be configured with TL_COMPUTE_PER_BUFFER env var)
     compute_per_buffer: usize,
+
+    /// Semaphore for synchronizing command buffer access across threads
+    semaphore: Arc<CommandSemaphore>,
 }
 
-// SAFETY: Commands uses Arc and Mutex internally for thread safety
+// SAFETY: Commands uses Arc and atomic operations for thread safety
 unsafe impl Send for Commands {}
 unsafe impl Sync for Commands {}
 
 impl Commands {
     /// Create a new Commands manager
     pub fn new(command_queue: Arc<CommandQueue>) -> TensorResult<Self> {
-        // Create initial command buffer
-        let raw_cb = command_queue.new_command_buffer().to_owned();
-        let command_buffer = CommandBuffer::new(raw_cb);
-        command_buffer.enqueue();
-
-        let mut command_buffers = CommandBufferThreadMap::new();
-        command_buffers.insert(command_buffer);
+        let semaphore = Arc::new(CommandSemaphore::new());
+        let command_buffer = Self::create_command_buffer(&command_queue, Arc::clone(&semaphore))?;
+        let command_buffer = Arc::new(RwLock::new(command_buffer));
 
         // Read batch size from environment or use default
-        // TEMPORARILY REDUCED from 500 to 50 to debug Layer 12 hang
-        // This forces more frequent command buffer commits to prevent GPU resource exhaustion
-        // Testing hypothesis: accumulated GPU state after 11 layers may be causing hang
+        // Candle default: 50, but we use 200 for better performance
         let compute_per_buffer = std::env::var("TL_COMPUTE_PER_BUFFER")
             .ok()
             .and_then(|val| val.parse().ok())
-            .unwrap_or(50);
+            .unwrap_or(200);
 
         Ok(Self {
             command_queue,
-            command_buffers: Arc::new(Mutex::new(command_buffers)),
-            command_buffer_index: 0,
+            command_buffer,
+            compute_count: AtomicUsize::new(0),
             compute_per_buffer,
+            semaphore,
         })
     }
 
-    /// Get the current command buffer for this thread
-    ///
-    /// This method:
-    /// 1. Gets or creates a command buffer for the current thread
-    /// 2. Checks if we've hit the batch size limit
-    /// 3. If so, commits the old buffer and creates a new one
-    ///
-    /// Returns (flushed, command_buffer) where flushed indicates if we committed
-    pub fn command_buffer(&mut self) -> TensorResult<(bool, CommandBuffer)> {
-        if std::env::var("TL_DEBUG").is_ok() {
-            eprintln!("[DEBUG_RS] Commands::command_buffer: Attempting to lock command_buffers...");
-            std::io::stderr().flush().ok();
-        }
-
-        let mut command_buffers = self
-            .command_buffers
-            .lock()
-            .map_err(|e| TensorError::InvalidOperation(format!("Mutex poison: {}", e)))?;
-
-        if std::env::var("TL_DEBUG").is_ok() {
-            eprintln!("[DEBUG_RS] Commands::command_buffer: Lock acquired!");
-            std::io::stderr().flush().ok();
-        }
-
-        // Get or create command buffer for this thread
-        if std::env::var("TL_DEBUG").is_ok() {
-            eprintln!("[DEBUG_RS] Commands::command_buffer: About to get_mut()...");
-            std::io::stderr().flush().ok();
-        }
-
-        let command_buffer = match command_buffers.get_mut() {
-            Some(cb) => {
-                if std::env::var("TL_DEBUG").is_ok() {
-                    eprintln!("[DEBUG_RS] Commands::command_buffer: Reusing existing command buffer");
-                    std::io::stderr().flush().ok();
-                }
-                cb
-            }
-            None => {
-                if std::env::var("TL_DEBUG").is_ok() {
-                    eprintln!("[DEBUG_RS] Commands::command_buffer: Creating NEW command buffer...");
-                    std::io::stderr().flush().ok();
-                }
-                let raw_cb = self.command_queue.new_command_buffer().to_owned();
-                if std::env::var("TL_DEBUG").is_ok() {
-                    eprintln!("[DEBUG_RS] Commands::command_buffer: new_command_buffer() returned");
-                    std::io::stderr().flush().ok();
-                }
-                let cb = CommandBuffer::new(raw_cb);
-                command_buffers.insert(cb);
-                command_buffers.get_mut().unwrap()
-            }
-        };
-
-        let mut flushed = false;
-
-        // Check if we need to flush (exceeded batch size)
-        if std::env::var("TL_DEBUG").is_ok() {
-            eprintln!("[DEBUG_RS] Commands::command_buffer: Checking batch size (index={}, limit={})",
-                     self.command_buffer_index, self.compute_per_buffer);
-            std::io::stderr().flush().ok();
-        }
-
-        if self.command_buffer_index > self.compute_per_buffer {
-            if std::env::var("TL_DEBUG").is_ok() {
-                eprintln!("[DEBUG_RS] Commands::command_buffer: FLUSHING - calling commit()...");
-                std::io::stderr().flush().ok();
-            }
-            if std::env::var("TL_DEBUG_BATCHING").is_ok() {
-                eprintln!("[BATCH] Flushing at index {} (limit: {})",
-                         self.command_buffer_index, self.compute_per_buffer);
-            }
-            command_buffer.commit();
-            if std::env::var("TL_DEBUG").is_ok() {
-                eprintln!("[DEBUG_RS] Commands::command_buffer: commit() returned");
-                std::io::stderr().flush().ok();
-            }
-
-            // Create new command buffer
-            if std::env::var("TL_DEBUG").is_ok() {
-                eprintln!("[DEBUG_RS] Commands::command_buffer: Creating replacement command buffer...");
-                std::io::stderr().flush().ok();
-            }
-            let raw_cb = self.command_queue.new_command_buffer().to_owned();
-            if std::env::var("TL_DEBUG").is_ok() {
-                eprintln!("[DEBUG_RS] Commands::command_buffer: new_command_buffer() returned (replacement)");
-                std::io::stderr().flush().ok();
-            }
-            let new_cb = CommandBuffer::new(raw_cb);
-            *command_buffer = new_cb;
-
-            self.command_buffer_index = 0;
-            flushed = true;
-        }
-
-        self.command_buffer_index += 1;
-
-        if std::env::var("TL_DEBUG_BATCHING").is_ok() && self.command_buffer_index % 100 == 0 {
-            eprintln!("[BATCH] Current index: {}/{}",
-                     self.command_buffer_index, self.compute_per_buffer);
-        }
-
-        if std::env::var("TL_DEBUG").is_ok() {
-            eprintln!("[DEBUG_RS] Commands::command_buffer: About to clone command_buffer...");
-            std::io::stderr().flush().ok();
-        }
-
-        let result = command_buffer.clone();
-
-        if std::env::var("TL_DEBUG").is_ok() {
-            eprintln!("[DEBUG_RS] Commands::command_buffer: clone() returned, about to release lock (via drop)...");
-            std::io::stderr().flush().ok();
-        }
-
-        Ok((flushed, result))
-        // command_buffers lock is released here when it goes out of scope
+    /// Create a new command buffer
+    fn create_command_buffer(
+        command_queue: &CommandQueue,
+        semaphore: Arc<CommandSemaphore>,
+    ) -> TensorResult<CommandBuffer> {
+        let raw = command_queue.new_command_buffer().to_owned();
+        Ok(CommandBuffer::new(raw, semaphore))
     }
 
-    /// Flush pending operations if there are any
+    /// Get the current command buffer
     ///
-    /// This ensures that any pending GPU operations are committed to the command queue.
-    /// Called before sync operations to prevent deadlock from unflushed encoders.
-    pub fn flush_if_needed(&mut self) -> TensorResult<()> {
-        if self.command_buffer_index > 0 {
+    /// If compute count > compute per buffer, commits current buffer and creates new one.
+    /// This is the core batching mechanism from Candle.
+    ///
+    /// Returns (flushed, command_buffer_guard) where flushed indicates if we committed
+    pub fn command_buffer(
+        &self,
+    ) -> TensorResult<(bool, std::sync::RwLockReadGuard<'_, CommandBuffer>)> {
+        // Check if we need to flush (exceeded batch size)
+        if self.compute_count.load(Ordering::Relaxed) > self.compute_per_buffer {
+            // Acquire write lock to replace command buffer
+            let mut command_buffer = self.command_buffer.write().map_err(|e| {
+                TensorError::InvalidOperation(format!("RwLock poison: {}", e))
+            })?;
+
             if std::env::var("TL_DEBUG_BATCHING").is_ok() {
-                eprintln!("[BATCH] Flushing {} pending operations", self.command_buffer_index);
+                eprintln!(
+                    "[BATCH] Flushing at count {} (limit: {})",
+                    self.compute_count.load(Ordering::Relaxed),
+                    self.compute_per_buffer
+                );
             }
 
-            let mut command_buffers = self
-                .command_buffers
-                .lock()
-                .map_err(|e| TensorError::InvalidOperation(format!("Mutex poison: {}", e)))?;
+            // Commit current buffer
+            command_buffer.commit();
 
-            if let Some(cb) = command_buffers.get_mut() {
-                // Commit current buffer
-                cb.commit();
+            // Create new buffer
+            *command_buffer =
+                Self::create_command_buffer(&self.command_queue, Arc::clone(&self.semaphore))?;
 
-                // Create new buffer
-                let raw_cb = self.command_queue.new_command_buffer().to_owned();
-                let new_cb = CommandBuffer::new(raw_cb);
-                *cb = new_cb;
+            // Reset count to 1 (counting this operation)
+            self.compute_count.store(1, Ordering::Relaxed);
 
-                // Reset index
-                self.command_buffer_index = 0;
-            }
+            // Downgrade to read lock and return
+            drop(command_buffer);
+            Ok((true, self.command_buffer.read().map_err(|e| {
+                TensorError::InvalidOperation(format!("RwLock poison: {}", e))
+            })?))
+        } else {
+            // Increment count and return read lock
+            self.compute_count.fetch_add(1, Ordering::Relaxed);
+            Ok((false, self.command_buffer.read().map_err(|e| {
+                TensorError::InvalidOperation(format!("RwLock poison: {}", e))
+            })?))
         }
-        Ok(())
+    }
+
+    /// Get a command encoder with proper semaphore state management
+    ///
+    /// This is the main entry point for GPU operations.
+    /// Sets CommandStatus to Encoding before creating encoder.
+    /// Matches Candle's implementation exactly.
+    ///
+    /// Returns (flushed, encoder) where flushed indicates if a commit happened.
+    pub fn command_encoder(
+        &mut self,
+    ) -> TensorResult<(bool, crate::device::ComputeCommandEncoder)> {
+        {
+            // Ensure command buffer available, set status to Encoding
+            let mut guard = self
+                .semaphore
+                .wait_until(|s| matches!(s, CommandStatus::Available | CommandStatus::Done));
+
+            // Set status as encoding to block other threads
+            *guard = CommandStatus::Encoding;
+        }
+        // Notify after command status lock is released
+        self.semaphore.cond.notify_one();
+
+        // Get command buffer (may trigger flush)
+        let (flushed, command_buffer) = self.command_buffer()?;
+
+        // Create encoder directly without setting status again
+        // (status already set above)
+        let raw = command_buffer.inner().new_compute_command_encoder().to_owned();
+        let command_encoder = crate::device::ComputeCommandEncoder::new(raw, Arc::clone(&self.semaphore));
+
+        Ok((flushed, command_encoder))
     }
 
     /// Wait for all pending command buffers to complete
@@ -217,72 +159,67 @@ impl Commands {
     /// - Before reading tensor data
     /// - At end of operation sequence
     ///
-    /// The method is smart about waiting:
-    /// - Only commits if buffer hasn't been committed yet
-    /// - Only waits if buffer hasn't completed yet
+    /// Matches Candle's implementation exactly
     pub fn wait_until_completed(&mut self) -> TensorResult<()> {
-        if std::env::var("TL_DEBUG_BATCHING").is_ok() {
-            eprintln!("[BATCH] wait_until_completed called at index {}",
-                     self.command_buffer_index);
-        }
-
-        // CRITICAL: Reset command buffer index when replacing buffer
-        // This ensures we don't immediately hit the batch size limit after sync
-        self.command_buffer_index = 0;
-
-        // Get current command buffer and replace with new one
-        let command_buffer = {
-            let mut command_buffers = self
-                .command_buffers
-                .lock()
-                .map_err(|e| TensorError::InvalidOperation(format!("Mutex poison: {}", e)))?;
-
-            if let Some(cb) = command_buffers.get_mut() {
-                let current = cb.clone();
-
-                // Replace with new buffer
-                let raw_cb = self.command_queue.new_command_buffer().to_owned();
-                let new_cb = CommandBuffer::new(raw_cb);
-                *cb = new_cb;
-
-                Some(current)
-            } else {
-                None
-            }
+        let start = if std::env::var("TL_DEBUG_SYNC").is_ok() {
+            Some(std::time::Instant::now())
+        } else {
+            None
         };
 
-        if let Some(cb) = command_buffer {
-            // Handle different states of the command buffer
-            let status = cb.status();
-            match status {
-                MTLCommandBufferStatus::NotEnqueued | MTLCommandBufferStatus::Enqueued => {
-                    // Need to commit before waiting
-                    cb.commit();
-                    cb.wait_until_completed();
-                }
-                MTLCommandBufferStatus::Committed | MTLCommandBufferStatus::Scheduled => {
-                    // Already committed, just wait
-                    cb.wait_until_completed();
-                }
-                MTLCommandBufferStatus::Completed => {
-                    // Already done, no action needed
-                }
-                MTLCommandBufferStatus::Error => {
-                    return Err(TensorError::InvalidOperation(
-                        "Command buffer error".to_string(),
-                    ));
-                }
-            }
-        } else {
-            // No command buffer exists, create one
-            let raw_cb = self.command_queue.new_command_buffer().to_owned();
-            let cb = CommandBuffer::new(raw_cb);
+        if std::env::var("TL_DEBUG_BATCHING").is_ok() {
+            eprintln!(
+                "[BATCH] wait_until_completed called at count {}",
+                self.compute_count.load(Ordering::Relaxed)
+            );
+        }
 
-            let mut command_buffers = self
-                .command_buffers
-                .lock()
-                .map_err(|e| TensorError::InvalidOperation(format!("Mutex poison: {}", e)))?;
-            command_buffers.insert(cb);
+        let current = {
+            // Ensure command buffer not encoding
+            let mut guard = self
+                .semaphore
+                .wait_until(|s| matches!(s, CommandStatus::Available | CommandStatus::Done));
+
+            // Extract current command buffer, create new in its place
+            let current = {
+                // Scope drops write lock
+                let mut command_buffer = self.command_buffer.write().map_err(|e| {
+                    TensorError::InvalidOperation(format!("RwLock poison: {}", e))
+                })?;
+                let current = command_buffer.clone();
+                *command_buffer =
+                    Self::create_command_buffer(&self.command_queue, Arc::clone(&self.semaphore))?;
+                // Reset compute count
+                self.compute_count.store(0, Ordering::Relaxed);
+                current
+            };
+
+            // After replacing the command buffer it is now safe to continue encoding
+            *guard = CommandStatus::Available;
+            current
+        };
+        // Notify after command status lock is released
+        self.semaphore.cond.notify_one();
+
+        // Only commit and wait if needed (matches Candle exactly)
+        match current.status() {
+            MTLCommandBufferStatus::NotEnqueued | MTLCommandBufferStatus::Enqueued => {
+                current.commit();
+                current.wait_until_completed();
+            }
+            MTLCommandBufferStatus::Committed | MTLCommandBufferStatus::Scheduled => {
+                current.wait_until_completed();
+            }
+            MTLCommandBufferStatus::Completed => {} // No action needed
+            MTLCommandBufferStatus::Error => {
+                return Err(TensorError::InvalidOperation(
+                    "Command buffer error".to_string(),
+                ));
+            }
+        }
+
+        if let Some(start) = start {
+            eprintln!("[SYNC] wait_until_completed took {:?}", start.elapsed());
         }
 
         Ok(())

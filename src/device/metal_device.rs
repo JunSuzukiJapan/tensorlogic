@@ -143,9 +143,23 @@ impl MetalDevice {
         &self.command_queue
     }
 
-    /// Get the next command buffer from the batch
+    /// Get a command encoder with proper semaphore state management (Candle-compatible)
     ///
     /// This is the main entry point for GPU operations.
+    /// Sets CommandStatus to Encoding before creating encoder.
+    /// Returns (flushed, encoder) where flushed indicates if a commit happened.
+    pub fn command_encoder(&self) -> TensorResult<(bool, crate::device::ComputeCommandEncoder)> {
+        let mut commands = self.commands.lock()
+            .map_err(|e| TensorError::InvalidOperation(format!("Commands lock failed: {}", e)))?;
+
+        let (flushed, command_encoder) = commands.command_encoder()?;
+
+        Ok((flushed, command_encoder))
+    }
+
+    /// Get the next command buffer from the batch
+    ///
+    /// ⚠️ DEPRECATED: Use command_encoder() instead for proper semaphore state management
     /// Returns (flushed, command_buffer) where flushed indicates if a commit happened.
     pub fn command_buffer(&self) -> TensorResult<(bool, crate::device::CommandBuffer)> {
         if std::env::var("TL_DEBUG").is_ok() {
@@ -153,7 +167,7 @@ impl MetalDevice {
             std::io::stderr().flush().ok();
         }
 
-        let mut commands = self.commands.lock()
+        let commands = self.commands.lock()
             .map_err(|e| TensorError::InvalidOperation(format!("Commands lock failed: {}", e)))?;
 
         if std::env::var("TL_DEBUG").is_ok() {
@@ -161,25 +175,16 @@ impl MetalDevice {
             std::io::stderr().flush().ok();
         }
 
-        let result = commands.command_buffer();
+        let (flushed, guard) = commands.command_buffer()?;
+        let buffer = guard.clone();  // Clone buffer from RwLockReadGuard
 
         if std::env::var("TL_DEBUG").is_ok() {
             eprintln!("[DEBUG_RS] MetalDevice::command_buffer: Commands::command_buffer returned, releasing lock...");
             std::io::stderr().flush().ok();
         }
 
-        result
+        Ok((flushed, buffer))
         // commands lock is released here
-    }
-
-    /// Flush any pending GPU operations
-    ///
-    /// This ensures pending operations are committed to the command queue.
-    /// Called before sync operations to prevent deadlock from unflushed encoders.
-    pub fn flush_if_needed(&self) -> TensorResult<()> {
-        self.commands.lock()
-            .map_err(|e| TensorError::InvalidOperation(format!("Commands lock failed: {}", e)))?
-            .flush_if_needed()
     }
 
     /// Wait for all GPU operations to complete

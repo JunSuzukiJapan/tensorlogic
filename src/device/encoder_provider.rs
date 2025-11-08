@@ -2,39 +2,41 @@
 //!
 //! This trait abstracts away command buffer lifecycle management from GPU operations,
 //! allowing kernel functions to receive encoders without managing command buffers directly.
+//!
+//! Updated to use semaphore-integrated ComputeCommandEncoder for proper state management.
 
 use super::command_buffer::CommandBuffer;
-use metal::ComputeCommandEncoderRef;
+use super::compute_encoder::ComputeCommandEncoder;
 
-/// Trait for types that can provide compute command encoders
+/// Trait for types that can provide compute command encoders with semaphore integration
 ///
 /// This abstraction allows kernel functions to work with command buffers
-/// without managing them directly.
-///
-/// Based on Candle's EncoderProvider pattern from:
-/// `/tmp/candle/candle-metal-kernels/src/utils.rs:160-208`
+/// without managing them directly, while ensuring proper semaphore state management.
 pub trait EncoderProvider {
-    /// Get a compute command encoder reference
+    /// Get a compute command encoder with semaphore integration
     ///
-    /// For CommandBuffer: creates a new encoder
-    fn encoder(&self) -> &ComputeCommandEncoderRef;
+    /// For CommandBuffer: creates a new encoder that:
+    /// - Integrates with the command buffer's semaphore
+    /// - Automatically resets status to Available when dropped
+    /// - Ensures proper thread synchronization
+    fn encoder(&self) -> ComputeCommandEncoder;
 }
 
-/// Implementation for CommandBuffer - creates encoder on demand
+/// Implementation for CommandBuffer - creates semaphore-integrated encoder
 ///
 /// This is the primary implementation used throughout the codebase.
 /// When a CommandBuffer is passed to a kernel function, calling encoder()
-/// creates a new compute command encoder from it.
+/// creates a new compute command encoder with full semaphore integration.
 impl EncoderProvider for CommandBuffer {
-    fn encoder(&self) -> &ComputeCommandEncoderRef {
-        self.inner().new_compute_command_encoder()
+    fn encoder(&self) -> ComputeCommandEncoder {
+        self.compute_command_encoder()
     }
 }
 
 /// Implementation for reference to CommandBuffer
 impl EncoderProvider for &CommandBuffer {
-    fn encoder(&self) -> &ComputeCommandEncoderRef {
-        self.inner().new_compute_command_encoder()
+    fn encoder(&self) -> ComputeCommandEncoder {
+        self.compute_command_encoder()
     }
 }
 
@@ -52,7 +54,7 @@ mod tests {
         let encoder = command_buffer.encoder();
 
         // Encoder should be valid (can set label)
-        encoder.set_label("test_encoder");
+        encoder.as_ref().set_label("test_encoder");
         encoder.end_encoding();
     }
 }

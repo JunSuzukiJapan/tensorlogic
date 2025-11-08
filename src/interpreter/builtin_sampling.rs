@@ -132,28 +132,9 @@ impl Interpreter {
         use crate::tensor::{TensorIO, TensorAccessors};
         use rand::Rng;
 
-        // CRITICAL: Extra sync to ensure GPU→CPU transfer is complete
-        // This fixes an issue where logits buffer was being reused before sampling
-        if let crate::device::Device::Metal(ref device) = logits.device() {
-            device.flush_if_needed().ok();
-            device.wait_until_completed().ok();
-            // Double sync for safety - ensures all pending operations are complete
-            device.wait_until_completed().ok();
-
-            // DEBUG: Check GPU buffer contents BEFORE CPU read
-            if std::env::var("TL_BUFFER_DEBUG").is_ok() {
-                if let Ok(metal_buf) = logits.buffer().as_metal() {
-                    let ptr = metal_buf.buffer.contents() as *const f32;
-                    if !ptr.is_null() {
-                        let slice = unsafe { std::slice::from_raw_parts(ptr, 10) };
-                        eprintln!(
-                            "[temperature_sample_cpu] GPU buffer BEFORE read: buffer_ptr={:p}, first_10={:?}",
-                            metal_buf.buffer.as_ref(), slice
-                        );
-                    }
-                }
-            }
-        }
+        // CRITICAL: Sync is handled by sync_and_read_f32()
+        // No need for extra syncs here - the sync_and_read_f32() call below
+        // properly handles flush → wait → read sequence
 
         // Get logits as f32 vector (sync all pending GPU ops before reading)
         let all_logits: Vec<f32> = logits.sync_and_read_f32();
@@ -437,12 +418,7 @@ impl Interpreter {
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
 
-        // CRITICAL: Flush pending operations before wait to prevent deadlock
-        device.flush_if_needed()
-            .map_err(|e| RuntimeError::TensorError(
-                crate::error::TensorError::MetalError(format!("Failed to flush: {}", e))
-            ))?;
-
+        // Candle-style: No manual flush needed, batching is automatic
         // Since we need the result immediately, wait for completion
         device.wait_until_completed()
             .map_err(|e| RuntimeError::TensorError(
@@ -547,12 +523,7 @@ impl Interpreter {
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
 
-        // CRITICAL: Flush pending operations before wait to prevent deadlock
-        device.flush_if_needed()
-            .map_err(|e| RuntimeError::TensorError(
-                crate::error::TensorError::MetalError(format!("Failed to flush: {}", e))
-            ))?;
-
+        // Candle-style: No manual flush needed, batching is automatic
         // Since we need the result immediately, wait for completion
         device.wait_until_completed()
             .map_err(|e| RuntimeError::TensorError(

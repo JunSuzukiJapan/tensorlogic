@@ -89,7 +89,13 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
         // This is much faster than sync_and_read() as it avoids GPU->CPU transfer
         use crate::tensor::TensorAccessors;
         if let crate::device::Device::Metal(ref device) = self.device() {
-            device.wait_until_completed()?;
+            if std::env::var("TL_DEBUG_SYNC").is_ok() {
+                let start = std::time::Instant::now();
+                device.wait_until_completed()?;
+                eprintln!("[SYNC] flush_gpu: wait_until_completed took {:?}", start.elapsed());
+            } else {
+                device.wait_until_completed()?;
+            }
         }
         Ok(())
     }
@@ -99,9 +105,14 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
         // This is the ONLY sync point - buffer.to_cpu_vec() doesn't wait
         use crate::tensor::TensorAccessors;
         if let crate::device::Device::Metal(ref device) = self.device() {
-            // CRITICAL: Flush pending operations before sync to prevent deadlock
-            device.flush_if_needed().ok();
-            device.wait_until_completed().ok();
+            // Candle-style: No manual flush needed, batching is automatic
+            if std::env::var("TL_DEBUG_SYNC").is_ok() {
+                let start = std::time::Instant::now();
+                device.wait_until_completed().ok();
+                eprintln!("[SYNC] sync_and_read: wait={:?}", start.elapsed());
+            } else {
+                device.wait_until_completed().ok();
+            }
         }
         self.buffer.to_cpu_vec()
     }
@@ -111,9 +122,14 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
         // This is the ONLY sync point - buffer.to_cpu_vec() doesn't wait
         use crate::tensor::TensorAccessors;
         if let crate::device::Device::Metal(ref device) = self.device() {
-            // CRITICAL: Flush pending operations before sync to prevent deadlock
-            device.flush_if_needed().ok();
-            device.wait_until_completed().ok();
+            // Candle-style: No manual flush needed, batching is automatic
+            if std::env::var("TL_DEBUG_SYNC").is_ok() {
+                let start = std::time::Instant::now();
+                device.wait_until_completed().ok();
+                eprintln!("[SYNC] sync_and_read_f32: wait={:?}", start.elapsed());
+            } else {
+                device.wait_until_completed().ok();
+            }
         }
         self.buffer.to_cpu_vec().iter().map(|x| x.to_f32()).collect()
     }
