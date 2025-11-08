@@ -447,7 +447,7 @@ main {
     interpreter.execute_declaration(&program.declarations[0]).unwrap();
     let w_initial = interpreter.get_variable("w").unwrap();
     let w_initial_val = if let Value::TensorF16(t) = w_initial {
-        t.to_vec()[0].to_f32()
+        t.sync_and_read()[0].to_f32()
     } else {
         panic!("w should be tensor");
     };
@@ -465,7 +465,7 @@ main {
             // If learning succeeded, check if parameter was updated
             let w_final = interpreter.get_variable("w").unwrap();
             let w_final_val = if let Value::TensorF16(t) = w_final {
-                t.to_vec()[0].to_f32()
+                t.sync_and_read()[0].to_f32()
             } else {
                 panic!("w should be tensor");
             };

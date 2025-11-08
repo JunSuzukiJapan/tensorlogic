@@ -120,7 +120,7 @@ fn tensor_to_numpy(py: Python<'_>, tensor: &Tensor) -> Result<PyObject, String> 
         .map_err(|e| format!("Failed to move tensor to CPU: {}", e))?;
 
     // Convert f16 to f32 for NumPy compatibility
-    let f16_data = cpu_tensor.to_vec();
+    let f16_data = cpu_tensor.sync_and_read();
     let f32_data: Vec<f32> = f16_data.iter().map(|&v| v.to_f32()).collect();
     let shape = tensor.dims();
 
@@ -213,7 +213,7 @@ mod tests {
         let result = env.call_function("np.sum", vec![&tensor]).unwrap();
 
         // Result should be [6.0] with shape [1]
-        let result_data = result.to_vec();
+        let result_data = result.sync_and_read();
         assert_eq!(result_data.len(), 1);
         assert!((result_data[0].to_f32() - 6.0).abs() < 0.01);
     }
@@ -238,7 +238,7 @@ mod tests {
         let result = env.call_function("np.add", vec![&x, &y]).unwrap();
 
         // Result should be [5.0, 7.0, 9.0]
-        let result_data = result.to_vec();
+        let result_data = result.sync_and_read();
         assert_eq!(result_data.len(), 3);
         assert!((result_data[0].to_f32() - 5.0).abs() < 0.01);
         assert!((result_data[1].to_f32() - 7.0).abs() < 0.01);

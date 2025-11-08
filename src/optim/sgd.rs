@@ -174,7 +174,7 @@ impl Optimizer for SGD {
 
         for (param_idx, velocity) in &self.velocity_buffers {
             let mut param_state = HashMap::new();
-            param_state.insert("velocity".to_string(), velocity.to_vec().iter().map(|&v| v.to_f32()).collect());
+            param_state.insert("velocity".to_string(), velocity.sync_and_read().iter().map(|&v| v.to_f32()).collect());
             state.param_state.insert(*param_idx, param_state);
         }
 
@@ -296,7 +296,7 @@ mod tests {
 
         // Get updated parameter
         let updated_x = &optimizer.param_groups[0].params[0];
-        let values = updated_x.to_vec();
+        let values = updated_x.sync_and_read();
 
         // Check values are approximately 1.9
         assert!((values[0].to_f32() - 1.9).abs() < 0.01);

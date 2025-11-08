@@ -422,7 +422,7 @@ impl Interpreter {
         let exponent = match exp_val {
             Value::Float(f) => f as f32,
             Value::Integer(i) => i as f32,
-            Value::TensorF16(ref t) if t.numel() == 1 => t.to_vec_f32()[0],
+            Value::TensorF16(ref t) if t.numel() == 1 => t.sync_and_read_f32()[0],
             _ => return Err(RuntimeError::TypeError(
                 "pow() exponent must be a scalar".to_string()
             )),

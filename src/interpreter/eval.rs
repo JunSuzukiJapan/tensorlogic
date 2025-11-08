@@ -156,11 +156,11 @@ impl Interpreter {
                             let tensor_val = self.eval_expr(expr)?;
                             match tensor_val {
                                 Value::TensorF16(tensor) => {
-                                    let data = tensor.to_vec();
+                                    let data = tensor.sync_and_read();
                                     data.iter().map(|&v| Value::Float(v.to_f32() as f64)).collect()
                                 }
                                 Value::TensorF32(tensor) => {
-                                    let data = tensor.to_vec();
+                                    let data = tensor.sync_and_read();
                                     data.iter().map(|&v| Value::Float(v as f64)).collect()
                                 }
                                 _ => {
@@ -2222,7 +2222,7 @@ impl Interpreter {
         };
 
         // Extract row from embedding matrix
-        let embedding_vec = embedding_matrix.to_vec();
+        let embedding_vec = embedding_matrix.sync_and_read();
         let dimension = embedding_matrix.shape().dims()[1];
         
         // Check bounds

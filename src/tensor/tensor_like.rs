@@ -114,7 +114,7 @@ impl TensorLike for Tensor {
 
     fn to_token_ids(&self) -> TensorResult<Vec<i64>> {
         // Convert tensor to f32 values and round to i64
-        let values = self.to_vec_f32();
+        let values = self.sync_and_read_f32();
         Ok(values.into_iter().map(|v| v.round() as i64).collect())
     }
 }

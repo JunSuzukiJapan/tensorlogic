@@ -73,7 +73,7 @@ impl PyTensor {
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
         // Convert f16 to f32 for NumPy compatibility
-        let f16_data = cpu_tensor.to_vec();
+        let f16_data = cpu_tensor.sync_and_read();
         let f32_data: Vec<f32> = f16_data.iter().map(|&v| v.to_f32()).collect();
         let shape = self.inner.dims();
 
@@ -107,7 +107,7 @@ impl PyTensor {
         let cpu_tensor = self.inner.to_cpu()
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
-        let data: Vec<f32> = cpu_tensor.to_vec()
+        let data: Vec<f32> = cpu_tensor.sync_and_read()
             .iter()
             .map(|&v| v.to_f32())
             .collect();

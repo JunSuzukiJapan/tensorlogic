@@ -332,7 +332,7 @@ impl Interpreter {
 
         Ok(match lengths_val {
             Value::TensorF16(lengths_tensor) => {
-                let lengths_vec = lengths_tensor.to_vec();
+                let lengths_vec = lengths_tensor.sync_and_read();
                 let lengths: Vec<usize> =
                     lengths_vec.iter().map(|&v| v.to_f32() as usize).collect();
 
@@ -354,7 +354,7 @@ impl Interpreter {
                     .to_value()
             }
             Value::TensorF32(lengths_tensor) => {
-                let lengths_vec = lengths_tensor.to_vec_f32();
+                let lengths_vec = lengths_tensor.sync_and_read_f32();
                 let lengths: Vec<usize> = lengths_vec.iter().map(|&v| v as usize).collect();
 
                 let batch_size = lengths.len();

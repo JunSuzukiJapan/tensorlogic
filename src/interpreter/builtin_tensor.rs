@@ -150,6 +150,7 @@ impl Interpreter {
             "concat" => Some(self.eval_concat(args)),
             "rope" => Some(self.eval_rope(args)),
             "slice" => Some(self.eval_slice(args)),
+            "slice_last" => Some(self.eval_slice_last(args)),
 
             // Arithmetic operations (for method chaining)
             "add" => Some(self.eval_add_method(args)),
@@ -659,7 +660,7 @@ impl Interpreter {
         }
 
         // Get tensor data
-        let data = tensor.to_vec();
+        let data = tensor.sync_and_read();
 
         // Extract the slice
         let offset = row * cols + col_start;
@@ -740,7 +741,7 @@ impl Interpreter {
         }
 
         // Extract slice from tensor
-        let data = tensor.to_vec();
+        let data = tensor.sync_and_read();
         let slice_data: Vec<_> = data[start..end].to_vec();
         let length = end - start;
 
@@ -1154,13 +1155,13 @@ impl Interpreter {
 
         match val {
             Value::TensorF16(tensor) => {
-                let data = tensor.to_vec();
+                let data = tensor.sync_and_read();
                 let max_val = data.iter().max_by(|a, b| a.partial_cmp(b).unwrap())
                     .ok_or_else(|| RuntimeError::TensorError(TensorError::InvalidOperation("Empty tensor".to_string())))?;
                 Ok(Value::Float(max_val.to_f32() as f64))
             }
             Value::TensorF32(tensor) => {
-                let data = tensor.to_vec();
+                let data = tensor.sync_and_read();
                 let max_val = data.iter().max_by(|a, b| a.partial_cmp(b).unwrap())
                     .ok_or_else(|| RuntimeError::TensorError(TensorError::InvalidOperation("Empty tensor".to_string())))?;
                 Ok(Value::Float(max_val.to_f32() as f64))
@@ -1184,13 +1185,13 @@ impl Interpreter {
 
         match val {
             Value::TensorF16(tensor) => {
-                let data = tensor.to_vec();
+                let data = tensor.sync_and_read();
                 let min_val = data.iter().min_by(|a, b| a.partial_cmp(b).unwrap())
                     .ok_or_else(|| RuntimeError::TensorError(TensorError::InvalidOperation("Empty tensor".to_string())))?;
                 Ok(Value::Float(min_val.to_f32() as f64))
             }
             Value::TensorF32(tensor) => {
-                let data = tensor.to_vec();
+                let data = tensor.sync_and_read();
                 let min_val = data.iter().min_by(|a, b| a.partial_cmp(b).unwrap())
                     .ok_or_else(|| RuntimeError::TensorError(TensorError::InvalidOperation("Empty tensor".to_string())))?;
                 Ok(Value::Float(min_val.to_f32() as f64))
@@ -1305,7 +1306,7 @@ impl Interpreter {
 
                 // If no dim specified, return as integer (backward compatibility)
                 if dim.is_none() && !keepdim {
-                    let data = result.to_vec();
+                    let data = result.sync_and_read();
                     Ok(Value::Integer(data[0].to_f32() as i64))
                 } else {
                     Ok(Value::TensorF16(result))
@@ -1317,7 +1318,7 @@ impl Interpreter {
 
                 // If no dim specified, return as integer (backward compatibility)
                 if dim.is_none() && !keepdim {
-                    let data = result.to_vec_f32();
+                    let data = result.sync_and_read_f32();
                     Ok(Value::Integer(data[0] as i64))
                 } else {
                     Ok(Value::TensorF32(result))
@@ -1345,7 +1346,7 @@ impl Interpreter {
         // Extract dims from array
         let dims = match dims_val {
             Value::TensorF16(ref t) => {
-                let data = t.to_vec_f32();
+                let data = t.sync_and_read_f32();
                 data.iter().map(|&v| v as usize).collect::<Vec<_>>()
             }
             _ => return Err(RuntimeError::TypeError(
@@ -1693,6 +1694,129 @@ impl Interpreter {
             }
             _ => Err(RuntimeError::TypeError(
                 "append_cache() requires both tensors to be the same type (both f16 or both f32)".to_string()
+            ))
+        }
+    }
+
+    /// slice_last(tensor, axis) -> tensor
+    /// Extract the last slice along the specified axis
+    ///
+    /// # Arguments
+    /// * tensor - Input tensor
+    /// * axis - Axis along which to take the last slice (0 for rows, 1 for columns, etc.)
+    ///
+    /// # Returns
+    /// Tensor with one fewer dimension
+    ///
+    /// # Example
+    /// ```tl
+    /// let x = zeros(shape(35, 2048))
+    /// let last_row = slice_last(x, 0)  # [35, 2048] → [2048]
+    /// ```
+    pub(super) fn eval_slice_last(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("slice_last() expects 2 arguments (tensor, axis), got {}", args.len())
+            ));
+        }
+
+        // Evaluate tensor argument
+        let tensor_val = self.eval_expr(&args[0])?;
+
+        // Evaluate axis argument
+        let axis_val = self.eval_expr(&args[1])?;
+        let axis = match axis_val {
+            Value::Integer(i) => i as usize,
+            Value::Float(f) => f as usize,
+            Value::TensorF32(ref t) if t.numel() == 1 => {
+                self.tensor_f32_to_scalar(t)? as usize
+            }
+            Value::TensorF16(ref t) if t.numel() == 1 => {
+                self.tensor_f16_to_scalar(t)? as usize
+            }
+            _ => return Err(RuntimeError::TypeError(
+                format!("slice_last() expects axis as scalar, got {:?}", axis_val.type_name())
+            ))
+        };
+
+        // Type-based dispatch
+        match tensor_val {
+            Value::TensorF32(ref tensor) => {
+                let dims = tensor.dims();
+
+                // Validate axis
+                if axis >= dims.len() {
+                    return Err(RuntimeError::TypeError(
+                        format!("slice_last() axis {} out of bounds for {}D tensor", axis, dims.len())
+                    ));
+                }
+
+                // Get last index along specified axis
+                let last_idx = dims[axis] - 1;
+
+                // Get tensor data with proper GPU sync
+                let data = tensor.sync_and_read();
+
+                // Calculate slice parameters
+                let (offset, length, new_shape) = if axis == 0 {
+                    // Extract last row/slice along axis 0
+                    let row_size: usize = dims[1..].iter().product();
+                    (last_idx * row_size, row_size, dims[1..].to_vec())
+                } else {
+                    return Err(RuntimeError::TypeError(
+                        format!("slice_last() currently only supports axis=0, got axis={}", axis)
+                    ));
+                };
+
+                // Extract slice
+                let slice_data: Vec<f32> = data[offset..offset + length].to_vec();
+
+                // Create new tensor
+                let device = self.env.metal_device();
+                let result = Tensor::<f32>::from_vec_gpu(device, slice_data, new_shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(result.to_value())
+            }
+            Value::TensorF16(ref tensor) => {
+                let dims = tensor.dims();
+
+                // Validate axis
+                if axis >= dims.len() {
+                    return Err(RuntimeError::TypeError(
+                        format!("slice_last() axis {} out of bounds for {}D tensor", axis, dims.len())
+                    ));
+                }
+
+                // Get last index along specified axis
+                let last_idx = dims[axis] - 1;
+
+                // Get tensor data with proper GPU sync
+                let data = tensor.sync_and_read();
+
+                // Calculate slice parameters
+                let (offset, length, new_shape) = if axis == 0 {
+                    // Extract last row/slice along axis 0
+                    let row_size: usize = dims[1..].iter().product();
+                    (last_idx * row_size, row_size, dims[1..].to_vec())
+                } else {
+                    return Err(RuntimeError::TypeError(
+                        format!("slice_last() currently only supports axis=0, got axis={}", axis)
+                    ));
+                };
+
+                // Extract slice
+                let slice_data: Vec<half::f16> = data[offset..offset + length].to_vec();
+
+                // Create new tensor
+                let device = self.env.metal_device();
+                let result = Tensor::<half::f16>::from_vec_gpu(device, slice_data, new_shape)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+
+                Ok(result.to_value())
+            }
+            _ => Err(RuntimeError::TypeError(
+                format!("slice_last() expects tensor, got {:?}", tensor_val.type_name())
             ))
         }
     }

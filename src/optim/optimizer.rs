@@ -104,7 +104,7 @@ pub(crate) fn mul_scalar(tensor: &Tensor, scalar: f32) -> TensorResult<Tensor> {
     // Broadcast scalar to tensor shape
     let mut result = tensor.clone();
     for i in 0..tensor.numel() {
-        let mut data = result.to_vec();
+        let mut data = result.sync_and_read();
         data[i] = half::f16::from_f32(data[i].to_f32() * scalar);
         result = Tensor::from_vec(data, tensor.dims().to_vec())?;
     }

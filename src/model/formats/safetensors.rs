@@ -107,7 +107,7 @@ impl SafeTensorsLoader {
         let mut f32_tensors: Vec<(String, Vec<usize>, Vec<f32>)> = Vec::new();
 
         for (name, tensor) in &model.tensors {
-            let f16_data = tensor.to_vec();
+            let f16_data = tensor.sync_and_read();
             let f32_data = f16_to_f32(&f16_data);
             let shape: Vec<usize> = tensor.shape().dims().to_vec();
             f32_tensors.push((name.clone(), shape, f32_data));

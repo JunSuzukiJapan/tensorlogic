@@ -15,7 +15,7 @@ use crate::tensor::Tensor;
 /// 1. Create NSArray for shape using NSNumber
 /// 2. Call MLMultiArray::initWithShape_dataType_error with Float16 (65552)
 /// 3. Use getMutableBytesWithHandler to access and fill the buffer
-/// 4. Copy f16 data from tensor.to_vec() into the MLMultiArray buffer
+/// 4. Copy f16 data from tensor.sync_and_read() into the MLMultiArray buffer
 ///
 /// # Arguments
 ///
@@ -35,7 +35,7 @@ pub fn tensor_to_mlmultiarray(tensor: &Tensor) -> CoreMLResult<objc2::rc::Retain
     let dims = shape.dims();
 
     // Get tensor data from Metal buffer
-    let data = tensor.to_vec();
+    let data = tensor.sync_and_read();
 
     println!("Converting Tensor to MLMultiArray:");
     println!("  Shape: {:?}", dims);

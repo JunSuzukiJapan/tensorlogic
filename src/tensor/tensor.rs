@@ -130,7 +130,7 @@ mod tests {
 
         assert_eq!(tensor.dims(), &[3]);
         assert_eq!(tensor.numel(), 3);
-        assert_eq!(tensor.to_vec(), data);
+        assert_eq!(tensor.sync_and_read(), data);
     }
 
     #[test]
@@ -141,7 +141,7 @@ mod tests {
         assert_eq!(tensor.dims(), &[2, 3]);
         assert_eq!(tensor.numel(), 6);
 
-        let data = tensor.to_vec();
+        let data = tensor.sync_and_read();
         assert!(data.iter().all(|&x| x == f16::ZERO));
     }
 
@@ -153,7 +153,7 @@ mod tests {
         assert_eq!(tensor.dims(), &[2, 3]);
         assert_eq!(tensor.numel(), 6);
 
-        let data = tensor.to_vec();
+        let data = tensor.sync_and_read();
         assert!(data.iter().all(|&x| x == f16::ONE));
     }
 
@@ -184,7 +184,7 @@ mod tests {
 
         let cpu_tensor = tensor.to_cpu().unwrap();
         assert!(cpu_tensor.buffer().is_cpu());
-        assert_eq!(cpu_tensor.to_vec(), data);
+        assert_eq!(cpu_tensor.sync_and_read(), data);
     }
 
     #[test]
@@ -217,7 +217,7 @@ mod tests {
 
         assert_eq!(tensor.dims(), &[3]);
         assert_eq!(tensor.numel(), 3);
-        assert_eq!(tensor.to_vec(), data);
+        assert_eq!(tensor.sync_and_read(), data);
     }
 
     #[test]
@@ -228,7 +228,7 @@ mod tests {
         assert_eq!(tensor.dims(), &[2, 3]);
         assert_eq!(tensor.numel(), 6);
 
-        let data = tensor.to_vec();
+        let data = tensor.sync_and_read();
         assert!(data.iter().all(|&x| x == 0.0f32));
     }
 }

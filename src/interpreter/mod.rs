@@ -2197,7 +2197,7 @@ impl Interpreter {
                             ));
                         }
 
-                        let probs = probs_tensor.to_vec();
+                        let probs = probs_tensor.sync_and_read();
                         probs.iter().map(|v| v.to_f32()).collect()
                     }
                     Value::TensorF32(probs_tensor) => {
@@ -2211,7 +2211,7 @@ impl Interpreter {
                             ));
                         }
 
-                        probs_tensor.to_vec()
+                        probs_tensor.sync_and_read()
                     }
                     _ => return Err(RuntimeError::TypeError("sample() expects tensor (f16 or f32)".to_string()))
                 };
@@ -2277,12 +2277,12 @@ impl Interpreter {
                         let dims = shape.dims();
 
                         if dims.len() == 1 {
-                            let logits = logits_tensor.to_vec();
+                            let logits = logits_tensor.sync_and_read();
                             logits.iter().map(|v| v.to_f32()).collect()
                         } else if dims.len() == 2 {
                             let seq_len = dims[0];
                             let vocab_size = dims[1];
-                            let logits = logits_tensor.to_vec();
+                            let logits = logits_tensor.sync_and_read();
                             let start_idx = (seq_len - 1) * vocab_size;
                             logits[start_idx..].iter().map(|v| v.to_f32()).collect()
                         } else {
@@ -2296,11 +2296,11 @@ impl Interpreter {
                         let dims = shape.dims();
 
                         if dims.len() == 1 {
-                            logits_tensor.to_vec()
+                            logits_tensor.sync_and_read()
                         } else if dims.len() == 2 {
                             let seq_len = dims[0];
                             let vocab_size = dims[1];
-                            let logits = logits_tensor.to_vec();
+                            let logits = logits_tensor.sync_and_read();
                             let start_idx = (seq_len - 1) * vocab_size;
                             logits[start_idx..].to_vec()
                         } else {
@@ -2361,11 +2361,11 @@ impl Interpreter {
                     Value::TensorF16(tensor) => {
                         let dims = tensor.shape().dims();
                         if dims.len() == 1 {
-                            tensor.to_vec().iter().map(|v| v.to_f32()).collect()
+                            tensor.sync_and_read().iter().map(|v| v.to_f32()).collect()
                         } else if dims.len() == 2 {
                             let seq_len = dims[0];
                             let vocab_size = dims[1];
-                            let logits = tensor.to_vec();
+                            let logits = tensor.sync_and_read();
                             let start_idx = (seq_len - 1) * vocab_size;
                             logits[start_idx..].iter().map(|v| v.to_f32()).collect()
                         } else {
@@ -2377,11 +2377,11 @@ impl Interpreter {
                     Value::TensorF32(tensor) => {
                         let dims = tensor.shape().dims();
                         if dims.len() == 1 {
-                            tensor.to_vec()
+                            tensor.sync_and_read()
                         } else if dims.len() == 2 {
                             let seq_len = dims[0];
                             let vocab_size = dims[1];
-                            let logits = tensor.to_vec();
+                            let logits = tensor.sync_and_read();
                             let start_idx = (seq_len - 1) * vocab_size;
                             logits[start_idx..].to_vec()
                         } else {
@@ -2443,13 +2443,13 @@ impl Interpreter {
 
                         if dims.len() == 1 {
                             // 1D: [vocab_size]
-                            let logits = logits_tensor.to_vec();
+                            let logits = logits_tensor.sync_and_read();
                             logits.iter().map(|v| v.to_f32()).collect()
                         } else if dims.len() == 2 {
                             // 2D: [seq_len, vocab_size] - extract last row
                             let seq_len = dims[0];
                             let vocab_size = dims[1];
-                            let logits = logits_tensor.to_vec();
+                            let logits = logits_tensor.sync_and_read();
                             let start_idx = (seq_len - 1) * vocab_size;
                             logits[start_idx..].iter().map(|v| v.to_f32()).collect()
                         } else {
@@ -2463,11 +2463,11 @@ impl Interpreter {
                         let dims = shape.dims();
 
                         if dims.len() == 1 {
-                            logits_tensor.to_vec()
+                            logits_tensor.sync_and_read()
                         } else if dims.len() == 2 {
                             let seq_len = dims[0];
                             let vocab_size = dims[1];
-                            let logits = logits_tensor.to_vec();
+                            let logits = logits_tensor.sync_and_read();
                             let start_idx = (seq_len - 1) * vocab_size;
                             logits[start_idx..].to_vec()
                         } else {
@@ -2885,7 +2885,7 @@ impl Interpreter {
                 let shape = match shape_value {
                     Value::TensorF16(t) => {
                         // Convert tensor data to Vec<usize>
-                        t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                        t.sync_and_read_f32().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
                         "zeros() shape must be an array".to_string()
@@ -2909,7 +2909,7 @@ impl Interpreter {
                 let shape_value = self.eval_expr(&args[0])?;
                 let shape = match shape_value {
                     Value::TensorF16(t) => {
-                        t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                        t.sync_and_read_f32().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
                         "ones() shape must be an array".to_string()
@@ -2940,10 +2940,10 @@ impl Interpreter {
                 // Extract new_shape from TensorF16 or TensorF32
                 let new_shape = match shape_value {
                     Value::TensorF16(t) => {
-                        t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                        t.sync_and_read_f32().iter().map(|&v| v as usize).collect()
                     }
                     Value::TensorF32(t) => {
-                        t.to_vec().iter().map(|&v| v as usize).collect()
+                        t.sync_and_read().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
                         "reshape() new_shape must be an array".to_string()
@@ -3040,10 +3040,10 @@ impl Interpreter {
 
                 let target_shape = match shape_value {
                     Value::TensorF16(t) => {
-                        t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                        t.sync_and_read_f32().iter().map(|&v| v as usize).collect()
                     }
                     Value::TensorF32(t) => {
-                        t.to_vec().iter().map(|&v| v as usize).collect()
+                        t.sync_and_read().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
                         "broadcast_to() target_shape must be an array".to_string()
@@ -3110,10 +3110,10 @@ impl Interpreter {
                 // Extract dims from TensorF16 or TensorF32
                 let dims = match dims_value {
                     Value::TensorF16(t) => {
-                        t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                        t.sync_and_read_f32().iter().map(|&v| v as usize).collect()
                     }
                     Value::TensorF32(t) => {
-                        t.to_vec().iter().map(|&v| v as usize).collect()
+                        t.sync_and_read().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
                         "permute() dims must be an array".to_string()
@@ -3544,10 +3544,10 @@ impl Interpreter {
                 let lengths_value = self.eval_expr(&args[0])?;
                 let lengths: Vec<usize> = match lengths_value {
                     Value::TensorF16(t) => {
-                        t.to_vec_f32().iter().map(|&v| v as usize).collect()
+                        t.sync_and_read_f32().iter().map(|&v| v as usize).collect()
                     }
                     Value::TensorF32(t) => {
-                        t.to_vec().iter().map(|&v| v as usize).collect()
+                        t.sync_and_read().iter().map(|&v| v as usize).collect()
                     }
                     _ => return Err(RuntimeError::TypeError(
                         "padding_mask() lengths must be an array".to_string()
@@ -4727,8 +4727,8 @@ impl Interpreter {
 
                 let target_score_val = self.eval_expr(&args[0])?;
                 let target_score_f32 = match target_score_val {
-                    Value::TensorF16(ref t) => t.to_vec()[0].to_f32(),
-                    Value::TensorF32(ref t) => t.to_vec()[0],
+                    Value::TensorF16(ref t) => t.sync_and_read()[0].to_f32(),
+                    Value::TensorF32(ref t) => t.sync_and_read()[0],
                     _ => return Err(RuntimeError::TypeError(
                         "compute_rank() target_score must be a tensor (f16 or f32)".to_string()
                     ))
@@ -5352,7 +5352,7 @@ impl Interpreter {
                 // Calculate L2 norm based on tensor type
                 let norm: f32 = match tensor_val {
                     Value::TensorF16(ref t) => {
-                        let data = t.to_vec();
+                        let data = t.sync_and_read();
                         data.iter()
                             .map(|x| {
                                 let val = x.to_f32();
@@ -5362,7 +5362,7 @@ impl Interpreter {
                             .sqrt()
                     }
                     Value::TensorF32(ref t) => {
-                        let data = t.to_vec();
+                        let data = t.sync_and_read();
                         data.iter()
                             .map(|&x| x * x)
                             .sum::<f32>()
@@ -5478,7 +5478,7 @@ impl Interpreter {
                         learnable_param_node_ids.push(node_id);
                         println!("\nLearnable parameter: {}", name);
                         println!("  Shape: {:?}", tensor.shape().dims());
-                        println!("  Initial values: {:?}", &tensor.to_vec()[..std::cmp::min(5, tensor.shape().dims()[0])].iter().map(|v| v.to_f32()).collect::<Vec<_>>());
+                        println!("  Initial values: {:?}", &tensor.sync_and_read()[..std::cmp::min(5, tensor.shape().dims()[0])].iter().map(|v| v.to_f32()).collect::<Vec<_>>());
                     }
                     Value::TensorF32(_) => {
                         return Err(RuntimeError::InvalidOperation(
@@ -5609,7 +5609,7 @@ impl Interpreter {
             // Calculate loss value and get loss tensor (support both f16 and f32)
             let (loss_scalar, loss_tensor) = match loss_val {
                 Value::TensorF16(ref t) => {
-                    let loss_data = t.to_vec();
+                    let loss_data = t.sync_and_read();
                     let scalar = if loss_data.is_empty() {
                         0.0
                     } else {
@@ -5618,7 +5618,7 @@ impl Interpreter {
                     (scalar, t.clone())
                 }
                 Value::TensorF32(ref t) => {
-                    let loss_data = t.to_vec();
+                    let loss_data = t.sync_and_read();
                     let scalar = if loss_data.is_empty() {
                         0.0
                     } else {
@@ -5651,7 +5651,7 @@ impl Interpreter {
                         if let Some(param_tensor) = AutogradContext::get_tensor_generic::<half::f16>(*node_id) {
                             if let Some(grad) = param_tensor.grad() {
                                 // Calculate gradient norm contribution
-                                let grad_data = grad.to_vec();
+                                let grad_data = grad.sync_and_read();
                                 for g in grad_data {
                                     let gf = g.to_f32();
                                     grad_norm_squared += gf * gf;
@@ -5703,7 +5703,7 @@ impl Interpreter {
             if epoch % EPOCH_REPORT_INTERVAL == 0 || epoch == spec.epochs - 1 {
                 if let Some((name, _)) = learnable_params.first() {
                     if let Ok(Value::TensorF16(t)) = self.env.get_variable(name) {
-                        let vals: Vec<f32> = t.to_vec()[..std::cmp::min(3, t.to_vec().len())]
+                        let vals: Vec<f32> = t.sync_and_read()[..std::cmp::min(3, t.sync_and_read().len())]
                             .iter()
                             .map(|v| v.to_f32())
                             .collect();
@@ -5731,7 +5731,7 @@ impl Interpreter {
         println!("\nFinal Parameter Values:");
         for (name, _) in &learnable_params {
             if let Ok(Value::TensorF16(t)) = self.env.get_variable(name) {
-                let vals: Vec<f32> = t.to_vec()[..std::cmp::min(5, t.to_vec().len())]
+                let vals: Vec<f32> = t.sync_and_read()[..std::cmp::min(5, t.sync_and_read().len())]
                     .iter()
                     .map(|v| v.to_f32())
                     .collect();

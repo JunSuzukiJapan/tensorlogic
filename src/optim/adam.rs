@@ -182,7 +182,7 @@ impl Optimizer for Adam {
                     // AMSGrad: max(v_t, v_t_max)
                     let v_t_max = if let Some(max_v) = self.max_exp_avg_sq.get_mut(&param_idx) {
                         // Element-wise max
-                        let v_data = v_t.to_vec();
+                        let v_data = v_t.sync_and_read();
                         let max_v_data = max_v.to_vec();
                         let new_max_data: Vec<_> = v_data
                             .iter()
@@ -282,7 +282,7 @@ impl Optimizer for Adam {
 
 /// Helper function to compute element-wise square root
 fn sqrt_tensor(tensor: &Tensor) -> TensorResult<Tensor> {
-    let data = tensor.to_vec();
+    let data = tensor.sync_and_read();
     let sqrt_data: Vec<_> = data
         .iter()
         .map(|x| half::f16::from_f32(x.to_f32().sqrt()))
@@ -292,7 +292,7 @@ fn sqrt_tensor(tensor: &Tensor) -> TensorResult<Tensor> {
 
 /// Helper function to add scalar to tensor
 fn add_scalar(tensor: &Tensor, scalar: f32) -> TensorResult<Tensor> {
-    let data = tensor.to_vec();
+    let data = tensor.sync_and_read();
     let result_data: Vec<_> = data
         .iter()
         .map(|x| half::f16::from_f32(x.to_f32() + scalar))
