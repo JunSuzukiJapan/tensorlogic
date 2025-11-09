@@ -188,11 +188,10 @@ impl Interpreter {
         }
     }
 
-    /// shape(tensor) -> tensor
-    /// Returns a 1D tensor containing the dimensions of the input tensor
+    /// shape(tensor) -> ShapeDims
+    /// Returns shape dimensions as CPU-side vector for instant access
+    /// No GPU allocation or synchronization required
     fn eval_shape(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
-        use crate::interpreter::value::ToValue;
-
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
                 format!("shape() expects 1 argument (tensor), got {}", args.len())
@@ -203,22 +202,12 @@ impl Interpreter {
 
         Ok(match val {
             Value::TensorF16(tensor) => {
-                let dims = tensor.dims();
-                let shape_data: Vec<f16> = dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
-                // OPTIMIZATION: Always create shape tensors on CPU for instant access
-                // Shape tensors are tiny (1-10 elements) and frequently indexed
-                let shape_tensor = Tensor::from_vec(shape_data, vec![dims.len()])
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-                shape_tensor.to_value()
+                let dims = tensor.dims().to_vec();
+                Value::ShapeDims(dims)
             }
             Value::TensorF32(tensor) => {
-                let dims = tensor.dims();
-                let shape_data: Vec<f32> = dims.iter().map(|&d| d as f32).collect();
-                // OPTIMIZATION: Always create shape tensors on CPU for instant access
-                // Shape tensors are tiny (1-10 elements) and frequently indexed
-                let shape_tensor = Tensor::from_vec(shape_data, vec![dims.len()])
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-                shape_tensor.to_value()
+                let dims = tensor.dims().to_vec();
+                Value::ShapeDims(dims)
             }
             _ => return Err(RuntimeError::TypeError("Expected tensor".to_string()))
         })

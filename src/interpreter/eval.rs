@@ -2494,6 +2494,97 @@ impl Interpreter {
                 // Return as a scalar float
                 Ok(Value::Float(value as f64))
             }
+            Value::ShapeDims(dims) => {
+                // OPTIMIZATION: Shape dimensions are always on CPU - instant access!
+                // No GPU synchronization needed
+                if indices.len() != 1 {
+                    return Err(RuntimeError::InvalidOperation(format!(
+                        "ShapeDims indexing requires exactly 1 index, got {}",
+                        indices.len()
+                    )));
+                }
+                
+                let index = match &indices[0] {
+                    IndexExpr::Int(i) => {
+                        if *i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        *i as usize
+                    }
+                    IndexExpr::Var(var) => {
+                        let val = self.env.get_variable(var.as_str())?;
+                        let i = val.as_integer()?;
+                        if i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        i as usize
+                    }
+                    IndexExpr::Slice => {
+                        return Err(RuntimeError::NotImplemented(
+                            "Slice indexing not supported on ShapeDims".to_string()
+                        ));
+                    }
+                };
+                
+                if index >= dims.len() {
+                    return Err(RuntimeError::InvalidOperation(format!(
+                        "Index {} out of bounds for shape with {} dimensions",
+                        index, dims.len()
+                    )));
+                }
+                
+                // Return as integer (shape dimensions are always integers)
+                Ok(Value::Integer(dims[index] as i64))
+            }
+            Value::IntArray(arr) => {
+                // Integer arrays are always on CPU - instant access
+                if indices.len() != 1 {
+                    return Err(RuntimeError::InvalidOperation(format!(
+                        "IntArray indexing requires exactly 1 index, got {}",
+                        indices.len()
+                    )));
+                }
+                
+                let index = match &indices[0] {
+                    IndexExpr::Int(i) => {
+                        if *i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        *i as usize
+                    }
+                    IndexExpr::Var(var) => {
+                        let val = self.env.get_variable(var.as_str())?;
+                        let i = val.as_integer()?;
+                        if i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        i as usize
+                    }
+                    IndexExpr::Slice => {
+                        return Err(RuntimeError::NotImplemented(
+                            "Slice indexing not supported on IntArray".to_string()
+                        ));
+                    }
+                };
+                
+                if index >= arr.len() {
+                    return Err(RuntimeError::InvalidOperation(format!(
+                        "Index {} out of bounds for array with {} elements",
+                        index, arr.len()
+                    )));
+                }
+                
+                // Return as integer
+                Ok(Value::Integer(arr[index]))
+            }
             _ => Err(RuntimeError::TypeError("Expected tensor (f16 or f32) for indexing".to_string()))
         }
     }
@@ -2653,6 +2744,14 @@ impl Interpreter {
             Value::Tokenizer(_) => "<Tokenizer>".to_string(),
             Value::TokenIds(ids) => format!("{:?}", ids),
             Value::TokenIdArray(arr) => format!("{:?}", arr.data()),
+            Value::IntArray(arr) => {
+                if arr.len() <= 10 {
+                    format!("{:?}", arr)
+                } else {
+                    format!("[{}, {}, ..., {}] (len={})", arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::ShapeDims(dims) => format!("{:?}", dims),
             Value::Type(t) => format!("<Type: {}>", t),
             Value::KVCacheF16(cache) => {
                 let c = cache.lock().unwrap();
@@ -2734,6 +2833,14 @@ impl Interpreter {
             Value::Tokenizer(_) => "<Tokenizer>".to_string(),
             Value::TokenIds(ids) => format!("{:?}", ids),
             Value::TokenIdArray(arr) => format!("{:?}", arr.data()),
+            Value::IntArray(arr) => {
+                if arr.len() <= 10 {
+                    format!("{:?}", arr)
+                } else {
+                    format!("[{}, {}, ..., {}] (len={})", arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::ShapeDims(dims) => format!("{:?}", dims),
             Value::Type(t) => format!("<Type: {}>", t),
             Value::KVCacheF16(cache) => {
                 let c = cache.lock().unwrap();

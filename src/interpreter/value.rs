@@ -159,6 +159,11 @@ pub enum Value {
     TokenIds(Vec<u32>),
     /// Token ID array with integer precision (no f16 precision loss)
     TokenIdArray(TokenIdArray),
+    /// Integer array for general purpose use
+    IntArray(Vec<i64>),
+    /// Shape dimensions (optimized for tensor shape queries)
+    /// Always stored on CPU for instant access without GPU synchronization
+    ShapeDims(Vec<usize>),
     /// Meta-type: represents an entity type
     Type(String),
     /// Struct instance with type and field values
@@ -208,6 +213,8 @@ impl Value {
             Value::Tokenizer(_) => "Tokenizer",
             Value::TokenIds(_) => "TokenIds",
             Value::TokenIdArray(_) => "TokenIdArray",
+            Value::IntArray(_) => "IntArray",
+            Value::ShapeDims(_) => "ShapeDims",
             Value::Type(_) => "Type",
             Value::Struct { .. } => "Struct",
             Value::KVCacheF16(_) => "KVCache",
@@ -321,6 +328,28 @@ impl Value {
         }
     }
 
+    /// Convert to integer array if possible
+    pub fn as_int_array(&self) -> RuntimeResult<&Vec<i64>> {
+        match self {
+            Value::IntArray(arr) => Ok(arr),
+            _ => Err(RuntimeError::TypeError(format!(
+                "Expected IntArray, found {:?}",
+                self
+            ))),
+        }
+    }
+
+    /// Convert to shape dimensions if possible
+    pub fn as_shape_dims(&self) -> RuntimeResult<&Vec<usize>> {
+        match self {
+            Value::ShapeDims(dims) => Ok(dims),
+            _ => Err(RuntimeError::TypeError(format!(
+                "Expected ShapeDims, found {:?}",
+                self
+            ))),
+        }
+    }
+
     /// Get field from struct
     pub fn get_field(&self, field_name: &str) -> RuntimeResult<&Value> {
         match self {
@@ -414,6 +443,31 @@ impl std::fmt::Display for Value {
                     write!(f, "[{:.4}, {:.4}, ..., {:.4}] (len={})",
                         data[0] as f64, data[1] as f64, data[data.len()-1] as f64, data.len())
                 }
+            }
+            Value::IntArray(arr) => {
+                if arr.len() <= 10 {
+                    write!(f, "[")?;
+                    for (i, val) in arr.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", val)?;
+                    }
+                    write!(f, "]")
+                } else {
+                    write!(f, "[{}, {}, ..., {}] (len={})",
+                        arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::ShapeDims(dims) => {
+                write!(f, "[")?;
+                for (i, val) in dims.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", val)?;
+                }
+                write!(f, "]")
             }
             Value::Type(type_name) => write!(f, "Type({})", type_name),
             Value::Struct { struct_type, fields } => {
