@@ -551,7 +551,7 @@ fn test_parse_parenthesized_arithmetic_expr() {
     assert!(program.main_block.is_some());
 
     let main_block = program.main_block.as_ref().unwrap();
-    assert_eq!(main_block.statements.len(), 7); // 4 lets + 1 print
+    assert_eq!(main_block.statements.len(), 6); // 5 lets + 1 print
 }
 
 #[test]

@@ -230,8 +230,12 @@ mod tests {
         let executor = guard.as_mut().unwrap();
         executor.execute_binary_op("add_f16", &a, &b, &result).unwrap();
 
+        // Synchronize GPU operations before reading
+        drop(guard);
+        device.wait_until_completed().unwrap();
+
         // Verify result
-        let result_data = result.sync_and_read();
+        let result_data = result.to_vec();
         assert_eq!(result_data[0], f16::from_f32(5.0));
         assert_eq!(result_data[1], f16::from_f32(7.0));
         assert_eq!(result_data[2], f16::from_f32(9.0));
@@ -254,7 +258,11 @@ mod tests {
         let executor = guard.as_mut().unwrap();
         executor.execute_binary_op("mul_f16", &a, &b, &result).unwrap();
 
-        let result_data = result.sync_and_read();
+        // Synchronize GPU operations before reading
+        drop(guard);
+        device.wait_until_completed().unwrap();
+
+        let result_data = result.to_vec();
         assert_eq!(result_data[0], f16::from_f32(10.0));
         assert_eq!(result_data[1], f16::from_f32(18.0));
         assert_eq!(result_data[2], f16::from_f32(28.0));
