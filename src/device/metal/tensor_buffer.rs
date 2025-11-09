@@ -3,8 +3,12 @@ use crate::tensor::{FloatType, Tensor, TensorCreation};
 use crate::error::{TensorError, TensorResult};
 use metal::{MTLResourceOptions, Buffer};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::marker::PhantomData;
+use std::collections::HashMap;
+
+/// Shape key for tensor pool (shape dimensions as Vec)
+type ShapeKey = Vec<usize>;
 
 /// Pre-allocated GPU buffer for creating tensors without allocation overhead
 pub struct TensorBuffer {
@@ -12,6 +16,8 @@ pub struct TensorBuffer {
     buffer: Arc<Buffer>,
     capacity: usize,
     used: AtomicUsize,
+    /// Free list for recycled tensors (shape -> list of available offsets and sizes)
+    free_lists: Arc<Mutex<HashMap<ShapeKey, Vec<(usize, usize)>>>>,
 }
 
 impl TensorBuffer {
@@ -27,6 +33,7 @@ impl TensorBuffer {
             buffer: Arc::new(buffer),
             capacity,
             used: AtomicUsize::new(0),
+            free_lists: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -46,6 +53,84 @@ impl TensorBuffer {
         }
 
         Ok((offset, size))
+    }
+
+    /// Try to allocate from free list, or allocate new space
+    fn allocate_or_reuse(&self, shape: &[usize], elem_size: usize) -> TensorResult<(usize, usize)> {
+        let shape_key: ShapeKey = shape.to_vec();
+        let size = shape.iter().product::<usize>() * elem_size;
+
+        // Try to reuse from free list
+        {
+            let mut free_lists = self.free_lists.lock().unwrap();
+            if let Some(free_list) = free_lists.get_mut(&shape_key) {
+                if let Some((offset, reused_size)) = free_list.pop() {
+                    return Ok((offset, reused_size));
+                }
+            }
+        }
+
+        // No free slot available, allocate new space
+        self.allocate_space(size)
+    }
+
+    /// Pre-allocate tensor slots for a specific shape
+    ///
+    /// # Arguments
+    /// * `shape` - Shape of tensors to pre-allocate
+    /// * `count` - Number of tensor slots to pre-allocate
+    /// * `elem_size` - Size of each element in bytes
+    ///
+    /// # Example
+    /// ```
+    /// let buf = device.new_tensor_buffer(10 * 1024 * 1024);
+    /// buf.alloc(&[512], 5, 2)?;  // Pre-allocate 5 slots of [512] tensors (f16)
+    /// ```
+    pub fn alloc(&self, shape: &[usize], count: usize, elem_size: usize) -> TensorResult<()> {
+        let shape_key: ShapeKey = shape.to_vec();
+        let size = shape.iter().product::<usize>() * elem_size;
+
+        let mut offsets = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (offset, size) = self.allocate_space(size)?;
+            offsets.push((offset, size));
+        }
+
+        // Add to free list
+        let mut free_lists = self.free_lists.lock().unwrap();
+        free_lists.insert(shape_key, offsets);
+
+        Ok(())
+    }
+
+    /// Return a tensor slot to the free list for reuse
+    ///
+    /// # Arguments
+    /// * `shape` - Shape of the tensor being recycled
+    /// * `offset` - Buffer offset of the tensor
+    /// * `size` - Size of the tensor in bytes
+    ///
+    /// Note: This does not free the GPU memory, it just marks the slot as available for reuse
+    pub fn recycle(&self, shape: &[usize], offset: usize, size: usize) {
+        let shape_key: ShapeKey = shape.to_vec();
+        let mut free_lists = self.free_lists.lock().unwrap();
+        free_lists.entry(shape_key)
+            .or_insert_with(Vec::new)
+            .push((offset, size));
+    }
+
+    /// Clear all free lists and reset buffer
+    pub fn clear_all(&self) {
+        let mut free_lists = self.free_lists.lock().unwrap();
+        free_lists.clear();
+        self.used.store(0, Ordering::SeqCst);
+    }
+
+    /// Clear free list for a specific shape
+    pub fn clear_shape(&self, shape: &[usize]) {
+        let shape_key: ShapeKey = shape.to_vec();
+        let mut free_lists = self.free_lists.lock().unwrap();
+        free_lists.remove(&shape_key);
     }
 
     /// Get the underlying buffer
@@ -79,11 +164,13 @@ impl TensorBuffer {
     }
 
     /// Create a tensor filled with zeros from this buffer
+    /// Reuses pre-allocated slots if available
     pub fn zeros<T: FloatType>(&self, shape: Vec<usize>) -> TensorResult<Tensor<T>> {
         let numel: usize = shape.iter().product();
-        let size = numel * std::mem::size_of::<T>();
+        let elem_size = std::mem::size_of::<T>();
+        let size = numel * elem_size;
 
-        let (offset, _) = self.allocate_space(size)?;
+        let (offset, _) = self.allocate_or_reuse(&shape, elem_size)?;
 
         // Zero initialize using CPU (StorageModeShared allows direct access)
         unsafe {
@@ -115,11 +202,12 @@ impl TensorBuffer {
     }
 
     /// Create a tensor filled with ones from this buffer
+    /// Reuses pre-allocated slots if available
     pub fn ones<T: FloatType>(&self, shape: Vec<usize>) -> TensorResult<Tensor<T>> {
         let numel: usize = shape.iter().product();
-        let size = numel * std::mem::size_of::<T>();
+        let elem_size = std::mem::size_of::<T>();
 
-        let (offset, _) = self.allocate_space(size)?;
+        let (offset, _) = self.allocate_or_reuse(&shape, elem_size)?;
 
         // Create temporary CPU buffer with ones
         let ones_data = vec![T::one(); numel];
@@ -291,5 +379,96 @@ mod tests {
 
         let expected_used = (10*10 + 5*5 + 20*20) * 2; // f16 is 2 bytes
         assert_eq!(buffer.used_bytes(), expected_used);
+    }
+
+    #[test]
+    fn test_tensor_buffer_alloc() {
+        use half::f16;
+
+        let device = MetalDevice::new().unwrap();
+        let buffer = device.new_tensor_buffer(10 * 1024); // 10KB
+
+        // Pre-allocate 5 slots for [10, 10] tensors (f16 = 2 bytes)
+        buffer.alloc(&[10, 10], 5, std::mem::size_of::<f16>()).unwrap();
+
+        let expected_used = 5 * 10 * 10 * 2; // 5 tensors * 100 elements * 2 bytes
+        assert_eq!(buffer.used_bytes(), expected_used);
+    }
+
+    #[test]
+    fn test_tensor_buffer_recycle() {
+        use crate::tensor::{Tensor, TensorCreation};
+        use half::f16;
+
+        let device = MetalDevice::new().unwrap();
+        let buffer = device.new_tensor_buffer(10 * 1024); // 10KB
+
+        // Pre-allocate 3 slots for [10, 10] tensors
+        buffer.alloc(&[10, 10], 3, std::mem::size_of::<f16>()).unwrap();
+
+        let initial_used = buffer.used_bytes();
+
+        // Request a tensor - should reuse from free list
+        let tensor1: Tensor<f16> = buffer.zeros(vec![10, 10]).unwrap();
+        assert_eq!(tensor1.dims(), &[10, 10]);
+
+        // Used bytes should not increase (reused pre-allocated slot)
+        assert_eq!(buffer.used_bytes(), initial_used);
+
+        // Request another tensor - should also reuse
+        let tensor2: Tensor<f16> = buffer.zeros(vec![10, 10]).unwrap();
+        assert_eq!(buffer.used_bytes(), initial_used);
+
+        // Request a 4th tensor - should allocate new (only 3 were pre-allocated)
+        let tensor3: Tensor<f16> = buffer.zeros(vec![10, 10]).unwrap();
+        let tensor4: Tensor<f16> = buffer.zeros(vec![10, 10]).unwrap();
+
+        // Now should have allocated a new slot
+        assert!(buffer.used_bytes() > initial_used);
+    }
+
+    #[test]
+    fn test_tensor_buffer_clear_all() {
+        use half::f16;
+
+        let device = MetalDevice::new().unwrap();
+        let buffer = device.new_tensor_buffer(10 * 1024); // 10KB
+
+        // Allocate some slots
+        buffer.alloc(&[10, 10], 3, std::mem::size_of::<f16>()).unwrap();
+        buffer.alloc(&[5, 5], 2, std::mem::size_of::<f16>()).unwrap();
+
+        assert!(buffer.used_bytes() > 0);
+
+        // Clear all
+        buffer.clear_all();
+
+        assert_eq!(buffer.used_bytes(), 0);
+        assert_eq!(buffer.available_bytes(), 10 * 1024);
+    }
+
+    #[test]
+    fn test_tensor_buffer_clear_shape() {
+        use crate::tensor::{Tensor, TensorCreation};
+        use half::f16;
+
+        let device = MetalDevice::new().unwrap();
+        let buffer = device.new_tensor_buffer(10 * 1024); // 10KB
+
+        // Pre-allocate different shapes
+        buffer.alloc(&[10, 10], 2, std::mem::size_of::<f16>()).unwrap();
+        buffer.alloc(&[5, 5], 2, std::mem::size_of::<f16>()).unwrap();
+
+        let used_before = buffer.used_bytes();
+
+        // Clear [10, 10] shape
+        buffer.clear_shape(&[10, 10]);
+
+        // Used bytes unchanged (clear_shape only removes from free list)
+        assert_eq!(buffer.used_bytes(), used_before);
+
+        // Request [10, 10] - should allocate new (free list cleared)
+        let tensor: Tensor<f16> = buffer.zeros(vec![10, 10]).unwrap();
+        assert!(buffer.used_bytes() > used_before);
     }
 }
