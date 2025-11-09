@@ -106,7 +106,7 @@ fn test_parse_embedding_decl() {
 fn test_parse_function_decl() {
     let source = r#"
         fn sigmoid(x: float16[?]) -> float16[?] {
-            x := x
+            x = x
         }
     "#;
 
@@ -135,7 +135,7 @@ fn test_parse_function_decl() {
 fn test_parse_main_block() {
     let source = r#"
         main {
-            x := y
+            x = y
         }
     "#;
 
@@ -298,7 +298,7 @@ fn test_parse_tensor_literal_scalar() {
 fn test_parse_assignment_statement() {
     let source = r#"
         main {
-            result := x
+            result = x
         }
     "#;
 
@@ -318,7 +318,7 @@ fn test_parse_assignment_statement() {
 fn test_parse_binary_expression() {
     let source = r#"
         main {
-            result := a + b
+            result = a + b
         }
     "#;
 
@@ -341,7 +341,7 @@ fn test_parse_binary_expression() {
 fn test_parse_chained_expression() {
     let source = r#"
         main {
-            result := a + b * c
+            result = a + b * c
         }
     "#;
 
@@ -364,7 +364,7 @@ fn test_parse_chained_expression() {
 fn test_parse_matmul_expression() {
     let source = r#"
         main {
-            result := A @ B
+            result = A @ B
         }
     "#;
 
@@ -386,7 +386,7 @@ fn test_parse_if_statement() {
     let source = r#"
 main {
     if x > 0 {
-        y := x + 1
+        y = x + 1
     }
 }
 "#;
@@ -419,9 +419,9 @@ fn test_parse_if_else_statement() {
     let source = r#"
 main {
     if x > 0 {
-        y := 1
+        y = 1
     } else {
-        y := 0
+        y = 0
     }
 }
 "#;
@@ -449,7 +449,7 @@ fn test_parse_for_statement() {
     let source = r#"
 main {
     for i in range(10) {
-        x := x + i
+        x = x + i
     }
 }
 "#;
@@ -479,7 +479,7 @@ fn test_parse_while_statement() {
     let source = r#"
 main {
     while x > 0 {
-        x := x - 1
+        x = x - 1
     }
 }
 "#;
@@ -507,7 +507,7 @@ fn test_parse_nested_control_flow() {
 main {
     for i in range(5) {
         if i > 2 {
-            x := x + 1
+            x = x + 1
         }
     }
 }
