@@ -1186,6 +1186,10 @@ impl TensorLogicParser {
             Rule::match_expr => {
                 Self::parse_match_expr(inner, registry)
             }
+            Rule::tensor_expr => {
+                // Parenthesized expression: "(" ~ tensor_expr ~ ")"
+                Self::parse_tensor_expr(inner, registry)
+            }
             _ => Err(ParseError::UnexpectedRule {
                 expected: "tensor term".to_string(),
                 found: format!("{:?}", inner.as_rule()),

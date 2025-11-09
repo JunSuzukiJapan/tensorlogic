@@ -530,3 +530,73 @@ main {
         }
     }
 }
+
+#[test]
+fn test_parse_parenthesized_arithmetic_expr() {
+    // Test that parenthesized arithmetic expressions work in let statements
+    let source = r#"
+        main {
+            let a = 10
+            let b = 20
+            let c = a + (b * 30)
+            let d = (a + b) * 30
+            let e = 50 + (100 * 200)
+            print(c)
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+
+    // Should parse without errors
+    assert!(program.main_block.is_some());
+
+    let main_block = program.main_block.as_ref().unwrap();
+    assert_eq!(main_block.statements.len(), 7); // 4 lets + 1 print
+}
+
+#[test]
+fn test_parse_parenthesized_expr_with_tensor_decl() {
+    // Test that parenthesized expressions work before tensor declarations
+    // This was the original bug: parentheses in let statements before tensor decl
+    let source = r#"
+        main {
+            let num_layers = 22
+            let memory_per_layer = 9 * 1024 * 1024
+            let total_memory = memory_per_layer * num_layers
+            let buffer_size = total_memory + (50 * 1024 * 1024)
+
+            tensor hidden_states: float16[8, 512] = positional_encoding(8, 512)
+
+            print("Success")
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+
+    // Should parse without errors
+    assert!(program.main_block.is_some());
+
+    let main_block = program.main_block.as_ref().unwrap();
+    assert_eq!(main_block.statements.len(), 6); // 4 lets + 1 tensor + 1 print
+}
+
+#[test]
+fn test_parse_nested_parentheses() {
+    // Test nested parentheses
+    let source = r#"
+        main {
+            let a = ((10 + 20) * 30)
+            let b = (10 + (20 * 30))
+            let c = ((10 + 20) * (30 + 40))
+            print(a)
+        }
+    "#;
+
+    let program = TensorLogicParser::parse_program(source).unwrap();
+
+    // Should parse without errors
+    assert!(program.main_block.is_some());
+
+    let main_block = program.main_block.as_ref().unwrap();
+    assert_eq!(main_block.statements.len(), 4); // 3 lets + 1 print
+}

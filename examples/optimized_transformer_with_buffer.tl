@@ -171,7 +171,7 @@ main {
 
     let memory_per_layer = 9 * 1024 * 1024  // 9MB per layer
     let total_memory = memory_per_layer * num_layers  // 22 layers
-    let buffer_size = total_memory + 50 * 1024 * 1024  // +50MB for intermediate tensors
+    let buffer_size = total_memory + (50 * 1024 * 1024)  // +50MB for intermediate tensors
 
     print("  Per-layer weight memory: ~9 MB")
     print("  Total weight memory (22 layers): ~198 MB")
