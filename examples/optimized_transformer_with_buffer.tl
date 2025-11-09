@@ -124,9 +124,9 @@ fn transformer_block(
 // Main: TensorBuffer-optimized Transformer
 // ============================================================================
 main {
-    print("=" * 80)
+    print("================================================================================")
     print("TensorBuffer-Optimized Transformer Implementation")
-    print("=" * 80)
+    print("================================================================================")
     print("")
 
     // ========================================================================
@@ -171,7 +171,7 @@ main {
 
     let memory_per_layer = 9 * 1024 * 1024  // 9MB per layer
     let total_memory = memory_per_layer * num_layers  // 22 layers
-    let buffer_size = total_memory + (50 * 1024 * 1024)  // +50MB for intermediate tensors
+    let buffer_size = total_memory + 50 * 1024 * 1024  // +50MB for intermediate tensors
 
     print("  Per-layer weight memory: ~9 MB")
     print("  Total weight memory (22 layers): ~198 MB")
@@ -254,9 +254,9 @@ main {
     // ========================================================================
     // Forward Pass
     // ========================================================================
-    print("=" * 80)
+    print("================================================================================")
     print("Forward Pass with TensorBuffer")
-    print("=" * 80)
+    print("================================================================================")
     print("")
 
     print("Processing through transformer layers...")
@@ -281,9 +281,9 @@ main {
     // ========================================================================
     // TensorBuffer Benefits Summary
     // ========================================================================
-    print("=" * 80)
+    print("================================================================================")
     print("TensorBuffer Performance Benefits")
-    print("=" * 80)
+    print("================================================================================")
     print("")
 
     print("Memory Allocation Optimization:")
@@ -333,9 +333,9 @@ main {
     print("  ```")
     print("")
 
-    print("=" * 80)
+    print("================================================================================")
     print("✅ TensorBuffer Demonstration Complete!")
-    print("=" * 80)
+    print("================================================================================")
     print("")
     print("Next Steps:")
     print("  1. Implement TensorBuffer support in TensorLogic interpreter")
