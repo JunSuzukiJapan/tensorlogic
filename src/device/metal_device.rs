@@ -311,6 +311,23 @@ impl MetalDevice {
         eprintln!("✓ Memory check passed - safe to load model\n");
         Ok(())
     }
+
+    /// Create a new tensor buffer with specified capacity
+    ///
+    /// # Arguments
+    /// * `capacity` - Buffer capacity in bytes
+    ///
+    /// # Returns
+    /// A TensorBuffer that can be used to allocate tensors without allocation overhead
+    ///
+    /// # Example
+    /// ```
+    /// let device = MetalDevice::new()?;
+    /// let buf = device.new_tensor_buffer(100 * 1024 * 1024); // 100MB buffer
+    /// ```
+    pub fn new_tensor_buffer(&self, capacity: usize) -> crate::device::metal::TensorBuffer {
+        crate::device::metal::TensorBuffer::new(self.clone(), capacity)
+    }
 }
 
 impl PartialEq for MetalDevice {

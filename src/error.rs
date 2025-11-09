@@ -43,4 +43,7 @@ pub enum TensorError {
 
     #[error("Compilation error: {0}")]
     CompilationError(String),
+
+    #[error("Buffer exhausted: requested {requested} bytes, available {available} bytes")]
+    BufferExhausted { requested: usize, available: usize },
 }

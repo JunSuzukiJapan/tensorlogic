@@ -13,6 +13,8 @@ mod commands;
 mod compute_encoder;
 mod encoder_provider;
 
+pub mod metal;
+
 pub use metal_device::MetalDevice;
 pub use metal_buffer::MetalBuffer;
 pub use kernel_executor::{KernelExecutor, get_kernel_executor};
@@ -25,6 +27,7 @@ pub use command_buffer::{CommandBuffer, CommandSemaphore, CommandStatus};
 pub use commands::Commands;
 pub use compute_encoder::ComputeCommandEncoder;
 pub use encoder_provider::EncoderProvider;
+pub use metal::TensorBuffer;
 
 use crate::error::TensorResult;
 
