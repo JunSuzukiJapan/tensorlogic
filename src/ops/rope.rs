@@ -45,20 +45,22 @@ impl<T: FloatType> Tensor<T> {
         let is_contig = self.is_contiguous();
         if std::env::var("TL_DEBUG_ROPE").is_ok() {
             eprintln!("[ROPE] is_contiguous={}, will {}",
-                     is_contig, if is_contig { "clone" } else { "make contiguous" });
+                     is_contig, if is_contig { "use directly (no clone)" } else { "make contiguous" });
         }
 
-        let input = if is_contig {
-            self.clone()
+        // OPTIMIZATION: No clone needed when contiguous - GPU kernel only reads input
+        if is_contig {
+            if std::env::var("TL_DEBUG_ROPE").is_ok() {
+                eprintln!("[ROPE] Calling rope_metal on contiguous tensor...");
+            }
+            self.rope_metal(seq_len, n_heads, head_dim, position_offset)
         } else {
-            self.contiguous()?
-        };
-
-        if std::env::var("TL_DEBUG_ROPE").is_ok() {
-            eprintln!("[ROPE] Calling rope_metal...");
+            if std::env::var("TL_DEBUG_ROPE").is_ok() {
+                eprintln!("[ROPE] Making contiguous then calling rope_metal...");
+            }
+            let contiguous = self.contiguous()?;
+            contiguous.rope_metal(seq_len, n_heads, head_dim, position_offset)
         }
-
-        input.rope_metal(seq_len, n_heads, head_dim, position_offset)
     }
 
     /// Metal GPU implementation of RoPE
