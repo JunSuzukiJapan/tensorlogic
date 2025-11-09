@@ -1035,6 +1035,18 @@ impl TensorLogicParser {
         }
     }
 
+    /// Parse tensor term expression
+    ///
+    /// Handles all cases defined in grammar.pest tensor_term:
+    /// - postfix_expr (includes identifier, function_call, method calls, indexing)
+    /// - "(" ~ tensor_expr ~ ")" (parenthesized expressions)
+    /// - match_expr
+    /// - embedding_lookup
+    /// - einstein_sum
+    /// - python_call
+    /// - struct_literal
+    /// - tensor_literal
+    /// - string_literal
     fn parse_tensor_term(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("tensor term content".to_string())
