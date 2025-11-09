@@ -3,7 +3,7 @@
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
-    result = x * sig
+    x * sig
 }
 
 fn swiglu_ffn(
@@ -16,7 +16,7 @@ fn swiglu_ffn(
     let gate_act = silu(gate)
     let up = matmul(x, W_up)
     let intermediate = gate_act * up
-    result = matmul(intermediate, W_down)
+    matmul(intermediate, W_down)
 }
 
 fn tinyllama_gqa_attention_with_cache(
@@ -53,7 +53,7 @@ fn tinyllama_gqa_attention_with_cache(
     let d_model = 2048.0
     let shape_output = [seq_len_f, d_model]
     let attn_reshaped = reshape(attn_output, shape_output)
-    result = matmul(attn_reshaped, W_o)
+    matmul(attn_reshaped, W_o)
 }
 
 main {

@@ -5,7 +5,7 @@
 fn apply_rope_q(Q: float32[?, ?], seq_len: float, pos: float) -> float32[?, ?] {
     let Q_h = reshape(Q, [seq_len, 32.0, 64.0])
     let Q_r = rope(Q_h, pos)
-    result = reshape(Q_r, [seq_len, 2048.0])
+    reshape(Q_r, [seq_len, 2048.0])
 }
 
 main {

@@ -3,7 +3,7 @@
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
-    result = x * sig
+    x * sig
 }
 
 fn swiglu_ffn(
@@ -32,7 +32,7 @@ fn swiglu_ffn(
     let down = linear(intermediate, W_down)
     print("      down (first 5):", down)
 
-    result = down
+    down
 }
 
 fn tinyllama_gqa_attention(
@@ -105,7 +105,7 @@ fn tinyllama_gqa_attention(
     let out = linear(attn_reshaped, W_o)
     print("      final output (first 5):", out)
 
-    result = out
+    out
 }
 
 fn transformer_layer(
@@ -152,7 +152,7 @@ fn transformer_layer(
     let x2 = x1 + ffn_out
     print("      x2 (first 5):", x2)
 
-    result = x2
+    x2
 }
 
 main {

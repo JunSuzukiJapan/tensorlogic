@@ -3,7 +3,7 @@
 // Simplified version without KV cache to debug token 0 issue
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
-    result = x * sigmoid(x)
+    x * sigmoid(x)
 }
 
 fn swiglu_ffn(
@@ -15,7 +15,7 @@ fn swiglu_ffn(
     let gate = linear(x, W_gate)
     let up = linear(x, W_up)
     let intermediate = silu(gate) * up
-    result = linear(intermediate, W_down)
+    linear(intermediate, W_down)
 }
 
 fn tinyllama_gqa_attention(
@@ -54,7 +54,7 @@ fn tinyllama_gqa_attention(
     let attn_output = einsum("ihj,jhd->ihd", attn_weights, V_final)
 
     let attn_reshaped = reshape(attn_output, [shape(attn_output)[0], 2048.0])
-    result = linear(attn_reshaped, W_o)
+    linear(attn_reshaped, W_o)
 }
 
 fn transformer_layer(
@@ -74,7 +74,7 @@ fn transformer_layer(
     let h1 = x + attn_out
     let h1_norm = rms_norm(h1, ffn_norm)
     let ffn_out = swiglu_ffn(h1_norm, W_gate, W_up, W_down)
-    result = h1 + ffn_out
+    h1 + ffn_out
 }
 
 main {

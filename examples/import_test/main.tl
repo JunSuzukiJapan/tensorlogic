@@ -9,7 +9,7 @@ main {
     area = pi * radius * radius
 
     // Use imported constant e
-    result = e * area
+    e * area
 
     print("Pi:", pi)
     print("E:", e)

@@ -1,7 +1,7 @@
 // Profile single token generation with 2 layers
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
-    result = x * sigmoid(x)
+    x * sigmoid(x)
 }
 
 fn tinyllama_gqa_attention(
@@ -50,7 +50,7 @@ fn tinyllama_gqa_attention(
     let reshaped = reshape(out, [seq_len_f, 2048.0])
     let attn_result = matmul(reshaped, W_o)
     print("        [Attention] Done")
-    result = attn_result
+    attn_result
 }
 
 fn transformer_layer(
@@ -84,7 +84,7 @@ fn transformer_layer(
     let ffn_out = matmul(intermediate, W_down)
     print("      [Layer] Done")
 
-    result = x1 + ffn_out
+    x1 + ffn_out
 }
 
 main {

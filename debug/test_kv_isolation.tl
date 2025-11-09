@@ -3,7 +3,7 @@
 fn apply_rope_k(K: float32[?, ?], seq_len: float, pos: float) -> float32[?, ?] {
     let K_h = reshape(K, [seq_len, 4.0, 64.0])
     let K_r = rope(K_h, pos)
-    result = reshape(K_r, [seq_len, 256.0])
+    reshape(K_r, [seq_len, 256.0])
 }
 
 main {

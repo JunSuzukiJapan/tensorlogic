@@ -25,7 +25,7 @@
 // Helper: SiLU (Swish) Activation
 // ----------------------------------------------------------------------------
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
-    result = x * sigmoid(x)
+    x * sigmoid(x)
 }
 
 // ----------------------------------------------------------------------------
@@ -65,9 +65,7 @@ fn grouped_query_attention(
     let attn_output = einsum("ihj,jhd->ihd", attn_weights, V_expanded)
 
     let attn_flat = reshape(attn_output, [seq_len_f, 512.0])
-    let output = attn_flat @ W_o
-
-    result = output
+    attn_flat @ W_o
 }
 
 // ----------------------------------------------------------------------------
@@ -84,9 +82,7 @@ fn swiglu_ffn(
     let up = x @ W_up
     let gate_silu = silu(gate)
     let hidden = gate_silu * up
-    let output = hidden @ W_down
-
-    result = output
+    hidden @ W_down
 }
 
 // ----------------------------------------------------------------------------
@@ -121,9 +117,7 @@ fn transformer_block(
 
     let ffn_norm = rms_norm(attn_residual, ffn_norm_weight, eps)
     let ffn_output = swiglu_ffn(ffn_norm, W_gate, W_up, W_down)
-    let output = attn_residual + ffn_output
-
-    result = output
+    attn_residual + ffn_output
 }
 
 // ============================================================================

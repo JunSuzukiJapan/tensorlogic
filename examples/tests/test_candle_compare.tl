@@ -6,7 +6,7 @@
 // 3. Compare the outputs
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
-    result = x * sigmoid(x)
+    x * sigmoid(x)
 }
 
 fn swiglu_ffn(
@@ -18,7 +18,7 @@ fn swiglu_ffn(
     let gate = linear(x, W_gate)
     let up = linear(x, W_up)
     let intermediate = silu(gate) * up
-    result = linear(intermediate, W_down)
+    linear(intermediate, W_down)
 }
 
 fn tinyllama_gqa_attention(
@@ -62,7 +62,7 @@ fn tinyllama_gqa_attention(
 
     let attn_reshaped = reshape(attn_output, [shape(attn_output)[0], 2048.0])
     let output = linear(attn_reshaped, W_o)
-    result = (output, cache_updated)
+    (output, cache_updated)
 }
 
 fn transformer_layer(
@@ -83,7 +83,7 @@ fn transformer_layer(
     let h1 = x + attn_out
     let h1_norm = rms_norm(h1, ffn_norm)
     let ffn_out = swiglu_ffn(h1_norm, W_gate, W_up, W_down)
-    result = (h1 + ffn_out, cache_updated)
+    (h1 + ffn_out, cache_updated)
 }
 
 main {

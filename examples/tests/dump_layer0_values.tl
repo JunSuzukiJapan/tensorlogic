@@ -2,7 +2,7 @@
 // This helps compare with Python reference implementation
 
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
-    result = x * sigmoid(x)
+    x * sigmoid(x)
 }
 
 main {

@@ -18,7 +18,7 @@
 // ----------------------------------------------------------------------------
 // SiLU(x) = x * sigmoid(x)
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
-    result = x * sigmoid(x)
+    x * sigmoid(x)
 }
 
 // ----------------------------------------------------------------------------
@@ -77,9 +77,7 @@ fn grouped_query_attention(
 
     // ===== Step 6: Reshape and project output =====
     let attn_flat = reshape(attn_output, [seq_len_f, 512.0])
-    let output = attn_flat @ W_o
-
-    result = output
+    attn_flat @ W_o
 }
 
 // ----------------------------------------------------------------------------
@@ -108,9 +106,7 @@ fn swiglu_ffn(
     let hidden = gate_silu * up  // Element-wise multiplication
 
     // ===== Step 4: Down projection =====
-    let output = hidden @ W_down  // [seq_len, d_model]
-
-    result = output
+    hidden @ W_down  // [seq_len, d_model]
 }
 
 // ----------------------------------------------------------------------------
@@ -160,9 +156,7 @@ fn transformer_block(
     let ffn_output = swiglu_ffn(ffn_norm, W_gate, W_up, W_down)
 
     // 6. Residual connection
-    let output = attn_residual + ffn_output
-
-    result = output
+    attn_residual + ffn_output
 }
 
 // ============================================================================

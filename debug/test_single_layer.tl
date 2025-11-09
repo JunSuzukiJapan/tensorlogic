@@ -2,7 +2,7 @@
 // Just: embedding → 1 layer → output
 
 fn silu(x: float32[?, ?]) -> float32[?, ?] {
-    result = x * sigmoid(x)
+    x * sigmoid(x)
 }
 
 fn swiglu_ffn(
@@ -15,7 +15,7 @@ fn swiglu_ffn(
     let up = linear(x, W_up)
     let silu_result = silu(gate)
     let mul_result = silu_result * up
-    result = linear(mul_result, W_down)
+    linear(mul_result, W_down)
 }
 
 main {

@@ -4,7 +4,7 @@
 // SiLU activation function
 fn silu(x: float16[?, ?]) -> float16[?, ?] {
     let sig = sigmoid(x)
-    result = x * sig
+    x * sig
 }
 
 // SwiGLU Feed-Forward Network
@@ -18,7 +18,7 @@ fn swiglu_ffn(
     let gate_act = silu(gate)
     let up = matmul(x, W_up)
     let intermediate = gate_act * up
-    result = matmul(intermediate, W_down)
+    matmul(intermediate, W_down)
 }
 
 // Grouped Query Attention (GQA)
@@ -66,7 +66,7 @@ fn gqa_attention(
     let attn_output = matmul(attn_weights, V_flat)
 
     let attn_reshaped = reshape(attn_output, [seq_len, num_q_heads * head_dim])
-    result = matmul(attn_reshaped, W_o)
+    matmul(attn_reshaped, W_o)
 }
 
 main {

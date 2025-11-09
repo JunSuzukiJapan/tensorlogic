@@ -19,7 +19,7 @@ main {
     print("Test 3: Using i in calculation:")
     let result = 0.0
     for i in range(5) {
-        result = result + i
+        result + i
     }
     print("  Sum:", result)
     print("")

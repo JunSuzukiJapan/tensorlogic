@@ -9,9 +9,9 @@ main {
     
     // Control flow
     if sum > 25 {
-        result = 1
+        1
     } else {
-        result = 0
+        0
     }
     
     // Loop
