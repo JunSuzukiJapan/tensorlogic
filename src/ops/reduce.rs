@@ -53,6 +53,10 @@ impl<T: FloatType> Tensor<T> {
 
         let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
 
+        // CRITICAL: Wait for all pending GPU operations to complete before starting sum
+        // This ensures that the input buffer contains valid data from previous operations
+        device.wait_until_completed()?;
+
         // Use Commands manager for command buffer (Candle pattern)
         let (_flushed, command_buffer) = device.command_buffer()?;
         let encoder = command_buffer.encoder();

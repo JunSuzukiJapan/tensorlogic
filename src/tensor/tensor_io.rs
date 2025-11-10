@@ -108,10 +108,10 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
             // Candle-style: No manual flush needed, batching is automatic
             if std::env::var("TL_DEBUG_SYNC").is_ok() {
                 let start = std::time::Instant::now();
-                device.wait_until_completed().ok();
+                device.wait_until_completed().expect("GPU sync failed in sync_and_read");
                 eprintln!("[SYNC] sync_and_read: wait={:?}", start.elapsed());
             } else {
-                device.wait_until_completed().ok();
+                device.wait_until_completed().expect("GPU sync failed in sync_and_read");
             }
         }
         self.buffer.to_cpu_vec()
@@ -125,10 +125,10 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
             // Candle-style: No manual flush needed, batching is automatic
             if std::env::var("TL_DEBUG_SYNC").is_ok() {
                 let start = std::time::Instant::now();
-                device.wait_until_completed().ok();
+                device.wait_until_completed().expect("GPU sync failed in sync_and_read_f32");
                 eprintln!("[SYNC] sync_and_read_f32: wait={:?}", start.elapsed());
             } else {
-                device.wait_until_completed().ok();
+                device.wait_until_completed().expect("GPU sync failed in sync_and_read_f32");
             }
         }
         self.buffer.to_cpu_vec().iter().map(|x| x.to_f32()).collect()

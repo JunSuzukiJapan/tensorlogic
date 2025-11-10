@@ -1,0 +1,154 @@
+{
+  "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+  "prompt": "<|system|>\nYou are a friendly chatbot.</s>\n<|user|>\nHello! How are you?</s>\n<|assistant|>\n",
+  "num_tokens": 38,
+  "token_ids": [
+    529,
+    29989,
+    5205,
+    29989,
+    29958,
+    13,
+    3492,
+    526,
+    263,
+    19780,
+    13563,
+    7451,
+    29889,
+    2,
+    29871,
+    13,
+    29966,
+    29989,
+    1792,
+    29989,
+    29958,
+    13,
+    10994,
+    29991,
+    1128,
+    526,
+    366,
+    29973,
+    2,
+    29871,
+    13,
+    29966,
+    29989,
+    465,
+    22137,
+    29989,
+    29958,
+    13
+  ],
+  "embedding": {
+    "shape": [
+      1,
+      38,
+      2048
+    ],
+    "sum": 3.66015625,
+    "first_3": [
+      -9.441375732421875e-05,
+      -0.0023651123046875,
+      0.01361083984375
+    ]
+  },
+  "layer_0": {
+    "output_shape": [
+      1,
+      38,
+      2048
+    ],
+    "output_sum": 774.0,
+    "output_first_3": [
+      0.08935546875,
+      -0.91796875,
+      1.853515625
+    ]
+  },
+  "final_norm": {
+    "shape": [
+      1,
+      38,
+      2048
+    ],
+    "sum": 774.0,
+    "first_3": [
+      0.08935546875,
+      -0.91796875,
+      1.853515625
+    ]
+  },
+  "logits": {
+    "shape": [
+      1,
+      38,
+      32000
+    ],
+    "last_token_sum": -34784.0
+  },
+  "top_predictions": [
+    {
+      "rank": 1,
+      "token_id": 26012,
+      "logit": 5.8203125,
+      "token": "jd"
+    },
+    {
+      "rank": 2,
+      "token_id": 28079,
+      "logit": 5.765625,
+      "token": "Tout"
+    },
+    {
+      "rank": 3,
+      "token_id": 29608,
+      "logit": 5.6484375,
+      "token": "\u043f\u0440\u0435\u043c\u0430"
+    },
+    {
+      "rank": 4,
+      "token_id": 13613,
+      "logit": 5.625,
+      "token": "eri"
+    },
+    {
+      "rank": 5,
+      "token_id": 20138,
+      "logit": 5.12109375,
+      "token": "iras"
+    },
+    {
+      "rank": 6,
+      "token_id": 10533,
+      "logit": 5.01171875,
+      "token": "zel"
+    },
+    {
+      "rank": 7,
+      "token_id": 13,
+      "logit": 4.91015625,
+      "token": "\n"
+    },
+    {
+      "rank": 8,
+      "token_id": 8088,
+      "logit": 4.87109375,
+      "token": "atu"
+    },
+    {
+      "rank": 9,
+      "token_id": 12168,
+      "logit": 4.859375,
+      "token": "chs"
+    },
+    {
+      "rank": 10,
+      "token_id": 20595,
+      "logit": 4.83984375,
+      "token": "ivan"
+    }
+  ]
+}

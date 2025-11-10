@@ -119,10 +119,14 @@ impl KernelExecutor {
         encoder.end_encoding();
         let dispatch_time = _dispatch_start.elapsed().as_secs_f64() * 1000.0;
 
-        // Commit and async submit (no wait!)
+        // Commit and wait for completion
+        // CRITICAL FIX: Must wait for GPU to complete before returning
+        // Without this, the first function call returns uninitialized buffer data
+        // because flush_gpu() only waits for Commands-managed buffers,
+        // not these independent command buffers created by KernelExecutor
         let _commit_start = std::time::Instant::now();
         command_buffer.commit();
-        crate::ops::async_exec::submit_async(&command_buffer);
+        command_buffer.wait_until_completed();
         let commit_time = _commit_start.elapsed().as_secs_f64() * 1000.0;
 
         if std::env::var("TL_PERF").is_ok() {

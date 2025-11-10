@@ -941,6 +941,23 @@ impl Interpreter {
             Statement::Expr { expr } => {
                 // Expression statement as last statement: return its value (implicit return)
                 let value = self.eval_expr(expr)?;
+
+                // DEBUG: Check if value is being properly evaluated
+                if std::env::var("TL_DEBUG_RETURN").is_ok() {
+                    use crate::tensor::TensorIO;
+                    match &value {
+                        Value::TensorF16(t) => {
+                            let sum = t.sync_and_read().iter().map(|x| x.to_f32()).sum::<f32>();
+                            eprintln!("[DEBUG_RETURN] Statement::Expr evaluated tensor sum={}", sum);
+                        }
+                        Value::TensorF32(t) => {
+                            let sum: f32 = t.sync_and_read().iter().sum();
+                            eprintln!("[DEBUG_RETURN] Statement::Expr evaluated tensor sum={}", sum);
+                        }
+                        _ => {}
+                    }
+                }
+
                 Ok(Some(value))
             }
             Statement::FactAssertion { atom } => {
@@ -1389,7 +1406,7 @@ impl Interpreter {
         }
 
         // Handle last statement (implicit return)
-        let return_value = match self.evaluate_last_statement(&func_decl.body[body_len - 1]) {
+        let mut return_value = match self.evaluate_last_statement(&func_decl.body[body_len - 1]) {
             Ok(Some(val)) => val,
             Ok(None) => Value::Void,
             Err(RuntimeError::ReturnValue(val)) => val,
@@ -1399,6 +1416,22 @@ impl Interpreter {
                 return Err(e);
             }
         };
+
+        // CRITICAL FIX: Ensure GPU operations complete before returning tensor values
+        // This prevents race conditions where GPU buffers are accessed before operations finish
+        use crate::tensor::TensorIO;
+        match &return_value {
+            Value::TensorF16(ref tensor) => {
+                // Flush GPU to ensure all operations complete before returning
+                // This is critical for correct results when returning computed tensors
+                tensor.flush_gpu().ok();
+            }
+            Value::TensorF32(ref tensor) => {
+                // Flush GPU to ensure all operations complete before returning
+                tensor.flush_gpu().ok();
+            }
+            _ => {}
+        }
 
         // Type check return value
         self.check_return_type_match(&return_value, &func_decl.return_type, func_name)?;

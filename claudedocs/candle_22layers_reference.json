@@ -1,0 +1,91 @@
+{
+  "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+  "model_file": "tinyllama-1.1b-chat-f16.gguf",
+  "prompt": "<|system|>\nYou are a friendly chatbot.</s>\n<|user|>\nHello! How are you?</s>\n<|assistant|>\n",
+  "num_tokens": 39,
+  "note": "39 tokens (includes BOS token added by Candle quantized example)",
+  "embedding": {
+    "sum": 3.6829965
+  },
+  "layer_0": {
+    "output_sum": 3.830357
+  },
+  "layer_1": {
+    "output_sum": -5.474568
+  },
+  "layer_2": {
+    "output_sum": -227.37646
+  },
+  "layer_3": {
+    "output_sum": -232.49507
+  },
+  "layer_4": {
+    "output_sum": -228.67639
+  },
+  "layer_5": {
+    "output_sum": -230.96385
+  },
+  "layer_6": {
+    "output_sum": -248.82343
+  },
+  "layer_7": {
+    "output_sum": -539.43805
+  },
+  "layer_8": {
+    "output_sum": -537.8561
+  },
+  "layer_9": {
+    "output_sum": -562.3587
+  },
+  "layer_10": {
+    "output_sum": -575.6366
+  },
+  "layer_11": {
+    "output_sum": -632.66644
+  },
+  "layer_12": {
+    "output_sum": -646.21375
+  },
+  "layer_13": {
+    "output_sum": -692.21484
+  },
+  "layer_14": {
+    "output_sum": -722.07874
+  },
+  "layer_15": {
+    "output_sum": -759.60657
+  },
+  "layer_16": {
+    "output_sum": -764.71735
+  },
+  "layer_17": {
+    "output_sum": -774.4859
+  },
+  "layer_18": {
+    "output_sum": -691.85187
+  },
+  "layer_19": {
+    "output_sum": -464.73773
+  },
+  "layer_20": {
+    "output_sum": -555.889
+  },
+  "layer_21": {
+    "output_sum": 30.48526
+  },
+  "final_norm": {
+    "sum": -286.91577
+  },
+  "logits": {
+    "last_token_sum": -38186.4
+  },
+  "comparison_with_tensorlogic": {
+    "note": "TensorLogic uses 38 tokens (no BOS), Candle uses 39 tokens (with BOS)",
+    "tensorlogic_22layers_no_causal_mask": {
+      "layer_21_output_sum": -434.5,
+      "final_norm_sum": -1703,
+      "last_token_logits_sum": -42208
+    },
+    "discrepancy": "Values differ - may be due to BOS token or causal mask implementation"
+  }
+}

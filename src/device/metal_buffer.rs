@@ -119,10 +119,10 @@ impl<T: FloatType> MetalBuffer<T> {
         // This fixes the sync bug where to_vec() was reading uninitialized (zero) data
         if std::env::var("TL_DEBUG_SYNC").is_ok() {
             let start = std::time::Instant::now();
-            self.device.wait_until_completed().ok();
+            self.device.wait_until_completed().expect("GPU sync failed in MetalBuffer::to_vec");
             eprintln!("[SYNC] to_vec: wait={:?}, length={}", start.elapsed(), self.length);
         } else {
-            self.device.wait_until_completed().ok();
+            self.device.wait_until_completed().expect("GPU sync failed in MetalBuffer::to_vec");
         }
 
         let ptr = self.buffer.contents() as *const T;

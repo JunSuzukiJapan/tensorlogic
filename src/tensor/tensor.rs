@@ -80,6 +80,28 @@ impl<T: FloatType> Drop for Tensor<T> {
                 }
 
                 if ref_count == 1 {
+                    // CRITICAL: GPU fence before recycling buffer
+                    // The kernel executor creates independent command buffers that bypass
+                    // the Commands system. We must insert a fence (empty command buffer)
+                    // and wait for it to ensure ALL previous GPU operations complete.
+                    // Without this, buffers get recycled while GPU operations are still
+                    // writing to them, causing data corruption (the silu bug!)
+                    use crate::device::Device;
+                    if let Device::Metal(ref device) = self.device {
+                        if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+                            eprintln!("[Drop] Inserting GPU fence before recycling...");
+                        }
+                        // Create a fence: submit empty command buffer and wait for it
+                        // This ensures all previous operations in the GPU queue complete
+                        let command_queue = device.command_queue();
+                        let fence = command_queue.new_command_buffer();
+                        fence.commit();
+                        fence.wait_until_completed();
+                        if std::env::var("TL_BUFFER_DEBUG").is_ok() {
+                            eprintln!("[Drop] GPU fence completed");
+                        }
+                    }
+
                     // Clone the buffer for recycling (the clone shares the Arc)
                     // Need to convert to MetalBuffer<f16> for recycling
                     if let BufferHandle::Metal(mb) = &self.buffer {
