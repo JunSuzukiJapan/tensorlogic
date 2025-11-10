@@ -37,7 +37,6 @@ mod builtin_gnn;       // Graph neural networks
 mod builtin_model;     // Model and I/O operations
 mod builtin_sampling;  // Sampling and generation
 mod builtin_util;      // Utility functions
-mod builtin_vec;       // Vec operations (mutable collections)
 mod builtin_candle;    // Candle-based operations (cndl_ prefix)
 
 // Re-export public types
@@ -1286,6 +1285,74 @@ impl Interpreter {
                     ))
                 }
             }
+            "IntVec" => {
+                // IntVec static methods
+                match name {
+                    "new" => {
+                        // IntVec::new() -> IntVec
+                        if args.len() != 0 {
+                            return Err(RuntimeError::TypeError(
+                                format!("IntVec::new() expects 0 arguments, got {}", args.len())
+                            ));
+                        }
+                        Ok(Value::IntVec(std::sync::Arc::new(std::sync::Mutex::new(Vec::new()))))
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        format!("IntVec::{} is not implemented", name)
+                    ))
+                }
+            }
+            "FloatVec" => {
+                // FloatVec static methods
+                match name {
+                    "new" => {
+                        // FloatVec::new() -> FloatVec
+                        if args.len() != 0 {
+                            return Err(RuntimeError::TypeError(
+                                format!("FloatVec::new() expects 0 arguments, got {}", args.len())
+                            ));
+                        }
+                        Ok(Value::FloatVec(std::sync::Arc::new(std::sync::Mutex::new(Vec::new()))))
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        format!("FloatVec::{} is not implemented", name)
+                    ))
+                }
+            }
+            "StringVec" => {
+                // StringVec static methods
+                match name {
+                    "new" => {
+                        // StringVec::new() -> StringVec
+                        if args.len() != 0 {
+                            return Err(RuntimeError::TypeError(
+                                format!("StringVec::new() expects 0 arguments, got {}", args.len())
+                            ));
+                        }
+                        Ok(Value::StringVec(std::sync::Arc::new(std::sync::Mutex::new(Vec::new()))))
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        format!("StringVec::{} is not implemented", name)
+                    ))
+                }
+            }
+            "BoolVec" => {
+                // BoolVec static methods
+                match name {
+                    "new" => {
+                        // BoolVec::new() -> BoolVec
+                        if args.len() != 0 {
+                            return Err(RuntimeError::TypeError(
+                                format!("BoolVec::new() expects 0 arguments, got {}", args.len())
+                            ));
+                        }
+                        Ok(Value::BoolVec(std::sync::Arc::new(std::sync::Mutex::new(Vec::new()))))
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        format!("BoolVec::{} is not implemented", name)
+                    ))
+                }
+            }
             _ => Err(RuntimeError::TypeError(
                 format!("Unknown type namespace: {}", type_namespace)
             ))
@@ -1553,13 +1620,6 @@ impl Interpreter {
             return result;
         }
         if let Some(result) = self.eval_util_function(name_str, args) {
-            if let Some((name, start)) = start_time {
-                let elapsed = start.elapsed();
-                // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);
-            }
-            return result;
-        }
-        if let Some(result) = self.eval_vec_function(name_str, args) {
             if let Some((name, start)) = start_time {
                 let elapsed = start.elapsed();
                 // eprintln!("[PROFILE] ← {} ({:.3}ms)", name, elapsed.as_secs_f64() * 1000.0);

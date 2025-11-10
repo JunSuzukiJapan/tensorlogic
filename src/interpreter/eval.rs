@@ -1792,6 +1792,298 @@ impl Interpreter {
                                 Ok(Value::Void)
                             }
 
+                            // Vec methods
+                            (Value::IntVec(_), "push") => {
+                                // vec.push(value: int) -> Void
+                                if args.len() != 1 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("IntVec.push() expects 1 argument, got {}", args.len())
+                                    ));
+                                }
+
+                                let vec_arc = match obj_value {
+                                    Value::IntVec(vec) => vec,
+                                    _ => unreachable!()
+                                };
+
+                                let value = match self.eval_expr(&args[0])? {
+                                    Value::Integer(n) => n,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("IntVec.push() expects Integer, got {}", v.type_name())
+                                    )),
+                                };
+
+                                vec_arc.lock().unwrap().push(value);
+                                Ok(Value::Void)
+                            }
+
+                            (Value::FloatVec(_), "push") => {
+                                // vec.push(value: float) -> Void
+                                if args.len() != 1 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("FloatVec.push() expects 1 argument, got {}", args.len())
+                                    ));
+                                }
+
+                                let vec_arc = match obj_value {
+                                    Value::FloatVec(vec) => vec,
+                                    _ => unreachable!()
+                                };
+
+                                let value = match self.eval_expr(&args[0])? {
+                                    Value::Float(f) => f,
+                                    Value::Integer(i) => i as f64,  // Allow int->float conversion
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("FloatVec.push() expects Float or Integer, got {}", v.type_name())
+                                    )),
+                                };
+
+                                vec_arc.lock().unwrap().push(value);
+                                Ok(Value::Void)
+                            }
+
+                            (Value::StringVec(_), "push") => {
+                                // vec.push(value: string) -> Void
+                                if args.len() != 1 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("StringVec.push() expects 1 argument, got {}", args.len())
+                                    ));
+                                }
+
+                                let vec_arc = match obj_value {
+                                    Value::StringVec(vec) => vec,
+                                    _ => unreachable!()
+                                };
+
+                                let value = match self.eval_expr(&args[0])? {
+                                    Value::String(s) => s,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("StringVec.push() expects String, got {}", v.type_name())
+                                    )),
+                                };
+
+                                vec_arc.lock().unwrap().push(value);
+                                Ok(Value::Void)
+                            }
+
+                            (Value::BoolVec(_), "push") => {
+                                // vec.push(value: bool) -> Void
+                                if args.len() != 1 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("BoolVec.push() expects 1 argument, got {}", args.len())
+                                    ));
+                                }
+
+                                let vec_arc = match obj_value {
+                                    Value::BoolVec(vec) => vec,
+                                    _ => unreachable!()
+                                };
+
+                                let value = match self.eval_expr(&args[0])? {
+                                    Value::Boolean(b) => b,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("BoolVec.push() expects Boolean, got {}", v.type_name())
+                                    )),
+                                };
+
+                                vec_arc.lock().unwrap().push(value);
+                                Ok(Value::Void)
+                            }
+
+                            (Value::IntVec(_), "pop") => {
+                                // vec.pop() -> int
+                                if args.len() != 0 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("IntVec.pop() expects 0 arguments, got {}", args.len())
+                                    ));
+                                }
+
+                                let vec_arc = match obj_value {
+                                    Value::IntVec(vec) => vec,
+                                    _ => unreachable!()
+                                };
+
+                                let value = vec_arc.lock().unwrap().pop()
+                                    .ok_or_else(|| RuntimeError::InvalidOperation(
+                                        "IntVec.pop() called on empty vector".to_string()
+                                    ))?;
+                                Ok(Value::Integer(value))
+                            }
+
+                            (Value::FloatVec(_), "pop") => {
+                                // vec.pop() -> float
+                                if args.len() != 0 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("FloatVec.pop() expects 0 arguments, got {}", args.len())
+                                    ));
+                                }
+
+                                let vec_arc = match obj_value {
+                                    Value::FloatVec(vec) => vec,
+                                    _ => unreachable!()
+                                };
+
+                                let value = vec_arc.lock().unwrap().pop()
+                                    .ok_or_else(|| RuntimeError::InvalidOperation(
+                                        "FloatVec.pop() called on empty vector".to_string()
+                                    ))?;
+                                Ok(Value::Float(value))
+                            }
+
+                            (Value::StringVec(_), "pop") => {
+                                // vec.pop() -> string
+                                if args.len() != 0 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("StringVec.pop() expects 0 arguments, got {}", args.len())
+                                    ));
+                                }
+
+                                let vec_arc = match obj_value {
+                                    Value::StringVec(vec) => vec,
+                                    _ => unreachable!()
+                                };
+
+                                let value = vec_arc.lock().unwrap().pop()
+                                    .ok_or_else(|| RuntimeError::InvalidOperation(
+                                        "StringVec.pop() called on empty vector".to_string()
+                                    ))?;
+                                Ok(Value::String(value))
+                            }
+
+                            (Value::BoolVec(_), "pop") => {
+                                // vec.pop() -> bool
+                                if args.len() != 0 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("BoolVec.pop() expects 0 arguments, got {}", args.len())
+                                    ));
+                                }
+
+                                let vec_arc = match obj_value {
+                                    Value::BoolVec(vec) => vec,
+                                    _ => unreachable!()
+                                };
+
+                                let value = vec_arc.lock().unwrap().pop()
+                                    .ok_or_else(|| RuntimeError::InvalidOperation(
+                                        "BoolVec.pop() called on empty vector".to_string()
+                                    ))?;
+                                Ok(Value::Boolean(value))
+                            }
+
+                            (Value::IntVec(_), "set") | (Value::FloatVec(_), "set") |
+                            (Value::StringVec(_), "set") | (Value::BoolVec(_), "set") => {
+                                // vec.set(index: int, value: T) -> Void
+                                if args.len() != 2 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("Vec.set() expects 2 arguments (index, value), got {}", args.len())
+                                    ));
+                                }
+
+                                let index = match self.eval_expr(&args[0])? {
+                                    Value::Integer(i) => i as usize,
+                                    Value::Float(f) => f as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("Vec.set() expects Integer or Float as index, got {}", v.type_name())
+                                    )),
+                                };
+
+                                match obj_value {
+                                    Value::IntVec(vec) => {
+                                        let value = match self.eval_expr(&args[1])? {
+                                            Value::Integer(n) => n,
+                                            v => return Err(RuntimeError::TypeError(
+                                                format!("IntVec.set() expects Integer, got {}", v.type_name())
+                                            )),
+                                        };
+                                        let mut v = vec.lock().unwrap();
+                                        if index >= v.len() {
+                                            return Err(RuntimeError::IndexError { index, length: v.len() });
+                                        }
+                                        v[index] = value;
+                                    }
+                                    Value::FloatVec(vec) => {
+                                        let value = match self.eval_expr(&args[1])? {
+                                            Value::Float(f) => f,
+                                            Value::Integer(i) => i as f64,
+                                            v => return Err(RuntimeError::TypeError(
+                                                format!("FloatVec.set() expects Float or Integer, got {}", v.type_name())
+                                            )),
+                                        };
+                                        let mut v = vec.lock().unwrap();
+                                        if index >= v.len() {
+                                            return Err(RuntimeError::IndexError { index, length: v.len() });
+                                        }
+                                        v[index] = value;
+                                    }
+                                    Value::StringVec(vec) => {
+                                        let value = match self.eval_expr(&args[1])? {
+                                            Value::String(s) => s,
+                                            v => return Err(RuntimeError::TypeError(
+                                                format!("StringVec.set() expects String, got {}", v.type_name())
+                                            )),
+                                        };
+                                        let mut v = vec.lock().unwrap();
+                                        if index >= v.len() {
+                                            return Err(RuntimeError::IndexError { index, length: v.len() });
+                                        }
+                                        v[index] = value;
+                                    }
+                                    Value::BoolVec(vec) => {
+                                        let value = match self.eval_expr(&args[1])? {
+                                            Value::Boolean(b) => b,
+                                            v => return Err(RuntimeError::TypeError(
+                                                format!("BoolVec.set() expects Boolean, got {}", v.type_name())
+                                            )),
+                                        };
+                                        let mut v = vec.lock().unwrap();
+                                        if index >= v.len() {
+                                            return Err(RuntimeError::IndexError { index, length: v.len() });
+                                        }
+                                        v[index] = value;
+                                    }
+                                    _ => unreachable!()
+                                }
+                                Ok(Value::Void)
+                            }
+
+                            (Value::IntVec(_), "clear") | (Value::FloatVec(_), "clear") |
+                            (Value::StringVec(_), "clear") | (Value::BoolVec(_), "clear") => {
+                                // vec.clear() -> Void
+                                if args.len() != 0 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("Vec.clear() expects 0 arguments, got {}", args.len())
+                                    ));
+                                }
+
+                                match obj_value {
+                                    Value::IntVec(vec) => vec.lock().unwrap().clear(),
+                                    Value::FloatVec(vec) => vec.lock().unwrap().clear(),
+                                    Value::StringVec(vec) => vec.lock().unwrap().clear(),
+                                    Value::BoolVec(vec) => vec.lock().unwrap().clear(),
+                                    _ => unreachable!()
+                                }
+                                Ok(Value::Void)
+                            }
+
+                            (Value::IntVec(_), "is_empty") | (Value::FloatVec(_), "is_empty") |
+                            (Value::StringVec(_), "is_empty") | (Value::BoolVec(_), "is_empty") => {
+                                // vec.is_empty() -> bool
+                                if args.len() != 0 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("Vec.is_empty() expects 0 arguments, got {}", args.len())
+                                    ));
+                                }
+
+                                let is_empty = match obj_value {
+                                    Value::IntVec(vec) => vec.lock().unwrap().is_empty(),
+                                    Value::FloatVec(vec) => vec.lock().unwrap().is_empty(),
+                                    Value::StringVec(vec) => vec.lock().unwrap().is_empty(),
+                                    Value::BoolVec(vec) => vec.lock().unwrap().is_empty(),
+                                    _ => unreachable!()
+                                };
+                                Ok(Value::Boolean(is_empty))
+                            }
+
                             _ => Err(RuntimeError::TypeError(
                                 format!("Type {:?} has no method '{}'", obj_value.type_name(), method)
                             ))
