@@ -81,7 +81,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         // Create output buffer
-        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), total_elements)?;
+        let output_buf = MetalBuffer::<T>::new_uninit(&device, total_elements)?;
 
         // Calculate concat parameters
         let chunk_size: usize = if dim + 1 < output_shape.len() {
@@ -269,7 +269,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         // Create output buffer
-        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), total_elements)?;
+        let output_buf = MetalBuffer::<T>::new_uninit(&device, total_elements)?;
 
         // Select kernel based on type
         let kernel_name = format!("permute{}", T::kernel_suffix());

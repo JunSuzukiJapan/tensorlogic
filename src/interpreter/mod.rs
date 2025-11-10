@@ -943,6 +943,38 @@ impl Interpreter {
                 let value = self.eval_expr(expr)?;
                 Ok(Some(value))
             }
+            Statement::FactAssertion { atom } => {
+                // FactAssertion as last statement: might be a function call
+                // Try to evaluate as function call first
+                let func_args: Vec<TensorExpr> = atom.terms.iter()
+                    .map(|term| self.term_to_expr(term))
+                    .collect();
+
+                let func_call_expr = TensorExpr::FunctionCall {
+                    type_namespace: None,
+                    name: Identifier::new(atom.predicate.as_str().to_string()),
+                    args: func_args,
+                    resolved: None,
+                };
+
+                // Try to evaluate as function call
+                match self.eval_expr(&func_call_expr) {
+                    Ok(value) => {
+                        // Successfully evaluated as function call, return the value
+                        Ok(Some(value))
+                    }
+                    Err(RuntimeError::NotImplemented(_)) => {
+                        // Not a function, execute as statement and return None
+                        // (Note: in function context, we don't add facts to knowledge base)
+                        self.execute_statement(stmt)?;
+                        Ok(None)
+                    }
+                    Err(e) => {
+                        // Real error occurred during function call
+                        Err(e)
+                    }
+                }
+            }
             // All other statement types: execute and return None
             _ => {
                 self.execute_statement(stmt)?;

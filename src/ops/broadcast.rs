@@ -54,7 +54,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         // Create output buffer
-        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), target_numel)?;
+        let output_buf = MetalBuffer::<T>::new_uninit(&device, target_numel)?;
 
         // Select kernel based on type
         let kernel_name = format!("broadcast{}", T::kernel_suffix());

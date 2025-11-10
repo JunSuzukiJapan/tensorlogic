@@ -144,7 +144,7 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
             });
         }
 
-        let metal_buffer = MetalBuffer::from_slice(device.metal_device(), &data)?;
+        let metal_buffer = MetalBuffer::from_slice(&device, &data)?;
         let buffer = BufferHandle::Metal(metal_buffer);
 
         let tensor = Self::new(buffer, shape, Device::Metal(device.clone()))?;
@@ -218,7 +218,7 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
 
     fn ones(device: &MetalDevice, shape: Vec<usize>) -> TensorResult<Self> {
         let shape = TensorShape::new(shape);
-        let metal_buffer = MetalBuffer::ones(device.metal_device(), shape.numel())?;
+        let metal_buffer = MetalBuffer::ones(&device, shape.numel())?;
         let buffer = BufferHandle::Metal(metal_buffer);
 
         Self::new(buffer, shape, Device::Metal(device.clone()))

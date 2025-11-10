@@ -325,6 +325,35 @@ impl Interpreter {
                     return Ok(());
                 }
 
+                // Try to evaluate as a function call first
+                // Convert atom to FunctionCall expression
+                let func_args: Vec<TensorExpr> = atom.terms.iter()
+                    .map(|term| self.term_to_expr(term))
+                    .collect();
+
+                let func_call_expr = TensorExpr::FunctionCall {
+                    type_namespace: None,
+                    name: Identifier::new(predicate_name.to_string()),
+                    args: func_args,
+                    resolved: None,
+                };
+
+                // Try to evaluate as function call
+                match self.eval_expr(&func_call_expr) {
+                    Ok(_) => {
+                        // Successfully evaluated as function call
+                        // Result is discarded (even if Void, that's fine)
+                        return Ok(());
+                    }
+                    Err(RuntimeError::NotImplemented(_)) => {
+                        // Not a function, fall through to fact assertion
+                    }
+                    Err(e) => {
+                        // Real error occurred during function call
+                        return Err(e);
+                    }
+                }
+
                 // Otherwise, treat as a fact assertion
                 println!("Adding fact: {}", predicate_name);
 
@@ -630,7 +659,7 @@ impl Interpreter {
 
         let input_buf = tensor.buffer().as_metal()
             .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to get Metal buffer: {}", e)))?;
-        let output_buf = MetalBuffer::<f16>::new_uninit(device.metal_device(), 1)
+        let output_buf = MetalBuffer::<f16>::new_uninit(&device, 1)
             .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to create output buffer: {}", e)))?;
 
         let index_data = [linear_idx as u32];
@@ -707,7 +736,7 @@ impl Interpreter {
 
         let input_buf = tensor.buffer().as_metal()
             .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to get Metal buffer: {}", e)))?;
-        let output_buf = MetalBuffer::<f32>::new_uninit(device.metal_device(), 1)
+        let output_buf = MetalBuffer::<f32>::new_uninit(&device, 1)
             .map_err(|e| RuntimeError::InvalidOperation(format!("Failed to create output buffer: {}", e)))?;
 
         let index_data = [linear_idx as u32];

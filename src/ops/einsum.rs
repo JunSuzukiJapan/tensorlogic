@@ -737,7 +737,7 @@ fn einsum_ihd_jhd_ihj_metal<T: FloatType>(
 
     // Create output buffer [I, H, J]
     let output_numel = (i * h * j) as usize;
-    let output_buf = MetalBuffer::zeros(device_mut.metal_device(), output_numel)?;
+    let output_buf = MetalBuffer::zeros(&device_mut, output_numel)?;
 
     // Get command buffer from batch (candle-style)
     let (_flushed, command_buffer) = device_mut.command_buffer()?;
@@ -834,7 +834,7 @@ fn einsum_ihj_jhd_ihd_metal<T: FloatType>(
 
     // Create output buffer [I, H, D]
     let output_numel = (i * h * d) as usize;
-    let output_buf = MetalBuffer::zeros(device_mut.metal_device(), output_numel)?;
+    let output_buf = MetalBuffer::zeros(&device_mut, output_numel)?;
 
     // Get command buffer from batch (candle-style)
     let (_flushed, command_buffer) = device_mut.command_buffer()?;

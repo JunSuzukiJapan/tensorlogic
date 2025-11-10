@@ -37,7 +37,7 @@ impl<T: FloatType> Tensor<T> {
         // Allocate buffer
         let buffer = match device {
             Device::Metal(metal_dev) => {
-                let metal_buf = MetalBuffer::<T>::new_uninit(metal_dev.metal_device(), total_capacity)?;
+                let metal_buf = MetalBuffer::<T>::new_uninit(metal_dev, total_capacity)?;
                 crate::tensor::BufferHandle::Metal(metal_buf)
             }
             Device::CPU => {

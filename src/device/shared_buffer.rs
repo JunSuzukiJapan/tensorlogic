@@ -130,7 +130,9 @@ impl SharedBuffer {
     }
 
     /// Create a MetalBuffer view (zero-copy)
-    pub fn as_metal_buffer(&self) -> MetalBuffer<half::f16> {
+    ///
+    /// Note: Requires a MetalDevice parameter for GPU synchronization support
+    pub fn as_metal_buffer(&self, device: &crate::device::MetalDevice) -> MetalBuffer<half::f16> {
         use std::sync::Arc;
         use std::marker::PhantomData;
         MetalBuffer {
@@ -139,6 +141,7 @@ impl SharedBuffer {
             _phantom: PhantomData,
             pool: None,
             size_class: None,
+            device: device.clone(),
         }
     }
 

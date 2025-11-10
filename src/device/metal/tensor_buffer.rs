@@ -193,6 +193,7 @@ impl TensorBuffer {
             _phantom: PhantomData,
             pool: None,
             size_class: None,
+            device: self.device.clone(),
         };
 
         let buffer = crate::tensor::BufferHandle::Metal(metal_buffer);
@@ -225,6 +226,7 @@ impl TensorBuffer {
             _phantom: PhantomData,
             pool: None,
             size_class: None,
+            device: self.device.clone(),
         };
 
         let buffer = crate::tensor::BufferHandle::Metal(metal_buffer);

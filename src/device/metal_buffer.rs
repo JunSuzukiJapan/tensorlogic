@@ -1,6 +1,6 @@
 //! Metal buffer management for generic floating-point data
 
-use crate::device::{BufferPool, NeuralEngineBuffer};
+use crate::device::{BufferPool, MetalDevice, NeuralEngineBuffer};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::FloatType;
 use half::f16;
@@ -9,7 +9,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 /// Metal buffer wrapper for generic floating-point data
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MetalBuffer<T: FloatType> {
     pub(crate) buffer: Arc<Buffer>,
     pub(crate) length: usize, // number of T elements
@@ -18,14 +18,26 @@ pub struct MetalBuffer<T: FloatType> {
     pub(crate) pool: Option<BufferPool>,
     /// Size class for pool return (only used when pool is Some)
     pub(crate) size_class: Option<usize>,
+    /// Reference to MetalDevice for GPU synchronization
+    pub(crate) device: MetalDevice,
+}
+
+impl<T: FloatType> std::fmt::Debug for MetalBuffer<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MetalBuffer")
+            .field("length", &self.length)
+            .field("size_class", &self.size_class)
+            .field("device", &self.device)
+            .finish()
+    }
 }
 
 impl<T: FloatType> MetalBuffer<T> {
     /// Create a new Metal buffer from slice
-    pub fn from_slice(device: &MTLDevice, data: &[T]) -> TensorResult<Self> {
+    pub fn from_slice(device: &MetalDevice, data: &[T]) -> TensorResult<Self> {
         let byte_length = data.len() * T::size_in_bytes();
 
-        let buffer = device.new_buffer_with_data(
+        let buffer = device.metal_device().new_buffer_with_data(
             data.as_ptr() as *const _,
             byte_length as u64,
             metal::MTLResourceOptions::StorageModeShared,
@@ -37,14 +49,15 @@ impl<T: FloatType> MetalBuffer<T> {
             _phantom: PhantomData,
             pool: None,
             size_class: None,
+            device: device.clone(),
         })
     }
 
     /// Create a new uninitialized Metal buffer
-    pub fn new_uninit(device: &MTLDevice, length: usize) -> TensorResult<Self> {
+    pub fn new_uninit(device: &MetalDevice, length: usize) -> TensorResult<Self> {
         let byte_length = length * T::size_in_bytes();
 
-        let buffer = device.new_buffer(
+        let buffer = device.metal_device().new_buffer(
             byte_length as u64,
             metal::MTLResourceOptions::StorageModeShared,
         );
@@ -55,17 +68,18 @@ impl<T: FloatType> MetalBuffer<T> {
             _phantom: PhantomData,
             pool: None,
             size_class: None,
+            device: device.clone(),
         })
     }
 
     /// Create a new Metal buffer filled with zeros
-    pub fn zeros(device: &MTLDevice, length: usize) -> TensorResult<Self> {
+    pub fn zeros(device: &MetalDevice, length: usize) -> TensorResult<Self> {
         let zeros = vec![T::zero(); length];
         Self::from_slice(device, &zeros)
     }
 
     /// Create a new Metal buffer filled with ones
-    pub fn ones(device: &MTLDevice, length: usize) -> TensorResult<Self> {
+    pub fn ones(device: &MetalDevice, length: usize) -> TensorResult<Self> {
         let ones = vec![T::one(); length];
         Self::from_slice(device, &ones)
     }
@@ -93,11 +107,24 @@ impl<T: FloatType> MetalBuffer<T> {
     }
 
     /// Read data from buffer to Vec<T>
-    /// Note: This should only be called after sync_all() to ensure GPU operations are complete
+    ///
+    /// CRITICAL: Automatically syncs GPU operations before reading (following Candle's pattern).
+    /// This ensures all GPU commands are completed before CPU reads the buffer.
     pub fn to_vec(&self) -> Vec<T> {
         if std::env::var("TL_DEBUG_HANG").is_ok() {
             eprintln!("[HANG] to_vec: START reading {} elements", self.length);
         }
+
+        // CRITICAL: Wait for GPU operations to complete before reading (Candle pattern)
+        // This fixes the sync bug where to_vec() was reading uninitialized (zero) data
+        if std::env::var("TL_DEBUG_SYNC").is_ok() {
+            let start = std::time::Instant::now();
+            self.device.wait_until_completed().ok();
+            eprintln!("[SYNC] to_vec: wait={:?}, length={}", start.elapsed(), self.length);
+        } else {
+            self.device.wait_until_completed().ok();
+        }
+
         let ptr = self.buffer.contents() as *const T;
         let result = unsafe { std::slice::from_raw_parts(ptr, self.length).to_vec() };
         if std::env::var("TL_DEBUG_HANG").is_ok() {
@@ -231,8 +258,8 @@ impl<T: FloatType> PartialEq for MetalBuffer<T> {
 mod tests {
     use super::*;
 
-    fn get_test_device() -> MTLDevice {
-        MTLDevice::system_default().expect("No Metal device available")
+    fn get_test_device() -> MetalDevice {
+        MetalDevice::new().expect("No Metal device available")
     }
 
     #[test]
@@ -324,7 +351,7 @@ mod tests {
         // Metal -> Neural Engine -> Metal
         let metal1 = MetalBuffer::<f16>::from_slice(&device, &original_data).unwrap();
         let ne_buffer = metal1.to_neural_engine(&shape).unwrap();
-        let metal2 = ne_buffer.to_metal_buffer(&device).unwrap();
+        let metal2 = ne_buffer.to_metal_buffer(device.metal_device()).unwrap();
 
         // Verify roundtrip preserves data
         let result = metal2.to_vec();

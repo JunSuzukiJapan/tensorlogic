@@ -220,8 +220,8 @@ mod tests {
         let a_data = vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)];
         let b_data = vec![f16::from_f32(4.0), f16::from_f32(5.0), f16::from_f32(6.0)];
 
-        let a = MetalBuffer::<f16>::from_slice(device.metal_device(), &a_data).unwrap();
-        let b = MetalBuffer::<f16>::from_slice(device.metal_device(), &b_data).unwrap();
+        let a = MetalBuffer::<f16>::from_slice(&device, &a_data).unwrap();
+        let b = MetalBuffer::<f16>::from_slice(&device, &b_data).unwrap();
         let result = MetalBuffer::new_uninit_pooled(device.buffer_pool(), 3).unwrap();
 
         // Use global executor
@@ -248,8 +248,8 @@ mod tests {
         let a_data = vec![f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)];
         let b_data = vec![f16::from_f32(5.0), f16::from_f32(6.0), f16::from_f32(7.0)];
 
-        let a = MetalBuffer::<f16>::from_slice(device.metal_device(), &a_data).unwrap();
-        let b = MetalBuffer::<f16>::from_slice(device.metal_device(), &b_data).unwrap();
+        let a = MetalBuffer::<f16>::from_slice(&device, &a_data).unwrap();
+        let b = MetalBuffer::<f16>::from_slice(&device, &b_data).unwrap();
         let result = MetalBuffer::new_uninit_pooled(device.buffer_pool(), 3).unwrap();
 
         // Use global executor

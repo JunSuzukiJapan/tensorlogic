@@ -131,10 +131,10 @@ impl<T: FloatType> Tensor<T> {
 
         // Create buffers for scalar parameters using tensor type T
         let normalized_size_buf = MetalBuffer::<T>::from_slice(
-            device.metal_device(),
+            &device,
             &[T::from_f32(normalized_size as f32)],
         )?;
-        let eps_buf = MetalBuffer::<T>::from_slice(device.metal_device(), &[T::from_f32(eps)])?;
+        let eps_buf = MetalBuffer::<T>::from_slice(&device, &[T::from_f32(eps)])?;
 
         let kernel_name = if normalized_size <= 256 {
             format!("rms_norm_simple{}", suffix)
@@ -159,9 +159,11 @@ impl<T: FloatType> Tensor<T> {
                 TensorError::MetalError(format!("Failed to create pipeline: {:?}", e))
             })?;
 
-        // Execute kernel (Commands API - candle pattern)
-        let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.encoder();
+        // Execute kernel with dedicated command buffer
+        // (create dedicated buffer since we need to commit immediately for CPU indexing)
+        let command_queue = device.metal_device().new_command_queue();
+        let command_buffer = command_queue.new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&pipeline_state);
         encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
@@ -186,7 +188,10 @@ impl<T: FloatType> Tensor<T> {
         }
         encoder.end_encoding();
 
-        // Note: wait_until_completed() is NOT called here (matches candle pattern).
+        // CRITICAL: Commit and wait for GPU command completion.
+        // Without this, the buffer contains uninitialized data (zeros) when indexed from CPU.
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
 
         self.new_from_pool(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -366,7 +371,7 @@ impl<T: FloatType> Tensor<T> {
         let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
 
         // Get weight and bias buffers (or create dummy buffers)
-        let dummy_buf = MetalBuffer::<T>::from_slice(device.metal_device(), &[T::zero()])?;
+        let dummy_buf = MetalBuffer::<T>::from_slice(&device, &[T::zero()])?;
         let weight_buf = if let Some(w) = weight {
             w.buffer().as_metal()?
         } else {
@@ -383,16 +388,16 @@ impl<T: FloatType> Tensor<T> {
 
         // Create buffers for scalar parameters using tensor type T
         let normalized_size_buf = MetalBuffer::<T>::from_slice(
-            device.metal_device(),
+            &device,
             &[T::from_f32(normalized_size as f32)],
         )?;
-        let eps_buf = MetalBuffer::<T>::from_slice(device.metal_device(), &[T::from_f32(eps)])?;
+        let eps_buf = MetalBuffer::<T>::from_slice(&device, &[T::from_f32(eps)])?;
         let has_weight_buf = MetalBuffer::<T>::from_slice(
-            device.metal_device(),
+            &device,
             &[T::from_f32(if weight.is_some() { 1.0 } else { 0.0 })],
         )?;
         let has_bias_buf = MetalBuffer::<T>::from_slice(
-            device.metal_device(),
+            &device,
             &[T::from_f32(if bias.is_some() { 1.0 } else { 0.0 })],
         )?;
         let kernel_name = if normalized_size <= 256 {
@@ -419,9 +424,11 @@ impl<T: FloatType> Tensor<T> {
                 TensorError::MetalError(format!("Failed to create pipeline: {:?}", e))
             })?;
 
-        // Execute kernel (Commands API - candle pattern)
-        let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.encoder();
+        // Execute kernel with dedicated command buffer
+        // (create dedicated buffer since we need to commit immediately for CPU indexing)
+        let command_queue = device.metal_device().new_command_queue();
+        let command_buffer = command_queue.new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&pipeline_state);
         encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
@@ -443,7 +450,10 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
 
-        // Note: wait_until_completed() is NOT called here (matches candle pattern).
+        // CRITICAL: Commit and wait for GPU command completion.
+        // Without this, the buffer contains uninitialized data (zeros) when indexed from CPU.
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
 
         self.new_from_pool(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),

@@ -11,6 +11,7 @@ impl Interpreter {
             "load_model" => Some(self.eval_load_model(args)),
             "load_model_f16" => Some(self.eval_load_model_f16(args)),
             "load_model_f32" => Some(self.eval_load_model_f32(args)),
+            "get_tensor" => Some(self.eval_get_tensor(args)),
             "load_weight_cache_f16" => Some(self.eval_load_weight_cache_f16(args)),
             "load_weight_cache_f32" => Some(self.eval_load_weight_cache_f32(args)),
             "load_weight_cache_gguf_f16" => Some(self.eval_load_weight_cache_gguf_f16(args)),
@@ -21,7 +22,9 @@ impl Interpreter {
             "assert_eq" => Some(self.eval_assert_eq(args)),
             "assert_about_eq" => Some(self.eval_assert_about_eq(args)),
             "load_tokenizer" => Some(self.eval_load_tokenizer(args)),
-            // tokenize, detokenize, append_token are now type methods only
+            "tokenize" => Some(self.eval_tokenize(args)),
+            "detokenize" => Some(self.eval_detokenize(args)),
+            // tokenize, detokenize, append_token are also available as type methods
             // Use: tokenizer.tokenize() / tokenizer.detokenize() / tokens.append_token()
             "detokenize_single" => Some(self.eval_detokenize_single(args)),
             "detokenize_incremental" => Some(self.eval_detokenize_incremental(args)),
@@ -193,6 +196,49 @@ impl Interpreter {
         println!("  Weights available: {}", cache.weight_names().len());
 
         Ok(Value::GGUFWeightCacheF32(cache))
+    }
+
+    /// get_tensor(model, "tensor_name") -> Tensor
+    /// Get a tensor from a loaded model by name
+    fn eval_get_tensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("get_tensor() expects 2 arguments (model, tensor_name), got {}", args.len())
+            ));
+        }
+
+        // Evaluate model argument
+        let model_val = self.eval_expr(&args[0])?;
+
+        // Evaluate tensor name argument
+        let name_val = self.eval_expr(&args[1])?;
+        let name = match name_val {
+            Value::String(s) => s,
+            _ => return Err(RuntimeError::TypeError(
+                "get_tensor() second argument must be a string (tensor name)".to_string()
+            )),
+        };
+
+        // Get tensor from model based on model type
+        match model_val {
+            Value::ModelF16(ref model) => {
+                let tensor = model.get_tensor(&name)
+                    .ok_or_else(|| RuntimeError::InvalidOperation(
+                        format!("Tensor '{}' not found in model", name)
+                    ))?;
+                Ok(Value::TensorF16(tensor.clone()))
+            }
+            Value::ModelF32(ref model) => {
+                let tensor = model.get_tensor(&name)
+                    .ok_or_else(|| RuntimeError::InvalidOperation(
+                        format!("Tensor '{}' not found in model", name)
+                    ))?;
+                Ok(Value::TensorF32(tensor.clone()))
+            }
+            _ => Err(RuntimeError::TypeError(
+                format!("get_tensor() first argument must be a Model, got {:?}", model_val.type_name())
+            )),
+        }
     }
 
     /// load_weight_cache_f16("path/to/model.safetensors", cache_capacity)

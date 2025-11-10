@@ -27,7 +27,8 @@ impl Interpreter {
             "fused_affine" => Some(self.eval_fused_affine(args)),
             "fused_gelu_linear" => Some(self.eval_fused_gelu_linear(args)),
             "attention_with_cache" => Some(self.eval_attention_with_cache(args)),
-            "batch_norm" | "dropout" | "apply_mask" | "causal_mask" => {
+            "causal_mask" => Some(self.eval_causal_mask(args)),
+            "batch_norm" | "dropout" | "apply_mask" => {
                 Some(Err(RuntimeError::NotImplemented(format!(
                     "NN function '{}' migration in progress",
                     name
@@ -415,6 +416,48 @@ impl Interpreter {
         })
     }
 
+    /// causal_mask(seq_len) -> tensor
+    /// Create a causal mask for autoregressive attention
+    /// Returns [seq_len, seq_len] lower triangular matrix where 1=allow, 0=mask
+    fn eval_causal_mask(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(format!(
+                "causal_mask() expects 1 argument (seq_len), got {}",
+                args.len()
+            )));
+        }
+
+        let seq_len = match self.eval_expr(&args[0])? {
+            Value::Integer(i) => i as usize,
+            Value::Float(f) => f as usize,
+            _ => {
+                return Err(RuntimeError::TypeError(
+                    "seq_len must be a number".to_string(),
+                ))
+            }
+        };
+
+        let device = self.env.metal_device();
+
+        // Create lower triangular mask: mask[i,j] = 1 if j <= i, else 0
+        let mut mask_data = Vec::with_capacity(seq_len * seq_len);
+        for i in 0..seq_len {
+            for j in 0..seq_len {
+                if j <= i {
+                    mask_data.push(half::f16::ONE);
+                } else {
+                    mask_data.push(half::f16::ZERO);
+                }
+            }
+        }
+
+        Ok(Tensor::from_vec_gpu(device, mask_data, vec![seq_len, seq_len])
+            .map_err(|e| RuntimeError::TensorError(e))?
+            .to_value())
+    }
+
     /// fused_add_relu(a, b) -> tensor
     /// Fused operation: ReLU(a + b)
     fn eval_fused_add_relu(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
@@ -800,7 +843,7 @@ impl Interpreter {
 
         // Create output buffer
         let output_numel = seq_len * emb_dim;
-        let output_buf = MetalBuffer::<half::f16>::new_uninit(device.metal_device(), output_numel)
+        let output_buf = MetalBuffer::<half::f16>::new_uninit(&device, output_numel)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
         // Create embedding_dim buffer
@@ -817,10 +860,11 @@ impl Interpreter {
             .get_or_compile_pipeline("embedding_lookup_f16")
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        let (_flushed, command_buffer) = device
-            .command_buffer()
-            .map_err(|e| RuntimeError::TensorError(e))?;
-        let encoder = command_buffer.encoder();
+        // Create a dedicated command buffer for this operation
+        // (cannot use shared buffer since we need to commit it immediately)
+        let command_queue = device.metal_device().new_command_queue();
+        let command_buffer = command_queue.new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&table_buf.buffer), 0);
@@ -834,10 +878,10 @@ impl Interpreter {
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
 
-        // Note: wait_until_completed() is NOT called here (matches candle pattern).
-        // The result tensor points to GPU buffer, and subsequent operations
-        // will use it directly on GPU. Commands manager handles batching
-        // and will commit when batch size is exceeded or when CPU reads data.
+        // CRITICAL: Commit and wait for GPU command completion.
+        // Without this, the buffer contains uninitialized data (zeros) when indexed from CPU.
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
 
         // Create result tensor first
         let result: crate::tensor::Tensor<half::f16> = crate::tensor::Tensor::new(
@@ -899,7 +943,7 @@ impl Interpreter {
 
         // Create output buffer
         let output_numel = seq_len * emb_dim;
-        let output_buf = MetalBuffer::<f32>::new_uninit(device.metal_device(), output_numel)
+        let output_buf = MetalBuffer::<f32>::new_uninit(&device, output_numel)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
         // Create embedding_dim buffer
@@ -916,10 +960,11 @@ impl Interpreter {
             .get_or_compile_pipeline("embedding_lookup_f32")
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        let (_flushed, command_buffer) = device
-            .command_buffer()
-            .map_err(|e| RuntimeError::TensorError(e))?;
-        let encoder = command_buffer.encoder();
+        // Create a dedicated command buffer for this operation
+        // (cannot use shared buffer since we need to commit it immediately)
+        let command_queue = device.metal_device().new_command_queue();
+        let command_buffer = command_queue.new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&table_buf.buffer), 0);
@@ -933,10 +978,10 @@ impl Interpreter {
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
 
-        // Note: wait_until_completed() is NOT called here (matches candle pattern).
-        // The result tensor points to GPU buffer, and subsequent operations
-        // will use it directly on GPU. Commands manager handles batching
-        // and will commit when batch size is exceeded or when CPU reads data.
+        // CRITICAL: Commit and wait for GPU command completion.
+        // Without this, the buffer contains uninitialized data (zeros) when indexed from CPU.
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
 
         // Create result tensor first
         let result: crate::tensor::Tensor<f32> = crate::tensor::Tensor::new(

@@ -285,11 +285,11 @@ impl Interpreter {
         let suffix = T::kernel_suffix();
 
         // Create buffers
-        let probs_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), vocab_size)
+        let probs_buf = MetalBuffer::<T>::new_uninit(&device, vocab_size)
             .map_err(|e| RuntimeError::TensorError(e))?;
-        let max_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), 1)
+        let max_buf = MetalBuffer::<T>::new_uninit(&device, 1)
             .map_err(|e| RuntimeError::TensorError(e))?;
-        let sum_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), 1)
+        let sum_buf = MetalBuffer::<T>::new_uninit(&device, 1)
             .map_err(|e| RuntimeError::TensorError(e))?;
 
         // Create parameter buffers

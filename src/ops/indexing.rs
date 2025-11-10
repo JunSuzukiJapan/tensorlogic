@@ -247,12 +247,12 @@ impl<T: FloatType> Tensor<T> {
         let input_dims_f16: Vec<f16> = self_dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
         let output_dims_f16: Vec<f16> = indices_dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
 
-        let input_strides_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &input_strides_f16)?;
-        let output_strides_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &output_strides_f16)?;
-        let input_dims_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &input_dims_f16)?;
-        let output_dims_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &output_dims_f16)?;
-        let dim_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &[f16::from_f32(dim as f32)])?;
-        let ndim_buf = MetalBuffer::<f16>::from_slice(device.metal_device(), &[f16::from_f32(ndim as f32)])?;
+        let input_strides_buf = MetalBuffer::<f16>::from_slice(&device, &input_strides_f16)?;
+        let output_strides_buf = MetalBuffer::<f16>::from_slice(&device, &output_strides_f16)?;
+        let input_dims_buf = MetalBuffer::<f16>::from_slice(&device, &input_dims_f16)?;
+        let output_dims_buf = MetalBuffer::<f16>::from_slice(&device, &output_dims_f16)?;
+        let dim_buf = MetalBuffer::<f16>::from_slice(&device, &[f16::from_f32(dim as f32)])?;
+        let ndim_buf = MetalBuffer::<f16>::from_slice(&device, &[f16::from_f32(ndim as f32)])?;
 
         // Get pipeline
         let library_ref = device.library();
@@ -472,7 +472,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         // Create output buffer
-        let result_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), self.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit(&device, self.numel())?;
 
         // Create parameter buffers and select kernel based on type
         let kernel_name = if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f16>() {
@@ -493,12 +493,12 @@ impl<T: FloatType> Tensor<T> {
                 let input_dims_data: Vec<f16> = self_dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
                 let src_dims_data: Vec<f16> = src_dims.iter().map(|&d| f16::from_f32(d as f32)).collect();
 
-                let buf1 = MetalBuffer::<f16>::from_slice(device.metal_device(), &input_strides_data)?;
-                let buf2 = MetalBuffer::<f16>::from_slice(device.metal_device(), &src_strides_data)?;
-                let buf3 = MetalBuffer::<f16>::from_slice(device.metal_device(), &input_dims_data)?;
-                let buf4 = MetalBuffer::<f16>::from_slice(device.metal_device(), &src_dims_data)?;
-                let buf5 = MetalBuffer::<f16>::from_slice(device.metal_device(), &[f16::from_f32(dim as f32)])?;
-                let buf6 = MetalBuffer::<f16>::from_slice(device.metal_device(), &[f16::from_f32(ndim as f32)])?;
+                let buf1 = MetalBuffer::<f16>::from_slice(&device, &input_strides_data)?;
+                let buf2 = MetalBuffer::<f16>::from_slice(&device, &src_strides_data)?;
+                let buf3 = MetalBuffer::<f16>::from_slice(&device, &input_dims_data)?;
+                let buf4 = MetalBuffer::<f16>::from_slice(&device, &src_dims_data)?;
+                let buf5 = MetalBuffer::<f16>::from_slice(&device, &[f16::from_f32(dim as f32)])?;
+                let buf6 = MetalBuffer::<f16>::from_slice(&device, &[f16::from_f32(ndim as f32)])?;
 
                 // Transmute to generic type
                 unsafe { (
@@ -516,12 +516,12 @@ impl<T: FloatType> Tensor<T> {
                 let input_dims_data: Vec<f32> = self_dims.iter().map(|&d| d as f32).collect();
                 let src_dims_data: Vec<f32> = src_dims.iter().map(|&d| d as f32).collect();
 
-                let buf1 = MetalBuffer::from_slice(device.metal_device(), &input_strides_data)?;
-                let buf2 = MetalBuffer::from_slice(device.metal_device(), &src_strides_data)?;
-                let buf3 = MetalBuffer::from_slice(device.metal_device(), &input_dims_data)?;
-                let buf4 = MetalBuffer::from_slice(device.metal_device(), &src_dims_data)?;
-                let buf5 = MetalBuffer::from_slice(device.metal_device(), &[dim as f32])?;
-                let buf6 = MetalBuffer::from_slice(device.metal_device(), &[ndim as f32])?;
+                let buf1 = MetalBuffer::from_slice(&device, &input_strides_data)?;
+                let buf2 = MetalBuffer::from_slice(&device, &src_strides_data)?;
+                let buf3 = MetalBuffer::from_slice(&device, &input_dims_data)?;
+                let buf4 = MetalBuffer::from_slice(&device, &src_dims_data)?;
+                let buf5 = MetalBuffer::from_slice(&device, &[dim as f32])?;
+                let buf6 = MetalBuffer::from_slice(&device, &[ndim as f32])?;
 
                 (buf1, buf2, buf3, buf4, buf5, buf6)
             };

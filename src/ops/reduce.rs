@@ -36,7 +36,7 @@ impl<T: FloatType> Tensor<T> {
         let num_blocks = (count + threadgroup_size - 1) / threadgroup_size;
 
         // Stage 1: Reduce to blocks
-        let stage1_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), num_blocks)?;
+        let stage1_buf = MetalBuffer::<T>::new_uninit(&device, num_blocks)?;
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
 

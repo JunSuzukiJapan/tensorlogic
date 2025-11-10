@@ -35,8 +35,9 @@ pub struct PoolStats {
 ///
 /// Buffer pool supporting both f16 and f32 types.
 pub struct BufferPool {
-    /// Metal device for buffer creation
-    device: Arc<MTLDevice>,
+    /// Metal device for buffer creation and GPU synchronization
+    /// Arc is needed to break the circular dependency: MetalDevice → BufferPool → MetalDevice
+    device: Arc<crate::device::MetalDevice>,
 
     /// Pool of buffers organized by size (in elements, not bytes)
     /// HashMap<size, Vec<(Arc<Buffer>, Instant)>>
@@ -102,8 +103,11 @@ fn get_size_class(length: usize) -> usize {
 impl BufferPool {
     /// Create a new buffer pool
     pub fn new(device: &MTLDevice) -> Self {
+        // Note: This method is kept for backward compatibility but internally creates MetalDevice
+        let metal_device = crate::device::MetalDevice::with_device(device.clone())
+            .expect("Failed to create MetalDevice");
         Self {
-            device: Arc::new(device.to_owned()),
+            device: Arc::new(metal_device),
             pools: Arc::new(Mutex::new(HashMap::new())),
             max_buffers_per_size: 10,
             stats: Arc::new(Mutex::new(PoolStats::default())),
@@ -112,8 +116,11 @@ impl BufferPool {
 
     /// Create a new buffer pool with custom max buffers per size
     pub fn with_capacity(device: &MTLDevice, max_buffers_per_size: usize) -> Self {
+        // Note: This method is kept for backward compatibility but internally creates MetalDevice
+        let metal_device = crate::device::MetalDevice::with_device(device.clone())
+            .expect("Failed to create MetalDevice");
         Self {
-            device: Arc::new(device.to_owned()),
+            device: Arc::new(metal_device),
             pools: Arc::new(Mutex::new(HashMap::new())),
             max_buffers_per_size,
             stats: Arc::new(Mutex::new(PoolStats::default())),
@@ -228,6 +235,7 @@ impl BufferPool {
                     _phantom: PhantomData,
                     pool: Some(self.clone()),
                     size_class: Some(size_class),
+                    device: self.device.as_ref().clone(),
                 });
             } else {
                 if std::env::var("TL_DEBUG").is_ok() {
@@ -289,7 +297,7 @@ impl BufferPool {
 
         // Allocate buffer with size_class capacity (not exact requested length)
         let byte_length = size_class * std::mem::size_of::<T>();
-        let buffer = self.device.new_buffer(
+        let buffer = self.device.metal_device().new_buffer(
             byte_length as u64,
             MTLResourceOptions::StorageModeShared,
         );
@@ -332,6 +340,7 @@ impl BufferPool {
             _phantom: PhantomData,
             pool: Some(self.clone()),
             size_class: Some(size_class),
+            device: self.device.as_ref().clone(),
         })
     }
 
@@ -503,8 +512,13 @@ impl BufferPool {
         }
     }
 
-    /// Get the Metal device
+    /// Get the Metal device (MTLDevice)
     pub fn device(&self) -> &MTLDevice {
+        self.device.metal_device()
+    }
+
+    /// Get the MetalDevice wrapper
+    pub fn metal_device(&self) -> &crate::device::MetalDevice {
         &self.device
     }
 

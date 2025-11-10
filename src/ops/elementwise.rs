@@ -619,7 +619,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let input_buf = self.buffer().as_metal()?;
-        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), self.numel())?;
+        let output_buf = MetalBuffer::<T>::new_uninit(&device, self.numel())?;
         let scalar_buf = device.metal_device().new_buffer_with_data(
             &scalar as *const T as *const _,
             std::mem::size_of::<T>() as u64,
@@ -682,7 +682,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let input_buf = self.buffer().as_metal()?;
-        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), self.numel())?;
+        let output_buf = MetalBuffer::<T>::new_uninit(&device, self.numel())?;
         let scalar_buf = device.metal_device().new_buffer_with_data(
             &scalar as *const T as *const _,
             std::mem::size_of::<T>() as u64,
@@ -745,7 +745,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let input_buf = self.buffer().as_metal()?;
-        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), self.numel())?;
+        let output_buf = MetalBuffer::<T>::new_uninit(&device, self.numel())?;
 
         let scalar_buf = device.metal_device().new_buffer_with_data(
             &scalar as *const T as *const _,
@@ -818,7 +818,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let input_buf = self.buffer().as_metal()?;
-        let output_buf = MetalBuffer::<T>::new_uninit(device.metal_device(), self.numel())?;
+        let output_buf = MetalBuffer::<T>::new_uninit(&device, self.numel())?;
         let scalar_buf = device.metal_device().new_buffer_with_data(
             &scalar as *const T as *const _,
             std::mem::size_of::<T>() as u64,

@@ -28,7 +28,7 @@ impl TensorConvert for Tensor<f16> {
                     .collect();
 
                 // Create f32 buffer
-                let f32_buf = MetalBuffer::from_slice(device.metal_device(), &f32_data)?;
+                let f32_buf = MetalBuffer::from_slice(&device, &f32_data)?;
 
                 // Create new tensor
                 Tensor::new(
@@ -75,7 +75,7 @@ impl TensorConvert for Tensor<f32> {
                     .collect();
 
                 // Create f16 buffer
-                let f16_buf = MetalBuffer::from_slice(device.metal_device(), &f16_data)?;
+                let f16_buf = MetalBuffer::from_slice(&device, &f16_data)?;
 
                 // Create new tensor
                 Tensor::new(
