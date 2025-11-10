@@ -137,7 +137,7 @@ impl<T: FloatType> Tensor<T> {
             eprintln!("[DEBUG_RS] contiguous_metal: About to call new_uninit_pooled (numel={})...", numel);
             std::io::stderr().flush().ok();
         }
-        let output_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), numel)?;
+        let output_buf = MetalBuffer::<T>::new_uninit_pooled(&device, numel)?;
         if std::env::var("TL_DEBUG").is_ok() {
             eprintln!("[DEBUG_RS] contiguous_metal: new_uninit_pooled returned successfully");
             std::io::stderr().flush().ok();

@@ -119,7 +119,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         // Create result buffer
-        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), m * n)?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, m * n)?;
 
         // Create buffers for dimensions
         let m_u32 = m as u32;
@@ -357,7 +357,7 @@ impl<T: FloatType> Tensor<T> {
             std::io::stderr().flush().ok();
         }
 
-        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), m * n)?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, m * n)?;
 
         if std::env::var("TL_DEBUG").is_ok() {
             eprintln!("[DEBUG_RS] matmul_transposed_b_metal: new_uninit_pooled returned successfully");

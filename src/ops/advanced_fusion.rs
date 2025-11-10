@@ -116,7 +116,7 @@ impl<T: FloatType> Tensor<T> {
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), m * n)?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, m * n)?;
 
         let m_u32 = m as u32;
         let k_u32 = k as u32;
@@ -260,7 +260,7 @@ impl<T: FloatType> Tensor<T> {
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), m * n)?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, m * n)?;
 
         let m_u32 = m as u32;
         let k_u32 = k as u32;

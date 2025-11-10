@@ -37,7 +37,7 @@ pub fn execute_simple_metal_gradient(
     }
 
     // 結果バッファを作成
-    let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), grad_output.numel())?;
+    let result_buf = MetalBuffer::new_uninit_pooled(&device, grad_output.numel())?;
 
     // パイプライン取得
     let library_ref = device.library();
@@ -119,7 +119,7 @@ pub fn execute_parametric_metal_gradient(
     }
 
     // 結果バッファを作成
-    let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), grad_output.numel())?;
+    let result_buf = MetalBuffer::new_uninit_pooled(&device, grad_output.numel())?;
 
     // パイプライン取得
     let library_ref = device.library();

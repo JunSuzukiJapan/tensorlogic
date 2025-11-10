@@ -4257,11 +4257,11 @@ kernel void matmul_transposed_b_tiled_f16(
             A_tile[ty][tx] = 0.0h;
         }
 
-        // Load B tile transposed: B[col, k_offset + ty] -> B_tile[ty][tx]
+        // Load B tile transposed: B[threadgroup_col + ty, k_offset + tx] -> B_tile[ty][tx]
         // B is [N, K], we want B.T[K, N]
-        // B[col, k] is at index: col * K + k
-        uint b_row = col;  // row in B (becomes col in B.T)
-        uint b_col = k_offset + ty;  // col in B (becomes row in B.T)
+        // Each threadgroup loads a tile of B rows (corresponding to output cols)
+        uint b_row = threadgroup_position_in_grid.x * TILE_SIZE + ty;  // row in B (becomes col in B.T)
+        uint b_col = k_offset + tx;  // col in B (becomes row in B.T)
         if (b_row < N && b_col < K) {
             B_tile[ty][tx] = B[b_row * K + b_col];
         } else {
@@ -4272,7 +4272,7 @@ kernel void matmul_transposed_b_tiled_f16(
 
         // Compute partial dot product
         for (uint k = 0; k < TILE_SIZE; k++) {
-            sum += float(A_tile[ty][k]) * float(B_tile[k][tx]);
+            sum += float(A_tile[ty][k]) * float(B_tile[tx][k]);
         }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -4321,8 +4321,8 @@ kernel void matmul_transposed_b_tiled_32x32_f16(
             A_tile[ty][tx] = 0.0h;
         }
 
-        uint b_row = col;
-        uint b_col = k_offset + ty;
+        uint b_row = threadgroup_position_in_grid.x * TILE_SIZE + ty;
+        uint b_col = k_offset + tx;
         if (b_row < N && b_col < K) {
             B_tile[ty][tx] = B[b_row * K + b_col];
         } else {
@@ -4332,7 +4332,7 @@ kernel void matmul_transposed_b_tiled_32x32_f16(
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
         for (uint k = 0; k < TILE_SIZE; k++) {
-            sum += float(A_tile[ty][k]) * float(B_tile[k][tx]);
+            sum += float(A_tile[ty][k]) * float(B_tile[tx][k]);
         }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -4380,8 +4380,8 @@ kernel void matmul_transposed_b_tiled_f32(
             A_tile[ty][tx] = 0.0f;
         }
 
-        uint b_row = col;
-        uint b_col = k_offset + ty;
+        uint b_row = threadgroup_position_in_grid.x * TILE_SIZE + ty;
+        uint b_col = k_offset + tx;
         if (b_row < N && b_col < K) {
             B_tile[ty][tx] = B[b_row * K + b_col];
         } else {
@@ -4391,7 +4391,7 @@ kernel void matmul_transposed_b_tiled_f32(
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
         for (uint k = 0; k < TILE_SIZE; k++) {
-            sum += A_tile[ty][k] * B_tile[k][tx];
+            sum += A_tile[ty][k] * B_tile[tx][k];
         }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -4439,8 +4439,8 @@ kernel void matmul_transposed_b_tiled_32x32_f32(
             A_tile[ty][tx] = 0.0f;
         }
 
-        uint b_row = col;
-        uint b_col = k_offset + ty;
+        uint b_row = threadgroup_position_in_grid.x * TILE_SIZE + ty;
+        uint b_col = k_offset + tx;
         if (b_row < N && b_col < K) {
             B_tile[ty][tx] = B[b_row * K + b_col];
         } else {
@@ -4450,7 +4450,7 @@ kernel void matmul_transposed_b_tiled_32x32_f32(
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
         for (uint k = 0; k < TILE_SIZE; k++) {
-            sum += A_tile[ty][k] * B_tile[k][tx];
+            sum += A_tile[ty][k] * B_tile[tx][k];
         }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);

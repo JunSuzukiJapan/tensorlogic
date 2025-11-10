@@ -35,9 +35,9 @@ pub struct PoolStats {
 ///
 /// Buffer pool supporting both f16 and f32 types.
 pub struct BufferPool {
-    /// Metal device for buffer creation and GPU synchronization
-    /// Arc is needed to break the circular dependency: MetalDevice → BufferPool → MetalDevice
-    device: Arc<crate::device::MetalDevice>,
+    /// Metal device for buffer creation
+    /// Store MTLDevice only to avoid infinite recursion during initialization
+    device: Arc<metal::Device>,
 
     /// Pool of buffers organized by size (in elements, not bytes)
     /// HashMap<size, Vec<(Arc<Buffer>, Instant)>>
@@ -103,11 +103,8 @@ fn get_size_class(length: usize) -> usize {
 impl BufferPool {
     /// Create a new buffer pool
     pub fn new(device: &MTLDevice) -> Self {
-        // Note: This method is kept for backward compatibility but internally creates MetalDevice
-        let metal_device = crate::device::MetalDevice::with_device(device.clone())
-            .expect("Failed to create MetalDevice");
         Self {
-            device: Arc::new(metal_device),
+            device: Arc::new(device.clone()),
             pools: Arc::new(Mutex::new(HashMap::new())),
             max_buffers_per_size: 10,
             stats: Arc::new(Mutex::new(PoolStats::default())),
@@ -116,11 +113,8 @@ impl BufferPool {
 
     /// Create a new buffer pool with custom max buffers per size
     pub fn with_capacity(device: &MTLDevice, max_buffers_per_size: usize) -> Self {
-        // Note: This method is kept for backward compatibility but internally creates MetalDevice
-        let metal_device = crate::device::MetalDevice::with_device(device.clone())
-            .expect("Failed to create MetalDevice");
         Self {
-            device: Arc::new(metal_device),
+            device: Arc::new(device.clone()),
             pools: Arc::new(Mutex::new(HashMap::new())),
             max_buffers_per_size,
             stats: Arc::new(Mutex::new(PoolStats::default())),
@@ -130,11 +124,12 @@ impl BufferPool {
     /// Allocate a MetalBuffer from the pool or create a new one
     ///
     /// # Arguments
+    /// * `parent_device` - The MetalDevice that owns this pool (for GPU sync)
     /// * `length` - Number of f16 elements (requested size)
     ///
     /// Uses size-class pooling to improve buffer reuse rates.
     /// The actual allocated buffer may be larger than requested.
-    pub fn allocate<T: FloatType>(&self, length: usize) -> TensorResult<MetalBuffer<T>> {
+    pub fn allocate<T: FloatType>(&self, parent_device: &crate::device::MetalDevice, length: usize) -> TensorResult<MetalBuffer<T>> {
         if std::env::var("TL_DEBUG").is_ok() {
             eprintln!("[DEBUG_RS] BufferPool::allocate: ENTRY, length={}", length);
         }
@@ -235,7 +230,7 @@ impl BufferPool {
                     _phantom: PhantomData,
                     pool: Some(self.clone()),
                     size_class: Some(size_class),
-                    device: self.device.as_ref().clone(),
+                    device: parent_device.clone(),
                 });
             } else {
                 if std::env::var("TL_DEBUG").is_ok() {
@@ -297,7 +292,7 @@ impl BufferPool {
 
         // Allocate buffer with size_class capacity (not exact requested length)
         let byte_length = size_class * std::mem::size_of::<T>();
-        let buffer = self.device.metal_device().new_buffer(
+        let buffer = self.device.as_ref().new_buffer(
             byte_length as u64,
             MTLResourceOptions::StorageModeShared,
         );
@@ -340,13 +335,13 @@ impl BufferPool {
             _phantom: PhantomData,
             pool: Some(self.clone()),
             size_class: Some(size_class),
-            device: self.device.as_ref().clone(),
+            device: parent_device.clone(),
         })
     }
 
     /// Allocate a MetalBuffer filled with zeros
-    pub fn allocate_zeros<T: FloatType>(&self, length: usize) -> TensorResult<MetalBuffer<T>> {
-        let buffer = self.allocate::<T>(length)?;
+    pub fn allocate_zeros<T: FloatType>(&self, parent_device: &crate::device::MetalDevice, length: usize) -> TensorResult<MetalBuffer<T>> {
+        let buffer = self.allocate::<T>(parent_device, length)?;
 
         // Zero out the buffer
         unsafe {
@@ -514,12 +509,7 @@ impl BufferPool {
 
     /// Get the Metal device (MTLDevice)
     pub fn device(&self) -> &MTLDevice {
-        self.device.metal_device()
-    }
-
-    /// Get the MetalDevice wrapper
-    pub fn metal_device(&self) -> &crate::device::MetalDevice {
-        &self.device
+        self.device.as_ref()
     }
 
     /// Evict buffers that haven't been used for longer than `max_age`

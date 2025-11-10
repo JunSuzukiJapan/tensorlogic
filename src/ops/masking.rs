@@ -72,7 +72,7 @@ impl<T: FloatType> Tensor<T> {
         let mask_buf = mask.buffer().as_metal()?;
 
         // Create output buffer
-        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), size)?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, size)?;
 
         // Choose kernel based on type
         let suffix = T::kernel_suffix();

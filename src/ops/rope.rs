@@ -90,7 +90,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         // Create output buffer
-        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, self.numel())?;
 
         // Create params buffer: [seq_len, n_heads, head_dim, rope_base, position_offset]
         const ROPE_BASE: u32 = 10000;

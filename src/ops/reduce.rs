@@ -141,7 +141,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let output_numel = output_dims.iter().product();
-        let output_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), output_numel)?;
+        let output_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(&device, output_numel)?;
         let output_buf: MetalBuffer<T> = unsafe { std::mem::transmute(output_buf_f16) };
 
         // Prepare shape buffers
@@ -311,7 +311,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         let output_numel = output_dims.iter().product();
-        let output_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), output_numel)?;
+        let output_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(&device, output_numel)?;
         let output_buf: MetalBuffer<T> = unsafe { std::mem::transmute(output_buf_f16) };
 
         // Prepare shape buffers
@@ -417,7 +417,7 @@ impl<T: FloatType> Tensor<T> {
         let threadgroup_size = 256;
         let num_blocks = (count + threadgroup_size - 1) / threadgroup_size;
 
-        let stage1_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), num_blocks)?;
+        let stage1_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(&device, num_blocks)?;
         let stage1_buf: MetalBuffer<T> = unsafe { std::mem::transmute(stage1_buf_f16) };
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
@@ -524,7 +524,7 @@ impl<T: FloatType> Tensor<T> {
         let threadgroup_size = 256;
         let num_blocks = (count + threadgroup_size - 1) / threadgroup_size;
 
-        let stage1_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(device.buffer_pool(), num_blocks)?;
+        let stage1_buf_f16 = MetalBuffer::<f16>::new_uninit_pooled(&device, num_blocks)?;
         let stage1_buf: MetalBuffer<T> = unsafe { std::mem::transmute(stage1_buf_f16) };
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());

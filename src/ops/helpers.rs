@@ -42,7 +42,7 @@ pub(crate) fn execute_unary_metal_op<T: FloatType>(
     }
 
     // Create output buffer from pool
-    let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), tensor.numel())?;
+    let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, tensor.numel())?;
 
     // Execute kernel using new EncoderProvider pattern
     // Get or compile pipeline
@@ -145,7 +145,7 @@ pub(crate) fn execute_binary_metal_op<T: FloatType>(
     }
 
     // Create output buffer from pool
-    let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), tensor.numel())?;
+    let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, tensor.numel())?;
 
     // Execute kernel using new EncoderProvider pattern
     // Get or compile pipeline

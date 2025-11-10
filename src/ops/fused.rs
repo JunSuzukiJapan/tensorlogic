@@ -62,7 +62,7 @@ impl<T: FloatType> Tensor<T> {
         }
 
         // Create result buffer
-        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, self.numel())?;
 
         // Execute kernel
         let mut executor = crate::device::KernelExecutor::new(device.clone());
@@ -157,7 +157,7 @@ impl<T: FloatType> Tensor<T> {
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, self.numel())?;
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
         let pipeline = executor.get_or_compile_pipeline("fused_mul_relu_f16")?;
@@ -296,7 +296,7 @@ impl<T: FloatType> Tensor<T> {
 
         let output_shape = vec![m as usize, n as usize];
         let output_numel = (m * n) as usize;
-        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), output_numel)?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, output_numel)?;
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
 
@@ -390,7 +390,7 @@ impl<T: FloatType> Tensor<T> {
             device.load_library(shader_source)?;
         }
 
-        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, self.numel())?;
 
         let mut executor = crate::device::KernelExecutor::new(device.clone());
         let pipeline = executor.get_or_compile_pipeline("fused_affine_f16")?;

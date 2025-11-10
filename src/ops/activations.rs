@@ -161,7 +161,7 @@ impl<T: FloatType> Tensor<T> {
         };
 
         let input_buf = self.buffer().as_metal()?;
-        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, self.numel())?;
 
         // Create buffer for last_dim parameter (as u32, matching Metal shader)
         let last_dim_u32 = last_dim as u32;

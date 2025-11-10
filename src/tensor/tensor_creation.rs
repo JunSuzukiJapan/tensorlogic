@@ -178,7 +178,7 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
         if std::env::var("TL_DEBUG_TENSOR_CREATION").is_ok() {
             eprintln!("[TENSOR_CREATION] calling from_vec_pooled...");
         }
-        let metal_buffer = MetalBuffer::from_vec_pooled(device.buffer_pool(), &data_f16)?;
+        let metal_buffer = MetalBuffer::from_vec_pooled(&device, &data_f16)?;
 
         if std::env::var("TL_DEBUG_TENSOR_CREATION").is_ok() {
             eprintln!("[TENSOR_CREATION] from_vec_pooled done, creating tensor...");
@@ -205,7 +205,7 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
     fn zeros(device: &MetalDevice, shape: Vec<usize>) -> TensorResult<Self> {
         let shape = TensorShape::new(shape);
         // Use buffer pool for allocation
-        let metal_buffer = MetalBuffer::<T>::zeros_pooled(device.buffer_pool(), shape.numel())?;
+        let metal_buffer = MetalBuffer::<T>::zeros_pooled(&device, shape.numel())?;
         let buffer = BufferHandle::Metal(unsafe { std::mem::transmute(metal_buffer) });
 
         Self::new_with_pool(

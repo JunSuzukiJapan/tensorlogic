@@ -94,7 +94,7 @@ impl<T: FloatType> Tensor<T> {
         let b_buf_f16: &MetalBuffer<half::f16> = unsafe { std::mem::transmute(b_buf) };
 
         // Create result buffer (f16)
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::new_uninit_pooled(&device, self.numel())?;
 
         // Use global kernel executor to share pipeline cache
         let executor_mutex = crate::device::get_kernel_executor()?;
@@ -183,7 +183,7 @@ impl<T: FloatType> Tensor<T> {
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
 
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::new_uninit_pooled(&device, self.numel())?;
 
         // Use global kernel executor to share pipeline cache
         let executor_mutex = crate::device::get_kernel_executor()?;
@@ -270,7 +270,7 @@ impl<T: FloatType> Tensor<T> {
         };
 
         let _buf_start = std::time::Instant::now();
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::new_uninit_pooled(&device, self.numel())?;
         if std::env::var("TL_PERF").is_ok() {
             eprintln!("[PERF]   mul_metal: buffer_alloc={:.3}ms, numel={}",
                      _buf_start.elapsed().as_secs_f64() * 1000.0, self.numel());
@@ -369,7 +369,7 @@ impl<T: FloatType> Tensor<T> {
             _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
         };
 
-        let result_buf = MetalBuffer::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::new_uninit_pooled(&device, self.numel())?;
 
         // Use global kernel executor to share pipeline cache
         let executor_mutex = crate::device::get_kernel_executor()?;

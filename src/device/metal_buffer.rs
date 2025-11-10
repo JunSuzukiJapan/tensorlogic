@@ -210,18 +210,18 @@ impl<T: FloatType> MetalBuffer<T> {
 // Pool methods supporting both f16 and f32
 impl<T: FloatType> MetalBuffer<T> {
     /// Create a new uninitialized Metal buffer from pool
-    pub fn new_uninit_pooled(pool: &BufferPool, length: usize) -> TensorResult<Self> {
-        pool.allocate::<T>(length)
+    pub fn new_uninit_pooled(device: &crate::device::MetalDevice, length: usize) -> TensorResult<Self> {
+        device.buffer_pool().allocate::<T>(device, length)
     }
 
     /// Create a new Metal buffer filled with zeros from pool
-    pub fn zeros_pooled(pool: &BufferPool, length: usize) -> TensorResult<Self> {
-        pool.allocate_zeros::<T>(length)
+    pub fn zeros_pooled(device: &crate::device::MetalDevice, length: usize) -> TensorResult<Self> {
+        device.buffer_pool().allocate_zeros::<T>(device, length)
     }
 
     /// Create a new Metal buffer from slice using pool
-    pub fn from_vec_pooled(pool: &BufferPool, data: &[T]) -> TensorResult<Self> {
-        let mut buffer = pool.allocate::<T>(data.len())?;
+    pub fn from_vec_pooled(device: &crate::device::MetalDevice, data: &[T]) -> TensorResult<Self> {
+        let mut buffer = device.buffer_pool().allocate::<T>(device, data.len())?;
         buffer.write_from_slice(data)?;
         Ok(buffer)
     }

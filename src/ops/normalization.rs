@@ -124,7 +124,7 @@ impl<T: FloatType> Tensor<T> {
         let batch_size = self.numel() / normalized_size;
 
         // Create output buffer
-        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, self.numel())?;
 
         // Get pipeline - select kernel based on size and type
         let suffix = T::kernel_suffix();
@@ -368,7 +368,7 @@ impl<T: FloatType> Tensor<T> {
         let batch_size = self.numel() / normalized_size;
 
         // Create output buffer
-        let result_buf = MetalBuffer::<T>::new_uninit_pooled(device.buffer_pool(), self.numel())?;
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, self.numel())?;
 
         // Get weight and bias buffers (or create dummy buffers)
         let dummy_buf = MetalBuffer::<T>::from_slice(&device, &[T::zero()])?;
