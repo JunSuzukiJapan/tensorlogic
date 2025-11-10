@@ -90,10 +90,21 @@ fn tinyllama_gqa_attention(
     let K_expanded = reshape(K_broadcast, shape_expanded)
     let V_expanded = reshape(V_broadcast, shape_expanded)
 
-    // Attention computation
+    // Attention computation with causal masking
     let scores = einsum("ihd,jhd->ihj", Q_rope, K_expanded)
     let scaled_scores = scores * 0.125  // 1/sqrt(64)
-    let attn_weights = softmax(scaled_scores, 2)
+
+    // Apply causal mask to prevent attending to future tokens
+    // Mask shape: [seq_len, seq_len] -> [seq_len, 1, seq_len] -> [seq_len, 32, seq_len]
+    let seq_len_int = to_int(seq_len_f)
+    let mask_2d = causal_mask(seq_len_int)  // [seq_len, seq_len]
+    let mask_shape_3d = [seq_len_f, 1.0, seq_len_f]
+    let mask_3d = reshape(mask_2d, mask_shape_3d)  // [seq_len, 1, seq_len]
+    let mask_broadcast_shape = [seq_len_f, 32.0, seq_len_f]
+    let mask = broadcast_to(mask_3d, mask_broadcast_shape)  // [seq_len, 32, seq_len]
+    let masked_scores = apply_attention_mask(scaled_scores, mask)
+
+    let attn_weights = softmax(masked_scores, 2)
     let attn_output = einsum("ihj,jhd->ihd", attn_weights, V_expanded)
 
     // Flatten and project
@@ -173,6 +184,8 @@ main {
     // DEBUG: Check output_weight
     let output_weight_sum = sum(output_weight)
     print("[DEBUG] output_weight sum:", output_weight_sum)
+    let output_weight_shape = shape(output_weight)
+    print("[DEBUG] output_weight shape:", output_weight_shape)
 
     // Load all 22 layers (this will take a moment)
     // Layer 0
@@ -409,7 +422,7 @@ main {
     let system_prompt = "You are a friendly chatbot."
     let user_message = "Hello! How are you?"
 
-    let chat_prompt = "<|system|>\n" + system_prompt + "</s>\n<|user|>\n" + user_message + "</s>\n<|assistant|>\n"
+    let chat_prompt = "<|system|>\n" + system_prompt + "</s>\n<|user|>\n" + user_message + "</s>\n<|assistant|>"
 
     print("      User:", user_message)
     print("")
@@ -427,7 +440,7 @@ main {
     print("Assistant: ", "")
 
     let gen_tokens = tokens
-    let temperature = 0.8
+    let temperature = 0.0  // Greedy decoding for testing
     let eos_token_id = 2  // EOS token ID for TinyLlama
 
     // Token 1
@@ -515,7 +528,10 @@ main {
 
     // Token 2
     let e2 = embedding(embed_table, gen_tokens)
+    print("[DEBUG] Token 2 - gen_tokens length:", len(gen_tokens))
+    print("[DEBUG] Token 2 - Embedding sum:", sum(e2))
     let h0_2 = transformer_layer(e2, W_q_0, W_k_0, W_v_0, W_o_0, attn_norm_0, W_gate_0, W_up_0, W_down_0, ffn_norm_0)
+    print("[DEBUG] Token 2 - Layer 0 sum:", sum(h0_2))
     let h1_2 = transformer_layer(h0_2, W_q_1, W_k_1, W_v_1, W_o_1, attn_norm_1, W_gate_1, W_up_1, W_down_1, ffn_norm_1)
     let h2_2 = transformer_layer(h1_2, W_q_2, W_k_2, W_v_2, W_o_2, attn_norm_2, W_gate_2, W_up_2, W_down_2, ffn_norm_2)
     let h3_2 = transformer_layer(h2_2, W_q_3, W_k_3, W_v_3, W_o_3, attn_norm_3, W_gate_3, W_up_3, W_down_3, ffn_norm_3)
@@ -571,7 +587,10 @@ main {
 
     // Token 3
     let e3 = embedding(embed_table, gen_tokens)
+    print("[DEBUG] Token 3 - gen_tokens length:", len(gen_tokens))
+    print("[DEBUG] Token 3 - Embedding sum:", sum(e3))
     let h0_3 = transformer_layer(e3, W_q_0, W_k_0, W_v_0, W_o_0, attn_norm_0, W_gate_0, W_up_0, W_down_0, ffn_norm_0)
+    print("[DEBUG] Token 3 - Layer 0 sum:", sum(h0_3))
     let h1_3 = transformer_layer(h0_3, W_q_1, W_k_1, W_v_1, W_o_1, attn_norm_1, W_gate_1, W_up_1, W_down_1, ffn_norm_1)
     let h2_3 = transformer_layer(h1_3, W_q_2, W_k_2, W_v_2, W_o_2, attn_norm_2, W_gate_2, W_up_2, W_down_2, ffn_norm_2)
     let h3_3 = transformer_layer(h2_3, W_q_3, W_k_3, W_v_3, W_o_3, attn_norm_3, W_gate_3, W_up_3, W_down_3, ffn_norm_3)

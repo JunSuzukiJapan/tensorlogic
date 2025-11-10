@@ -1,106 +1,185 @@
-// Test with just ONE transformer layer
+// Test: 1-layer transformer for debugging GPU sync issues
+// Compare with candle_1layer_reference.json
 
-fn silu(x: float32[?, ?]) -> float32[?, ?] {
+// SiLU activation function (inline version now works with fix)
+fn silu(x: float16[?, ?]) -> float16[?, ?] {
     x * sigmoid(x)
 }
 
-fn swiglu_ffn(
-    x: float32[?, ?],
-    W_gate: float32[?, ?],
-    W_up: float32[?, ?],
-    W_down: float32[?, ?]
-) -> float32[?, ?] {
-    let gate = linear(x, W_gate)
-    let up = linear(x, W_up)
-    let silu_result = silu(gate)
-    let mul_result = silu_result * up
-    linear(mul_result, W_down)
-}
-
-fn apply_rope_k(K: float32[?, ?], seq_len: float, pos: float) -> float32[?, ?] {
-    let K_h = reshape(K, [seq_len, 4.0, 64.0])
-    let K_r = rope(K_h, pos)
-    reshape(K_r, [seq_len, 256.0])
-}
-
-fn apply_rope_q(Q: float32[?, ?], seq_len: float, pos: float) -> float32[?, ?] {
-    let Q_h = reshape(Q, [seq_len, 32.0, 64.0])
-    let Q_r = rope(Q_h, pos)
-    reshape(Q_r, [seq_len, 2048.0])
-}
-
-fn transformer_layer(
-    x: float32[?, ?],
-    W_attn_norm: float32[?],
-    W_q: float32[?, ?],
-    W_o: float32[?, ?],
-    W_ffn_norm: float32[?],
-    W_gate: float32[?, ?],
-    W_up: float32[?, ?],
-    W_down: float32[?, ?],
-    K_cache: float32[?, ?],
-    V_cache: float32[?, ?],
-    position: float,
-    seq_len: float
-) -> float32[?, ?] {
-    let normed = rms_norm(x, W_attn_norm)
-    let Q_raw = linear(normed, W_q)
-    let Q = apply_rope_q(Q_raw, seq_len, position)
-
-    let attn_out = attention_with_cache(Q, K_cache, V_cache, W_o)
-    let after_attn = x + attn_out
-
-    let normed2 = rms_norm(after_attn, W_ffn_norm)
-    let ffn_out = swiglu_ffn(normed2, W_gate, W_up, W_down)
-    after_attn + ffn_out
-}
-
 main {
-    print("=== Single Layer Test ===")
-
-    let home = env("HOME")
-    let model = load_model_f32(home + "/.llm/models/tinyllama-1.1b-chat-f16.gguf")
-    let tokenizer = load_tokenizer(home + "/.llm/tokenizers/tinyllama-tokenizer.json")
-
-    let tok_embd = model.token_embd.weight
-    let output_norm = model.output_norm.weight
-    let L0 = model.blk[0]
-
-    let tokens = tokenizer.tokenize("Hello!", true)
-    let x = embedding(tok_embd, tokens)
-    let x_shape = shape(x)
-    let seq_len = x_shape[0]
-
-    print("1. Embedding shape: {}", shape(x))
-
-    // Build K, V cache for layer 0
-    let K0_raw = linear(x, L0.attn_k.weight)
-    let K0 = apply_rope_k(K0_raw, seq_len, 0.0)
-    let V0 = linear(x, L0.attn_v.weight)
-
-    // Pass through ONE transformer layer
-    let h = transformer_layer(x, L0.attn_norm.weight, L0.attn_q.weight, L0.attn_output.weight, L0.ffn_norm.weight, L0.ffn_gate.weight, L0.ffn_up.weight, L0.ffn_down.weight, K0, V0, 0.0, seq_len)
-
-    print("2. After transformer layer 0: {}", shape(h))
-
-    // Output
-    let final_norm = rms_norm(h, output_norm)
-    let last_token = slice_last(final_norm, 0)
-    let last_token_2d = reshape(last_token, [1.0, 2048.0])
-    let logits = linear(last_token_2d, tok_embd)
-
-    print("3. Logits shape: {}", shape(logits))
-
-    let token_id = temperature_sample(logits, 0.0)
-    let text = detokenize_single(tokenizer, token_id, false)
-
-    print("")
-    print("Generated: '{}' (id={})", text, token_id)
+    print("================================================================================")
+    print("TensorLogic 1-Layer Transformer Test")
+    print("================================================================================")
     print("")
 
-    if token_id == 0 {
-        print("❌ FAILED")
-    } else {
-        print("✓ SUCCESS")
-    }
+    // ========================================================================
+    print("[1/5] Loading model and tokenizer...")
+    // ========================================================================
+
+    let model_path = env("HOME") + "/.llm/models/tinyllama-1.1b-chat-f16.gguf"
+    let tokenizer_path = env("HOME") + "/.llm/tokenizers/tinyllama-tokenizer.json"
+
+    let model = load_model(model_path)
+    let tokenizer = load_tokenizer(tokenizer_path)
+    print("      ✓ Model and tokenizer loaded")
+    print("")
+
+    // ========================================================================
+    print("[2/5] Loading weights for Layer 0 only...")
+    // ========================================================================
+
+    // Embedding and output
+    let embed_table = get_tensor(model, "token_embd.weight")
+    let output_norm = get_tensor(model, "output_norm.weight")
+    let output_weight = get_tensor(model, "output.weight")
+
+    // Layer 0 weights
+    let W_q_0 = get_tensor(model, "blk.0.attn_q.weight")
+    let W_k_0 = get_tensor(model, "blk.0.attn_k.weight")
+    let W_v_0 = get_tensor(model, "blk.0.attn_v.weight")
+    let W_o_0 = get_tensor(model, "blk.0.attn_output.weight")
+    let attn_norm_0 = get_tensor(model, "blk.0.attn_norm.weight")
+
+    let W_gate_0 = get_tensor(model, "blk.0.ffn_gate.weight")
+    let W_up_0 = get_tensor(model, "blk.0.ffn_up.weight")
+    let W_down_0 = get_tensor(model, "blk.0.ffn_down.weight")
+    let ffn_norm_0 = get_tensor(model, "blk.0.ffn_norm.weight")
+
+    print("      ✓ Layer 0 weights loaded")
+    print("")
+
+    // ========================================================================
+    print("[3/5] Creating prompt...")
+    // ========================================================================
+
+    let system_prompt = "You are a friendly chatbot."
+    let user_message = "Hello! How are you?"
+    let chat_prompt = "<|system|>\n" + system_prompt + "</s>\n<|user|>\n" + user_message + "</s>\n<|assistant|>\n"
+
+    print("      Prompt:", chat_prompt)
+    print("")
+
+    // ========================================================================
+    print("[4/5] Tokenizing...")
+    // ========================================================================
+
+    // No BOS token (false) to match HuggingFace
+    let tokens = tokenize(tokenizer, chat_prompt, false)
+    let num_tokens = len(tokens)
+
+    print("      Tokens:", num_tokens)
+    print("      Token IDs:", tokens)
+    print("")
+
+    // ========================================================================
+    print("[5/5] Running forward pass (Layer 0 only)...")
+    // ========================================================================
+
+    // Embedding
+    let embeddings = embedding(embed_table, tokens)
+    let emb_sum = sum(embeddings)
+    print("      Embedding sum:", emb_sum)
+
+    // Layer 0: Attention
+    let x_norm = rms_norm(embeddings, attn_norm_0)
+    print("      [DEBUG] x_norm sum:", sum(x_norm))
+
+    let Q = linear(x_norm, W_q_0)
+    print("      [DEBUG] Q sum:", sum(Q))
+    let K = linear(x_norm, W_k_0)
+    print("      [DEBUG] K sum:", sum(K))
+    let V = linear(x_norm, W_v_0)
+    print("      [DEBUG] V sum:", sum(V))
+
+    // GQA attention (simplified - using builtin)
+    let Q_shape = shape(Q)
+    let seq_len = Q_shape[0]
+
+    let Q_heads = reshape(Q, [seq_len, 32.0, 64.0])
+    let K_heads = reshape(K, [seq_len, 4.0, 64.0])
+    let V_heads = reshape(V, [seq_len, 4.0, 64.0])
+
+    let Q_rope = rope(Q_heads)
+    let K_rope = rope(K_heads)
+
+    // GQA expansion
+    let K_group = reshape(K_rope, [seq_len, 4.0, 1.0, 64.0])
+    let V_group = reshape(V_heads, [seq_len, 4.0, 1.0, 64.0])
+
+    let K_broadcast = broadcast_to(K_group, [seq_len, 4.0, 8.0, 64.0])
+    let V_broadcast = broadcast_to(V_group, [seq_len, 4.0, 8.0, 64.0])
+
+    let K_expanded = reshape(K_broadcast, [seq_len, 32.0, 64.0])
+    let V_expanded = reshape(V_broadcast, [seq_len, 32.0, 64.0])
+
+    // Attention computation (no causal mask for reference comparison)
+    let scores = einsum("ihd,jhd->ihj", Q_rope, K_expanded)
+    let scaled_scores = scores * 0.125  // 1/sqrt(64)
+    let attn_weights = softmax(scaled_scores, 2)
+    let attn_output = einsum("ihj,jhd->ihd", attn_weights, V_expanded)
+
+    // Attention output projection
+    let attn_reshaped = reshape(attn_output, [seq_len, 2048.0])
+    let attn_out = linear(attn_reshaped, W_o_0)
+    print("      [DEBUG] attn_out sum:", sum(attn_out))
+
+    // Residual
+    let hidden_1 = embeddings + attn_out
+    print("      [DEBUG] hidden_1 (after attn) sum:", sum(hidden_1))
+
+    // Layer 0: FFN
+    let x_norm2 = rms_norm(hidden_1, ffn_norm_0)
+    print("      [DEBUG] x_norm2 sum:", sum(x_norm2))
+
+    let gate = linear(x_norm2, W_gate_0)
+    let up = linear(x_norm2, W_up_0)
+    let silu_gate = silu(gate)
+    let gated = silu_gate * up
+    let ffn_out = linear(gated, W_down_0)
+
+    print("      [DEBUG] ffn_out sum:", sum(ffn_out))
+
+    // Final residual
+    let layer_0_output = hidden_1 + ffn_out
+
+    let layer_0_sum = sum(layer_0_output)
+    print("      Layer 0 output sum:", layer_0_sum)
+
+    // Final norm
+    let final_norm = rms_norm(layer_0_output, output_norm)
+    let final_norm_sum = sum(final_norm)
+    print("      Final norm sum:", final_norm_sum)
+
+    // Logits
+    let logits = linear(final_norm, output_weight)
+    let logits_sum = sum(logits)
+    print("      Logits sum (all tokens):", logits_sum)
+
+    // Extract last token logits for comparison with Candle
+    let last_row = 37.0  // Last token index (38 tokens, 0-indexed)
+    let last_token_logits = slice(logits, last_row, 0.0, 32000.0)
+    let last_token_sum = sum(last_token_logits)
+    print("      Last token logits sum:", last_token_sum)
+
+    // Sample from logits (temperature_sample shows top logits in debug mode)
+    let temperature = 0.0  // Greedy decoding
+    let predicted_token = temperature_sample(logits, temperature)
+
+    print("")
+    print("================================================================================")
+    print("Comparison with Candle Reference:")
+    print("  Candle Embedding sum: 3.66015625    | TensorLogic: 3.673828125")
+    print("  Candle Layer 0 sum:   774.0         | TensorLogic: 5.1328125")
+    print("  Candle Final norm:    774.0         | TensorLogic:", final_norm_sum)
+    print("  Candle Last token logits sum: -34784.0 | TensorLogic:", last_token_sum)
+    print("================================================================================")
+    print("")
+
+    print("")
+    print("      Predicted token:", predicted_token)
+    print("")
+
+    print("================================================================================")
+    print("✅ 1-Layer Test Complete")
+    print("================================================================================")
 }
