@@ -3024,6 +3024,26 @@ impl Interpreter {
                 }
             }
 
+            "new_tensor_buffer" => {
+                // new_tensor_buffer(capacity_bytes: int) -> TensorBuffer
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        format!("new_tensor_buffer() expects 1 argument (capacity in bytes), got {}", args.len())
+                    ));
+                }
+
+                let capacity = match self.eval_expr(&args[0])? {
+                    Value::Integer(n) => n as usize,
+                    v => return Err(RuntimeError::TypeError(
+                        format!("new_tensor_buffer() expects Integer as capacity argument, got {}", v.type_name())
+                    )),
+                };
+
+                let device = MetalDevice::new().map_err(|e| RuntimeError::TensorError(e))?;
+                let buffer = device.new_tensor_buffer(capacity);
+                Ok(Value::TensorBuffer(std::sync::Arc::new(buffer)))
+            }
+
             "broadcast_to" => {
                 // broadcast_to(tensor, [target_shape])
                 // Broadcast tensor to target shape following NumPy broadcasting rules

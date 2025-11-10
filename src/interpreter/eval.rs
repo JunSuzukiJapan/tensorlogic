@@ -1539,6 +1539,154 @@ impl Interpreter {
                                 }
                             }
 
+                            // TensorBuffer methods
+                            (Value::TensorBuffer(buf), "zeros") => {
+                                // buf.zeros([shape]) -> TensorF16
+                                if args.len() != 1 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("TensorBuffer.zeros() expects 1 argument (shape), got {}", args.len())
+                                    ));
+                                }
+
+                                // Eval shape argument - can be IntArray, ShapeDims, or 1D Tensor
+                                let shape_val = self.eval_expr(&args[0])?;
+                                let shape: Vec<usize> = match shape_val {
+                                    Value::IntArray(ref arr) => arr.iter().map(|&x| x as usize).collect(),
+                                    Value::ShapeDims(ref dims) => dims.clone(),
+                                    Value::TensorF16(ref t) => {
+                                        // Extract tensor values as shape dimensions
+                                        if t.dims().len() != 1 {
+                                            return Err(RuntimeError::TypeError(
+                                                format!("TensorBuffer.zeros() shape tensor must be 1D, got shape {:?}", t.dims())
+                                            ));
+                                        }
+                                        let num_dims = t.dims()[0];
+                                        (0..num_dims).map(|i| self.read_element_f16(t, i).unwrap() as usize).collect()
+                                    }
+                                    Value::TensorF32(ref t) => {
+                                        // Extract tensor values as shape dimensions
+                                        if t.dims().len() != 1 {
+                                            return Err(RuntimeError::TypeError(
+                                                format!("TensorBuffer.zeros() shape tensor must be 1D, got shape {:?}", t.dims())
+                                            ));
+                                        }
+                                        let num_dims = t.dims()[0];
+                                        (0..num_dims).map(|i| self.read_element_f32(t, i).unwrap() as usize).collect()
+                                    }
+                                    _ => return Err(RuntimeError::TypeError(
+                                        format!("TensorBuffer.zeros() expects array or tensor as shape argument, got {}", shape_val.type_name())
+                                    )),
+                                };
+
+                                use half::f16;
+                                let tensor: crate::tensor::Tensor<f16> = buf.zeros(shape)
+                                    .map_err(|e| RuntimeError::TensorError(e))?;
+                                Ok(Value::TensorF16(tensor))
+                            }
+
+                            (Value::TensorBuffer(buf), "ones") => {
+                                // buf.ones([shape]) -> TensorF16
+                                if args.len() != 1 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("TensorBuffer.ones() expects 1 argument (shape), got {}", args.len())
+                                    ));
+                                }
+
+                                // Eval shape argument - can be IntArray, ShapeDims, or 1D Tensor
+                                let shape_val = self.eval_expr(&args[0])?;
+                                let shape: Vec<usize> = match shape_val {
+                                    Value::IntArray(ref arr) => arr.iter().map(|&x| x as usize).collect(),
+                                    Value::ShapeDims(ref dims) => dims.clone(),
+                                    Value::TensorF16(ref t) => {
+                                        // Extract tensor values as shape dimensions
+                                        if t.dims().len() != 1 {
+                                            return Err(RuntimeError::TypeError(
+                                                format!("TensorBuffer.ones() shape tensor must be 1D, got shape {:?}", t.dims())
+                                            ));
+                                        }
+                                        let num_dims = t.dims()[0];
+                                        (0..num_dims).map(|i| self.read_element_f16(t, i).unwrap() as usize).collect()
+                                    }
+                                    Value::TensorF32(ref t) => {
+                                        // Extract tensor values as shape dimensions
+                                        if t.dims().len() != 1 {
+                                            return Err(RuntimeError::TypeError(
+                                                format!("TensorBuffer.ones() shape tensor must be 1D, got shape {:?}", t.dims())
+                                            ));
+                                        }
+                                        let num_dims = t.dims()[0];
+                                        (0..num_dims).map(|i| self.read_element_f32(t, i).unwrap() as usize).collect()
+                                    }
+                                    _ => return Err(RuntimeError::TypeError(
+                                        format!("TensorBuffer.ones() expects array or tensor as shape argument, got {}", shape_val.type_name())
+                                    )),
+                                };
+
+                                use half::f16;
+                                let tensor: crate::tensor::Tensor<f16> = buf.ones(shape)
+                                    .map_err(|e| RuntimeError::TensorError(e))?;
+                                Ok(Value::TensorF16(tensor))
+                            }
+
+                            (Value::TensorBuffer(buf), "alloc") => {
+                                // buf.alloc([shape], count, elem_size) -> Void
+                                if args.len() != 3 {
+                                    return Err(RuntimeError::TypeError(
+                                        format!("TensorBuffer.alloc() expects 3 arguments (shape, count, elem_size), got {}", args.len())
+                                    ));
+                                }
+
+                                // Eval shape argument - can be IntArray, ShapeDims, or 1D Tensor
+                                let shape_val = self.eval_expr(&args[0])?;
+                                let shape: Vec<usize> = match shape_val {
+                                    Value::IntArray(ref arr) => arr.iter().map(|&x| x as usize).collect(),
+                                    Value::ShapeDims(ref dims) => dims.clone(),
+                                    Value::TensorF16(ref t) => {
+                                        // Extract tensor values as shape dimensions
+                                        if t.dims().len() != 1 {
+                                            return Err(RuntimeError::TypeError(
+                                                format!("TensorBuffer.alloc() shape tensor must be 1D, got shape {:?}", t.dims())
+                                            ));
+                                        }
+                                        let num_dims = t.dims()[0];
+                                        (0..num_dims).map(|i| self.read_element_f16(t, i).unwrap() as usize).collect()
+                                    }
+                                    Value::TensorF32(ref t) => {
+                                        // Extract tensor values as shape dimensions
+                                        if t.dims().len() != 1 {
+                                            return Err(RuntimeError::TypeError(
+                                                format!("TensorBuffer.alloc() shape tensor must be 1D, got shape {:?}", t.dims())
+                                            ));
+                                        }
+                                        let num_dims = t.dims()[0];
+                                        (0..num_dims).map(|i| self.read_element_f32(t, i).unwrap() as usize).collect()
+                                    }
+                                    _ => return Err(RuntimeError::TypeError(
+                                        format!("TensorBuffer.alloc() expects array or tensor as shape argument, got {}", shape_val.type_name())
+                                    )),
+                                };
+
+                                // Eval count argument
+                                let count = match self.eval_expr(&args[1])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("TensorBuffer.alloc() expects Integer as count argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                // Eval elem_size argument
+                                let elem_size = match self.eval_expr(&args[2])? {
+                                    Value::Integer(n) => n as usize,
+                                    v => return Err(RuntimeError::TypeError(
+                                        format!("TensorBuffer.alloc() expects Integer as elem_size argument, got {}", v.type_name())
+                                    )),
+                                };
+
+                                buf.alloc(&shape, count, elem_size)
+                                    .map_err(|e| RuntimeError::TensorError(e))?;
+                                Ok(Value::Void)
+                            }
+
                             _ => Err(RuntimeError::TypeError(
                                 format!("Type {:?} has no method '{}'", obj_value.type_name(), method)
                             ))
@@ -2780,6 +2928,9 @@ impl Interpreter {
             Value::LazyModelLayerCollectionF32(_) => "<LazyModelLayerCollectionF32>".to_string(),
             Value::LazyModelLayerF32(_) => "<LazyModelLayerF32>".to_string(),
             Value::LazyModelFeatureF32(_) => "<LazyModelFeatureF32>".to_string(),
+            Value::TensorBuffer(buf) => format!("TensorBuffer(capacity={}MB, used={}MB)",
+                buf.capacity() / (1024 * 1024),
+                buf.used_bytes() / (1024 * 1024)),
             Value::Struct { struct_type, .. } => format!("<{}>", struct_type.name.as_str()),
         })
     }
@@ -2869,6 +3020,9 @@ impl Interpreter {
             Value::LazyModelLayerCollectionF32(_) => "<LazyModelLayerCollectionF32>".to_string(),
             Value::LazyModelLayerF32(_) => "<LazyModelLayerF32>".to_string(),
             Value::LazyModelFeatureF32(_) => "<LazyModelFeatureF32>".to_string(),
+            Value::TensorBuffer(buf) => format!("TensorBuffer(capacity={}MB, used={}MB)",
+                buf.capacity() / (1024 * 1024),
+                buf.used_bytes() / (1024 * 1024)),
             Value::Struct { struct_type, .. } => format!("<{}>", struct_type.name.as_str()),
         }
     }

@@ -18,9 +18,6 @@
 //   - Faster tensor creation (no GPU sync needed)
 // ============================================================================
 
-// NOTE: TensorBuffer integration requires interpreter-level support
-// This example demonstrates the intended usage pattern
-
 // ----------------------------------------------------------------------------
 // Helper: SiLU (Swish) Activation
 // ----------------------------------------------------------------------------
@@ -180,108 +177,110 @@ main {
     print("")
 
     // ========================================================================
-    // TensorBuffer Initialization (Conceptual - requires interpreter support)
+    // TensorBuffer Initialization
     // ========================================================================
-    print("Initializing TensorBuffer:")
+    print("Initializing TensorBuffer...")
+    let buffer = new_tensor_buffer(buffer_size)
+    print("  Created buffer:", buffer)
     print("")
-    print("  // In actual implementation (Rust side):")
-    print("  let device = MetalDevice::new()?;")
-    print("  let buf = device.new_tensor_buffer(250 * 1024 * 1024);")
-    print("")
-    print("  // Pre-allocate slots for common shapes:")
-    print("  buf.alloc(&[512], 22 * 2, 2)?;           // attn_norm + ffn_norm")
-    print("  buf.alloc(&[512, 512], 22 * 2, 2)?;      // W_q + W_o")
-    print("  buf.alloc(&[512, 128], 22 * 2, 2)?;      // W_k + W_v")
-    print("  buf.alloc(&[512, 2048], 22 * 2, 2)?;     // W_gate + W_up")
-    print("  buf.alloc(&[2048, 512], 22, 2)?;         // W_down")
-    print("")
-    print("  // Create tensors from buffer (zero allocation overhead):")
-    print("  let attn_norm_0: Tensor<f16> = buf.ones(vec![512])?;")
-    print("  let W_q_0: Tensor<f16> = buf.zeros(vec![512, 512])?;")
-    print("  // ... (automatically reuses pre-allocated slots)")
+
+    // Pre-allocate slots for common tensor shapes
+    print("Pre-allocating tensor slots...")
+    buffer.alloc([512], 44, 2)           // attn_norm + ffn_norm (22 layers * 2)
+    buffer.alloc([512, 512], 44, 2)      // W_q + W_o (22 layers * 2)
+    buffer.alloc([512, 128], 44, 2)      // W_k + W_v (22 layers * 2)
+    buffer.alloc([512, 2048], 44, 2)     // W_gate + W_up (22 layers * 2)
+    buffer.alloc([2048, 512], 22, 2)     // W_down (22 layers)
+    print("  ✓ Pre-allocated slots for all weight tensors")
+    print("  Buffer status:", buffer)
     print("")
 
     // ========================================================================
-    // Weight Initialization using TensorBuffer (Future Implementation)
+    // Weight Initialization using TensorBuffer
     // ========================================================================
     print("Initializing weights from TensorBuffer...")
     print("")
 
-    // Future TensorBuffer syntax (not yet implemented in TensorLogic):
-    //
-    // // Create buffer (in actual implementation, this would be at interpreter level)
-    // buffer model_buffer: float16[250MB]
-    //
-    // tensor hidden_states: float16[8, 512] = model_buffer.get([8, 512])
-    //
-    // // Layer 0 - All tensors allocated from pre-allocated buffer
-    // tensor attn_norm_0: float16[512] = model_buffer.ones([512])
-    // tensor ffn_norm_0: float16[512] = model_buffer.ones([512])
-    // tensor W_q_0: float16[512, 512] learnable = model_buffer.get([512, 512])
-    // tensor W_k_0: float16[512, 128] learnable = model_buffer.get([512, 128])
-    // tensor W_v_0: float16[512, 128] learnable = model_buffer.get([512, 128])
-    // tensor W_o_0: float16[512, 512] learnable = model_buffer.get([512, 512])
-    // tensor W_gate_0: float16[512, 2048] learnable = model_buffer.get([512, 2048])
-    // tensor W_up_0: float16[512, 2048] learnable = model_buffer.get([512, 2048])
-    // tensor W_down_0: float16[2048, 512] learnable = model_buffer.get([2048, 512])
-    //
-    // // Layer 1-21 would follow same pattern...
-    // // All tensors allocated from same buffer with zero overhead
-    //
-    // tensor output_norm_weight: float16[512] = model_buffer.ones([512])
+    // Input embeddings (using builtin for demonstration)
+    tensor hidden_states: float16[8, 512] = positional_encoding(seq_len, d_model)
 
-    // Current demonstration: Simulating buffer allocation with print statements
-    print("  [Simulated] Allocating buffer: 250 MB")
-    print("  [Simulated] Creating hidden_states from buffer slot")
-    print("  [Simulated] Creating Layer 0 weights from buffer (9 tensors)")
-    print("  [Simulated] Creating Layer 1 weights from buffer (9 tensors)")
-    print("  [Simulated] Creating Layer 2 weights from buffer (9 tensors)")
-    print("  [Simulated] ... 19 more layers from buffer")
-    print("  [Simulated] Creating output normalization from buffer")
+    // Layer 0 - All tensors allocated from buffer
+    tensor attn_norm_0: float16[512] = buffer.ones([d_model])
+    tensor ffn_norm_0: float16[512] = buffer.ones([d_model])
+    tensor W_q_0: float16[512, 512] = buffer.zeros([d_model, num_q_heads * head_dim])
+    tensor W_k_0: float16[512, 128] = buffer.zeros([d_model, num_kv_heads * head_dim])
+    tensor W_v_0: float16[512, 128] = buffer.zeros([d_model, num_kv_heads * head_dim])
+    tensor W_o_0: float16[512, 512] = buffer.zeros([num_q_heads * head_dim, d_model])
+    tensor W_gate_0: float16[512, 2048] = buffer.zeros([d_model, hidden_dim])
+    tensor W_up_0: float16[512, 2048] = buffer.zeros([d_model, hidden_dim])
+    tensor W_down_0: float16[2048, 512] = buffer.zeros([hidden_dim, d_model])
+
+    // Layer 1
+    tensor attn_norm_1: float16[512] = buffer.ones([d_model])
+    tensor ffn_norm_1: float16[512] = buffer.ones([d_model])
+    tensor W_q_1: float16[512, 512] = buffer.zeros([d_model, num_q_heads * head_dim])
+    tensor W_k_1: float16[512, 128] = buffer.zeros([d_model, num_kv_heads * head_dim])
+    tensor W_v_1: float16[512, 128] = buffer.zeros([d_model, num_kv_heads * head_dim])
+    tensor W_o_1: float16[512, 512] = buffer.zeros([num_q_heads * head_dim, d_model])
+    tensor W_gate_1: float16[512, 2048] = buffer.zeros([d_model, hidden_dim])
+    tensor W_up_1: float16[512, 2048] = buffer.zeros([d_model, hidden_dim])
+    tensor W_down_1: float16[2048, 512] = buffer.zeros([hidden_dim, d_model])
+
+    // Layer 2
+    tensor attn_norm_2: float16[512] = buffer.ones([d_model])
+    tensor ffn_norm_2: float16[512] = buffer.ones([d_model])
+    tensor W_q_2: float16[512, 512] = buffer.zeros([d_model, num_q_heads * head_dim])
+    tensor W_k_2: float16[512, 128] = buffer.zeros([d_model, num_kv_heads * head_dim])
+    tensor W_v_2: float16[512, 128] = buffer.zeros([d_model, num_kv_heads * head_dim])
+    tensor W_o_2: float16[512, 512] = buffer.zeros([num_q_heads * head_dim, d_model])
+    tensor W_gate_2: float16[512, 2048] = buffer.zeros([d_model, hidden_dim])
+    tensor W_up_2: float16[512, 2048] = buffer.zeros([d_model, hidden_dim])
+    tensor W_down_2: float16[2048, 512] = buffer.zeros([hidden_dim, d_model])
+
+    print("  ✓ Initialized Layer 0 weights from buffer (9 tensors)")
+    print("  ✓ Initialized Layer 1 weights from buffer (9 tensors)")
+    print("  ✓ Initialized Layer 2 weights from buffer (9 tensors)")
+    print("  (Remaining 19 layers would follow same pattern)")
     print("")
-    print("  ✓ All 199 tensors allocated from single buffer")
-    print("  ✓ Zero GPU sync overhead (vs 199 separate allocations)")
+    print("  Buffer status after allocation:", buffer)
     print("")
+
+    // Output normalization
+    tensor output_norm_weight: float16[512] = buffer.ones([d_model])
 
     // ========================================================================
-    // Forward Pass (Conceptual)
+    // Forward Pass
     // ========================================================================
     print("================================================================================")
-    print("Forward Pass with TensorBuffer (Conceptual)")
+    print("Forward Pass with TensorBuffer")
     print("================================================================================")
     print("")
 
     print("Processing through transformer layers...")
-    print("  (Using TensorBuffer: zero allocation overhead)")
     print("")
 
-    // Future implementation would use:
-    // let h0 = transformer_block(hidden_states, attn_norm_0, ffn_norm_0,
-    //                            W_q_0, W_k_0, W_v_0, W_o_0,
-    //                            W_gate_0, W_up_0, W_down_0)
-    print("  [Simulated] Layer 0: Attention + FFN using buffer-allocated tensors")
+    let h0 = transformer_block(hidden_states, attn_norm_0, ffn_norm_0,
+                               W_q_0, W_k_0, W_v_0, W_o_0,
+                               W_gate_0, W_up_0, W_down_0)
     print("  ✓ Layer 0 complete")
 
-    // let h1 = transformer_block(h0, attn_norm_1, ffn_norm_1,
-    //                            W_q_1, W_k_1, W_v_1, W_o_1,
-    //                            W_gate_1, W_up_1, W_down_1)
-    print("  [Simulated] Layer 1: Attention + FFN using buffer-allocated tensors")
+    let h1 = transformer_block(h0, attn_norm_1, ffn_norm_1,
+                               W_q_1, W_k_1, W_v_1, W_o_1,
+                               W_gate_1, W_up_1, W_down_1)
     print("  ✓ Layer 1 complete")
 
-    // let h2 = transformer_block(h1, attn_norm_2, ffn_norm_2,
-    //                            W_q_2, W_k_2, W_v_2, W_o_2,
-    //                            W_gate_2, W_up_2, W_down_2)
-    print("  [Simulated] Layer 2: Attention + FFN using buffer-allocated tensors")
+    let h2 = transformer_block(h1, attn_norm_2, ffn_norm_2,
+                               W_q_2, W_k_2, W_v_2, W_o_2,
+                               W_gate_2, W_up_2, W_down_2)
     print("  ✓ Layer 2 complete")
 
     print("")
-    print("  [Simulated] Layers 3-21: All using same buffer pattern")
+    print("  (Layers 3-21 would follow same pattern)")
     print("")
 
     print("Final normalization:")
-    // let output = rms_norm(h2, output_norm_weight, eps)
-    print("  [Simulated] RMSNorm with buffer-allocated weights")
-    print("  ✓ Final output: [", seq_len, ",", d_model, "]")
+    let output = rms_norm(h2, output_norm_weight, eps)
+    print("  ✓ Final output shape: [", seq_len, ",", d_model, "]")
     print("")
 
     // ========================================================================
@@ -320,33 +319,7 @@ main {
     print("  • Expected speedup: 2-3x for inference")
     print("")
 
-    print("Usage Pattern (Rust implementation):")
-    print("  ```rust")
-    print("  // Setup phase")
-    print("  let device = MetalDevice::new()?;")
-    print("  let buf = device.new_tensor_buffer(250 * 1024 * 1024);")
-    print("")
-    print("  // Pre-allocate common shapes")
-    print("  buf.alloc(&[512, 512], 44, 2)?;  // 22 layers * 2 tensors")
-    print("")
-    print("  // Inference loop")
-    print("  for token in tokens {")
-    print("      let t1 = buf.zeros(vec![512, 512])?;  // Reuses slot")
-    print("      let t2 = buf.zeros(vec![512, 512])?;  // Reuses slot")
-    print("      // ... computation ...")
-    print("      // Tensors automatically returned to pool on drop")
-    print("  }")
-    print("  ```")
-    print("")
-
     print("================================================================================")
     print("✅ TensorBuffer Demonstration Complete!")
     print("================================================================================")
-    print("")
-    print("Next Steps:")
-    print("  1. Implement TensorBuffer support in TensorLogic interpreter")
-    print("  2. Add 'buffer' keyword for buffer creation")
-    print("  3. Enable tensor creation from buffers: buf.zeros(shape)")
-    print("  4. Automatic slot recycling on tensor drop")
-    print("  5. Benchmark against traditional allocation")
 }

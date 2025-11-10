@@ -189,6 +189,8 @@ pub enum Value {
     LazyModelLayerF32(LazyModelLayerF32),
     /// Lazy model feature (f32) - loads weights on demand
     LazyModelFeatureF32(LazyModelFeatureF32),
+    /// Pre-allocated GPU buffer for zero-overhead tensor creation
+    TensorBuffer(std::sync::Arc<crate::device::metal::TensorBuffer>),
     Void,
 }
 
@@ -226,6 +228,7 @@ impl Value {
             Value::LazyModelLayerCollectionF32(_) => "LazyModelLayerCollectionF32",
             Value::LazyModelLayerF32(_) => "LazyModelLayerF32",
             Value::LazyModelFeatureF32(_) => "LazyModelFeatureF32",
+            Value::TensorBuffer(_) => "TensorBuffer",
             Value::Void => "Void",
         }
     }
@@ -521,6 +524,11 @@ impl std::fmt::Display for Value {
             Value::LazyModelFeatureF32(feat) => {
                 let (cached, capacity) = feat.cache.cache_stats();
                 write!(f, "LazyModelFeature<f32>(name={}, cache={}/{})", feat.name, cached, capacity)
+            }
+            Value::TensorBuffer(buf) => {
+                write!(f, "TensorBuffer(capacity={}MB, used={}MB)",
+                       buf.capacity() / (1024 * 1024),
+                       buf.used_bytes() / (1024 * 1024))
             }
             Value::Void => write!(f, "()"),
         }

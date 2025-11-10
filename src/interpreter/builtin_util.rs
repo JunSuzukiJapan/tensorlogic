@@ -15,6 +15,7 @@ impl Interpreter {
             "input" => Some(self.eval_input(args)),
             "env" => Some(self.eval_env(args)),
             "cleanup" => Some(self.eval_cleanup(args)),
+            "new_tensor_buffer" => Some(self.eval_new_tensor_buffer(args)),
             _ => None,
         }
     }
@@ -260,5 +261,28 @@ impl Interpreter {
         // This would require iterating through scopes and selectively removing variables
 
         Ok(Value::Void)
+    }
+
+    /// new_tensor_buffer(capacity_bytes: int) -> TensorBuffer
+    /// Create a new TensorBuffer with specified capacity for pre-allocated GPU memory
+    fn eval_new_tensor_buffer(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::device::MetalDevice;
+
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("new_tensor_buffer() expects 1 argument (capacity in bytes), got {}", args.len())
+            ));
+        }
+
+        let capacity = match self.eval_expr(&args[0])? {
+            Value::Integer(n) => n as usize,
+            v => return Err(RuntimeError::TypeError(
+                format!("new_tensor_buffer() expects Integer as capacity argument, got {}", v.type_name())
+            )),
+        };
+
+        let device = MetalDevice::new().map_err(|e| RuntimeError::TensorError(e))?;
+        let buffer = device.new_tensor_buffer(capacity);
+        Ok(Value::TensorBuffer(std::sync::Arc::new(buffer)))
     }
 }
