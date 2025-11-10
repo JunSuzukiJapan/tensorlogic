@@ -9,6 +9,15 @@ use crate::tensor::Tensor;
 use crate::device::EncoderProvider;
 use std::collections::HashSet;
 
+/// Array element type
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ArrayType {
+    Integer,
+    Float,
+    String,
+    Boolean,
+}
+
 impl Interpreter {
     pub(super) fn execute_statement(&mut self, stmt: &Statement) -> RuntimeResult<()> {
         match stmt {
@@ -1837,78 +1846,227 @@ impl Interpreter {
         }
     }
 
-    /// Evaluate an array literal to a tensor
+    /// Evaluate an array literal to a tensor or typed array
     pub(super) fn eval_array_literal(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Value> {
-        let _fn_start = std::time::Instant::now();
-        // eprintln!("[DEBUG] eval_array_literal: Entry, elements.len={}", elements.len());
+        use crate::ast::{ArrayElement, TensorLiteral, ScalarLiteral};
 
-        // Support empty arrays - return empty Tensor
+        // Support empty arrays - return empty int array by default
         if elements.is_empty() {
-            // eprintln!("[DEBUG] eval_array_literal: Empty array, creating empty tensor");
-            let tensor = Tensor::from_vec_gpu(self.env.metal_device(), vec![], vec![0])
-                .map_err(|e| RuntimeError::TensorError(e))?;
-            return Ok(Value::TensorF16(tensor));
+            return Ok(Value::IntArray(vec![]));
         }
 
-        // Recursively collect all scalar values
-        // eprintln!("[DEBUG] eval_array_literal: Calling collect_scalars...");
-        let collect_start = std::time::Instant::now();
-        let values = self.collect_scalars(elements)?;
-        // eprintln!("[DEBUG] eval_array_literal: collect_scalars completed in {:.3}ms, values.len={}",
-        //           collect_start.elapsed().as_secs_f64() * 1000.0, values.len());
+        // Detect array element type from first element
+        let array_type = self.detect_array_type(elements)?;
 
-        // Determine shape
-        // eprintln!("[DEBUG] eval_array_literal: Calling infer_shape...");
-        let shape_start = std::time::Instant::now();
-        let shape = self.infer_shape(elements)?;
-        // eprintln!("[DEBUG] eval_array_literal: infer_shape completed in {:.3}ms, shape={:?}",
-        //           shape_start.elapsed().as_secs_f64() * 1000.0, shape);
+        match array_type {
+            ArrayType::Integer => {
+                // Collect integers
+                let values = self.collect_integers(elements)?;
 
-        // Determine if array contains float literals (f32) or only integers (f16)
-        // eprintln!("[DEBUG] eval_array_literal: Calling has_float_literal...");
-        let float_check_start = std::time::Instant::now();
-        let has_float_literal = self.has_float_literal(elements);
-        // eprintln!("[DEBUG] eval_array_literal: has_float_literal={} ({:.3}ms)",
-        //           has_float_literal, float_check_start.elapsed().as_secs_f64() * 1000.0);
+                // If single dimension, return IntArray, else create tensor
+                let shape = self.infer_shape(elements)?;
+                if shape.len() == 1 {
+                    Ok(Value::IntArray(values))
+                } else {
+                    // Multi-dimensional: convert to f16 tensor for backward compatibility
+                    let f16_values: Vec<f16> = values.into_iter().map(|v| f16::from_f32(v as f32)).collect();
+                    let tensor = Tensor::from_vec(f16_values, shape)
+                        .map_err(|e| RuntimeError::TensorError(e))?;
+                    Ok(Value::TensorF16(tensor))
+                }
+            }
+            ArrayType::Float => {
+                // Collect floats
+                let values = self.collect_floats(elements)?;
 
-        // OPTIMIZATION: Create array literals on CPU to avoid GPU sync overhead
-        // Builtin functions (ones, zeros, reshape) now support CPU tensors via to_cpu_vec()
-        // This eliminates per-element GPU sync when using arrays as shape parameters
-        let numel = values.len();
-        let use_cpu = true;
-
-        if has_float_literal {
-            // eprintln!("[DEBUG] eval_array_literal: Creating f32 tensor (numel={}, cpu={})...", numel, use_cpu);
-            let create_start = std::time::Instant::now();
-            // Array contains float literals -> create f32 tensor
-            let tensor = if use_cpu {
-                Tensor::from_vec(values, shape)
-                    .map_err(|e| RuntimeError::TensorError(e))?
-            } else {
-                Tensor::from_vec_gpu(self.env.metal_device(), values, shape)
-                    .map_err(|e| RuntimeError::TensorError(e))?
-            };
-            // eprintln!("[DEBUG] eval_array_literal: f32 tensor created in {:.3}ms", create_start.elapsed().as_secs_f64() * 1000.0);
-            // eprintln!("[DEBUG] eval_array_literal: TOTAL time: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
-            Ok(Value::TensorF32(tensor))
-        } else {
-            // eprintln!("[DEBUG] eval_array_literal: Creating f16 tensor (numel={}, cpu={})...", numel, use_cpu);
-            let convert_start = std::time::Instant::now();
-            // Array contains only integers -> create f16 tensor (backward compatibility)
-            let f16_values: Vec<f16> = values.into_iter().map(f16::from_f32).collect();
-            // eprintln!("[DEBUG] eval_array_literal: f16 conversion complete in {:.3}ms, creating tensor...", convert_start.elapsed().as_secs_f64() * 1000.0);
-            let create_start = std::time::Instant::now();
-            let tensor = if use_cpu {
-                Tensor::from_vec(f16_values, shape)
-                    .map_err(|e| RuntimeError::TensorError(e))?
-            } else {
-                Tensor::from_vec_gpu(self.env.metal_device(), f16_values, shape)
-                    .map_err(|e| RuntimeError::TensorError(e))?
-            };
-            // eprintln!("[DEBUG] eval_array_literal: f16 tensor created in {:.3}ms", create_start.elapsed().as_secs_f64() * 1000.0);
-            // eprintln!("[DEBUG] eval_array_literal: TOTAL time: {:.3}ms", _fn_start.elapsed().as_secs_f64() * 1000.0);
-            Ok(Value::TensorF16(tensor))
+                // If single dimension, return FloatArray, else create tensor
+                let shape = self.infer_shape(elements)?;
+                if shape.len() == 1 {
+                    Ok(Value::FloatArray(values))
+                } else {
+                    // Multi-dimensional: create f32 tensor
+                    let f32_values: Vec<f32> = values.into_iter().map(|v| v as f32).collect();
+                    let tensor = Tensor::from_vec(f32_values, shape)
+                        .map_err(|e| RuntimeError::TensorError(e))?;
+                    Ok(Value::TensorF32(tensor))
+                }
+            }
+            ArrayType::String => {
+                // Collect strings
+                let values = self.collect_strings(elements)?;
+                Ok(Value::StringArray(values))
+            }
+            ArrayType::Boolean => {
+                // Collect booleans
+                let values = self.collect_booleans(elements)?;
+                Ok(Value::BoolArray(values))
+            }
         }
+    }
+
+    /// Detect array element type from first element
+    fn detect_array_type(&mut self, elements: &[ArrayElement]) -> RuntimeResult<ArrayType> {
+        use crate::ast::{ArrayElement, TensorLiteral, ScalarLiteral};
+
+        if elements.is_empty() {
+            return Ok(ArrayType::Integer); // Default
+        }
+
+        // Check first element
+        match &elements[0] {
+            ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Integer(_))) => Ok(ArrayType::Integer),
+            ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Float(_))) => Ok(ArrayType::Float),
+            ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::String(_))) => Ok(ArrayType::String),
+            ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Boolean(_))) => Ok(ArrayType::Boolean),
+            ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Complex { .. })) => {
+                Err(RuntimeError::TypeError(
+                    "Complex numbers are not supported in arrays yet".to_string()
+                ))
+            }
+            ArrayElement::Literal(TensorLiteral::Array(nested)) => self.detect_array_type(nested),
+            ArrayElement::Expression(expr) => {
+                // Evaluate expression to determine type
+                let value = self.eval_expr(expr)?;
+                match value {
+                    Value::Integer(_) => Ok(ArrayType::Integer),
+                    Value::Float(_) => Ok(ArrayType::Float),
+                    Value::String(_) => Ok(ArrayType::String),
+                    Value::Boolean(_) => Ok(ArrayType::Boolean),
+                    _ => Err(RuntimeError::TypeError(
+                        "Array element must be Integer, Float, String, or Boolean".to_string()
+                    )),
+                }
+            }
+        }
+    }
+
+    /// Collect integers from array
+    fn collect_integers(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Vec<i64>> {
+        use crate::ast::{ArrayElement, TensorLiteral, ScalarLiteral};
+        let mut values = Vec::new();
+
+        for elem in elements {
+            match elem {
+                ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Integer(i))) => {
+                    values.push(*i);
+                }
+                ArrayElement::Literal(TensorLiteral::Array(nested)) => {
+                    values.extend(self.collect_integers(nested)?);
+                }
+                ArrayElement::Expression(expr) => {
+                    let value = self.eval_expr(expr)?;
+                    match value {
+                        Value::Integer(i) => values.push(i),
+                        _ => return Err(RuntimeError::TypeError(
+                            "Array contains mixed types - all elements must be Integer".to_string()
+                        )),
+                    }
+                }
+                _ => return Err(RuntimeError::TypeError(
+                    "Array contains mixed types - all elements must be Integer".to_string()
+                )),
+            }
+        }
+
+        Ok(values)
+    }
+
+    /// Collect floats from array
+    fn collect_floats(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Vec<f64>> {
+        use crate::ast::{ArrayElement, TensorLiteral, ScalarLiteral};
+        let mut values = Vec::new();
+
+        for elem in elements {
+            match elem {
+                ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Float(f))) => {
+                    values.push(*f);
+                }
+                ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Integer(i))) => {
+                    // Allow implicit int->float conversion
+                    values.push(*i as f64);
+                }
+                ArrayElement::Literal(TensorLiteral::Array(nested)) => {
+                    values.extend(self.collect_floats(nested)?);
+                }
+                ArrayElement::Expression(expr) => {
+                    let value = self.eval_expr(expr)?;
+                    match value {
+                        Value::Float(f) => values.push(f),
+                        Value::Integer(i) => values.push(i as f64),
+                        _ => return Err(RuntimeError::TypeError(
+                            "Array contains mixed types - all elements must be Float or Integer".to_string()
+                        )),
+                    }
+                }
+                _ => return Err(RuntimeError::TypeError(
+                    "Array contains mixed types - all elements must be Float".to_string()
+                )),
+            }
+        }
+
+        Ok(values)
+    }
+
+    /// Collect strings from array
+    fn collect_strings(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Vec<String>> {
+        use crate::ast::{ArrayElement, TensorLiteral, ScalarLiteral};
+        let mut values = Vec::new();
+
+        for elem in elements {
+            match elem {
+                ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::String(s))) => {
+                    values.push(s.clone());
+                }
+                ArrayElement::Literal(TensorLiteral::Array(nested)) => {
+                    values.extend(self.collect_strings(nested)?);
+                }
+                ArrayElement::Expression(expr) => {
+                    let value = self.eval_expr(expr)?;
+                    match value {
+                        Value::String(s) => values.push(s),
+                        _ => return Err(RuntimeError::TypeError(
+                            "Array contains mixed types - all elements must be String".to_string()
+                        )),
+                    }
+                }
+                _ => return Err(RuntimeError::TypeError(
+                    "Array contains mixed types - all elements must be String".to_string()
+                )),
+            }
+        }
+
+        Ok(values)
+    }
+
+    /// Collect booleans from array
+    fn collect_booleans(&mut self, elements: &[ArrayElement]) -> RuntimeResult<Vec<bool>> {
+        use crate::ast::{ArrayElement, TensorLiteral, ScalarLiteral};
+        let mut values = Vec::new();
+
+        for elem in elements {
+            match elem {
+                ArrayElement::Literal(TensorLiteral::Scalar(ScalarLiteral::Boolean(b))) => {
+                    values.push(*b);
+                }
+                ArrayElement::Literal(TensorLiteral::Array(nested)) => {
+                    values.extend(self.collect_booleans(nested)?);
+                }
+                ArrayElement::Expression(expr) => {
+                    let value = self.eval_expr(expr)?;
+                    match value {
+                        Value::Boolean(b) => values.push(b),
+                        _ => return Err(RuntimeError::TypeError(
+                            "Array contains mixed types - all elements must be Boolean".to_string()
+                        )),
+                    }
+                }
+                _ => return Err(RuntimeError::TypeError(
+                    "Array contains mixed types - all elements must be Boolean".to_string()
+                )),
+            }
+        }
+
+        Ok(values)
     }
 
     /// Check if array elements contain float literals (for f32 vs f16 detection)
@@ -3027,6 +3185,59 @@ impl Interpreter {
             Value::TensorBuffer(buf) => format!("TensorBuffer(capacity={}MB, used={}MB)",
                 buf.capacity() / (1024 * 1024),
                 buf.used_bytes() / (1024 * 1024)),
+            Value::FloatArray(arr) => {
+                if arr.len() <= 10 {
+                    format!("{:?}", arr)
+                } else {
+                    format!("[{}, {}, ..., {}] (len={})", arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::StringArray(arr) => {
+                if arr.len() <= 10 {
+                    format!("{:?}", arr)
+                } else {
+                    format!("[\"{}\", \"{}\", ..., \"{}\"] (len={})", arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::BoolArray(arr) => {
+                if arr.len() <= 10 {
+                    format!("{:?}", arr)
+                } else {
+                    format!("[{}, {}, ..., {}] (len={})", arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::IntVec(vec) => {
+                let arr = vec.lock().unwrap();
+                if arr.len() <= 10 {
+                    format!("Vec{:?}", &arr[..])
+                } else {
+                    format!("Vec[{}, {}, ..., {}] (len={})", arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::FloatVec(vec) => {
+                let arr = vec.lock().unwrap();
+                if arr.len() <= 10 {
+                    format!("Vec{:?}", &arr[..])
+                } else {
+                    format!("Vec[{}, {}, ..., {}] (len={})", arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::StringVec(vec) => {
+                let arr = vec.lock().unwrap();
+                if arr.len() <= 10 {
+                    format!("Vec{:?}", &arr[..])
+                } else {
+                    format!("Vec[\"{}\", \"{}\", ..., \"{}\"] (len={})", arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::BoolVec(vec) => {
+                let arr = vec.lock().unwrap();
+                if arr.len() <= 10 {
+                    format!("Vec{:?}", &arr[..])
+                } else {
+                    format!("Vec[{}, {}, ..., {}] (len={})", arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
             Value::Struct { struct_type, .. } => format!("<{}>", struct_type.name.as_str()),
         })
     }
@@ -3119,6 +3330,59 @@ impl Interpreter {
             Value::TensorBuffer(buf) => format!("TensorBuffer(capacity={}MB, used={}MB)",
                 buf.capacity() / (1024 * 1024),
                 buf.used_bytes() / (1024 * 1024)),
+            Value::FloatArray(arr) => {
+                if arr.len() <= 10 {
+                    format!("{:?}", arr)
+                } else {
+                    format!("[{}, {}, ..., {}] (len={})", arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::StringArray(arr) => {
+                if arr.len() <= 10 {
+                    format!("{:?}", arr)
+                } else {
+                    format!("[\"{}\", \"{}\", ..., \"{}\"] (len={})", arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::BoolArray(arr) => {
+                if arr.len() <= 10 {
+                    format!("{:?}", arr)
+                } else {
+                    format!("[{}, {}, ..., {}] (len={})", arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::IntVec(vec) => {
+                let arr = vec.lock().unwrap();
+                if arr.len() <= 10 {
+                    format!("Vec{:?}", &arr[..])
+                } else {
+                    format!("Vec[{}, {}, ..., {}] (len={})", arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::FloatVec(vec) => {
+                let arr = vec.lock().unwrap();
+                if arr.len() <= 10 {
+                    format!("Vec{:?}", &arr[..])
+                } else {
+                    format!("Vec[{}, {}, ..., {}] (len={})", arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::StringVec(vec) => {
+                let arr = vec.lock().unwrap();
+                if arr.len() <= 10 {
+                    format!("Vec{:?}", &arr[..])
+                } else {
+                    format!("Vec[\"{}\", \"{}\", ..., \"{}\"] (len={})", arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::BoolVec(vec) => {
+                let arr = vec.lock().unwrap();
+                if arr.len() <= 10 {
+                    format!("Vec{:?}", &arr[..])
+                } else {
+                    format!("Vec[{}, {}, ..., {}] (len={})", arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
             Value::Struct { struct_type, .. } => format!("<{}>", struct_type.name.as_str()),
         }
     }

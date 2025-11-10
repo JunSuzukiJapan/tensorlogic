@@ -161,6 +161,20 @@ pub enum Value {
     TokenIdArray(TokenIdArray),
     /// Integer array for general purpose use
     IntArray(Vec<i64>),
+    /// Float array for general purpose use
+    FloatArray(Vec<f64>),
+    /// String array for general purpose use
+    StringArray(Vec<String>),
+    /// Boolean array for general purpose use
+    BoolArray(Vec<bool>),
+    /// Mutable integer vector (like Rust's Vec)
+    IntVec(std::sync::Arc<std::sync::Mutex<Vec<i64>>>),
+    /// Mutable float vector (like Rust's Vec)
+    FloatVec(std::sync::Arc<std::sync::Mutex<Vec<f64>>>),
+    /// Mutable string vector (like Rust's Vec)
+    StringVec(std::sync::Arc<std::sync::Mutex<Vec<String>>>),
+    /// Mutable boolean vector (like Rust's Vec)
+    BoolVec(std::sync::Arc<std::sync::Mutex<Vec<bool>>>),
     /// Shape dimensions (optimized for tensor shape queries)
     /// Always stored on CPU for instant access without GPU synchronization
     ShapeDims(Vec<usize>),
@@ -216,6 +230,13 @@ impl Value {
             Value::TokenIds(_) => "TokenIds",
             Value::TokenIdArray(_) => "TokenIdArray",
             Value::IntArray(_) => "IntArray",
+            Value::FloatArray(_) => "FloatArray",
+            Value::StringArray(_) => "StringArray",
+            Value::BoolArray(_) => "BoolArray",
+            Value::IntVec(_) => "IntVec",
+            Value::FloatVec(_) => "FloatVec",
+            Value::StringVec(_) => "StringVec",
+            Value::BoolVec(_) => "BoolVec",
             Value::ShapeDims(_) => "ShapeDims",
             Value::Type(_) => "Type",
             Value::Struct { .. } => "Struct",
@@ -459,6 +480,115 @@ impl std::fmt::Display for Value {
                     write!(f, "]")
                 } else {
                     write!(f, "[{}, {}, ..., {}] (len={})",
+                        arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::FloatArray(arr) => {
+                if arr.len() <= 10 {
+                    write!(f, "[")?;
+                    for (i, val) in arr.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", val)?;
+                    }
+                    write!(f, "]")
+                } else {
+                    write!(f, "[{}, {}, ..., {}] (len={})",
+                        arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::StringArray(arr) => {
+                if arr.len() <= 10 {
+                    write!(f, "[")?;
+                    for (i, val) in arr.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "\"{}\"", val)?;
+                    }
+                    write!(f, "]")
+                } else {
+                    write!(f, "[\"{}\", \"{}\", ..., \"{}\"] (len={})",
+                        arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::BoolArray(arr) => {
+                if arr.len() <= 10 {
+                    write!(f, "[")?;
+                    for (i, val) in arr.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", val)?;
+                    }
+                    write!(f, "]")
+                } else {
+                    write!(f, "[{}, {}, ..., {}] (len={})",
+                        arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::IntVec(vec) => {
+                let arr = vec.lock().unwrap();
+                if arr.len() <= 10 {
+                    write!(f, "Vec[")?;
+                    for (i, val) in arr.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", val)?;
+                    }
+                    write!(f, "]")
+                } else {
+                    write!(f, "Vec[{}, {}, ..., {}] (len={})",
+                        arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::FloatVec(vec) => {
+                let arr = vec.lock().unwrap();
+                if arr.len() <= 10 {
+                    write!(f, "Vec[")?;
+                    for (i, val) in arr.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", val)?;
+                    }
+                    write!(f, "]")
+                } else {
+                    write!(f, "Vec[{}, {}, ..., {}] (len={})",
+                        arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::StringVec(vec) => {
+                let arr = vec.lock().unwrap();
+                if arr.len() <= 10 {
+                    write!(f, "Vec[")?;
+                    for (i, val) in arr.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "\"{}\"", val)?;
+                    }
+                    write!(f, "]")
+                } else {
+                    write!(f, "Vec[\"{}\", \"{}\", ..., \"{}\"] (len={})",
+                        arr[0], arr[1], arr[arr.len()-1], arr.len())
+                }
+            }
+            Value::BoolVec(vec) => {
+                let arr = vec.lock().unwrap();
+                if arr.len() <= 10 {
+                    write!(f, "Vec[")?;
+                    for (i, val) in arr.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", val)?;
+                    }
+                    write!(f, "]")
+                } else {
+                    write!(f, "Vec[{}, {}, ..., {}] (len={})",
                         arr[0], arr[1], arr[arr.len()-1], arr.len())
                 }
             }

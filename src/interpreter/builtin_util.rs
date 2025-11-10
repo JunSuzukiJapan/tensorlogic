@@ -16,12 +16,19 @@ impl Interpreter {
             "env" => Some(self.eval_env(args)),
             "cleanup" => Some(self.eval_cleanup(args)),
             "new_tensor_buffer" => Some(self.eval_new_tensor_buffer(args)),
+            // Scalar math functions
+            "abs" => Some(self.eval_abs(args)),
+            "floor" => Some(self.eval_floor(args)),
+            "ceil" => Some(self.eval_ceil(args)),
+            "round" => Some(self.eval_round(args)),
+            "min" => Some(self.eval_min(args)),
+            "max" => Some(self.eval_max(args)),
             _ => None,
         }
     }
 
     /// len(value) -> int
-    /// Get length of TokenIds, Tensor, or String
+    /// Get length of TokenIds, Tensor, String, Array, or Vec
     fn eval_len(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
@@ -37,53 +44,177 @@ impl Interpreter {
                 dims[0] as i64
             }
             Value::String(ref s) => s.len() as i64,
+            Value::IntArray(ref arr) => arr.len() as i64,
+            Value::FloatArray(ref arr) => arr.len() as i64,
+            Value::StringArray(ref arr) => arr.len() as i64,
+            Value::BoolArray(ref arr) => arr.len() as i64,
+            Value::IntVec(ref vec) => vec.lock().unwrap().len() as i64,
+            Value::FloatVec(ref vec) => vec.lock().unwrap().len() as i64,
+            Value::StringVec(ref vec) => vec.lock().unwrap().len() as i64,
+            Value::BoolVec(ref vec) => vec.lock().unwrap().len() as i64,
             v => return Err(RuntimeError::TypeError(
-                format!("len() argument must be TokenIds, Tensor, or String, got {:?}", v)
+                format!("len() argument must be TokenIds, Tensor, String, Array, or Vec, got {:?}", v)
             )),
         };
 
         Ok(Value::Integer(length))
     }
 
-    /// get(token_ids, index) -> int
-    /// Get token ID at specific index
+    /// get(collection, index) -> value
+    /// Get element at specific index from TokenIds, Array, or Vec
     fn eval_get(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
-                format!("get() expects 2 arguments (token_ids, index), got {}", args.len())
+                format!("get() expects 2 arguments (collection, index), got {}", args.len())
             ));
         }
 
-        let token_ids = match self.eval_expr(&args[0])? {
-            Value::TokenIds(ids) => ids,
-            v => return Err(RuntimeError::TypeError(
-                format!("get() first argument must be TokenIds, got {:?}", v)
-            )),
-        };
+        let collection = self.eval_expr(&args[0])?;
+        let index_val = self.eval_expr(&args[1])?;
 
-        let index = match self.eval_expr(&args[1])? {
-            Value::Integer(i) => {
-                // Support negative indexing
-                if i < 0 {
-                    (token_ids.len() as i64 + i) as usize
-                } else {
-                    i as usize
-                }
-            }
-            Value::Float(f) => f as usize,
+        let index = match index_val {
+            Value::Integer(i) => i,
+            Value::Float(f) => f as i64,
             v => return Err(RuntimeError::TypeError(
                 format!("get() index must be a number, got {:?}", v)
             )),
         };
 
-        if index >= token_ids.len() {
-            return Err(RuntimeError::IndexError {
-                index,
-                length: token_ids.len(),
-            });
+        match collection {
+            Value::TokenIds(ids) => {
+                let idx = if index < 0 {
+                    (ids.len() as i64 + index) as usize
+                } else {
+                    index as usize
+                };
+                if idx >= ids.len() {
+                    return Err(RuntimeError::IndexError {
+                        index: idx,
+                        length: ids.len(),
+                    });
+                }
+                Ok(Value::Integer(ids[idx] as i64))
+            }
+            Value::IntArray(arr) => {
+                let idx = if index < 0 {
+                    (arr.len() as i64 + index) as usize
+                } else {
+                    index as usize
+                };
+                if idx >= arr.len() {
+                    return Err(RuntimeError::IndexError {
+                        index: idx,
+                        length: arr.len(),
+                    });
+                }
+                Ok(Value::Integer(arr[idx]))
+            }
+            Value::FloatArray(arr) => {
+                let idx = if index < 0 {
+                    (arr.len() as i64 + index) as usize
+                } else {
+                    index as usize
+                };
+                if idx >= arr.len() {
+                    return Err(RuntimeError::IndexError {
+                        index: idx,
+                        length: arr.len(),
+                    });
+                }
+                Ok(Value::Float(arr[idx]))
+            }
+            Value::StringArray(arr) => {
+                let idx = if index < 0 {
+                    (arr.len() as i64 + index) as usize
+                } else {
+                    index as usize
+                };
+                if idx >= arr.len() {
+                    return Err(RuntimeError::IndexError {
+                        index: idx,
+                        length: arr.len(),
+                    });
+                }
+                Ok(Value::String(arr[idx].clone()))
+            }
+            Value::BoolArray(arr) => {
+                let idx = if index < 0 {
+                    (arr.len() as i64 + index) as usize
+                } else {
+                    index as usize
+                };
+                if idx >= arr.len() {
+                    return Err(RuntimeError::IndexError {
+                        index: idx,
+                        length: arr.len(),
+                    });
+                }
+                Ok(Value::Boolean(arr[idx]))
+            }
+            Value::IntVec(vec) => {
+                let v = vec.lock().unwrap();
+                let idx = if index < 0 {
+                    (v.len() as i64 + index) as usize
+                } else {
+                    index as usize
+                };
+                if idx >= v.len() {
+                    return Err(RuntimeError::IndexError {
+                        index: idx,
+                        length: v.len(),
+                    });
+                }
+                Ok(Value::Integer(v[idx]))
+            }
+            Value::FloatVec(vec) => {
+                let v = vec.lock().unwrap();
+                let idx = if index < 0 {
+                    (v.len() as i64 + index) as usize
+                } else {
+                    index as usize
+                };
+                if idx >= v.len() {
+                    return Err(RuntimeError::IndexError {
+                        index: idx,
+                        length: v.len(),
+                    });
+                }
+                Ok(Value::Float(v[idx]))
+            }
+            Value::StringVec(vec) => {
+                let v = vec.lock().unwrap();
+                let idx = if index < 0 {
+                    (v.len() as i64 + index) as usize
+                } else {
+                    index as usize
+                };
+                if idx >= v.len() {
+                    return Err(RuntimeError::IndexError {
+                        index: idx,
+                        length: v.len(),
+                    });
+                }
+                Ok(Value::String(v[idx].clone()))
+            }
+            Value::BoolVec(vec) => {
+                let v = vec.lock().unwrap();
+                let idx = if index < 0 {
+                    (v.len() as i64 + index) as usize
+                } else {
+                    index as usize
+                };
+                if idx >= v.len() {
+                    return Err(RuntimeError::IndexError {
+                        index: idx,
+                        length: v.len(),
+                    });
+                }
+                Ok(Value::Boolean(v[idx]))
+            }
+            v => Err(RuntimeError::TypeError(
+                format!("get() first argument must be TokenIds, Array, or Vec, got {:?}", v)
+            )),
         }
-
-        Ok(Value::Integer(token_ids[index] as i64))
     }
 
     /// append(token_ids, token_id) -> TokenIds
@@ -284,5 +415,131 @@ impl Interpreter {
         let device = MetalDevice::new().map_err(|e| RuntimeError::TensorError(e))?;
         let buffer = device.new_tensor_buffer(capacity);
         Ok(Value::TensorBuffer(std::sync::Arc::new(buffer)))
+    }
+
+    // ============================================================================
+    // Scalar Math Functions
+    // ============================================================================
+
+    /// abs(x) -> number
+    /// Absolute value of a number
+    fn eval_abs(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("abs() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let value = self.eval_expr(&args[0])?;
+        match value {
+            Value::Integer(i) => Ok(Value::Integer(i.abs())),
+            Value::Float(f) => Ok(Value::Float(f.abs())),
+            v => Err(RuntimeError::TypeError(
+                format!("abs() expects Integer or Float, got {}", v.type_name())
+            )),
+        }
+    }
+
+    /// floor(x) -> int
+    /// Floor of a number (round down to nearest integer)
+    fn eval_floor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("floor() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let value = self.eval_expr(&args[0])?;
+        match value {
+            Value::Integer(i) => Ok(Value::Integer(i)),
+            Value::Float(f) => Ok(Value::Integer(f.floor() as i64)),
+            v => Err(RuntimeError::TypeError(
+                format!("floor() expects Integer or Float, got {}", v.type_name())
+            )),
+        }
+    }
+
+    /// ceil(x) -> int
+    /// Ceiling of a number (round up to nearest integer)
+    fn eval_ceil(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("ceil() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let value = self.eval_expr(&args[0])?;
+        match value {
+            Value::Integer(i) => Ok(Value::Integer(i)),
+            Value::Float(f) => Ok(Value::Integer(f.ceil() as i64)),
+            v => Err(RuntimeError::TypeError(
+                format!("ceil() expects Integer or Float, got {}", v.type_name())
+            )),
+        }
+    }
+
+    /// round(x) -> int
+    /// Round number to nearest integer
+    fn eval_round(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("round() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let value = self.eval_expr(&args[0])?;
+        match value {
+            Value::Integer(i) => Ok(Value::Integer(i)),
+            Value::Float(f) => Ok(Value::Integer(f.round() as i64)),
+            v => Err(RuntimeError::TypeError(
+                format!("round() expects Integer or Float, got {}", v.type_name())
+            )),
+        }
+    }
+
+    /// min(a, b) -> number
+    /// Minimum of two numbers
+    fn eval_min(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("min() expects 2 arguments, got {}", args.len())
+            ));
+        }
+
+        let a = self.eval_expr(&args[0])?;
+        let b = self.eval_expr(&args[1])?;
+
+        match (a, b) {
+            (Value::Integer(x), Value::Integer(y)) => Ok(Value::Integer(x.min(y))),
+            (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x.min(y))),
+            (Value::Integer(x), Value::Float(y)) => Ok(Value::Float((x as f64).min(y))),
+            (Value::Float(x), Value::Integer(y)) => Ok(Value::Float(x.min(y as f64))),
+            (a, b) => Err(RuntimeError::TypeError(
+                format!("min() expects numbers, got {} and {}", a.type_name(), b.type_name())
+            )),
+        }
+    }
+
+    /// max(a, b) -> number
+    /// Maximum of two numbers
+    fn eval_max(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("max() expects 2 arguments, got {}", args.len())
+            ));
+        }
+
+        let a = self.eval_expr(&args[0])?;
+        let b = self.eval_expr(&args[1])?;
+
+        match (a, b) {
+            (Value::Integer(x), Value::Integer(y)) => Ok(Value::Integer(x.max(y))),
+            (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x.max(y))),
+            (Value::Integer(x), Value::Float(y)) => Ok(Value::Float((x as f64).max(y))),
+            (Value::Float(x), Value::Integer(y)) => Ok(Value::Float(x.max(y as f64))),
+            (a, b) => Err(RuntimeError::TypeError(
+                format!("max() expects numbers, got {} and {}", a.type_name(), b.type_name())
+            )),
+        }
     }
 }
