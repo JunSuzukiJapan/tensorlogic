@@ -877,8 +877,75 @@ impl Interpreter {
 
             TensorExpr::BinaryOp { op, left, right } => {
                 let left_val = self.eval_expr(left)?;
+
+                // DEBUG: Check left value before right evaluation
+                if std::env::var("TL_DEBUG_BINOP").is_ok() {
+                    use crate::tensor::TensorIO;
+                    if let Value::TensorF16(ref t) = left_val {
+                        let sum = t.sync_and_read().iter().map(|x| x.to_f32()).sum::<f32>();
+                        eprintln!("[DEBUG_BINOP] left_val sum={}", sum);
+                    }
+                }
+
                 let right_val = self.eval_expr(right)?;
-                self.eval_binary_op(op, left_val, right_val)
+
+                // DEBUG: Check right value before binary op
+                if std::env::var("TL_DEBUG_BINOP").is_ok() {
+                    use crate::tensor::TensorIO;
+                    if let Value::TensorF16(ref t) = right_val {
+                        let sum = t.sync_and_read().iter().map(|x| x.to_f32()).sum::<f32>();
+                        eprintln!("[DEBUG_BINOP] right_val sum={}", sum);
+                    }
+                }
+
+                // CRITICAL FIX: Wait for GPU operations to complete before binary op
+                // This ensures both operands have valid data from previous async operations.
+                // Without this, expressions like "x * sigmoid(x)" fail because sigmoid(x)
+                // hasn't completed when the multiplication is performed.
+                use crate::device::Device;
+                match &left_val {
+                    Value::TensorF16(t) => {
+                        if let Device::Metal(ref dev) = t.device() {
+                            dev.clone().wait_until_completed()
+                                .map_err(|e| RuntimeError::TensorError(e))?;
+                        }
+                    }
+                    Value::TensorF32(t) => {
+                        if let Device::Metal(ref dev) = t.device() {
+                            dev.clone().wait_until_completed()
+                                .map_err(|e| RuntimeError::TensorError(e))?;
+                        }
+                    }
+                    _ => {}
+                }
+                match &right_val {
+                    Value::TensorF16(t) => {
+                        if let Device::Metal(ref dev) = t.device() {
+                            dev.clone().wait_until_completed()
+                                .map_err(|e| RuntimeError::TensorError(e))?;
+                        }
+                    }
+                    Value::TensorF32(t) => {
+                        if let Device::Metal(ref dev) = t.device() {
+                            dev.clone().wait_until_completed()
+                                .map_err(|e| RuntimeError::TensorError(e))?;
+                        }
+                    }
+                    _ => {}
+                }
+
+                let result = self.eval_binary_op(op, left_val, right_val)?;
+
+                // DEBUG: Check result after binary op
+                if std::env::var("TL_DEBUG_BINOP").is_ok() {
+                    use crate::tensor::TensorIO;
+                    if let Value::TensorF16(ref t) = result {
+                        let sum = t.sync_and_read().iter().map(|x| x.to_f32()).sum::<f32>();
+                        eprintln!("[DEBUG_BINOP] result sum={}", sum);
+                    }
+                }
+
+                Ok(result)
             }
 
             TensorExpr::UnaryOp { op, operand } => {

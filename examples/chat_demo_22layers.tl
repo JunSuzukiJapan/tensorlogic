@@ -170,6 +170,10 @@ main {
     let output_norm = get_tensor(model, "output_norm.weight")
     let output_weight = get_tensor(model, "output.weight")
 
+    // DEBUG: Check output_weight
+    let output_weight_sum = sum(output_weight)
+    print("[DEBUG] output_weight sum:", output_weight_sum)
+
     // Load all 22 layers (this will take a moment)
     // Layer 0
     let W_q_0 = get_tensor(model, "blk.0.attn_q.weight")
@@ -410,8 +414,8 @@ main {
     print("      User:", user_message)
     print("")
 
-    // Tokenize
-    let tokens = tokenize(tokenizer, chat_prompt, true)
+    // Tokenize (add_special_tokens=false to match HuggingFace reference)
+    let tokens = tokenize(tokenizer, chat_prompt, false)
     print("      Prompt tokens:", len(tokens))
     print("")
 
@@ -428,11 +432,22 @@ main {
 
     // Token 1
     let e1 = embedding(embed_table, gen_tokens)
+    print("[DEBUG] Embedding sum:", sum(e1))
+
     let h0_1 = transformer_layer(e1, W_q_0, W_k_0, W_v_0, W_o_0, attn_norm_0, W_gate_0, W_up_0, W_down_0, ffn_norm_0)
+    print("[DEBUG] Layer 0 sum:", sum(h0_1))
+
     let h1_1 = transformer_layer(h0_1, W_q_1, W_k_1, W_v_1, W_o_1, attn_norm_1, W_gate_1, W_up_1, W_down_1, ffn_norm_1)
+    print("[DEBUG] Layer 1 sum:", sum(h1_1))
+
     let h2_1 = transformer_layer(h1_1, W_q_2, W_k_2, W_v_2, W_o_2, attn_norm_2, W_gate_2, W_up_2, W_down_2, ffn_norm_2)
+    print("[DEBUG] Layer 2 sum:", sum(h2_1))
+
     let h3_1 = transformer_layer(h2_1, W_q_3, W_k_3, W_v_3, W_o_3, attn_norm_3, W_gate_3, W_up_3, W_down_3, ffn_norm_3)
+    print("[DEBUG] Layer 3 sum:", sum(h3_1))
+
     let h4_1 = transformer_layer(h3_1, W_q_4, W_k_4, W_v_4, W_o_4, attn_norm_4, W_gate_4, W_up_4, W_down_4, ffn_norm_4)
+    print("[DEBUG] Layer 4 sum:", sum(h4_1))
     let h5_1 = transformer_layer(h4_1, W_q_5, W_k_5, W_v_5, W_o_5, attn_norm_5, W_gate_5, W_up_5, W_down_5, ffn_norm_5)
     let h6_1 = transformer_layer(h5_1, W_q_6, W_k_6, W_v_6, W_o_6, attn_norm_6, W_gate_6, W_up_6, W_down_6, ffn_norm_6)
     let h7_1 = transformer_layer(h6_1, W_q_7, W_k_7, W_v_7, W_o_7, attn_norm_7, W_gate_7, W_up_7, W_down_7, ffn_norm_7)
@@ -450,8 +465,23 @@ main {
     let h19_1 = transformer_layer(h18_1, W_q_19, W_k_19, W_v_19, W_o_19, attn_norm_19, W_gate_19, W_up_19, W_down_19, ffn_norm_19)
     let h20_1 = transformer_layer(h19_1, W_q_20, W_k_20, W_v_20, W_o_20, attn_norm_20, W_gate_20, W_up_20, W_down_20, ffn_norm_20)
     let h21_1 = transformer_layer(h20_1, W_q_21, W_k_21, W_v_21, W_o_21, attn_norm_21, W_gate_21, W_up_21, W_down_21, ffn_norm_21)
+
+    // DEBUG: Check Layer 21 output
+    let h21_1_sum = sum(h21_1)
+    print("[DEBUG] Token 1 - Layer 21 sum:", h21_1_sum)
+
     let final_norm1 = rms_norm(h21_1, output_norm)
+
+    // DEBUG: Check final_norm before linear
+    let final_norm1_sum = sum(final_norm1)
+    print("[DEBUG] Token 1 - final_norm sum:", final_norm1_sum)
+
     let logits1 = linear(final_norm1, output_weight)
+
+    // DEBUG: Check logits before temperature_sample
+    let logits1_sum = sum(logits1)
+    print("[DEBUG] Token 1 - logits sum:", logits1_sum)
+
     let t1 = temperature_sample(logits1, temperature)
     gen_tokens = append(gen_tokens, t1)
 
@@ -507,8 +537,23 @@ main {
     let h19_2 = transformer_layer(h18_2, W_q_19, W_k_19, W_v_19, W_o_19, attn_norm_19, W_gate_19, W_up_19, W_down_19, ffn_norm_19)
     let h20_2 = transformer_layer(h19_2, W_q_20, W_k_20, W_v_20, W_o_20, attn_norm_20, W_gate_20, W_up_20, W_down_20, ffn_norm_20)
     let h21_2 = transformer_layer(h20_2, W_q_21, W_k_21, W_v_21, W_o_21, attn_norm_21, W_gate_21, W_up_21, W_down_21, ffn_norm_21)
+
+    // DEBUG: Check Layer 21 output
+    let h21_2_sum = sum(h21_2)
+    print("[DEBUG] Token 2 - Layer 21 sum:", h21_2_sum)
+
     let final_norm2 = rms_norm(h21_2, output_norm)
+
+    // DEBUG: Check final_norm before linear
+    let final_norm2_sum = sum(final_norm2)
+    print("[DEBUG] Token 2 - final_norm sum:", final_norm2_sum)
+
     let logits2 = linear(final_norm2, output_weight)
+
+    // DEBUG: Check logits before temperature_sample
+    let logits2_sum = sum(logits2)
+    print("[DEBUG] Token 2 - logits sum:", logits2_sum)
+
     let t2 = temperature_sample(logits2, temperature)
     gen_tokens = append(gen_tokens, t2)
 
@@ -548,8 +593,23 @@ main {
     let h19_3 = transformer_layer(h18_3, W_q_19, W_k_19, W_v_19, W_o_19, attn_norm_19, W_gate_19, W_up_19, W_down_19, ffn_norm_19)
     let h20_3 = transformer_layer(h19_3, W_q_20, W_k_20, W_v_20, W_o_20, attn_norm_20, W_gate_20, W_up_20, W_down_20, ffn_norm_20)
     let h21_3 = transformer_layer(h20_3, W_q_21, W_k_21, W_v_21, W_o_21, attn_norm_21, W_gate_21, W_up_21, W_down_21, ffn_norm_21)
+
+    // DEBUG: Check Layer 21 output
+    let h21_3_sum = sum(h21_3)
+    print("[DEBUG] Token 3 - Layer 21 sum:", h21_3_sum)
+
     let final_norm3 = rms_norm(h21_3, output_norm)
+
+    // DEBUG: Check final_norm before linear
+    let final_norm3_sum = sum(final_norm3)
+    print("[DEBUG] Token 3 - final_norm sum:", final_norm3_sum)
+
     let logits3 = linear(final_norm3, output_weight)
+
+    // DEBUG: Check logits before temperature_sample
+    let logits3_sum = sum(logits3)
+    print("[DEBUG] Token 3 - logits sum:", logits3_sum)
+
     let t3 = temperature_sample(logits3, temperature)
     gen_tokens = append(gen_tokens, t3)
 
