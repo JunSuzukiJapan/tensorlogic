@@ -908,41 +908,10 @@ impl Interpreter {
                     }
                 }
 
-                // CRITICAL FIX: Wait for GPU operations to complete before binary op
-                // This ensures both operands have valid data from previous async operations.
-                // Without this, expressions like "x * sigmoid(x)" fail because sigmoid(x)
-                // hasn't completed when the multiplication is performed.
-                use crate::device::Device;
-                match &left_val {
-                    Value::TensorF16(t) => {
-                        if let Device::Metal(ref dev) = t.device() {
-                            dev.clone().wait_until_completed()
-                                .map_err(|e| RuntimeError::TensorError(e))?;
-                        }
-                    }
-                    Value::TensorF32(t) => {
-                        if let Device::Metal(ref dev) = t.device() {
-                            dev.clone().wait_until_completed()
-                                .map_err(|e| RuntimeError::TensorError(e))?;
-                        }
-                    }
-                    _ => {}
-                }
-                match &right_val {
-                    Value::TensorF16(t) => {
-                        if let Device::Metal(ref dev) = t.device() {
-                            dev.clone().wait_until_completed()
-                                .map_err(|e| RuntimeError::TensorError(e))?;
-                        }
-                    }
-                    Value::TensorF32(t) => {
-                        if let Device::Metal(ref dev) = t.device() {
-                            dev.clone().wait_until_completed()
-                                .map_err(|e| RuntimeError::TensorError(e))?;
-                        }
-                    }
-                    _ => {}
-                }
+                // NOTE: No synchronization needed here!
+                // GPU operations are batched by the Commands system and execute in order.
+                // Synchronization only happens when reading data to CPU (in to_vec(), read_element, etc.)
+                // This matches Candle's lazy synchronization strategy.
 
                 let result = self.eval_binary_op(op, left_val, right_val)?;
 

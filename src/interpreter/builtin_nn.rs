@@ -865,11 +865,10 @@ impl Interpreter {
             .get_or_compile_pipeline("embedding_lookup_f16")
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        // Create a dedicated command buffer for this operation
-        // (cannot use shared buffer since we need to commit it immediately)
-        let command_queue = device.metal_device().new_command_queue();
-        let command_buffer = command_queue.new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Use batched command buffer from Commands system (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()
+            .map_err(|e| RuntimeError::TensorError(e.into()))?;
+        let encoder = command_buffer.inner().new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&table_buf.buffer), 0);
@@ -883,10 +882,9 @@ impl Interpreter {
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
 
-        // CRITICAL: Commit and wait for GPU command completion.
-        // Without this, the buffer contains uninitialized data (zeros) when indexed from CPU.
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+        // NOTE: No commit here - the Commands batching system handles this automatically
+        // Commands will commit when batch size is reached or when data is read to CPU
+        // This matches Candle's lazy batching strategy
 
         // Create result tensor first
         let result: crate::tensor::Tensor<half::f16> = crate::tensor::Tensor::new(
@@ -965,11 +963,10 @@ impl Interpreter {
             .get_or_compile_pipeline("embedding_lookup_f32")
             .map_err(|e| RuntimeError::TensorError(e))?;
 
-        // Create a dedicated command buffer for this operation
-        // (cannot use shared buffer since we need to commit it immediately)
-        let command_queue = device.metal_device().new_command_queue();
-        let command_buffer = command_queue.new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Use batched command buffer from Commands system (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()
+            .map_err(|e| RuntimeError::TensorError(e.into()))?;
+        let encoder = command_buffer.inner().new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&table_buf.buffer), 0);
@@ -983,10 +980,9 @@ impl Interpreter {
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
 
-        // CRITICAL: Commit and wait for GPU command completion.
-        // Without this, the buffer contains uninitialized data (zeros) when indexed from CPU.
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+        // NOTE: No commit here - the Commands batching system handles this automatically
+        // Commands will commit when batch size is reached or when data is read to CPU
+        // This matches Candle's lazy batching strategy
 
         // Create result tensor first
         let result: crate::tensor::Tensor<f32> = crate::tensor::Tensor::new(

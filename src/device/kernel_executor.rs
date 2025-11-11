@@ -83,13 +83,12 @@ impl KernelExecutor {
         let pipeline = self.get_or_compile_pipeline(kernel_name)?;
         let pipeline_time = _pipeline_start.elapsed().as_secs_f64() * 1000.0;
 
-        // Create command buffer
+        // Get batched command buffer from device (uses Commands system)
         let _cmdbuf_start = std::time::Instant::now();
-        let command_queue = self.device.command_queue();
-        let command_buffer = command_queue.new_command_buffer();
+        let (_flushed, command_buffer) = self.device.command_buffer()?;
 
         // Create compute encoder
-        let encoder = command_buffer.new_compute_command_encoder();
+        let encoder = command_buffer.inner().new_compute_command_encoder();
 
         // Set pipeline
         encoder.set_compute_pipeline_state(&pipeline);
@@ -119,15 +118,10 @@ impl KernelExecutor {
         encoder.end_encoding();
         let dispatch_time = _dispatch_start.elapsed().as_secs_f64() * 1000.0;
 
-        // Commit and wait for completion
-        // CRITICAL FIX: Must wait for GPU to complete before returning
-        // Without this, the first function call returns uninitialized buffer data
-        // because flush_gpu() only waits for Commands-managed buffers,
-        // not these independent command buffers created by KernelExecutor
-        let _commit_start = std::time::Instant::now();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
-        let commit_time = _commit_start.elapsed().as_secs_f64() * 1000.0;
+        // NOTE: No commit here - the Commands batching system handles this automatically
+        // Commands will commit when batch size is reached or when data is read to CPU
+        // This matches Candle's lazy batching strategy
+        let commit_time = 0.0; // No manual commit, batching system handles it
 
         if std::env::var("TL_PERF").is_ok() {
             eprintln!("[PERF]     execute({}): pipeline={:.3}ms, dispatch={:.3}ms, commit={:.3}ms, total={:.3}ms",

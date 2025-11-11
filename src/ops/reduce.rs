@@ -53,11 +53,8 @@ impl<T: FloatType> Tensor<T> {
 
         let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
 
-        // CRITICAL: Wait for all pending GPU operations to complete before starting sum
-        // This ensures that the input buffer contains valid data from previous operations
-        device.wait_until_completed()?;
-
         // Use Commands manager for command buffer (Candle pattern)
+        // No wait needed - batching system ensures operations execute in order
         let (_flushed, command_buffer) = device.command_buffer()?;
         let encoder = command_buffer.encoder();
 
@@ -74,11 +71,8 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_threads(grid_size, tg_size);
         encoder.end_encoding();
 
-        // Candle-style: No manual flush needed, batching is automatic
-        // Since we need results immediately for stage 2, wait for completion
-        device.wait_until_completed()?;
-
         // Stage 2: Reduce blocks to final result (CPU for simplicity)
+        // Note: to_vec() will automatically wait for GPU completion (Candle pattern)
         // Note: For small num_blocks (<256), CPU reduction is faster than launching
         // another GPU kernel due to ~0.15-0.20ms kernel launch overhead
         let stage1_data = stage1_buf.to_vec();
@@ -445,11 +439,8 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_threads(grid_size, tg_size);
         encoder.end_encoding();
 
-        // Candle-style: No manual flush needed, batching is automatic
-        // Since we need results immediately for stage 2, wait for completion
-        device.wait_until_completed()?;
-
         // Stage 2: Final reduction on CPU
+        // Note: to_vec() will automatically wait for GPU completion (Candle pattern)
         let stage1_data = stage1_buf.to_vec();
         let mut max_val = stage1_data[0];
         for &val in &stage1_data[1..] {
@@ -552,11 +543,8 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_threads(grid_size, tg_size);
         encoder.end_encoding();
 
-        // Candle-style: No manual flush needed, batching is automatic
-        // Since we need results immediately for stage 2, wait for completion
-        device.wait_until_completed()?;
-
         // Stage 2: Final reduction on CPU
+        // Note: to_vec() will automatically wait for GPU completion (Candle pattern)
         let stage1_data = stage1_buf.to_vec();
         let mut min_val = stage1_data[0];
         for &val in &stage1_data[1..] {

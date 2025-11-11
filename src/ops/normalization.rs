@@ -159,11 +159,9 @@ impl<T: FloatType> Tensor<T> {
                 TensorError::MetalError(format!("Failed to create pipeline: {:?}", e))
             })?;
 
-        // Execute kernel with dedicated command buffer
-        // (create dedicated buffer since we need to commit immediately for CPU indexing)
-        let command_queue = device.metal_device().new_command_queue();
-        let command_buffer = command_queue.new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Execute kernel with batched command buffer (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.inner().new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&pipeline_state);
         encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
@@ -188,10 +186,9 @@ impl<T: FloatType> Tensor<T> {
         }
         encoder.end_encoding();
 
-        // CRITICAL: Commit and wait for GPU command completion.
-        // Without this, the buffer contains uninitialized data (zeros) when indexed from CPU.
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+        // NOTE: No commit here - the Commands batching system handles this automatically
+        // Commands will commit when batch size is reached or when data is read to CPU
+        // This matches Candle's lazy batching strategy
 
         self.new_from_pool(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
@@ -424,11 +421,9 @@ impl<T: FloatType> Tensor<T> {
                 TensorError::MetalError(format!("Failed to create pipeline: {:?}", e))
             })?;
 
-        // Execute kernel with dedicated command buffer
-        // (create dedicated buffer since we need to commit immediately for CPU indexing)
-        let command_queue = device.metal_device().new_command_queue();
-        let command_buffer = command_queue.new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Execute kernel with batched command buffer (Candle pattern)
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.inner().new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&pipeline_state);
         encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
@@ -450,10 +445,9 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_threads(grid_size, threadgroup_size);
         encoder.end_encoding();
 
-        // CRITICAL: Commit and wait for GPU command completion.
-        // Without this, the buffer contains uninitialized data (zeros) when indexed from CPU.
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+        // NOTE: No commit here - the Commands batching system handles this automatically
+        // Commands will commit when batch size is reached or when data is read to CPU
+        // This matches Candle's lazy batching strategy
 
         self.new_from_pool(
             BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
