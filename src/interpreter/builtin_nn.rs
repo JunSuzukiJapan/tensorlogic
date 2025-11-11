@@ -622,6 +622,7 @@ impl Interpreter {
 
     /// embedding(embedding_table, token_ids) -> tensor
     /// Embedding lookup: retrieve embedding vectors for token IDs
+    /// token_ids can be: TokenIds, TokenIdArray, or Int (single token)
     fn eval_embedding(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(format!(
@@ -636,7 +637,7 @@ impl Interpreter {
         // Evaluate token IDs
         let tokens_val = self.eval_expr(&args[1])?;
 
-        // Convert tokens to i64 vector, accepting both TokenIds and TokenIdArray
+        // Convert tokens to i64 vector, accepting TokenIds, TokenIdArray, or Int (single token)
         let token_data: Vec<i64> = match tokens_val {
             Value::TokenIdArray(ref ids) => {
                 // TokenIdArray already has i64 data
@@ -646,9 +647,13 @@ impl Interpreter {
                 // TokenIds is Vec<u32>, convert to i64
                 ids.iter().map(|&id| id as i64).collect()
             }
+            Value::Integer(token_id) => {
+                // Single token ID
+                vec![token_id]
+            }
             _ => {
                 return Err(RuntimeError::TypeError(
-                    "embedding() second argument must be TokenIds or TokenIdArray".to_string(),
+                    "embedding() second argument must be TokenIds, TokenIdArray, or Int".to_string(),
                 ))
             }
         };

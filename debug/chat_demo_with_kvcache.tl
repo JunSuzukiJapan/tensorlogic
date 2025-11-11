@@ -4,12 +4,12 @@
 //
 // This demo implements KV cache for efficient autoregressive generation:
 //   - Prefill: Process all prompt tokens at once, store K/V
-//   - Decode: Reuse cached K/V (but recomputes embeddings)
+//   - Decode: Reuse cached K/V and embed ONLY the new token (optimized!)
 //
-// NOTE: In TensorLogic, embedding() requires TokenIds type, so we must
-//       recompute embeddings for all tokens on each iteration. This limits
-//       the speedup compared to implementations that can embed single tokens.
-//       However, the KV cache still works correctly for K/V reuse.
+// OPTIMIZATION: embedding() now supports single token IDs (Integer type),
+//               so we can embed just the new token in decode phase instead
+//               of re-embedding all tokens. This provides the full speedup
+//               expected from KV cache implementations.
 //
 // Model Architecture:
 //   - Embedding dimension: 2048 (d_model)
@@ -211,10 +211,8 @@ main {
 
     // Generate remaining tokens using cache
     for token_step in range_i(max_new_tokens) {
-        // Get embedding for all tokens, then slice last
-        let emb_all = embedding(emb_weight, gen_tokens)
-        let emb_last_1d = slice_last(emb_all, 0)
-        let emb_new = reshape(emb_last_1d, [1.0, 2048.0])
+        // Get embedding for current token only (NEW: single token support!)
+        let emb_new = embedding(emb_weight, current_token)
 
         // Process through all layers (using cached K/V)
         let x_decode = emb_new
