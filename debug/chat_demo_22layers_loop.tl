@@ -181,8 +181,8 @@ main {
     let gen_tokens = prompt_tokens
     let generated_count = 0
 
-    // Generate up to 10 tokens (range requires constant)
-    for token_step in range(10) {
+    // Generate up to 10 tokens (range_i requires constant)
+    for token_step in range_i(10) {
         print("")
         print("[DEBUG] Token step:", token_step)
 
@@ -198,7 +198,7 @@ main {
 
         // Process through all 22 layers using loop
         let x = current_emb
-        for layer_idx in range(22) {
+        for layer_idx in range_i(22) {
             // Only debug first layer, first token
             if layer_idx == 0 && token_step == 0 {
                 print("[DEBUG LAYER 0] Before RMSNorm:")

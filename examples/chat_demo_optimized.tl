@@ -196,7 +196,7 @@ main {
     // ----------------------------------------------------------------------------
     // [4] GENERATION LOOP: Generate tokens with clean output
     // ----------------------------------------------------------------------------
-    print("[4/5] Generating response (max 50 tokens)...")
+    print("[4/5] Generating response (max 10 tokens)...")
     print("")
     print("      Assistant: ")
 
@@ -207,7 +207,7 @@ main {
     let generated_count = 0
 
     // Token generation loop
-    for token_step in range_i(50) {
+    for token_step in range_i(10) {
         // Get embeddings for all tokens so far
         let current_emb = embedding(emb_weight, gen_tokens)
 

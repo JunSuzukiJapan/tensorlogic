@@ -10,6 +10,60 @@ use crate::tensor::BufferHandle;
 use metal::MTLSize;
 
 impl<T: FloatType> Tensor<T> {
+    /// Apply Rotary Position Embedding (RoPE) with precomputed cos/sin arrays (Candle-style)
+    /// Input: [seq_len, n_heads, head_dim]
+    /// cos: [max_seq_len, head_dim] precomputed cosine values
+    /// sin: [max_seq_len, head_dim] precomputed sine values
+    /// Returns: Same shape with RoPE applied
+    pub fn rope_candle(&self, cos: &Self, sin: &Self) -> TensorResult<Self> {
+        use crate::tensor::TensorTransform;
+
+        let dims = self.dims();
+        if dims.len() != 3 {
+            return Err(TensorError::InvalidOperation(
+                format!("rope_candle requires 3D tensor [seq_len, n_heads, head_dim], got {}D", dims.len())
+            ));
+        }
+
+        let seq_len = dims[0];
+        let n_heads = dims[1];
+        let head_dim = dims[2];
+
+        // Validate cos/sin shapes [max_seq_len, head_dim]
+        let cos_dims = cos.dims();
+        let sin_dims = sin.dims();
+
+        if cos_dims.len() != 2 || sin_dims.len() != 2 {
+            return Err(TensorError::InvalidOperation(
+                format!("cos/sin must be 2D [max_seq_len, head_dim], got cos: {}D, sin: {}D",
+                    cos_dims.len(), sin_dims.len())
+            ));
+        }
+
+        if cos_dims[1] != head_dim || sin_dims[1] != head_dim {
+            return Err(TensorError::InvalidOperation(
+                format!("cos/sin last dim must be head_dim = {}, got cos: {}, sin: {}",
+                    head_dim, cos_dims[1], sin_dims[1])
+            ));
+        }
+
+        if cos_dims[0] < seq_len || sin_dims[0] < seq_len {
+            return Err(TensorError::InvalidOperation(
+                format!("cos/sin first dim must be >= seq_len = {}, got cos: {}, sin: {}",
+                    seq_len, cos_dims[0], sin_dims[0])
+            ));
+        }
+
+        // Ensure contiguous
+        let is_contig = self.is_contiguous();
+        if is_contig {
+            self.rope_candle_metal(seq_len, n_heads, head_dim, cos, sin)
+        } else {
+            let contiguous = self.contiguous()?;
+            contiguous.rope_candle_metal(seq_len, n_heads, head_dim, cos, sin)
+        }
+    }
+
     /// Apply Rotary Position Embedding (RoPE) to the tensor
     /// Input: [..., seq_len, n_heads, head_dim]
     /// position_offset: Starting position index for the sequence (for KV cache)
@@ -61,6 +115,100 @@ impl<T: FloatType> Tensor<T> {
             let contiguous = self.contiguous()?;
             contiguous.rope_metal(seq_len, n_heads, head_dim, position_offset)
         }
+    }
+
+    /// Metal GPU implementation of Candle-style RoPE with precomputed cos/sin
+    fn rope_candle_metal(&self, seq_len: usize, n_heads: usize, head_dim: usize, cos: &Self, sin: &Self) -> TensorResult<Self> {
+        let input_buf = self.buffer().as_metal()?;
+        let cos_buf = cos.buffer().as_metal()?;
+        let sin_buf = sin.buffer().as_metal()?;
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => {
+                return Err(TensorError::DeviceConversionError(
+                    "RoPE requires Metal device".to_string(),
+                ))
+            }
+        };
+
+        // Load shader if not already loaded
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device.load_library(shader_source)?;
+        }
+
+        // Create output buffer
+        let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, self.numel())?;
+
+        // Create params buffer: [seq_len, n_heads, head_dim, half_dim]
+        let half_dim = head_dim / 2;
+        let params: [u32; 4] = [seq_len as u32, n_heads as u32, head_dim as u32, half_dim as u32];
+        let params_bytes = unsafe {
+            std::slice::from_raw_parts(
+                params.as_ptr() as *const u8,
+                std::mem::size_of::<[u32; 4]>()
+            )
+        };
+
+        let params_buf = device
+            .metal_device()
+            .new_buffer_with_data(
+                params_bytes.as_ptr() as *const std::ffi::c_void,
+                params_bytes.len() as u64,
+                metal::MTLResourceOptions::CPUCacheModeDefaultCache,
+            );
+
+        // Get kernel function
+        let library = device.library()
+            .ok_or_else(|| TensorError::MetalError("No shader library loaded".to_string()))?;
+
+        let suffix = T::kernel_suffix();
+        let kernel_name = format!("rope_candle{}", suffix);
+        let function = library
+            .get_function(&kernel_name, None)
+            .map_err(|e| TensorError::MetalError(format!("Kernel '{}' not found: {}", kernel_name, e)))?;
+
+        // Create pipeline
+        let pipeline = device
+            .metal_device()
+            .new_compute_pipeline_state_with_function(&function)
+            .map_err(|e| TensorError::MetalError(format!("Failed to create pipeline: {}", e)))?;
+
+        // Execute kernel
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
+        encoder.set_buffer(1, Some(cos_buf.metal_buffer()), 0);
+        encoder.set_buffer(2, Some(sin_buf.metal_buffer()), 0);
+        encoder.set_buffer(3, Some(result_buf.metal_buffer()), 0);
+        encoder.set_buffer(4, Some(&params_buf), 0);
+
+        // Calculate thread group sizes
+        let total_elements = self.numel();
+        let max_threads = pipeline.max_total_threads_per_threadgroup().min(256) as usize;
+        let threadgroup_size = MTLSize {
+            width: max_threads as u64,
+            height: 1,
+            depth: 1,
+        };
+
+        let threadgroups = MTLSize {
+            width: ((total_elements + max_threads - 1) / max_threads) as u64,
+            height: 1,
+            depth: 1,
+        };
+
+        encoder.dispatch_thread_groups(threadgroups, threadgroup_size);
+        encoder.end_encoding();
+
+        // Return result tensor
+        self.new_from_pool(
+            BufferHandle::Metal(unsafe { std::mem::transmute(result_buf) }),
+            self.shape().clone(),
+        )
     }
 
     /// Metal GPU implementation of RoPE
