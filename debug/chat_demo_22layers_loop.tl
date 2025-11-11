@@ -60,7 +60,8 @@ fn tinyllama_gqa_attention(
 ) -> float16[?, ?] {
     // Dynamic seq_len from Q shape
     let Q_shape_tensor = shape(Q)
-    let seq_len_f = Q_shape_tensor[0]
+    let seq_len_int = Q_shape_tensor[0]
+    let seq_len_f = seq_len_int * 1.0
 
     // Reshape to heads: [seq, heads, head_dim]
     let shape_Q_heads = [seq_len_f, 32.0, 64.0]
@@ -93,7 +94,7 @@ fn tinyllama_gqa_attention(
     let scaled_scores = scores * 0.125  // 1/sqrt(64)
 
     // Apply causal mask (prevent attending to future positions)
-    let mask_2d = causal_mask(seq_len_f)
+    let mask_2d = causal_mask(seq_len_int)
     let shape_mask_3d = [seq_len_f, 1.0, seq_len_f]
     let mask_3d = reshape(mask_2d, shape_mask_3d)
     let shape_mask_broadcast = [seq_len_f, 32.0, seq_len_f]
