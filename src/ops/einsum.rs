@@ -10,7 +10,7 @@
 
 use crate::device::{Device, MetalDevice, MetalBuffer, EncoderProvider};
 use crate::tensor::FloatType;
-use crate::tensor::{TensorAccessors, TensorAutograd, TensorCreation, TensorIO};
+use crate::tensor::{TensorAccessors, TensorAutograd, TensorCreation, TensorIO, TensorConvert};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{Tensor, TensorShape, BufferHandle};
 use half::f16;
@@ -660,6 +660,15 @@ fn try_einsum_metal<T: FloatType>(
     // Pattern 1: "ihd,jhd->ihj" - Batched dot product for attention scores
     if equation == "ihd,jhd->ihj" && input_specs.len() == 2 && operands.len() == 2 {
         if operands[0].shape().rank() == 3 && operands[1].shape().rank() == 3 {
+            // F16 special case: use overflow-safe wrapper
+            if std::mem::size_of::<T>() == 2 {
+                // SAFETY: We've verified T is 2 bytes (f16)
+                let a_f16: &Tensor<f16> = unsafe { std::mem::transmute(operands[0]) };
+                let b_f16: &Tensor<f16> = unsafe { std::mem::transmute(operands[1]) };
+                let result_f16 = einsum_ihd_jhd_ihj_metal_f16(a_f16, b_f16, device)?;
+                let result: Tensor<T> = unsafe { std::mem::transmute(result_f16) };
+                return Ok(Some(result));
+            }
             return Ok(Some(einsum_ihd_jhd_ihj_metal(operands[0], operands[1], device)?));
         }
     }
@@ -673,6 +682,26 @@ fn try_einsum_metal<T: FloatType>(
 
     // No specialized kernel available
     Ok(None)
+}
+
+/// F16-specific wrapper for einsum("ihd,jhd->ihj") with overflow prevention
+///
+/// CRITICAL: Attention scores can exceed F16 max value (65504), causing overflow to infinity.
+/// This wrapper converts F16→F32 for computation, then F32→F16 for output (Candle's approach).
+fn einsum_ihd_jhd_ihj_metal_f16(
+    a: &Tensor<f16>,  // [I, H, D]
+    b: &Tensor<f16>,  // [J, H, D]
+    device: &MetalDevice,
+) -> TensorResult<Tensor<f16>> {
+    // Convert to F32 to prevent overflow
+    let a_f32 = a.to_f32()?;
+    let b_f32 = b.to_f32()?;
+
+    // Compute in F32
+    let result_f32 = einsum_ihd_jhd_ihj_metal(&a_f32, &b_f32, device)?;
+
+    // Convert back to F16
+    result_f32.to_f16()
 }
 
 /// Metal implementation of einsum("ihd,jhd->ihj")

@@ -2542,18 +2542,21 @@ kernel void einsum_ihd_jhd_ihj_f16(
     }
 
     // Compute dot product: sum over dimension d
-    half sum = 0.0h;
+    // CRITICAL FIX: Accumulate in float (F32) to prevent overflow
+    // Attention scores can exceed F16 max value (65504)
+    // This matches Candle's strategy: F16 input → F32 accumulation → F16 output
+    float sum = 0.0f;
 
     // A[i, h, :] · B[j, h, :]
     for (uint d = 0; d < D; d++) {
         uint a_idx = (i * H + h) * D + d;  // A[i, h, d]
         uint b_idx = (j * H + h) * D + d;  // B[j, h, d]
-        sum += A[a_idx] * B[b_idx];
+        sum += float(A[a_idx]) * float(B[b_idx]);
     }
 
-    // Write result
+    // Write result (convert back to half)
     uint c_idx = (i * H + h) * J + j;  // C[i, h, j]
-    C[c_idx] = sum;
+    C[c_idx] = half(sum);
 }
 
 /// Optimized version with threadgroup memory for larger D
@@ -5105,4 +5108,139 @@ kernel void tanh_backward_f32(
 ) {
     float tanh_val = output[id];
     grad_input[id] = grad_output[id] * (float(1.0) - tanh_val * tanh_val);
+}
+
+// ============================================================================
+// RoPE Candle-style (with precomputed cos/sin arrays) - Interleaved variant
+// ============================================================================
+
+// Candle-style RoPE with precomputed cos/sin arrays (f16)
+// Input: [seq_len, n_heads, head_dim]
+// cos: [max_seq_len, head_dim/2]
+// sin: [max_seq_len, head_dim/2]
+// Applies interleaved RoPE: pairs are (x[i], x[i+1]) for even i
+kernel void rope_candle_f16(
+    device const half *input [[buffer(0)]],
+    device const half *cos [[buffer(1)]],
+    device const half *sin [[buffer(2)]],
+    device half *output [[buffer(3)]],
+    constant uint *params [[buffer(4)]],  // [seq_len, n_heads, head_dim, half_dim]
+    uint tid [[thread_position_in_grid]]
+) {
+    const uint seq_len = params[0];
+    const uint n_heads = params[1];
+    const uint head_dim = params[2];
+    const uint half_dim = params[3];
+
+    const uint total_per_seq = n_heads * head_dim;
+    const uint total_elements = seq_len * total_per_seq;
+
+    if (tid >= total_elements) {
+        return;
+    }
+
+    // Calculate position within tensor
+    const uint seq_idx = tid / total_per_seq;         // Which position in sequence
+    const uint remainder = tid % total_per_seq;
+    const uint head_idx = remainder / head_dim;       // Which head
+    const uint dim_idx = remainder % head_dim;        // Which dimension within head
+
+    // RoPE operates on pairs: (i, i+1) for even i
+    // Each thread handles one element
+    const uint dim_pair_idx = dim_idx / 2;            // Which pair (0, 1, 2, ...)
+    const bool is_even = (dim_idx % 2 == 0);
+
+    // Base index for this (sequence, head) position
+    const uint pos_head_base = seq_idx * total_per_seq + head_idx * head_dim;
+
+    // Indices of the pair in input tensor
+    const uint idx0 = pos_head_base + (dim_pair_idx * 2);
+    const uint idx1 = pos_head_base + (dim_pair_idx * 2) + 1;
+
+    // Index into cos/sin arrays (flattened)
+    // Both elements of a pair use the same cos/sin value (via duplication in the array)
+    const uint cos_sin_idx = seq_idx * head_dim + dim_pair_idx;
+
+    // Read input pair
+    const float x0 = float(input[idx0]);
+    const float x1 = float(input[idx1]);
+
+    // Read precomputed cos/sin
+    const float cos_val = float(cos[cos_sin_idx]);
+    const float sin_val = float(sin[cos_sin_idx]);
+
+    // Apply 2D rotation (interleaved RoPE):
+    // rotated_x0 = x0 * cos - x1 * sin
+    // rotated_x1 = x0 * sin + x1 * cos
+    const float rotated_x0 = x0 * cos_val - x1 * sin_val;
+    const float rotated_x1 = x0 * sin_val + x1 * cos_val;
+
+    // Write output
+    if (is_even) {
+        output[tid] = half(rotated_x0);
+    } else {
+        output[tid] = half(rotated_x1);
+    }
+}
+
+// Candle-style RoPE with precomputed cos/sin arrays (f32)
+kernel void rope_candle_f32(
+    device const float *input [[buffer(0)]],
+    device const float *cos [[buffer(1)]],
+    device const float *sin [[buffer(2)]],
+    device float *output [[buffer(3)]],
+    constant uint *params [[buffer(4)]],  // [seq_len, n_heads, head_dim, half_dim]
+    uint tid [[thread_position_in_grid]]
+) {
+    const uint seq_len = params[0];
+    const uint n_heads = params[1];
+    const uint head_dim = params[2];
+    const uint half_dim = params[3];
+
+    const uint total_per_seq = n_heads * head_dim;
+    const uint total_elements = seq_len * total_per_seq;
+
+    if (tid >= total_elements) {
+        return;
+    }
+
+    // Calculate position within tensor
+    const uint seq_idx = tid / total_per_seq;
+    const uint remainder = tid % total_per_seq;
+    const uint head_idx = remainder / head_dim;
+    const uint dim_idx = remainder % head_dim;
+
+    // RoPE operates on pairs: (i, i+1) for even i
+    const uint dim_pair_idx = dim_idx / 2;
+    const bool is_even = (dim_idx % 2 == 0);
+
+    // Base index for this (sequence, head) position
+    const uint pos_head_base = seq_idx * total_per_seq + head_idx * head_dim;
+
+    // Indices of the pair in input tensor
+    const uint idx0 = pos_head_base + (dim_pair_idx * 2);
+    const uint idx1 = pos_head_base + (dim_pair_idx * 2) + 1;
+
+    // Index into cos/sin arrays (flattened)
+    // Both elements of a pair use the same cos/sin value (via duplication in the array)
+    const uint cos_sin_idx = seq_idx * head_dim + dim_pair_idx;
+
+    // Read input pair
+    const float x0 = input[idx0];
+    const float x1 = input[idx1];
+
+    // Read precomputed cos/sin
+    const float cos_val = cos[cos_sin_idx];
+    const float sin_val = sin[cos_sin_idx];
+
+    // Apply 2D rotation
+    const float rotated_x0 = x0 * cos_val - x1 * sin_val;
+    const float rotated_x1 = x0 * sin_val + x1 * cos_val;
+
+    // Write output
+    if (is_even) {
+        output[tid] = rotated_x0;
+    } else {
+        output[tid] = rotated_x1;
+    }
 }
