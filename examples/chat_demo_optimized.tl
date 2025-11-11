@@ -229,7 +229,7 @@ main {
 
         // Extract last token's hidden state
         let last_hidden_1d = slice_last(x, 0)
-        let last_hidden = reshape(last_hidden_1d, [1.0, 2048.0])
+        let last_hidden = reshape(last_hidden_1d, [1, 2048])
 
         // Final layer norm and logits projection
         let normed = rms_norm(last_hidden, output_norm_weight)

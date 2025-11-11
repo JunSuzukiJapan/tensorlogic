@@ -63,8 +63,8 @@ main {
     print("[4/5] Tokenizing...")
     // ========================================================================
 
-    // No BOS token (false) to match HuggingFace
-    let tokens = tokenize(tokenizer, chat_prompt, false)
+    // Add BOS token (true) to match Candle (39 tokens)
+    let tokens = tokenize(tokenizer, chat_prompt, true)
     let num_tokens = len(tokens)
 
     print("      Tokens:", num_tokens)
@@ -95,31 +95,55 @@ main {
     let Q_shape = shape(Q)
     let seq_len = Q_shape[0]
 
-    let Q_heads = reshape(Q, [seq_len, 32.0, 64.0])
-    let K_heads = reshape(K, [seq_len, 4.0, 64.0])
-    let V_heads = reshape(V, [seq_len, 4.0, 64.0])
+    let Q_heads = reshape(Q, [seq_len, 32, 64])
+    let K_heads = reshape(K, [seq_len, 4, 64])
+    let V_heads = reshape(V, [seq_len, 4, 64])
 
     let Q_rope = rope(Q_heads)
     let K_rope = rope(K_heads)
 
+    print("      [DEBUG] Q_rope sum:", sum(Q_rope))
+    print("      [DEBUG] K_rope sum:", sum(K_rope))
+
     // GQA expansion
-    let K_group = reshape(K_rope, [seq_len, 4.0, 1.0, 64.0])
-    let V_group = reshape(V_heads, [seq_len, 4.0, 1.0, 64.0])
+    let K_group = reshape(K_rope, [seq_len, 4, 1, 64])
+    let V_group = reshape(V_heads, [seq_len, 4, 1, 64])
 
-    let K_broadcast = broadcast_to(K_group, [seq_len, 4.0, 8.0, 64.0])
-    let V_broadcast = broadcast_to(V_group, [seq_len, 4.0, 8.0, 64.0])
+    let K_broadcast = broadcast_to(K_group, [seq_len, 4, 8, 64])
+    let V_broadcast = broadcast_to(V_group, [seq_len, 4, 8, 64])
 
-    let K_expanded = reshape(K_broadcast, [seq_len, 32.0, 64.0])
-    let V_expanded = reshape(V_broadcast, [seq_len, 32.0, 64.0])
+    let K_expanded = reshape(K_broadcast, [seq_len, 32, 64])
+    let V_expanded = reshape(V_broadcast, [seq_len, 32, 64])
 
-    // Attention computation (no causal mask for reference comparison)
+    print("      [DEBUG] K_expanded sum:", sum(K_expanded))
+    print("      [DEBUG] V_expanded sum:", sum(V_expanded))
+
+    // Attention computation with causal mask (to match Candle)
     let scores = einsum("ihd,jhd->ihj", Q_rope, K_expanded)
     let scaled_scores = scores * 0.125  // 1/sqrt(64)
-    let attn_weights = softmax(scaled_scores, 2)
+
+    print("      [DEBUG] scores sum:", sum(scores))
+    print("      [DEBUG] scaled_scores sum:", sum(scaled_scores))
+
+    // Apply causal mask (Candle uses this for seq_len > 1)
+    let seq_len_int = seq_len as int
+    let mask_2d = causal_mask(seq_len_int)  // [seq_len, seq_len]
+    let mask_3d = reshape(mask_2d, [seq_len, 1, seq_len])  // [seq_len, 1, seq_len]
+    let mask = broadcast_to(mask_3d, [seq_len, 32, seq_len])  // [seq_len, 32, seq_len]
+    let masked_scores = apply_attention_mask(scaled_scores, mask)
+
+    print("      [DEBUG] masked_scores sum:", sum(masked_scores))
+
+    let attn_weights = softmax(masked_scores, 2)
+
+    print("      [DEBUG] attn_weights sum:", sum(attn_weights))
+
     let attn_output = einsum("ihj,jhd->ihd", attn_weights, V_expanded)
 
+    print("      [DEBUG] attn_output sum:", sum(attn_output))
+
     // Attention output projection
-    let attn_reshaped = reshape(attn_output, [seq_len, 2048.0])
+    let attn_reshaped = reshape(attn_output, [seq_len, 2048])
     let attn_out = linear(attn_reshaped, W_o_0)
     print("      [DEBUG] attn_out sum:", sum(attn_out))
 
@@ -156,7 +180,7 @@ main {
     print("      Logits sum (all tokens):", logits_sum)
 
     // Extract last token logits for comparison with Candle
-    let last_row = 37.0  // Last token index (38 tokens, 0-indexed)
+    let last_row = 38.0  // Last token index (39 tokens with BOS, 0-indexed)
     let last_token_logits = slice(logits, last_row, 0.0, 32000.0)
     let last_token_sum = sum(last_token_logits)
     print("      Last token logits sum:", last_token_sum)
@@ -167,11 +191,11 @@ main {
 
     print("")
     print("================================================================================")
-    print("Comparison with Candle Reference:")
-    print("  Candle Embedding sum: 3.66015625    | TensorLogic: 3.673828125")
-    print("  Candle Layer 0 sum:   774.0         | TensorLogic: 5.1328125")
-    print("  Candle Final norm:    774.0         | TensorLogic:", final_norm_sum)
-    print("  Candle Last token logits sum: -34784.0 | TensorLogic:", last_token_sum)
+    print("Comparison with Candle Reference (39 tokens with BOS):")
+    print("  Candle Embedding sum: 3.683         | TensorLogic:", emb_sum)
+    print("  Candle Layer 0 sum:   3.830         | TensorLogic:", layer_0_sum)
+    print("  Candle Final norm:    -286.916      | TensorLogic:", final_norm_sum)
+    print("  Candle Last token logits sum: -38186.4 | TensorLogic:", last_token_sum)
     print("================================================================================")
     print("")
 
