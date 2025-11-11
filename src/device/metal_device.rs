@@ -167,7 +167,7 @@ impl MetalDevice {
             std::io::stderr().flush().ok();
         }
 
-        let commands = self.commands.lock()
+        let mut commands = self.commands.lock()
             .map_err(|e| TensorError::InvalidOperation(format!("Commands lock failed: {}", e)))?;
 
         if std::env::var("TL_DEBUG").is_ok() {
@@ -175,8 +175,8 @@ impl MetalDevice {
             std::io::stderr().flush().ok();
         }
 
-        let (flushed, guard) = commands.command_buffer()?;
-        let buffer = guard.clone();  // Clone buffer from RwLockReadGuard
+        let (flushed, buffer) = commands.get_or_flush_command_buffer()?;
+        // buffer is already CommandBuffer (not a guard anymore)
 
         if std::env::var("TL_DEBUG").is_ok() {
             eprintln!("[DEBUG_RS] MetalDevice::command_buffer: Commands::command_buffer returned, releasing lock...");
@@ -194,10 +194,10 @@ impl MetalDevice {
     /// - At end of operation sequence
     /// - Before deallocating buffers that might be in use
     pub fn wait_until_completed(&self) -> TensorResult<()> {
-        // Wait for all Commands-managed buffers
-        self.commands.lock()
-            .map_err(|e| TensorError::InvalidOperation(format!("Commands lock failed: {}", e)))?
-            .wait_until_completed()
+        // Wait for all Commands-managed buffers (per-thread)
+        let mut commands = self.commands.lock()
+            .map_err(|e| TensorError::InvalidOperation(format!("Commands lock failed: {}", e)))?;
+        commands.wait_until_completed()
     }
 
     /// Load Metal shader library from source
