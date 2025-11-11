@@ -871,7 +871,7 @@ impl TensorLogicParser {
         let first = pairs.next().ok_or_else(|| {
             ParseError::MissingField("comparison expression".to_string())
         })?;
-        let mut expr = Self::parse_additive_expr(first, registry)?;
+        let mut expr = Self::parse_cast_expr(first, registry)?;
 
         while let Some(op_pair) = pairs.next() {
             let op = match op_pair.as_str() {
@@ -884,12 +884,50 @@ impl TensorLogicParser {
             let right = pairs.next().ok_or_else(|| {
                 ParseError::MissingField("right operand".to_string())
             })?;
-            let right_expr = Self::parse_additive_expr(right, registry)?;
+            let right_expr = Self::parse_cast_expr(right, registry)?;
             expr = TensorExpr::BinaryOp {
                 op,
                 left: Box::new(expr),
                 right: Box::new(right_expr),
             };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_cast_expr(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {
+        let mut pairs = pair.into_inner();
+        let first = pairs.next().ok_or_else(|| {
+            ParseError::MissingField("cast expression".to_string())
+        })?;
+
+        // Parse the base expression
+        let mut expr = Self::parse_additive_expr(first, registry)?;
+
+        // Check if there's a cast operator
+        if let Some(as_pair) = pairs.next() {
+            // as_pair is the "as" keyword
+            if as_pair.as_str() == "as" {
+                // Next should be the cast type
+                let type_pair = pairs.next().ok_or_else(|| {
+                    ParseError::MissingField("cast type".to_string())
+                })?;
+
+                let target_type = match type_pair.as_str() {
+                    "f32" => CastType::F32,
+                    "f64" => CastType::F64,
+                    "i32" => CastType::I32,
+                    "i64" => CastType::I64,
+                    "int" => CastType::Int,
+                    "float" => CastType::Float,
+                    _ => return Err(ParseError::InvalidValue(format!("unknown cast type: {}", type_pair.as_str()))),
+                };
+
+                expr = TensorExpr::Cast {
+                    expr: Box::new(expr),
+                    target_type,
+                };
+            }
         }
 
         Ok(expr)
@@ -2092,22 +2130,51 @@ impl TensorLogicParser {
         }
     }
 
+    /// Check if a TensorExpr implements the Iterator trait at parse time
+    ///
+    /// In TensorLogic, the following expressions are considered iterators:
+    /// - Function calls to range() or range_i()
+    /// - Identifiers (assumed to be iterable at parse time, validated at runtime)
+    /// - Array literals (iterable over elements)
+    fn is_iterator_expr(expr: &TensorExpr) -> bool {
+        match expr {
+            // Function calls to range() or range_i()
+            TensorExpr::FunctionCall { name, .. } => {
+                let func_name = name.as_str();
+                matches!(func_name, "range" | "range_i" | "arange")
+            },
+            // Variables could be iterables (validated at runtime)
+            TensorExpr::Variable(_) => true,
+            // Array literals are iterable
+            TensorExpr::Literal(TensorLiteral::Array(_)) => true,
+            // Other expressions are not considered iterators at parse time
+            _ => false,
+        }
+    }
+
     fn parse_iterable(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<Iterable, ParseError> {
+        // Get the inner rule (tensor_expr or entity_set)
         let inner = pair.into_inner().next().ok_or_else(|| {
             ParseError::MissingField("iterable value".to_string())
         })?;
 
         match inner.as_rule() {
-            Rule::tensor_expr => Ok(Iterable::Tensor(Self::parse_tensor_expr(inner, registry)?)),
-            Rule::entity_set => Ok(Iterable::EntitySet(Self::parse_entity_set(inner)?)),
-            Rule::range_expr => {
-                // range(n) -> extract n
-                let mut range_inner = inner.into_inner();
-                let n_pair = range_inner.next().ok_or_else(|| {
-                    ParseError::MissingField("range size".to_string())
-                })?;
-                let n = Self::parse_number(n_pair)? as usize;
-                Ok(Iterable::Range(n))
+            Rule::tensor_expr => {
+                let expr = Self::parse_tensor_expr(inner, registry)?;
+
+                // Check if the expression implements the Iterator trait
+                if !Self::is_iterator_expr(&expr) {
+                    return Err(ParseError::InvalidValue(format!(
+                        "Expression does not implement Iterator trait: {:?}",
+                        expr
+                    )));
+                }
+
+                Ok(Iterable::Expr(expr))
+            },
+            Rule::entity_set => {
+                // Entity sets are always iterable
+                Ok(Iterable::EntitySet(Self::parse_entity_set(inner)?))
             },
             _ => Err(ParseError::InvalidValue(format!("Invalid iterable: {}", inner.as_str()))),
         }

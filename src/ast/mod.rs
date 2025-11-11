@@ -464,6 +464,22 @@ pub enum TensorExpr {
         expr: Box<TensorExpr>,
         arms: Vec<MatchArm>,
     },
+    /// Type cast: expr as type
+    Cast {
+        expr: Box<TensorExpr>,
+        target_type: CastType,
+    },
+}
+
+/// Type cast target types
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CastType {
+    F32,
+    F64,
+    I32,
+    I64,
+    Int,   // Alias for I64
+    Float, // Alias for F64
 }
 
 /// Index expression for tensor indexing
@@ -810,11 +826,14 @@ pub enum Condition {
 }
 
 /// Iterable for for loops
+/// Any expression that implements the Iterator trait can be used
 #[derive(Debug, Clone, PartialEq)]
 pub enum Iterable {
-    Tensor(TensorExpr),
+    /// General tensor expression that implements Iterator trait
+    /// This includes: range(), range_i(), tensors, arrays, etc.
+    Expr(TensorExpr),
+    /// Entity set iteration (separate from TensorExpr)
     EntitySet(EntitySet),
-    Range(usize),
 }
 
 // ============================================================================

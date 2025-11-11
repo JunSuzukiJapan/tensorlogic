@@ -799,6 +799,20 @@ impl TypeChecker {
                 }
                 self.infer_expr_type(&arms[0].body)
             }
+
+            TensorExpr::Cast { expr: _, target_type } => {
+                use crate::ast::CastType;
+                // Cast expression: infer type based on target type
+                let base_type = match target_type {
+                    CastType::F32 => BaseType::Float32,
+                    CastType::F64 => BaseType::Float64,
+                    CastType::I32 => BaseType::Int32,
+                    CastType::I64 => BaseType::Int64,
+                    CastType::Int => BaseType::Int64,
+                    CastType::Float => BaseType::Float64,
+                };
+                Ok(TensorTypeInfo::new(base_type, vec![])) // Scalar result
+            }
         }
     }
 

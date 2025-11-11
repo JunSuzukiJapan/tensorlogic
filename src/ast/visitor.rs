@@ -279,6 +279,9 @@ pub fn walk_tensor_expr<V: Visitor>(visitor: &mut V, expr: &TensorExpr) -> Resul
             }
             Ok(())
         }
+        TensorExpr::Cast { expr, .. } => {
+            visitor.visit_tensor_expr(expr)
+        }
     }
 }
 
@@ -373,8 +376,14 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
                 body,
             } => {
                 visitor.visit_identifier(variable)?;
-                if let Iterable::Tensor(expr) = iterable {
-                    visitor.visit_tensor_expr(expr)?;
+                // Visit the iterable expression
+                match iterable {
+                    Iterable::Expr(expr) => {
+                        visitor.visit_tensor_expr(expr)?;
+                    }
+                    Iterable::EntitySet(_) => {
+                        // EntitySet doesn't contain tensor expressions to visit
+                    }
                 }
                 for stmt in body {
                     visitor.visit_statement(stmt)?;

@@ -155,15 +155,11 @@ impl Interpreter {
                     body,
                 } => {
                     // Evaluate iterable
-                    let items = match iterable {
-                        Iterable::Range(n) => {
-                            // Create range 0..n
-                            (0..*n).map(|i| Value::Integer(i as i64)).collect::<Vec<_>>()
-                        }
-                        Iterable::Tensor(expr) => {
-                            // Iterate over tensor elements
-                            let tensor_val = self.eval_expr(expr)?;
-                            match tensor_val {
+                    let items: Vec<Value> = match iterable {
+                        Iterable::Expr(expr) => {
+                            // Evaluate the expression and iterate based on its type
+                            let val = self.eval_expr(expr)?;
+                            match val {
                                 Value::TensorF16(tensor) => {
                                     let data = tensor.sync_and_read();
                                     data.iter().map(|&v| Value::Float(v.to_f32() as f64)).collect()
@@ -172,9 +168,13 @@ impl Interpreter {
                                     let data = tensor.sync_and_read();
                                     data.iter().map(|&v| Value::Float(v as f64)).collect()
                                 }
+                                Value::IntArray(arr) => {
+                                    // Iterate over integer array (e.g., from range_i())
+                                    arr.iter().map(|&i| Value::Integer(i)).collect()
+                                }
                                 _ => {
                                     return Err(RuntimeError::TypeError(
-                                        "Expected tensor (f16 or f32) for iteration".to_string()
+                                        format!("Value does not implement Iterator trait: {:?}", val)
                                     ));
                                 }
                             }
@@ -862,6 +862,7 @@ impl Interpreter {
             TensorExpr::StructLiteral { .. } => "StructLiteral",
             TensorExpr::AssociatedCall { .. } => "AssociatedCall",
             TensorExpr::Match { .. } => "Match",
+            TensorExpr::Cast { .. } => "Cast",
         };
         // eprintln!("[DEBUG] eval_expr: type={}", expr_type);
 
@@ -2115,6 +2116,10 @@ impl Interpreter {
 
             TensorExpr::Match { expr, arms } => {
                 self.eval_match(expr, arms)
+            }
+
+            TensorExpr::Cast { expr, target_type } => {
+                self.eval_cast(expr, *target_type)
             }
         }
     }
@@ -3734,6 +3739,60 @@ impl Interpreter {
         Err(RuntimeError::InvalidOperation(
             "match expression: no arm matched".to_string()
         ))
+    }
+
+    /// Evaluate a cast expression (expr as type)
+    fn eval_cast(&mut self, expr: &TensorExpr, target_type: CastType) -> RuntimeResult<Value> {
+        use crate::ast::CastType;
+
+        // Evaluate the expression
+        let value = self.eval_expr(expr)?;
+
+        // Perform the cast based on the target type
+        match target_type {
+            CastType::F32 | CastType::Float | CastType::F64 => {
+                // Cast to float
+                match value {
+                    Value::Integer(i) => Ok(Value::Float(i as f64)),
+                    Value::Float(f) => Ok(Value::Float(f)),
+                    Value::Boolean(b) => Ok(Value::Float(if b { 1.0 } else { 0.0 })),
+                    Value::TensorF16(t) if t.numel() == 1 => {
+                        // Single-element tensor -> scalar float
+                        let scalar = self.tensor_f16_to_scalar(&t)?;
+                        Ok(Value::Float(scalar as f64))
+                    }
+                    Value::TensorF32(t) if t.numel() == 1 => {
+                        // Single-element tensor -> scalar float
+                        let scalar = self.tensor_f32_to_scalar(&t)?;
+                        Ok(Value::Float(scalar as f64))
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        format!("Cannot cast {:?} to float", value)
+                    ))
+                }
+            }
+            CastType::I32 | CastType::I64 | CastType::Int => {
+                // Cast to integer
+                match value {
+                    Value::Integer(i) => Ok(Value::Integer(i)),
+                    Value::Float(f) => Ok(Value::Integer(f as i64)),
+                    Value::Boolean(b) => Ok(Value::Integer(if b { 1 } else { 0 })),
+                    Value::TensorF16(t) if t.numel() == 1 => {
+                        // Single-element tensor -> scalar integer
+                        let scalar = self.tensor_f16_to_scalar(&t)?;
+                        Ok(Value::Integer(scalar as i64))
+                    }
+                    Value::TensorF32(t) if t.numel() == 1 => {
+                        // Single-element tensor -> scalar integer
+                        let scalar = self.tensor_f32_to_scalar(&t)?;
+                        Ok(Value::Integer(scalar as i64))
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        format!("Cannot cast {:?} to integer", value)
+                    ))
+                }
+            }
+        }
     }
 
     /// Try to match a pattern against a value

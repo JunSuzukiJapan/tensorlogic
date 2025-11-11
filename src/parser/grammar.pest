@@ -208,8 +208,13 @@ and_op = { "&&" }
 equality_expr = { comparison_expr ~ (equality_op ~ comparison_expr)* }
 equality_op = { "==" | "!=" }
 
-comparison_expr = { additive_expr ~ (comparison_op ~ additive_expr)* }
+comparison_expr = { cast_expr ~ (comparison_op ~ cast_expr)* }
 comparison_op = { "<=" | ">=" | "<" | ">" }
+
+// Type cast expression: expr as type
+cast_expr = { additive_expr ~ (as_op ~ cast_type)? }
+as_op = { "as" }
+cast_type = { "f32" | "f64" | "i32" | "i64" | "int" | "float" }
 
 additive_expr = { multiplicative_expr ~ (additive_op ~ multiplicative_expr)* }
 additive_op = { "+" | "-" }
@@ -486,9 +491,9 @@ for_statement = {
     "for" ~ identifier ~ "in" ~ iterable ~ "{" ~ statement* ~ "}"
 }
 
-iterable = { range_expr | entity_set | tensor_expr }
-
-range_expr = { "range" ~ "(" ~ integer ~ ")" }
+// Iterable can be any tensor expression or an entity set
+// Iterator trait checking happens at parse time
+iterable = { tensor_expr | entity_set }
 
 while_statement = { "while" ~ condition ~ "{" ~ statement* ~ "}" }
 

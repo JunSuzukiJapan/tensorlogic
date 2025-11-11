@@ -4,6 +4,7 @@ use super::*;
 use crate::interpreter::value::ToValue;
 use crate::tensor::Tensor;
 use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO, TensorTransform};
+use crate::tensor::TensorConvert;
 use crate::error::TensorError;
 use crate::device::Device;
 use half::f16;
@@ -12,6 +13,14 @@ use half::f16;
 macro_rules! extract_shape {
     ($self:expr, $value:expr) => {
         match $value {
+            Value::IntArray(ref arr) => {
+                // Direct conversion from IntArray to shape
+                arr.iter().map(|&v| v as usize).collect()
+            }
+            Value::FloatArray(ref arr) => {
+                // Direct conversion from FloatArray to shape
+                arr.iter().map(|&v| v as usize).collect()
+            }
             Value::TensorF32(ref t) => {
                 // eprintln!("[DEBUG] extract_shape!: TensorF32 branch");
                 // Transfer entire tensor from GPU to CPU at once (faster than per-element reads)
@@ -35,7 +44,7 @@ macro_rules! extract_shape {
                 shape
             }
             _ => return Err(RuntimeError::TypeError(
-                format!("Expected shape as tensor array")
+                format!("Expected shape as tensor or array")
             ))
         }
     };
@@ -149,6 +158,8 @@ impl Interpreter {
             "broadcast_to" => Some(self.eval_broadcast_to(args)),
             "concat" => Some(self.eval_concat(args)),
             "rope" => Some(self.eval_rope(args)),
+            "precompute_rope_cos" => Some(self.eval_precompute_rope_cos(args)),
+            "precompute_rope_sin" => Some(self.eval_precompute_rope_sin(args)),
             "slice" => Some(self.eval_slice(args)),
             "slice_last" => Some(self.eval_slice_last(args)),
 
@@ -169,6 +180,7 @@ impl Interpreter {
             // Tensor shape operations
             "zeros" => Some(self.eval_zeros(args)),
             "arange" => Some(self.eval_range(args)),
+            "range_i" => Some(self.eval_range_i(args)),
             "flatten" => Some(self.eval_flatten(args)),
             "squeeze" => Some(self.eval_squeeze(args)),
             "unsqueeze" => Some(self.eval_unsqueeze(args)),
@@ -369,6 +381,12 @@ impl Interpreter {
 
         // Extract target_dims from shape_val
         let target_dims = match shape_val {
+            Value::IntArray(ref arr) => {
+                arr.iter().map(|&v| v as usize).collect()
+            }
+            Value::FloatArray(ref arr) => {
+                arr.iter().map(|&v| v as usize).collect()
+            }
             Value::TensorF16(ref t) => {
                 let mut dims = Vec::with_capacity(t.dims()[0]);
                 for i in 0..t.dims()[0] {
@@ -384,7 +402,7 @@ impl Interpreter {
                 dims
             }
             _ => return Err(RuntimeError::TypeError(
-                format!("broadcast_to() expects target_shape as tensor, got {:?}", shape_val)
+                format!("broadcast_to() expects target_shape as tensor or array, got {:?}", shape_val)
             )),
         };
 
@@ -482,18 +500,27 @@ impl Interpreter {
     ///
     /// # Example
     /// ```ignore
-    /// let Q_heads = reshape(Q, [seq_len, 32.0, 64.0])
+    /// // Old style (自動計算):
     /// let Q_rope = rope(Q_heads)  // Apply rotary position embedding with position_offset=0
     /// let Q_rope = rope(Q_heads, 29)  // Apply RoPE starting at position 29 (for KV cache)
+    ///
+    /// // Candle style (事前計算されたcos/sin使用):
+    /// let (cos, sin) = precompute_rope_freqs(64.0, 2048.0, 10000.0)
+    /// let Q_rope = rope(Q_heads, cos, sin)
     /// ```
     fn eval_rope(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         use crate::interpreter::value::ToValue;
         let _start = std::time::Instant::now();
 
-        if args.len() < 1 || args.len() > 2 {
+        if args.len() < 1 || args.len() > 3 {
             return Err(RuntimeError::TypeError(
-                format!("rope() expects 1 or 2 arguments (tensor, [position_offset]), got {}", args.len())
+                format!("rope() expects 1-3 arguments (tensor, [position_offset] OR tensor, cos, sin), got {}", args.len())
             ));
+        }
+
+        // Check if this is Candle-style (3 arguments: tensor, cos, sin)
+        if args.len() == 3 {
+            return self.eval_rope_candle_style(args);
         }
 
         let tensor_val = self.eval_expr(&args[0])?;
@@ -534,6 +561,161 @@ impl Interpreter {
             eprintln!("[PERF] rope({}, pos={}): {:.3}ms", dtype, position_offset, _start.elapsed().as_secs_f64() * 1000.0);
         }
         result
+    }
+
+    /// Candle-style RoPE with precomputed cos/sin arrays
+    fn eval_rope_candle_style(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
+        // args[0]: input tensor [seq_len, n_heads, head_dim]
+        // args[1]: cos array [max_seq_len, head_dim/2]
+        // args[2]: sin array [max_seq_len, head_dim/2]
+
+        let tensor_val = self.eval_expr(&args[0])?;
+        let cos_val = self.eval_expr(&args[1])?;
+        let sin_val = self.eval_expr(&args[2])?;
+
+        match (tensor_val, cos_val, sin_val) {
+            (Value::TensorF16(tensor), Value::TensorF16(cos), Value::TensorF16(sin)) => {
+                let result = tensor.rope_candle(&cos, &sin)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(result.to_value())
+            }
+            (Value::TensorF32(tensor), Value::TensorF32(cos), Value::TensorF32(sin)) => {
+                let result = tensor.rope_candle(&cos, &sin)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(result.to_value())
+            }
+            (Value::TensorF16(tensor), Value::TensorF32(cos), Value::TensorF32(sin)) => {
+                // Convert f32 cos/sin to f16
+                let cos_f16 = cos.to_f16().map_err(|e| RuntimeError::TensorError(e))?;
+                let sin_f16 = sin.to_f16().map_err(|e| RuntimeError::TensorError(e))?;
+                let result = tensor.rope_candle(&cos_f16, &sin_f16)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(result.to_value())
+            }
+            _ => Err(RuntimeError::TypeError(
+                "rope() with cos/sin requires tensors of compatible types".to_string()
+            ))
+        }
+    }
+
+    /// precompute_rope_cos(head_dim, max_seq_len, rope_base) -> cos_tensor
+    /// Precompute RoPE cosine embeddings (Candle-style)
+    ///
+    /// # Arguments
+    /// * `head_dim` - Head dimension (must be even, e.g., 64)
+    /// * `max_seq_len` - Maximum sequence length (e.g., 2048)
+    /// * `rope_base` - RoPE base frequency (typically 10000.0)
+    ///
+    /// # Returns
+    /// cos_tensor with shape [max_seq_len, head_dim/2]
+    ///
+    /// # Example
+    /// ```ignore
+    /// let cos = precompute_rope_cos(64.0, 2048.0, 10000.0)
+    /// let sin = precompute_rope_sin(64.0, 2048.0, 10000.0)
+    /// let Q_rope = rope(Q_heads, cos, sin)
+    /// ```
+    fn eval_precompute_rope_cos(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        self.eval_precompute_rope_impl(args, true)
+    }
+
+    /// precompute_rope_sin(head_dim, max_seq_len, rope_base) -> sin_tensor
+    /// Precompute RoPE sine embeddings (Candle-style)
+    fn eval_precompute_rope_sin(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        self.eval_precompute_rope_impl(args, false)
+    }
+
+    /// Internal implementation for precomputing RoPE cos/sin
+    fn eval_precompute_rope_impl(&mut self, args: &[TensorExpr], compute_cos: bool) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+
+        if args.len() != 3 {
+            return Err(RuntimeError::TypeError(
+                format!("precompute_rope_freqs() expects 3 arguments (head_dim, max_seq_len, rope_base), got {}", args.len())
+            ));
+        }
+
+        // Parse arguments
+        let head_dim_val = self.eval_expr(&args[0])?;
+        let head_dim = match head_dim_val {
+            Value::Float(f) => f as usize,
+            Value::Integer(i) => i as usize,
+            _ => return Err(RuntimeError::TypeError("head_dim must be a number".to_string())),
+        };
+
+        let max_seq_len_val = self.eval_expr(&args[1])?;
+        let max_seq_len = match max_seq_len_val {
+            Value::Float(f) => f as usize,
+            Value::Integer(i) => i as usize,
+            _ => return Err(RuntimeError::TypeError("max_seq_len must be a number".to_string())),
+        };
+
+        let rope_base_val = self.eval_expr(&args[2])?;
+        let rope_base = match rope_base_val {
+            Value::Float(f) => f as f32,
+            Value::Integer(i) => i as f32,
+            _ => return Err(RuntimeError::TypeError("rope_base must be a number".to_string())),
+        };
+
+        if head_dim % 2 != 0 {
+            return Err(RuntimeError::TypeError(
+                format!("head_dim must be even, got {}", head_dim)
+            ));
+        }
+
+        // Compute frequency for each dimension pair: freq[i] = 1 / rope_base^(i/head_dim)
+        // Following Candle's implementation
+        let theta: Vec<f32> = (0..head_dim)
+            .step_by(2)
+            .map(|i| 1.0 / rope_base.powf(i as f32 / head_dim as f32))
+            .collect();
+
+        // Compute cos/sin for each (position, dimension) combination
+        // Following Candle: duplicate each frequency value for the pair
+        // cos/sin arrays have shape [max_seq_len, head_dim]
+        let half_dim = head_dim / 2;
+        let mut cos_data = Vec::with_capacity(max_seq_len * head_dim);
+        let mut sin_data = Vec::with_capacity(max_seq_len * head_dim);
+
+        for pos in 0..max_seq_len {
+            for dim_pair_idx in 0..half_dim {
+                let angle = pos as f32 * theta[dim_pair_idx];
+                let cos_val = angle.cos();
+                let sin_val = angle.sin();
+                // Duplicate for both elements of the pair
+                cos_data.push(cos_val);
+                cos_data.push(cos_val);
+                sin_data.push(sin_val);
+                sin_data.push(sin_val);
+            }
+        }
+
+        // Create tensor on Metal device
+        let device = self.env.metal_device();
+
+        if compute_cos {
+            let cos_f32 = Tensor::<f32>::from_vec_gpu(
+                device,
+                cos_data,
+                vec![max_seq_len, head_dim]
+            ).map_err(|e| RuntimeError::TensorError(e))?;
+
+            // Convert to f16 for consistency with model weights
+            let cos_f16 = cos_f32.to_f16().map_err(|e| RuntimeError::TensorError(e))?;
+            Ok(cos_f16.to_value())
+        } else {
+            let sin_f32 = Tensor::<f32>::from_vec_gpu(
+                device,
+                sin_data,
+                vec![max_seq_len, head_dim]
+            ).map_err(|e| RuntimeError::TensorError(e))?;
+
+            // Convert to f16 for consistency with model weights
+            let sin_f16 = sin_f32.to_f16().map_err(|e| RuntimeError::TensorError(e))?;
+            Ok(sin_f16.to_value())
+        }
     }
 
     /// slice(tensor, row, col_start, col_end) -> tensor
@@ -1002,6 +1184,63 @@ impl Interpreter {
     /// Legacy arange function (calls f32 version for backward compatibility)
     pub(super) fn eval_range(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         self.eval_range_f32(args)
+    }
+
+    /// range_i(n) -> IntArray
+    /// range_i(start, end) -> IntArray
+    /// Creates an integer array [start, start+1, ..., end-1]
+    /// This is useful for loop indices where integer values are required
+    pub(super) fn eval_range_i(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        let (start, end) = match args.len() {
+            1 => {
+                // range_i(n) form
+                let end_val = self.eval_expr(&args[0])?;
+                let end = match end_val {
+                    Value::Float(f) => f as i64,
+                    Value::Integer(i) => i,
+                    Value::TensorF16(ref t) if t.numel() == 1 => self.tensor_f16_to_scalar(t)? as i64,
+                    Value::TensorF32(ref t) if t.numel() == 1 => self.tensor_f32_to_scalar(t)? as i64,
+                    _ => return Err(RuntimeError::TypeError(
+                        "range_i() expects scalar end value".to_string()
+                    )),
+                };
+                (0, end)
+            }
+            2 => {
+                // range_i(start, end) form
+                let start_val = self.eval_expr(&args[0])?;
+                let end_val = self.eval_expr(&args[1])?;
+
+                let start = match start_val {
+                    Value::Float(f) => f as i64,
+                    Value::Integer(i) => i,
+                    Value::TensorF16(ref t) if t.numel() == 1 => self.tensor_f16_to_scalar(t)? as i64,
+                    Value::TensorF32(ref t) if t.numel() == 1 => self.tensor_f32_to_scalar(t)? as i64,
+                    _ => return Err(RuntimeError::TypeError(
+                        "range_i() expects scalar start value".to_string()
+                    )),
+                };
+
+                let end = match end_val {
+                    Value::Float(f) => f as i64,
+                    Value::Integer(i) => i,
+                    Value::TensorF16(ref t) if t.numel() == 1 => self.tensor_f16_to_scalar(t)? as i64,
+                    Value::TensorF32(ref t) if t.numel() == 1 => self.tensor_f32_to_scalar(t)? as i64,
+                    _ => return Err(RuntimeError::TypeError(
+                        "range_i() expects scalar end value".to_string()
+                    )),
+                };
+
+                (start, end)
+            }
+            _ => return Err(RuntimeError::TypeError(
+                format!("range_i() expects 1 or 2 arguments, got {}", args.len())
+            ))
+        };
+
+        // Generate integer sequence
+        let values: Vec<i64> = (start..end).collect();
+        Ok(Value::IntArray(values))
     }
 
     /// flatten(tensor) -> tensor
