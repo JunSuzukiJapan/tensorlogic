@@ -143,12 +143,11 @@ impl MetalDevice {
         &self.command_queue
     }
 
-    /// Get a command encoder with proper semaphore state management (Candle-compatible)
+    /// Get a command encoder (Candle-style: simple, no semaphore)
     ///
     /// This is the main entry point for GPU operations.
-    /// Sets CommandStatus to Encoding before creating encoder.
     /// Returns (flushed, encoder) where flushed indicates if a commit happened.
-    pub fn command_encoder(&self) -> TensorResult<(bool, crate::device::ComputeCommandEncoder)> {
+    pub fn command_encoder(&self) -> TensorResult<(bool, metal::ComputeCommandEncoder)> {
         let mut commands = self.commands.lock()
             .map_err(|e| TensorError::InvalidOperation(format!("Commands lock failed: {}", e)))?;
 

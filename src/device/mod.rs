@@ -10,7 +10,6 @@ mod buffer_pool;
 mod coreml_manager;
 mod command_buffer;
 mod commands;
-mod compute_encoder;
 mod encoder_provider;
 
 pub mod metal;
@@ -23,9 +22,8 @@ pub use neural_engine_ops::NeuralEngineOps;
 pub use shared_buffer::SharedBuffer;
 pub use buffer_pool::{BufferPool, PoolStats};
 pub use coreml_manager::CoreMLModelManager;
-pub use command_buffer::{CommandBuffer, CommandSemaphore, CommandStatus};
+pub use command_buffer::CommandBuffer;
 pub use commands::Commands;
-pub use compute_encoder::ComputeCommandEncoder;
 pub use encoder_provider::EncoderProvider;
 pub use metal::TensorBuffer;
 

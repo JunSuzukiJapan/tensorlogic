@@ -3,39 +3,33 @@
 //! This trait abstracts away command buffer lifecycle management from GPU operations,
 //! allowing kernel functions to receive encoders without managing command buffers directly.
 //!
-//! Updated to use semaphore-integrated ComputeCommandEncoder for proper state management.
+//! Matches Candle's simple implementation (no semaphore).
 
 use super::command_buffer::CommandBuffer;
-use super::compute_encoder::ComputeCommandEncoder;
 
-/// Trait for types that can provide compute command encoders with semaphore integration
+/// Trait for types that can provide compute command encoders
 ///
 /// This abstraction allows kernel functions to work with command buffers
-/// without managing them directly, while ensuring proper semaphore state management.
+/// without managing them directly.
 pub trait EncoderProvider {
-    /// Get a compute command encoder with semaphore integration
-    ///
-    /// For CommandBuffer: creates a new encoder that:
-    /// - Integrates with the command buffer's semaphore
-    /// - Automatically resets status to Available when dropped
-    /// - Ensures proper thread synchronization
-    fn encoder(&self) -> ComputeCommandEncoder;
+    /// Get a compute command encoder (Candle-style: simple, no semaphore)
+    fn encoder(&self) -> metal::ComputeCommandEncoder;
 }
 
-/// Implementation for CommandBuffer - creates semaphore-integrated encoder
+/// Implementation for CommandBuffer - creates simple encoder
 ///
 /// This is the primary implementation used throughout the codebase.
 /// When a CommandBuffer is passed to a kernel function, calling encoder()
-/// creates a new compute command encoder with full semaphore integration.
+/// creates a new compute command encoder.
 impl EncoderProvider for CommandBuffer {
-    fn encoder(&self) -> ComputeCommandEncoder {
+    fn encoder(&self) -> metal::ComputeCommandEncoder {
         self.compute_command_encoder()
     }
 }
 
 /// Implementation for reference to CommandBuffer
 impl EncoderProvider for &CommandBuffer {
-    fn encoder(&self) -> ComputeCommandEncoder {
+    fn encoder(&self) -> metal::ComputeCommandEncoder {
         self.compute_command_encoder()
     }
 }
@@ -54,7 +48,7 @@ mod tests {
         let encoder = command_buffer.encoder();
 
         // Encoder should be valid (can set label)
-        encoder.as_ref().set_label("test_encoder");
+        encoder.set_label("test_encoder");
         encoder.end_encoding();
     }
 }

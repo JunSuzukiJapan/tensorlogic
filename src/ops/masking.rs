@@ -134,8 +134,9 @@ impl<T: FloatType> Tensor<T> {
         encoder.dispatch_thread_groups(threadgroups, threadgroup_size);
         encoder.end_encoding();
 
-        command_buffer.commit();
-        crate::ops::async_exec::submit_async(&command_buffer);
+        // NOTE: No commit here - the Commands batching system handles this automatically
+        // Commands will commit when batch size is reached or when data is read to CPU
+        // This matches Candle's lazy batching strategy
 
         // Create result tensor
         self.new_from_pool(

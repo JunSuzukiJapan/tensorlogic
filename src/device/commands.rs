@@ -6,9 +6,9 @@
 //! This module provides efficient batching of GPU operations by:
 //! 1. Grouping multiple operations into a single CommandBuffer
 //! 2. Deferring commit until batch size limit or explicit sync
-//! 3. Managing thread-safe access to command buffers via semaphore
+//! 3. Managing thread-safe access to command buffers via Mutex (NO semaphore!)
 
-use crate::device::{CommandBuffer, CommandSemaphore, CommandStatus};
+use crate::device::CommandBuffer;
 use crate::error::{TensorError, TensorResult};
 use metal::{CommandQueue, MTLCommandBufferStatus};
 use std::collections::HashMap;
@@ -56,20 +56,16 @@ pub struct Commands {
     /// Maximum number of compute operations per command buffer
     /// Default: 50 (matching Candle, can be configured with TL_COMPUTE_PER_BUFFER env var)
     compute_per_buffer: usize,
-
-    /// Semaphore for synchronizing command buffer access across threads
-    semaphore: Arc<CommandSemaphore>,
 }
 
-// SAFETY: Commands uses Arc and atomic operations for thread safety
+// SAFETY: Commands uses Arc and Mutex for thread safety (NO semaphore!)
 unsafe impl Send for Commands {}
 unsafe impl Sync for Commands {}
 
 impl Commands {
     /// Create a new Commands manager
     pub fn new(command_queue: Arc<CommandQueue>) -> TensorResult<Self> {
-        let semaphore = Arc::new(CommandSemaphore::new());
-        let command_buffer = Self::create_command_buffer(&command_queue, Arc::clone(&semaphore))?;
+        let command_buffer = Self::create_command_buffer(&command_queue)?;
 
         // Initialize per-thread buffer map with initial buffer
         let mut command_buffers = CommandBufferThreadMap::new();
@@ -91,17 +87,15 @@ impl Commands {
             command_buffers,
             per_thread_indices,
             compute_per_buffer,
-            semaphore,
         })
     }
 
-    /// Create a new command buffer
+    /// Create a new command buffer (Candle-style: no semaphore)
     fn create_command_buffer(
         command_queue: &CommandQueue,
-        semaphore: Arc<CommandSemaphore>,
     ) -> TensorResult<CommandBuffer> {
         let raw = command_queue.new_command_buffer().to_owned();
-        Ok(CommandBuffer::new(raw, semaphore))
+        Ok(CommandBuffer::new(raw))
     }
 
     /// Get the current command buffer for the calling thread
@@ -126,7 +120,7 @@ impl Commands {
             Some(command_buffer) => command_buffer,
             None => {
                 // Create new buffer for this thread
-                let command_buffer = Self::create_command_buffer(&self.command_queue, Arc::clone(&self.semaphore))?;
+                let command_buffer = Self::create_command_buffer(&self.command_queue)?;
                 command_buffers.insert(command_buffer);
                 command_buffers.get_mut().unwrap()
             }
@@ -153,7 +147,7 @@ impl Commands {
             command_buffer.commit();
 
             // Replace with new buffer
-            *command_buffer = Self::create_command_buffer(&self.command_queue, Arc::clone(&self.semaphore))?;
+            *command_buffer = Self::create_command_buffer(&self.command_queue)?;
 
             // Reset index for this thread
             *current_index = 0;
@@ -167,37 +161,22 @@ impl Commands {
         Ok((flushed, command_buffer.clone()))
     }
 
-    /// Get a command encoder with proper semaphore state management
+    /// Get a command encoder (Candle-style: simple, no semaphore)
     ///
     /// This is the main entry point for GPU operations.
-    /// Sets CommandStatus to Encoding before creating encoder.
     /// Matches Candle's implementation exactly.
     ///
     /// Returns (flushed, encoder) where flushed indicates if a commit happened.
     pub fn command_encoder(
         &mut self,
-    ) -> TensorResult<(bool, crate::device::ComputeCommandEncoder)> {
-        {
-            // Ensure command buffer available, set status to Encoding
-            let mut guard = self
-                .semaphore
-                .wait_until(|s| matches!(s, CommandStatus::Available | CommandStatus::Done));
-
-            // Set status as encoding to block other threads
-            *guard = CommandStatus::Encoding;
-        }
-        // Notify after command status lock is released
-        self.semaphore.cond.notify_one();
-
+    ) -> TensorResult<(bool, metal::ComputeCommandEncoder)> {
         // Get command buffer (may trigger flush)
         let (flushed, command_buffer) = self.get_or_flush_command_buffer()?;
 
-        // Create encoder directly without setting status again
-        // (status already set above)
-        let raw = command_buffer.inner().new_compute_command_encoder().to_owned();
-        let command_encoder = crate::device::ComputeCommandEncoder::new(raw, Arc::clone(&self.semaphore));
+        // Create encoder directly (no semaphore, matches Candle)
+        let encoder = command_buffer.compute_command_encoder();
 
-        Ok((flushed, command_encoder))
+        Ok((flushed, encoder))
     }
 
     /// Wait for all pending command buffers to complete
@@ -228,35 +207,22 @@ impl Commands {
             );
         }
 
+        // Extract current thread's command buffer, create new in its place
+        // This is Candle's pattern: simple Mutex, no semaphore
         let current = {
-            // Ensure command buffer not encoding
-            let mut guard = self
-                .semaphore
-                .wait_until(|s| matches!(s, CommandStatus::Available | CommandStatus::Done));
+            let mut command_buffers = self.command_buffers.lock().map_err(|e| {
+                TensorError::InvalidOperation(format!("Mutex poison: {}", e))
+            })?;
 
-            // Extract current thread's command buffer, create new in its place
-            let current = {
-                let mut command_buffers = self.command_buffers.lock().map_err(|e| {
-                    TensorError::InvalidOperation(format!("Mutex poison: {}", e))
-                })?;
-
-                if let Some(command_buffer) = command_buffers.get_mut() {
-                    let current = command_buffer.clone();
-                    *command_buffer =
-                        Self::create_command_buffer(&self.command_queue, Arc::clone(&self.semaphore))?;
-                    Some(current)
-                } else {
-                    // No command buffer for this thread yet
-                    None
-                }
-            };
-
-            // After replacing the command buffer it is now safe to continue encoding
-            *guard = CommandStatus::Available;
-            current
+            if let Some(command_buffer) = command_buffers.get_mut() {
+                let current = command_buffer.clone();
+                *command_buffer = Self::create_command_buffer(&self.command_queue)?;
+                Some(current)
+            } else {
+                // No command buffer for this thread yet
+                None
+            }
         };
-        // Notify after command status lock is released
-        self.semaphore.cond.notify_one();
 
         // Only commit and wait if we have a buffer (matches Candle exactly)
         if let Some(current) = current {
@@ -286,7 +252,7 @@ impl Commands {
             let mut command_buffers = self.command_buffers.lock().map_err(|e| {
                 TensorError::InvalidOperation(format!("Mutex poison: {}", e))
             })?;
-            let command_buffer = Self::create_command_buffer(&self.command_queue, Arc::clone(&self.semaphore))?;
+            let command_buffer = Self::create_command_buffer(&self.command_queue)?;
             command_buffers.insert(command_buffer);
 
             // Initialize index for this thread
