@@ -196,21 +196,48 @@ Leaked: 2098.12 MB
 
 ## Environment Variables
 
+### Automatic Memory Leak Detection (Always Enabled)
+Memory leak detection and automatic purging is **always enabled by default** as of commit `f2a68ab`. The system will:
+- Track GPU memory before and after script execution
+- Automatically detect leaks >1MB
+- Force-purge leaked buffers using `set_purgeable_state(Empty)`
+- Display warning messages when leaks are detected
+
+**No environment variable required** for basic leak protection.
+
 ### TL_MEMORY_CHECK
-Enable GPU memory leak detection at program start/end:
+Enable detailed GPU memory statistics and logging:
 ```bash
-TL_MEMORY_CHECK=1 ./target/release/tl run:examples/script.tl
+TL_MEMORY_CHECK=1 ./target/release/tl run examples/script.tl
 ```
+
+**With this flag enabled:**
+- Shows memory allocation before execution
+- Shows detailed buffer pool statistics after execution
+- Shows memory change breakdown
+- Shows reuse rate and pool efficiency
+
+**Without this flag:**
+- Silent memory tracking
+- Only shows warnings when leaks >1MB detected
+- Automatic purge still works
 
 ### TL_DEBUG_MEMORY
-Enable detailed GPU memory allocation/deallocation logging:
+Enable detailed GPU memory allocation/deallocation logging (very verbose):
 ```bash
-TL_DEBUG_MEMORY=1 ./target/release/tl run:examples/script.tl
+TL_DEBUG_MEMORY=1 ./target/release/tl run examples/script.tl
 ```
 
+Shows every buffer allocation and deallocation with:
+- Memory size before/after each operation
+- Arc reference counts
+- Pool return operations
+- Buffer size classes
+
 ### Combined Usage
+For maximum debugging information:
 ```bash
-TL_MEMORY_CHECK=1 TL_DEBUG_MEMORY=1 ./target/release/tl run:examples/script.tl
+TL_MEMORY_CHECK=1 TL_DEBUG_MEMORY=1 ./target/release/tl run examples/script.tl
 ```
 
 ## Files Modified
