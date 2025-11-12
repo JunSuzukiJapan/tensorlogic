@@ -359,6 +359,32 @@ fn run_file_impl(
     // Set current file path for import resolution
     interpreter.set_current_file(path.canonicalize()?);
 
+    // Check for memory leak detection mode
+    let memory_check = std::env::var("TL_MEMORY_CHECK").is_ok();
+    let gpu_memory_before = if memory_check {
+        #[cfg(target_os = "macos")]
+        {
+            use tensorlogic::device::MetalDevice;
+            match MetalDevice::new() {
+                Ok(device) => {
+                    let allocated = device.current_allocated_size();
+                    eprintln!("\n=== GPU Memory Check: Before Execution ===");
+                    eprintln!("GPU memory allocated: {:.2} MB", allocated as f64 / 1_048_576.0);
+                    eprintln!("==========================================\n");
+                    Some(allocated)
+                }
+                Err(_) => None
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            eprintln!("Note: TL_MEMORY_CHECK only supported on macOS (Metal backend)");
+            None
+        }
+    } else {
+        None
+    };
+
     // Determine which blocks to execute
     let result = if test_mode {
         // Run test blocks
@@ -373,6 +399,52 @@ fn run_file_impl(
         println!("\nExecuting...\n");
         interpreter.execute(&program)
     };
+
+    // Check memory stats after execution
+    if memory_check {
+        if let Some(memory_before) = gpu_memory_before {
+            #[cfg(target_os = "macos")]
+            {
+                use tensorlogic::device::MetalDevice;
+                match MetalDevice::new() {
+                    Ok(device) => {
+                        let memory_after = device.current_allocated_size();
+                        let memory_diff = memory_after as i64 - memory_before as i64;
+
+                        eprintln!("\n=== GPU Memory Check: After Execution ===");
+                        eprintln!("GPU memory allocated: {:.2} MB", memory_after as f64 / 1_048_576.0);
+                        eprintln!("Memory change: {:+.2} MB", memory_diff as f64 / 1_048_576.0);
+
+                        // Also show buffer pool stats for context
+                        let pool_stats = device.buffer_pool().stats();
+                        eprintln!("\nBuffer Pool Stats:");
+                        eprintln!("  Pooled buffers: {}", pool_stats.total_pooled);
+                        eprintln!("  Pool memory: {:.2} MB", pool_stats.total_memory as f64 / 1_048_576.0);
+
+                        if pool_stats.allocation_count > 0 {
+                            let reuse_rate = (pool_stats.reuse_count as f64 / (pool_stats.allocation_count + pool_stats.reuse_count) as f64) * 100.0;
+                            eprintln!("  Reuse rate: {:.1}%", reuse_rate);
+                        }
+
+                        // Detect memory leak
+                        if memory_diff > 1_048_576 {  // More than 1MB leaked
+                            eprintln!("\n⚠️  WARNING: GPU memory leak detected!");
+                            eprintln!("   {:.2} MB of GPU memory was not freed after execution.", memory_diff as f64 / 1_048_576.0);
+                            eprintln!("   This indicates buffers are not being properly released.");
+                        } else if memory_diff > 0 {
+                            eprintln!("\n⚠️  Small memory increase: {:.2} MB", memory_diff as f64 / 1_048_576.0);
+                            eprintln!("   This could be buffer pool caching (normal) or a small leak.");
+                        } else {
+                            eprintln!("\n✅ No memory leaks detected");
+                            eprintln!("   All GPU memory properly released.");
+                        }
+                        eprintln!("=========================================\n");
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+    }
 
     if let Err(e) = result {
         // Build stack trace from error context
