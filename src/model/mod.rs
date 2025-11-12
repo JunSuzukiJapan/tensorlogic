@@ -97,6 +97,11 @@ impl<T: FloatType> Model<T> {
                 if parts.len() >= 3 {
                     if let Ok(layer_idx) = parts[0].parse::<usize>() {
                         let feature_path = parts[1..].join(".");
+                        // FIXME: tensor.clone() increases Arc<Buffer> ref_count
+                        // Each layer tensor now has ref_count >= 2 (original in Model + this clone)
+                        // When Model is dropped, these clones prevent buffer pool return
+                        // Solution: Use Arc<Tensor> or reference counting at higher level
+                        // See: claudedocs/arc_reference_counting_issue.md
                         layers.entry(layer_idx)
                             .or_insert_with(HashMap::new)
                             .insert(feature_path, tensor.clone());

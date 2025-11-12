@@ -226,6 +226,11 @@ impl Interpreter {
                     .ok_or_else(|| RuntimeError::InvalidOperation(
                         format!("Tensor '{}' not found in model", name)
                     ))?;
+                // FIXME: This clone increases Arc<Buffer> ref_count, preventing buffer pool return
+                // When Model is dropped, cloned tensors still hold references (ref_count > 1)
+                // Buffers accumulate in pool and cause GPU memory leaks
+                // Solution: Refactor Value to use Arc<Tensor> instead of owned Tensor
+                // See: claudedocs/arc_reference_counting_issue.md
                 Ok(Value::TensorF16(tensor.clone()))
             }
             Value::ModelF32(ref model) => {
@@ -233,6 +238,7 @@ impl Interpreter {
                     .ok_or_else(|| RuntimeError::InvalidOperation(
                         format!("Tensor '{}' not found in model", name)
                     ))?;
+                // FIXME: Same Arc reference counting issue as above
                 Ok(Value::TensorF32(tensor.clone()))
             }
             _ => Err(RuntimeError::TypeError(
