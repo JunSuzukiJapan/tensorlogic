@@ -199,9 +199,11 @@ Leaked: 2098.12 MB
 ### Automatic Memory Leak Detection (Always Enabled)
 Memory leak detection and automatic purging is **always enabled by default** as of commit `f2a68ab`. The system will:
 - Track GPU memory before and after script execution
-- Automatically detect leaks >1MB
-- Force-purge leaked buffers using `set_purgeable_state(Empty)`
-- Display warning messages when leaks are detected
+- Automatically detect any memory increase (>0 bytes)
+- Force-purge all remaining GPU memory using `set_purgeable_state(Empty)`
+- Display warning messages when memory leaks are detected
+
+Since this runs at program end, any remaining GPU memory is considered a leak and will be purged.
 
 **No environment variable required** for basic leak protection.
 
@@ -219,7 +221,7 @@ TL_MEMORY_CHECK=1 ./target/release/tl run examples/script.tl
 
 **Without this flag:**
 - Silent memory tracking
-- Only shows warnings when leaks >1MB detected
+- Only shows warnings when any memory leak detected
 - Automatic purge still works
 
 ### TL_DEBUG_MEMORY

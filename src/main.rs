@@ -430,7 +430,8 @@ fn run_file_impl(
                     }
 
                     // Always detect and fix memory leaks
-                    if memory_diff > 1_048_576 {  // More than 1MB leaked
+                    // Since this is at program end, purge any remaining GPU memory
+                    if memory_diff > 0 {
                         eprintln!("\n⚠️  WARNING: GPU memory leak detected!");
                         eprintln!("   {:.2} MB of GPU memory was not freed after execution.", memory_diff as f64 / 1_048_576.0);
 
@@ -445,13 +446,8 @@ fn run_file_impl(
                                  memory_after_purge as f64 / 1_048_576.0,
                                  purged_amount as f64 / 1_048_576.0);
                     } else if show_details {
-                        if memory_diff > 0 {
-                            eprintln!("\n⚠️  Small memory increase: {:.2} MB", memory_diff as f64 / 1_048_576.0);
-                            eprintln!("   This could be buffer pool caching (normal) or a small leak.");
-                        } else {
-                            eprintln!("\n✅ No memory leaks detected");
-                            eprintln!("   All GPU memory properly released.");
-                        }
+                        eprintln!("\n✅ No memory leaks detected");
+                        eprintln!("   All GPU memory properly released.");
                         eprintln!("=========================================\n");
                     }
                 }
