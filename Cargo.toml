@@ -106,23 +106,9 @@ path = "src/main.rs"
 name = "tl-lsp"
 path = "src/bin/tl_lsp.rs"
 
-
-[[bench]]
-name = "coreml_benchmark"
-path = "benches/coreml_benchmark.rs"
-harness = false
-
-[[bench]]
-name = "metal_performance"
-path = "benches/metal_performance.rs"
-harness = false
-
-[[bench]]
-name = "advanced_fusion_benchmark"
-path = "benches/advanced_fusion_benchmark.rs"
-harness = false
-
-[[bench]]
-name = "coreml_neural_engine_benchmark"
-path = "benches/coreml_neural_engine_benchmark.rs"
-harness = false
+# Benchmarks are disabled and moved to benches/disabled/
+# Uncomment and move files back if needed
+# [[bench]]
+# name = "coreml_benchmark"
+# path = "benches/coreml_benchmark.rs"
+# harness = false
