@@ -19,6 +19,7 @@ pub mod dropout;
 pub mod rope;
 pub mod cache_ops;
 pub mod async_exec;
+pub mod slice;
 
 #[cfg(test)]
 mod tests;

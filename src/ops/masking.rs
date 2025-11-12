@@ -107,10 +107,8 @@ impl<T: FloatType> Tensor<T> {
                 metal::MTLResourceOptions::CPUCacheModeDefaultCache,
             );
 
-        // Execute kernel
-        let command_queue = device.command_queue();
-        let command_buffer = command_queue.new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
+        // Execute kernel using batched command encoder (Candle pattern)
+        let (_flushed, encoder) = device.command_encoder()?;
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(scores_buf.metal_buffer()), 0);

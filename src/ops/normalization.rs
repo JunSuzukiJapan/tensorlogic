@@ -159,9 +159,8 @@ impl<T: FloatType> Tensor<T> {
                 TensorError::MetalError(format!("Failed to create pipeline: {:?}", e))
             })?;
 
-        // Execute kernel with batched command buffer (Candle pattern)
-        let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.inner().new_compute_command_encoder();
+        // Execute kernel using batched command encoder (Candle pattern)
+        let (_flushed, encoder) = device.command_encoder()?;
 
         encoder.set_compute_pipeline_state(&pipeline_state);
         encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
@@ -421,9 +420,8 @@ impl<T: FloatType> Tensor<T> {
                 TensorError::MetalError(format!("Failed to create pipeline: {:?}", e))
             })?;
 
-        // Execute kernel with batched command buffer (Candle pattern)
-        let (_flushed, command_buffer) = device.command_buffer()?;
-        let encoder = command_buffer.inner().new_compute_command_encoder();
+        // Execute kernel using batched command encoder (Candle pattern)
+        let (_flushed, encoder) = device.command_encoder()?;
 
         encoder.set_compute_pipeline_state(&pipeline_state);
         encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);

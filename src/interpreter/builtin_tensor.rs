@@ -1929,6 +1929,8 @@ impl Interpreter {
     /// slice_last(tensor, axis) -> tensor
     /// Extract the last slice along the specified axis
     ///
+    /// Uses GPU implementation when available to avoid CPU sync bottleneck.
+    ///
     /// # Arguments
     /// * tensor - Input tensor
     /// * axis - Axis along which to take the last slice (0 for rows, 1 for columns, etc.)
@@ -1967,80 +1969,16 @@ impl Interpreter {
             ))
         };
 
-        // Type-based dispatch
+        // Type-based dispatch - use GPU implementation via Tensor method
         match tensor_val {
             Value::TensorF32(ref tensor) => {
-                let dims = tensor.dims();
-
-                // Validate axis
-                if axis >= dims.len() {
-                    return Err(RuntimeError::TypeError(
-                        format!("slice_last() axis {} out of bounds for {}D tensor", axis, dims.len())
-                    ));
-                }
-
-                // Get last index along specified axis
-                let last_idx = dims[axis] - 1;
-
-                // Get tensor data with proper GPU sync
-                let data = tensor.sync_and_read();
-
-                // Calculate slice parameters
-                let (offset, length, new_shape) = if axis == 0 {
-                    // Extract last row/slice along axis 0
-                    let row_size: usize = dims[1..].iter().product();
-                    (last_idx * row_size, row_size, dims[1..].to_vec())
-                } else {
-                    return Err(RuntimeError::TypeError(
-                        format!("slice_last() currently only supports axis=0, got axis={}", axis)
-                    ));
-                };
-
-                // Extract slice
-                let slice_data: Vec<f32> = data[offset..offset + length].to_vec();
-
-                // Create new tensor
-                let device = self.env.metal_device();
-                let result = Tensor::<f32>::from_vec_gpu(device, slice_data, new_shape)
+                let result = tensor.slice_last(axis)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-
                 Ok(result.to_value())
             }
             Value::TensorF16(ref tensor) => {
-                let dims = tensor.dims();
-
-                // Validate axis
-                if axis >= dims.len() {
-                    return Err(RuntimeError::TypeError(
-                        format!("slice_last() axis {} out of bounds for {}D tensor", axis, dims.len())
-                    ));
-                }
-
-                // Get last index along specified axis
-                let last_idx = dims[axis] - 1;
-
-                // Get tensor data with proper GPU sync
-                let data = tensor.sync_and_read();
-
-                // Calculate slice parameters
-                let (offset, length, new_shape) = if axis == 0 {
-                    // Extract last row/slice along axis 0
-                    let row_size: usize = dims[1..].iter().product();
-                    (last_idx * row_size, row_size, dims[1..].to_vec())
-                } else {
-                    return Err(RuntimeError::TypeError(
-                        format!("slice_last() currently only supports axis=0, got axis={}", axis)
-                    ));
-                };
-
-                // Extract slice
-                let slice_data: Vec<half::f16> = data[offset..offset + length].to_vec();
-
-                // Create new tensor
-                let device = self.env.metal_device();
-                let result = Tensor::<half::f16>::from_vec_gpu(device, slice_data, new_shape)
+                let result = tensor.slice_last(axis)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-
                 Ok(result.to_value())
             }
             _ => Err(RuntimeError::TypeError(

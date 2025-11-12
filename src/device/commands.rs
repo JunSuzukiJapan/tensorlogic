@@ -226,15 +226,38 @@ impl Commands {
 
         // Only commit and wait if we have a buffer (matches Candle exactly)
         if let Some(current) = current {
+            if std::env::var("TL_DEBUG_HANG").is_ok() {
+                eprintln!("[HANG] wait_until_completed: status={:?}", current.status());
+            }
+
             match current.status() {
                 MTLCommandBufferStatus::NotEnqueued | MTLCommandBufferStatus::Enqueued => {
+                    if std::env::var("TL_DEBUG_HANG").is_ok() {
+                        eprintln!("[HANG] Committing buffer...");
+                    }
                     current.commit();
+                    if std::env::var("TL_DEBUG_HANG").is_ok() {
+                        eprintln!("[HANG] Waiting for completion...");
+                    }
                     current.wait_until_completed();
+                    if std::env::var("TL_DEBUG_HANG").is_ok() {
+                        eprintln!("[HANG] Completed!");
+                    }
                 }
                 MTLCommandBufferStatus::Committed | MTLCommandBufferStatus::Scheduled => {
+                    if std::env::var("TL_DEBUG_HANG").is_ok() {
+                        eprintln!("[HANG] Buffer already committed, waiting...");
+                    }
                     current.wait_until_completed();
+                    if std::env::var("TL_DEBUG_HANG").is_ok() {
+                        eprintln!("[HANG] Completed!");
+                    }
                 }
-                MTLCommandBufferStatus::Completed => {} // No action needed
+                MTLCommandBufferStatus::Completed => {
+                    if std::env::var("TL_DEBUG_HANG").is_ok() {
+                        eprintln!("[HANG] Already completed, no wait needed");
+                    }
+                } // No action needed
                 MTLCommandBufferStatus::Error => {
                     return Err(TensorError::InvalidOperation(
                         "Command buffer error".to_string(),
@@ -267,5 +290,90 @@ impl Commands {
         }
 
         Ok(())
+    }
+}
+
+impl Drop for Commands {
+    /// Ensure all command buffers from all threads are properly completed
+    ///
+    /// In a multi-threaded environment, multiple threads may have in-flight
+    /// command buffers. This ensures they all complete before the Commands
+    /// manager is destroyed, preventing GPU resource leaks.
+    fn drop(&mut self) {
+        if std::env::var("TL_DEBUG_HANG").is_ok() {
+            eprintln!("[DROP] Commands: Starting cleanup of all thread command buffers");
+        }
+
+        // Lock the command buffers map
+        if let Ok(mut command_buffers) = self.command_buffers.lock() {
+            let thread_ids: Vec<thread::ThreadId> =
+                command_buffers.inner.keys().copied().collect();
+
+            if std::env::var("TL_DEBUG_HANG").is_ok() {
+                eprintln!(
+                    "[DROP] Commands: Found {} thread(s) with command buffers",
+                    thread_ids.len()
+                );
+            }
+
+            // Process each thread's command buffer
+            for thread_id in thread_ids {
+                if let Some(cmd_buf) = command_buffers.inner.get(&thread_id) {
+                    let status = cmd_buf.status();
+
+                    match status {
+                        MTLCommandBufferStatus::Committed
+                        | MTLCommandBufferStatus::Scheduled
+                        | MTLCommandBufferStatus::Enqueued => {
+                            if std::env::var("TL_DEBUG_HANG").is_ok() {
+                                eprintln!(
+                                    "[DROP] Commands: Thread {:?} has in-flight buffer (status={:?}), waiting...",
+                                    thread_id, status
+                                );
+                            }
+                            // CommandBuffer's Drop will handle the wait,
+                            // but we commit first to ensure it's submitted
+                            cmd_buf.commit();
+                            cmd_buf.wait_until_completed();
+
+                            if std::env::var("TL_DEBUG_HANG").is_ok() {
+                                eprintln!(
+                                    "[DROP] Commands: Thread {:?} buffer completed",
+                                    thread_id
+                                );
+                            }
+                        }
+                        MTLCommandBufferStatus::NotEnqueued => {
+                            if std::env::var("TL_DEBUG_HANG").is_ok() {
+                                eprintln!(
+                                    "[DROP] Commands: Thread {:?} buffer not enqueued (safe)",
+                                    thread_id
+                                );
+                            }
+                        }
+                        MTLCommandBufferStatus::Completed => {
+                            if std::env::var("TL_DEBUG_HANG").is_ok() {
+                                eprintln!(
+                                    "[DROP] Commands: Thread {:?} buffer already completed",
+                                    thread_id
+                                );
+                            }
+                        }
+                        MTLCommandBufferStatus::Error => {
+                            eprintln!(
+                                "[WARN] Commands: Thread {:?} buffer in error state",
+                                thread_id
+                            );
+                        }
+                    }
+                }
+            }
+
+            if std::env::var("TL_DEBUG_HANG").is_ok() {
+                eprintln!("[DROP] Commands: All thread command buffers cleaned up");
+            }
+        } else {
+            eprintln!("[WARN] Commands: Failed to lock command buffers during drop");
+        }
     }
 }

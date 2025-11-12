@@ -47,3 +47,46 @@ impl CommandBuffer {
         self.raw.new_compute_command_encoder().to_owned()
     }
 }
+
+impl Drop for CommandBuffer {
+    /// Ensure safe cleanup of GPU resources
+    ///
+    /// If the command buffer is in-flight (committed but not completed),
+    /// we wait for completion to avoid orphaned GPU work and resource leaks.
+    fn drop(&mut self) {
+        match self.status() {
+            MTLCommandBufferStatus::Committed
+            | MTLCommandBufferStatus::Scheduled
+            | MTLCommandBufferStatus::Enqueued => {
+                // Command buffer is in-flight, must wait for completion
+                // to ensure GPU resources are properly released
+                if std::env::var("TL_DEBUG_HANG").is_ok() {
+                    eprintln!(
+                        "[DROP] CommandBuffer dropped while in-flight (status={:?}), waiting for completion",
+                        self.status()
+                    );
+                }
+                self.wait_until_completed();
+                if std::env::var("TL_DEBUG_HANG").is_ok() {
+                    eprintln!("[DROP] CommandBuffer completed during drop");
+                }
+            }
+            MTLCommandBufferStatus::NotEnqueued => {
+                // Not submitted yet, safe to drop without waiting
+                if std::env::var("TL_DEBUG_HANG").is_ok() {
+                    eprintln!("[DROP] CommandBuffer dropped before submission (safe)");
+                }
+            }
+            MTLCommandBufferStatus::Completed => {
+                // Already completed, no action needed
+                if std::env::var("TL_DEBUG_HANG").is_ok() {
+                    eprintln!("[DROP] CommandBuffer dropped after completion (safe)");
+                }
+            }
+            MTLCommandBufferStatus::Error => {
+                // Error state, don't wait as it may hang
+                eprintln!("[WARN] CommandBuffer dropped in error state, skipping wait");
+            }
+        }
+    }
+}

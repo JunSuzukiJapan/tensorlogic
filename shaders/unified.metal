@@ -5244,3 +5244,60 @@ kernel void rope_candle_f32(
         output[tid] = rotated_x1;
     }
 }
+
+//! Slice operations
+//! Extract slices from tensors without CPU sync
+
+/// Slice last element along axis 0 (F16 version)
+/// Input: [I, H, D] -> Output: [H, D]
+/// Extracts the last slice (index I-1) along first dimension
+kernel void slice_last_axis0_f16(
+    device const half* input [[buffer(0)]],
+    device half* output [[buffer(1)]],
+    constant uint& I [[buffer(2)]],
+    constant uint& H [[buffer(3)]],
+    constant uint& D [[buffer(4)]],
+    uint2 gid [[thread_position_in_grid]]
+) {
+    const uint h = gid.x;
+    const uint d = gid.y;
+
+    if (h >= H || d >= D) return;
+
+    // Calculate input index for last slice (i = I-1)
+    const uint last_i = I - 1;
+    const uint input_idx = last_i * (H * D) + h * D + d;
+
+    // Calculate output index
+    const uint output_idx = h * D + d;
+
+    // Copy data
+    output[output_idx] = input[input_idx];
+}
+
+/// Slice last element along axis 0 (F32 version)
+/// Input: [I, H, D] -> Output: [H, D]
+/// Extracts the last slice (index I-1) along first dimension
+kernel void slice_last_axis0_f32(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    constant uint& I [[buffer(2)]],
+    constant uint& H [[buffer(3)]],
+    constant uint& D [[buffer(4)]],
+    uint2 gid [[thread_position_in_grid]]
+) {
+    const uint h = gid.x;
+    const uint d = gid.y;
+
+    if (h >= H || d >= D) return;
+
+    // Calculate input index for last slice (i = I-1)
+    const uint last_i = I - 1;
+    const uint input_idx = last_i * (H * D) + h * D + d;
+
+    // Calculate output index
+    const uint output_idx = h * D + d;
+
+    // Copy data
+    output[output_idx] = input[input_idx];
+}
