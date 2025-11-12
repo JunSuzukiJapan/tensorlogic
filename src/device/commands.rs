@@ -305,7 +305,7 @@ impl Drop for Commands {
         }
 
         // Lock the command buffers map
-        if let Ok(mut command_buffers) = self.command_buffers.lock() {
+        if let Ok(command_buffers) = self.command_buffers.lock() {
             let thread_ids: Vec<thread::ThreadId> =
                 command_buffers.inner.keys().copied().collect();
 

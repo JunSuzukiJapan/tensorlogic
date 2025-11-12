@@ -1474,7 +1474,7 @@ impl Interpreter {
         }
 
         // Handle last statement (implicit return)
-        let mut return_value = match self.evaluate_last_statement(&func_decl.body[body_len - 1]) {
+        let return_value = match self.evaluate_last_statement(&func_decl.body[body_len - 1]) {
             Ok(Some(val)) => val,
             Ok(None) => Value::Void,
             Err(RuntimeError::ReturnValue(val)) => val,

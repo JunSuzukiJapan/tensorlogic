@@ -15,11 +15,6 @@ use tensorlogic::error::TensorResult;
 use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO};
 use half::f16;
 
-// Helper to convert f16 vec to f32 for comparison
-fn f16_to_f32(data: &[f16]) -> Vec<f32> {
-    data.iter().map(|&x| x.to_f32()).collect()
-}
-
 // Helper function to assert f16 tensors are close
 fn assert_f16_close(result: &[f16], expected: &[f16], epsilon: f32) {
     assert_eq!(result.len(), expected.len(), "Length mismatch");
@@ -50,7 +45,7 @@ fn compare_f16_f32_results(f16_result: &[f16], f32_result: &[f32], epsilon: f32)
 fn test_einsum_attention_scores_f16_simple() -> TensorResult<()> {
     // Test: "ihd,jhd->ihj" with simple known values
     // This is the critical pattern for attention score calculation
-    let device = MetalDevice::new()?;
+    let _device = MetalDevice::new()?;
 
     // Query: [2, 1, 2] (2 tokens, 1 head, 2 dim)
     let q = Tensor::<f16>::from_vec(
@@ -97,7 +92,7 @@ fn test_einsum_attention_scores_f16_simple() -> TensorResult<()> {
 fn test_einsum_attention_output_f16_simple() -> TensorResult<()> {
     // Test: "ihj,jhd->ihd" with simple known values
     // This is the critical pattern for attention output calculation
-    let device = MetalDevice::new()?;
+    let _device = MetalDevice::new()?;
 
     // Attention weights: [2, 1, 3] (2 queries, 1 head, 3 keys)
     let attn = Tensor::<f16>::from_vec(
@@ -141,7 +136,7 @@ fn test_einsum_attention_output_f16_simple() -> TensorResult<()> {
 fn test_einsum_f16_vs_f32_accuracy_scores() -> TensorResult<()> {
     // Compare F16 and F32 results for attention scores
     // Ensures F16 GPU computation matches F32 accuracy within tolerance
-    let device = MetalDevice::new()?;
+    let _device = MetalDevice::new()?;
 
     let seq_len = 4;
     let heads = 2;
@@ -183,7 +178,7 @@ fn test_einsum_f16_vs_f32_accuracy_scores() -> TensorResult<()> {
 #[ignore] // F32 einsum CPU implementation appears broken - not critical since we only use F16
 fn test_einsum_f16_vs_f32_accuracy_output() -> TensorResult<()> {
     // Compare F16 and F32 results for attention output
-    let device = MetalDevice::new()?;
+    let _device = MetalDevice::new()?;
 
     let seq_q = 3;
     let seq_k = 4;
@@ -226,7 +221,7 @@ fn test_einsum_f16_vs_f32_accuracy_output() -> TensorResult<()> {
 fn test_einsum_f16_large_values() -> TensorResult<()> {
     // Test F16 with large values (but below overflow threshold)
     // F16 max value ≈ 65504
-    let device = MetalDevice::new()?;
+    let _device = MetalDevice::new()?;
 
     // Use values that won't overflow individually but test accumulation
     let large_val = 100.0;
@@ -261,7 +256,7 @@ fn test_einsum_f16_large_values() -> TensorResult<()> {
 fn test_einsum_f16_realistic_attention() -> TensorResult<()> {
     // Test realistic attention pattern with scaling
     // Simulates actual transformer attention: scores = QK^T / sqrt(d_k)
-    let device = MetalDevice::new()?;
+    let _device = MetalDevice::new()?;
 
     let seq_len = 8;
     let heads = 4;
@@ -328,7 +323,7 @@ fn test_einsum_f16_zero_values() -> TensorResult<()> {
 #[test]
 fn test_einsum_f16_identity_pattern() -> TensorResult<()> {
     // Test with identity-like patterns
-    let device = MetalDevice::new()?;
+    let _device = MetalDevice::new()?;
 
     // Q and K are orthonormal vectors
     let q = Tensor::<f16>::from_vec(

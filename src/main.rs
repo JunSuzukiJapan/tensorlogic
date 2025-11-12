@@ -101,17 +101,6 @@ fn main() {
     }
 }
 
-/// Parse option value from command line arguments
-/// Example: parse_option_value(&["prog", "--emit-llvm", "out.ll"], "--emit-llvm") => Some("out.ll")
-fn parse_option_value(args: &[String], option: &str) -> Option<String> {
-    for i in 0..args.len() {
-        if args[i] == option && i + 1 < args.len() {
-            return Some(args[i + 1].clone());
-        }
-    }
-    None
-}
-
 fn print_usage(program_name: &str) {
     println!("TensorLogic v{}", env!("CARGO_PKG_VERSION"));
     println!();
