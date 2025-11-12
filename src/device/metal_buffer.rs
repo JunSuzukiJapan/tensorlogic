@@ -229,6 +229,17 @@ impl<T: FloatType> MetalBuffer<T> {
 
 impl<T: FloatType> Drop for MetalBuffer<T> {
     fn drop(&mut self) {
+        // GPU Memory Deallocation Logging
+        if std::env::var("TL_DEBUG_MEMORY").is_ok() {
+            let before_dealloc = self.device.current_allocated_size();
+            let ref_count = Arc::strong_count(&self.buffer);
+            eprintln!("[GPU_MEMORY] Before deallocation: {:.2} MB - buffer_length={}, ref_count={}, pooled={}",
+                     before_dealloc as f64 / 1_048_576.0,
+                     self.length,
+                     ref_count,
+                     self.pool.is_some());
+        }
+
         // Return buffer to pool if this is a pooled buffer
         // We don't check ref_count here - the pool will hold an Arc, so buffers that are
         // still in use elsewhere will naturally stay alive. When all references are dropped,
@@ -244,6 +255,21 @@ impl<T: FloatType> Drop for MetalBuffer<T> {
             // Pass reference to buffer - no clone here!
             // The pool will clone it if it decides to store it
             pool.try_return_buffer(&self.buffer, size_class, self.length);
+
+            // GPU Memory Deallocation Logging (after pool return)
+            if std::env::var("TL_DEBUG_MEMORY").is_ok() {
+                let after_pool_return = self.device.current_allocated_size();
+                eprintln!("[GPU_MEMORY] After pool return: {:.2} MB - returned to pool, size_class={}",
+                         after_pool_return as f64 / 1_048_576.0,
+                         size_class);
+            }
+        } else {
+            // Non-pooled buffer - will be freed when Arc ref_count reaches 0
+            if std::env::var("TL_DEBUG_MEMORY").is_ok() {
+                let ref_count = Arc::strong_count(&self.buffer);
+                eprintln!("[GPU_MEMORY] Non-pooled buffer drop: ref_count={}, will be freed when ref_count=0",
+                         ref_count);
+            }
         }
     }
 }

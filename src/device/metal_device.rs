@@ -260,6 +260,15 @@ impl MetalDevice {
         self.device.has_unified_memory()
     }
 
+    /// Force purge all buffers in the buffer pool
+    ///
+    /// This sets all pooled buffers to Empty purgeable state, forcing Metal to
+    /// release GPU memory immediately. Should only be called when a memory leak
+    /// is detected at program end.
+    pub fn purge_all_buffers(&self) {
+        self.buffer_pool.purge_all_buffers();
+    }
+
     /// Check if model size fits in available GPU memory
     ///
     /// Returns Ok(()) if model fits, Err with warning message if too large.

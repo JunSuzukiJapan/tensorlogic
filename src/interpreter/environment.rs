@@ -188,6 +188,22 @@ impl RuntimeEnvironment {
     pub fn scope_depth(&self) -> usize {
         self.scope_stack.len() - 1
     }
+
+    /// Get all variables from the global scope
+    /// Used for cleanup logging
+    pub fn variables(&self) -> &HashMap<String, Value> {
+        // Global scope is always the first (index 0)
+        &self.scope_stack[0].variables
+    }
+
+    /// Clear all variables from all scopes
+    /// This is critical for releasing GPU memory held by model tensors
+    pub fn clear_variables(&mut self) {
+        // Clear all scopes except keep the global scope structure
+        for scope in &mut self.scope_stack {
+            scope.variables.clear();
+        }
+    }
 }
 
 impl Default for RuntimeEnvironment {

@@ -205,6 +205,23 @@ impl Interpreter {
             self.env.metal_device().print_buffer_pool_stats("Program Execution");
         }
 
+        // Explicit cleanup: Clear all variables to release GPU memory
+        // This is critical for releasing model tensors that may hold 2+ GB of GPU memory
+        if std::env::var("TL_DEBUG_MEMORY").is_ok() {
+            let before_cleanup = self.env.metal_device().current_allocated_size();
+            eprintln!("[GPU_MEMORY] Before cleanup: {:.2} MB - clearing {} variables",
+                     before_cleanup as f64 / 1_048_576.0,
+                     self.env.variables().len());
+        }
+
+        self.env.clear_variables();
+
+        if std::env::var("TL_DEBUG_MEMORY").is_ok() {
+            let after_cleanup = self.env.metal_device().current_allocated_size();
+            eprintln!("[GPU_MEMORY] After cleanup: {:.2} MB - all variables cleared",
+                     after_cleanup as f64 / 1_048_576.0);
+        }
+
         Ok(())
     }
 

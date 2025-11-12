@@ -431,6 +431,17 @@ fn run_file_impl(
                             eprintln!("\n⚠️  WARNING: GPU memory leak detected!");
                             eprintln!("   {:.2} MB of GPU memory was not freed after execution.", memory_diff as f64 / 1_048_576.0);
                             eprintln!("   This indicates buffers are not being properly released.");
+
+                            // Force purge all buffers to release GPU memory
+                            eprintln!("\n🔧 Attempting to force-release GPU memory...");
+                            device.purge_all_buffers();
+
+                            // Check memory after purge
+                            let memory_after_purge = device.current_allocated_size();
+                            let purged_amount = memory_after as i64 - memory_after_purge as i64;
+                            eprintln!("   After purge: {:.2} MB ({:+.2} MB freed)",
+                                     memory_after_purge as f64 / 1_048_576.0,
+                                     purged_amount as f64 / 1_048_576.0);
                         } else if memory_diff > 0 {
                             eprintln!("\n⚠️  Small memory increase: {:.2} MB", memory_diff as f64 / 1_048_576.0);
                             eprintln!("   This could be buffer pool caching (normal) or a small leak.");

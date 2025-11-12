@@ -290,6 +290,16 @@ impl BufferPool {
             eprintln!("[DEBUG_RS] BufferPool::allocate: calling device.new_buffer...");
         }
 
+        // GPU Memory Allocation Logging
+        let before_alloc = if std::env::var("TL_DEBUG_MEMORY").is_ok() {
+            let mem = parent_device.current_allocated_size();
+            eprintln!("[GPU_MEMORY] Before allocation: {:.2} MB allocated",
+                     mem as f64 / 1_048_576.0);
+            Some(mem)
+        } else {
+            None
+        };
+
         // Allocate buffer with size_class capacity (not exact requested length)
         let byte_length = size_class * std::mem::size_of::<T>();
         let buffer = self.device.as_ref().new_buffer(
@@ -299,6 +309,17 @@ impl BufferPool {
 
         if std::env::var("TL_DEBUG").is_ok() {
             eprintln!("[DEBUG_RS] BufferPool::allocate: new_buffer returned");
+        }
+
+        // GPU Memory Allocation Logging
+        if let Some(before) = before_alloc {
+            let after_alloc = parent_device.current_allocated_size();
+            let delta = after_alloc as i64 - before as i64;
+            eprintln!("[GPU_MEMORY] After allocation: {:.2} MB ({:+.2} MB) - size_class={}, bytes={}",
+                     after_alloc as f64 / 1_048_576.0,
+                     delta as f64 / 1_048_576.0,
+                     size_class,
+                     byte_length);
         }
 
         if std::env::var("TL_DEBUG").is_ok() {
@@ -623,6 +644,36 @@ impl BufferPool {
             eprintln!("  Reuse rate: {:.1}%", reuse_rate);
         }
         eprintln!("================================\n");
+    }
+
+    /// Purge all buffers by setting them to Empty purgeable state
+    ///
+    /// This forces Metal to release GPU memory immediately.
+    /// Should only be called when memory leak is detected at program end.
+    pub fn purge_all_buffers(&self) {
+        use metal::MTLPurgeableState;
+
+        let mut pools = self.pools.lock().unwrap();
+        let mut purged_count = 0;
+        let mut purged_memory = 0usize;
+
+        for (_size_class, buffers) in pools.iter_mut() {
+            for (buffer, _timestamp) in buffers.iter() {
+                let buffer_size = buffer.length() as usize;
+                buffer.set_purgeable_state(MTLPurgeableState::Empty);
+                purged_count += 1;
+                purged_memory += buffer_size;
+            }
+        }
+
+        // Clear all pools after purging
+        pools.clear();
+
+        if std::env::var("TL_DEBUG_MEMORY").is_ok() {
+            eprintln!("[GPU_MEMORY] Purged {} buffers ({:.2} MB) from buffer pool",
+                     purged_count,
+                     purged_memory as f64 / 1_048_576.0);
+        }
     }
 }
 
