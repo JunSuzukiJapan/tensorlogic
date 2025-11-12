@@ -8,6 +8,7 @@ use crate::tensor::{FloatType, TensorAccessors, TensorCreation, TensorIO};
 use crate::tensor::Tensor;
 use crate::device::EncoderProvider;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 /// Array element type
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1129,11 +1130,11 @@ impl Interpreter {
                             eprintln!("[DEBUG_EVAL] About to load weight: {}", weight_name);
                         }
                         match feature.cache.get_weight(&weight_name) {
-                            Ok(tensor) => {
+                            Ok(tensor_arc) => {
                                 if std::env::var("TL_DEBUG").is_ok() {
                                     eprintln!("[DEBUG_EVAL] Weight loaded successfully: {}", weight_name);
                                 }
-                                Ok(Value::TensorF32(tensor))
+                                Ok(Value::TensorF32(tensor_arc))
                             }
                             Err(e) => Err(RuntimeError::TensorError(e))
                         }
@@ -1188,7 +1189,7 @@ impl Interpreter {
                                         crate::tensor::Tensor::from_vec(shape_data, vec![t.shape().dims().len()])
                                     }
                                 }.map_err(|e| RuntimeError::TensorError(e))?;
-                                Ok(Value::TensorF16(shape_tensor))
+                                Ok(Value::TensorF16(Arc::new(shape_tensor)))
                             }
                             Value::TensorF32(ref t) => {
                                 // Create shape tensor from dimensions (f32 version)
@@ -1207,7 +1208,7 @@ impl Interpreter {
                                         crate::tensor::Tensor::from_vec(shape_data, vec![t.shape().dims().len()])
                                     }
                                 }.map_err(|e| RuntimeError::TensorError(e))?;
-                                Ok(Value::TensorF32(shape_tensor))
+                                Ok(Value::TensorF32(Arc::new(shape_tensor)))
                             }
                             _ => Err(RuntimeError::TypeError(
                                 format!("Cannot call shape() on {:?}", obj_value)
@@ -1411,7 +1412,8 @@ impl Interpreter {
                                 )?;
 
                                 // Use shared device instance (no need to create new device every time!)
-                                cache.update(layer_idx, k, v, &self.device)
+                                // Clone the tensors from Arc for now - will optimize KVCache in Phase 5
+                                cache.update(layer_idx, (*k).clone(), (*v).clone(), &self.device)
                                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                                 Ok(Value::Void)
@@ -1456,7 +1458,8 @@ impl Interpreter {
                                 )?;
 
                                 // Use shared device instance (no need to create new device every time!)
-                                cache.update(layer_idx, k, v, &self.device)
+                                // Clone the tensors from Arc for now - will optimize KVCache in Phase 5
+                                cache.update(layer_idx, (*k).clone(), (*v).clone(), &self.device)
                                     .map_err(|e| RuntimeError::TensorError(e))?;
 
                                 Ok(Value::Void)
@@ -1494,9 +1497,9 @@ impl Interpreter {
                                     let start = std::time::Instant::now();
                                     let result = k.clone();
                                     eprintln!("[PERF] KVCache.get_k(f16, layer={}): clone={:.3}ms", layer_idx, start.elapsed().as_secs_f64() * 1000.0);
-                                    Ok(Value::TensorF16(result))
+                                    Ok(Value::TensorF16(Arc::new(result)))
                                 } else {
-                                    Ok(Value::TensorF16(k.clone()))
+                                    Ok(Value::TensorF16(Arc::new(k.clone())))
                                 }
                             }
 
@@ -1532,9 +1535,9 @@ impl Interpreter {
                                     let start = std::time::Instant::now();
                                     let result = k.clone();
                                     eprintln!("[PERF] KVCache.get_k(f32, layer={}): clone={:.3}ms", layer_idx, start.elapsed().as_secs_f64() * 1000.0);
-                                    Ok(Value::TensorF32(result))
+                                    Ok(Value::TensorF32(Arc::new(result)))
                                 } else {
-                                    Ok(Value::TensorF32(k.clone()))
+                                    Ok(Value::TensorF32(Arc::new(k.clone())))
                                 }
                             }
 
@@ -1570,9 +1573,9 @@ impl Interpreter {
                                     let start = std::time::Instant::now();
                                     let result = v.clone();
                                     eprintln!("[PERF] KVCache.get_v(f16, layer={}): clone={:.3}ms", layer_idx, start.elapsed().as_secs_f64() * 1000.0);
-                                    Ok(Value::TensorF16(result))
+                                    Ok(Value::TensorF16(Arc::new(result)))
                                 } else {
-                                    Ok(Value::TensorF16(v.clone()))
+                                    Ok(Value::TensorF16(Arc::new(v.clone())))
                                 }
                             }
 
@@ -1608,9 +1611,9 @@ impl Interpreter {
                                     let start = std::time::Instant::now();
                                     let result = v.clone();
                                     eprintln!("[PERF] KVCache.get_v(f32, layer={}): clone={:.3}ms", layer_idx, start.elapsed().as_secs_f64() * 1000.0);
-                                    Ok(Value::TensorF32(result))
+                                    Ok(Value::TensorF32(Arc::new(result)))
                                 } else {
-                                    Ok(Value::TensorF32(v.clone()))
+                                    Ok(Value::TensorF32(Arc::new(v.clone())))
                                 }
                             }
 
@@ -1656,7 +1659,7 @@ impl Interpreter {
                                 use half::f16;
                                 let tensor: crate::tensor::Tensor<f16> = buf.zeros(shape)
                                     .map_err(|e| RuntimeError::TensorError(e))?;
-                                Ok(Value::TensorF16(tensor))
+                                Ok(Value::TensorF16(Arc::new(tensor)))
                             }
 
                             (Value::TensorBuffer(buf), "ones") => {
@@ -1700,7 +1703,7 @@ impl Interpreter {
                                 use half::f16;
                                 let tensor: crate::tensor::Tensor<f16> = buf.ones(shape)
                                     .map_err(|e| RuntimeError::TensorError(e))?;
-                                Ok(Value::TensorF16(tensor))
+                                Ok(Value::TensorF16(Arc::new(tensor)))
                             }
 
                             (Value::TensorBuffer(buf), "alloc") => {
@@ -2138,7 +2141,7 @@ impl Interpreter {
                     let f16_values: Vec<f16> = values.into_iter().map(|v| f16::from_f32(v as f32)).collect();
                     let tensor = Tensor::from_vec(f16_values, shape)
                         .map_err(|e| RuntimeError::TensorError(e))?;
-                    Ok(Value::TensorF16(tensor))
+                    Ok(Value::TensorF16(Arc::new(tensor)))
                 }
             }
             ArrayType::Float => {
@@ -2154,7 +2157,7 @@ impl Interpreter {
                     let f32_values: Vec<f32> = values.into_iter().map(|v| v as f32).collect();
                     let tensor = Tensor::from_vec(f32_values, shape)
                         .map_err(|e| RuntimeError::TensorError(e))?;
-                    Ok(Value::TensorF32(tensor))
+                    Ok(Value::TensorF32(Arc::new(tensor)))
                 }
             }
             ArrayType::String => {
@@ -2463,7 +2466,7 @@ impl Interpreter {
                 }
                 .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             (Value::TensorF32(l), Value::TensorF32(r)) => {
                 let _before_match = std::time::Instant::now();
@@ -2512,7 +2515,7 @@ impl Interpreter {
                 }
                 .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             (Value::Float(l), Value::Float(r)) => {
                 match op {
@@ -2649,7 +2652,7 @@ impl Interpreter {
                     }
                 }
                 .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             // Float-Tensor operations (e.g., 0.5 * tensor)
             (Value::Float(s), Value::TensorF16(t)) => {
@@ -2679,7 +2682,7 @@ impl Interpreter {
                     }
                 }
                 .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             // TensorF32-Float operations (e.g., tensor * 0.5)
             (Value::TensorF32(t), Value::Float(s)) => {
@@ -2702,7 +2705,7 @@ impl Interpreter {
                     }
                 }
                 .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             // Float-TensorF32 operations (e.g., 0.5 * tensor)
             (Value::Float(s), Value::TensorF32(t)) => {
@@ -2732,7 +2735,7 @@ impl Interpreter {
                     }
                 }
                 .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             // Integer-Float mixed operations (convert integer to float)
             (Value::Integer(l), Value::Float(r)) => {
@@ -2799,7 +2802,7 @@ impl Interpreter {
                 }
                 .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             Value::Float(f) => {
                 let result = match op {
@@ -2913,7 +2916,7 @@ impl Interpreter {
             vec![dimension]
         )?;
 
-        Ok(Value::TensorF16(embedding_tensor))
+        Ok(Value::TensorF16(Arc::new(embedding_tensor)))
     }
 
     /// Evaluate tensor indexing: tensor[i, j, ...] OR collection[i]
@@ -3290,7 +3293,7 @@ impl Interpreter {
                 .collect();
 
             // Create references for einsum call
-            let tensor_refs: Vec<&Tensor<f16>> = tensors.iter().collect();
+            let tensor_refs: Vec<&Tensor<f16>> = tensors.iter().map(|t| t.as_ref()).collect();
 
             // Call einsum operation
             let result = Tensor::einsum(spec, &tensor_refs)
@@ -3307,7 +3310,7 @@ impl Interpreter {
                 .collect();
 
             // Create references for einsum call
-            let tensor_refs: Vec<&Tensor<f32>> = tensors.iter().collect();
+            let tensor_refs: Vec<&Tensor<f32>> = tensors.iter().map(|t| t.as_ref()).collect();
 
             // Call einsum operation
             let result = Tensor::einsum(spec, &tensor_refs)

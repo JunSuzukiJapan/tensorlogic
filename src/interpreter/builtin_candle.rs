@@ -4,6 +4,7 @@
 use super::*;
 use candle_core::{DType, Device as CandleDevice, Tensor as CandleTensor};
 use candle_nn::ops;
+use std::sync::Arc;
 
 impl Interpreter {
     pub(super) fn eval_candle_function(&mut self, name: &str, args: &[TensorExpr]) -> Option<RuntimeResult<Value>> {
@@ -166,7 +167,7 @@ impl Interpreter {
                     ))?;
 
                 let result_tl = self.candle_to_tl_f32(result)?;
-                Ok(Value::TensorF32(result_tl))
+                Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             (Value::TensorF16(ref a), Value::TensorF16(ref b)) => {
                 let a_candle = self.tl_to_candle_f16(a)?;
@@ -178,7 +179,7 @@ impl Interpreter {
                     ))?;
 
                 let result_tl = self.candle_to_tl_f16(result)?;
-                Ok(Value::TensorF16(result_tl))
+                Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError(
                 "cndl_matmul() requires both tensors to be same type (both f16 or both f32)".to_string()
@@ -217,7 +218,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle transpose failed: {}", e))
                     ))?;
                 let result_tl = self.candle_to_tl_f32(result)?;
-                Ok(Value::TensorF32(result_tl))
+                Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
                 let x_candle = self.tl_to_candle_f16(x)?;
@@ -226,7 +227,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle transpose failed: {}", e))
                     ))?;
                 let result_tl = self.candle_to_tl_f16(result)?;
-                Ok(Value::TensorF16(result_tl))
+                Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_transpose() requires a tensor".to_string()))
         }
@@ -257,7 +258,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle softmax failed: {}", e))
                     ))?;
                 let result_tl = self.candle_to_tl_f32(result)?;
-                Ok(Value::TensorF32(result_tl))
+                Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
                 let x_candle = self.tl_to_candle_f16(x)?;
@@ -266,7 +267,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle softmax failed: {}", e))
                     ))?;
                 let result_tl = self.candle_to_tl_f16(result)?;
-                Ok(Value::TensorF16(result_tl))
+                Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_softmax() requires a tensor".to_string()))
         }
@@ -297,7 +298,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle log_softmax failed: {}", e))
                     ))?;
                 let result_tl = self.candle_to_tl_f32(result)?;
-                Ok(Value::TensorF32(result_tl))
+                Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
                 let x_candle = self.tl_to_candle_f16(x)?;
@@ -306,7 +307,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle log_softmax failed: {}", e))
                     ))?;
                 let result_tl = self.candle_to_tl_f16(result)?;
-                Ok(Value::TensorF16(result_tl))
+                Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_log_softmax() requires a tensor".to_string()))
         }
@@ -331,7 +332,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle gelu failed: {}", e))
                     ))?;
                 let result_tl = self.candle_to_tl_f32(result)?;
-                Ok(Value::TensorF32(result_tl))
+                Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
                 let x_candle = self.tl_to_candle_f16(x)?;
@@ -340,7 +341,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle gelu failed: {}", e))
                     ))?;
                 let result_tl = self.candle_to_tl_f16(result)?;
-                Ok(Value::TensorF16(result_tl))
+                Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_gelu() requires a tensor".to_string()))
         }
@@ -365,7 +366,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle silu failed: {}", e))
                     ))?;
                 let result_tl = self.candle_to_tl_f32(result)?;
-                Ok(Value::TensorF32(result_tl))
+                Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
                 let x_candle = self.tl_to_candle_f16(x)?;
@@ -374,7 +375,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle silu failed: {}", e))
                     ))?;
                 let result_tl = self.candle_to_tl_f16(result)?;
-                Ok(Value::TensorF16(result_tl))
+                Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_silu() requires a tensor".to_string()))
         }
@@ -399,7 +400,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle relu failed: {}", e))
                     ))?;
                 let result_tl = self.candle_to_tl_f32(result)?;
-                Ok(Value::TensorF32(result_tl))
+                Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
                 let x_candle = self.tl_to_candle_f16(x)?;
@@ -408,7 +409,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle relu failed: {}", e))
                     ))?;
                 let result_tl = self.candle_to_tl_f16(result)?;
-                Ok(Value::TensorF16(result_tl))
+                Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_relu() requires a tensor".to_string()))
         }
@@ -433,7 +434,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle tanh failed: {}", e))
                     ))?;
                 let result_tl = self.candle_to_tl_f32(result)?;
-                Ok(Value::TensorF32(result_tl))
+                Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
                 let x_candle = self.tl_to_candle_f16(x)?;
@@ -442,7 +443,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle tanh failed: {}", e))
                     ))?;
                 let result_tl = self.candle_to_tl_f16(result)?;
-                Ok(Value::TensorF16(result_tl))
+                Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_tanh() requires a tensor".to_string()))
         }
@@ -522,7 +523,7 @@ impl Interpreter {
                     ))?;
 
                 let result_tl = self.candle_to_tl_f32(result)?;
-                Ok(Value::TensorF32(result_tl))
+                Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
                 let x_candle = self.tl_to_candle_f16(x)?;
@@ -558,7 +559,7 @@ impl Interpreter {
                     ))?;
 
                 let result_tl = self.candle_to_tl_f16(result)?;
-                Ok(Value::TensorF16(result_tl))
+                Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_layer_norm() requires a tensor".to_string()))
         }
@@ -616,7 +617,7 @@ impl Interpreter {
                     ))?;
 
                 let result_tl = self.candle_to_tl_f32(result)?;
-                Ok(Value::TensorF32(result_tl))
+                Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
                 let x_candle = self.tl_to_candle_f16(x)?;
@@ -646,7 +647,7 @@ impl Interpreter {
                     ))?;
 
                 let result_tl = self.candle_to_tl_f16(result)?;
-                Ok(Value::TensorF16(result_tl))
+                Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_rms_norm() requires a tensor".to_string()))
         }
@@ -681,7 +682,7 @@ impl Interpreter {
                     ))?;
 
                 let result_tl = self.candle_to_tl_f32(result)?;
-                Ok(Value::TensorF32(result_tl))
+                Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             (Value::TensorF16(ref indices), Value::TensorF16(ref embeddings)) => {
                 let indices_candle = self.tl_to_candle_f16(indices)?;
@@ -698,7 +699,7 @@ impl Interpreter {
                     ))?;
 
                 let result_tl = self.candle_to_tl_f16(result)?;
-                Ok(Value::TensorF16(result_tl))
+                Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             (Value::Integer(idx), Value::TensorF32(ref embeddings)) => {
                 let embeddings_candle = self.tl_to_candle_f32(embeddings)?;
@@ -709,7 +710,7 @@ impl Interpreter {
                     ))?;
 
                 let result_tl = self.candle_to_tl_f32(result)?;
-                Ok(Value::TensorF32(result_tl))
+                Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             (Value::Integer(idx), Value::TensorF16(ref embeddings)) => {
                 let embeddings_candle = self.tl_to_candle_f16(embeddings)?;
@@ -720,7 +721,7 @@ impl Interpreter {
                     ))?;
 
                 let result_tl = self.candle_to_tl_f16(result)?;
-                Ok(Value::TensorF16(result_tl))
+                Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError(
                 "cndl_embedding() requires indices and embeddings tensors of same type".to_string()
@@ -787,7 +788,7 @@ impl Interpreter {
                 let result = self.apply_rope_candle(x_candle, &cos_sin, position_offset)?;
 
                 let result_tl = self.candle_to_tl_f32(result)?;
-                Ok(Value::TensorF32(result_tl))
+                Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
                 let x_candle = self.tl_to_candle_f16(x)?;
@@ -805,7 +806,7 @@ impl Interpreter {
                 let result = self.apply_rope_candle(x_candle, &cos_sin, position_offset)?;
 
                 let result_tl = self.candle_to_tl_f16(result)?;
-                Ok(Value::TensorF16(result_tl))
+                Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_rope() requires a tensor".to_string()))
         }
@@ -978,7 +979,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle reshape failed: {}", e))
                     ))?;
                 let result_tl = self.candle_to_tl_f32(result)?;
-                Ok(Value::TensorF32(result_tl))
+                Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
                 let x_candle = self.tl_to_candle_f16(x)?;
@@ -987,7 +988,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle reshape failed: {}", e))
                     ))?;
                 let result_tl = self.candle_to_tl_f16(result)?;
-                Ok(Value::TensorF16(result_tl))
+                Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_reshape() requires a tensor".to_string()))
         }
@@ -1040,12 +1041,12 @@ impl Interpreter {
             DType::F32 => {
                 let result_tl = self.candle_to_tl_f32(tensor.clone())?;
                 println!("Loaded tensor '{}' from {} (f32, shape: {:?})", tensor_name, path, tensor.dims());
-                Ok(Value::TensorF32(result_tl))
+                Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             DType::F16 => {
                 let result_tl = self.candle_to_tl_f16(tensor.clone())?;
                 println!("Loaded tensor '{}' from {} (f16, shape: {:?})", tensor_name, path, tensor.dims());
-                Ok(Value::TensorF16(result_tl))
+                Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             dtype => {
                 // Try to convert to f32
@@ -1056,7 +1057,7 @@ impl Interpreter {
                 let result_tl = self.candle_to_tl_f32(tensor_f32)?;
                 println!("Loaded tensor '{}' from {} (converted from {:?} to f32, shape: {:?})",
                          tensor_name, path, dtype, tensor.dims());
-                Ok(Value::TensorF32(result_tl))
+                Ok(Value::TensorF32(Arc::new(result_tl)))
             }
         }
     }
@@ -1200,7 +1201,7 @@ impl Interpreter {
             // Try f16 first
             let result_tl = self.candle_to_tl_f16(tensor.clone())?;
             println!("Loaded tensor '{}' from {} (f16, shape: {:?})", tensor_name, path, tensor.dims());
-            return Ok(Value::TensorF16(result_tl));
+            return Ok(Value::TensorF16(Arc::new(result_tl)));
         } else {
             tensor.to_dtype(DType::F32)
                 .map_err(|e| RuntimeError::TensorError(
@@ -1210,7 +1211,7 @@ impl Interpreter {
 
         let result_tl = self.candle_to_tl_f32(tensor_f32.clone())?;
         println!("Loaded tensor '{}' from {} (f32, shape: {:?})", tensor_name, path, tensor_f32.dims());
-        Ok(Value::TensorF32(result_tl))
+        Ok(Value::TensorF32(Arc::new(result_tl)))
     }
 
     /// cndl_list_gguf_tensors(path) -> void
@@ -1361,7 +1362,7 @@ impl Interpreter {
 
                 for (name, candle_tensor) in candle_tensors {
                     let tl_tensor = self.candle_to_tl_f16(candle_tensor)?;
-                    tl_tensors.insert(name, tl_tensor);
+                    tl_tensors.insert(name, Arc::new(tl_tensor));
                 }
 
                 // Create model with metadata
@@ -1386,7 +1387,7 @@ impl Interpreter {
 
                 for (name, candle_tensor) in candle_tensors {
                     let tl_tensor = self.candle_to_tl_f32(candle_tensor)?;
-                    tl_tensors.insert(name, tl_tensor);
+                    tl_tensors.insert(name, Arc::new(tl_tensor));
                 }
 
                 // Create model with metadata
@@ -1416,7 +1417,7 @@ impl Interpreter {
                             crate::error::TensorError::InvalidOperation(format!("Failed to convert tensor to f32: {}", e))
                         ))?;
                     let tl_tensor = self.candle_to_tl_f32(tensor_f32)?;
-                    tl_tensors.insert(name, tl_tensor);
+                    tl_tensors.insert(name, Arc::new(tl_tensor));
                 }
 
                 // Create model with metadata

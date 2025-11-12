@@ -7,6 +7,7 @@ use crate::tensor::{Tensor, TensorCreation};
 use half::f16;
 use std::io::Write;
 use std::time::Instant;
+use std::sync::Arc;
 
 impl Interpreter {
     pub(super) fn eval_nn_function(
@@ -98,14 +99,14 @@ impl Interpreter {
                 let result = tensor
                     .rms_norm(normalized_shape, &weight, eps)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             (Value::TensorF32(tensor), Value::TensorF32(weight)) => {
                 let normalized_shape = weight.dims().to_vec();
                 let result = tensor
                     .rms_norm(normalized_shape, &weight, eps)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "rms_norm() requires tensor and weight to be same type (both f16 or both f32)"
@@ -204,7 +205,7 @@ impl Interpreter {
         )
         .map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::TensorF16(output))
+        Ok(Value::TensorF16(Arc::new(output)))
     }
 
     /// layer_norm(tensor, [normalized_shape], [eps]) -> tensor
@@ -1028,13 +1029,13 @@ impl Interpreter {
                 Value::TensorF32(k),
                 Value::TensorF32(v),
                 Value::TensorF32(w_o),
-            ) => Self::attention_with_cache_f32(q, k, v, w_o),
+            ) => Self::attention_with_cache_f32((*q).clone(), (*k).clone(), (*v).clone(), (*w_o).clone()),
             (
                 Value::TensorF16(q),
                 Value::TensorF16(k),
                 Value::TensorF16(v),
                 Value::TensorF16(w_o),
-            ) => Self::attention_with_cache_f16(q, k, v, w_o),
+            ) => Self::attention_with_cache_f16((*q).clone(), (*k).clone(), (*v).clone(), (*w_o).clone()),
             _ => Err(RuntimeError::TypeError(
                 "attention_with_cache() requires all tensors to be the same type (f32 or f16)"
                     .to_string(),
@@ -1397,7 +1398,7 @@ impl Interpreter {
             );
         }
 
-        Ok(Value::TensorF32(result))
+        Ok(Value::TensorF32(Arc::new(result)))
     }
 
     /* written by ChatGPT
@@ -1646,6 +1647,6 @@ impl Interpreter {
             );
         }
 
-        Ok(Value::TensorF16(result))
+        Ok(Value::TensorF16(Arc::new(result)))
     }
 }

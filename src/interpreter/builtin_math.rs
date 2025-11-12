@@ -1,6 +1,7 @@
 //! Math operations for TensorLogic interpreter
 
 use super::*;
+use std::sync::Arc;
 
 impl Interpreter {
     pub(super) fn eval_math_function(&mut self, name: &str, args: &[TensorExpr]) -> Option<RuntimeResult<Value>> {
@@ -51,12 +52,12 @@ impl Interpreter {
             (Value::TensorF16(a), Value::TensorF16(b)) => {
                 let result = a.matmul(&b)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             (Value::TensorF32(a), Value::TensorF32(b)) => {
                 let result = a.matmul(&b)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "matmul() requires both tensors to be same type (both f16 or both f32)".to_string()
@@ -115,7 +116,7 @@ impl Interpreter {
                         .map_err(|e| RuntimeError::TensorError(e))?;
                 }
 
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             (Value::TensorF32(x), Value::TensorF32(weight)) => {
                 // DEBUG: Check for final output layer (vocab_size x hidden_dim)
@@ -179,7 +180,7 @@ impl Interpreter {
                     }
                 }
 
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "linear() requires x and weight to be same type (both f16 or both f32)".to_string()
@@ -243,12 +244,12 @@ impl Interpreter {
             Value::TensorF16(tensor) => {
                 let result = tensor.relu()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             Value::TensorF32(tensor) => {
                 let result = tensor.relu()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "relu() expects a tensor".to_string()
@@ -272,12 +273,12 @@ impl Interpreter {
             Value::TensorF16(tensor) => {
                 let result = tensor.gelu()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             Value::TensorF32(tensor) => {
                 let result = tensor.gelu()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "gelu() expects a tensor".to_string()
@@ -310,12 +311,12 @@ impl Interpreter {
             Value::TensorF16(tensor) => {
                 let result = tensor.tanh()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             Value::TensorF32(tensor) => {
                 let result = tensor.tanh()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "tanh() expects a tensor".to_string()
@@ -338,12 +339,12 @@ impl Interpreter {
             Value::TensorF16(tensor) => {
                 let result = tensor.exp()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             Value::TensorF32(tensor) => {
                 let result = tensor.exp()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "exp() expects a tensor".to_string()
@@ -366,12 +367,12 @@ impl Interpreter {
             Value::TensorF16(tensor) => {
                 let result = tensor.log()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             Value::TensorF32(tensor) => {
                 let result = tensor.log()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "log() expects a tensor".to_string()
@@ -394,12 +395,12 @@ impl Interpreter {
             Value::TensorF16(tensor) => {
                 let result = tensor.sqrt()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             Value::TensorF32(tensor) => {
                 let result = tensor.sqrt()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "sqrt() expects a tensor".to_string()
@@ -432,12 +433,12 @@ impl Interpreter {
             Value::TensorF16(tensor) => {
                 let result = tensor.pow(exponent)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             Value::TensorF32(tensor) => {
                 let result = tensor.pow(exponent)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "pow() expects a tensor".to_string()
@@ -460,12 +461,12 @@ impl Interpreter {
             Value::TensorF16(tensor) => {
                 let result = tensor.sin()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             Value::TensorF32(tensor) => {
                 let result = tensor.sin()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "sin() expects a tensor".to_string()
@@ -488,12 +489,12 @@ impl Interpreter {
             Value::TensorF16(tensor) => {
                 let result = tensor.cos()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             Value::TensorF32(tensor) => {
                 let result = tensor.cos()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "cos() expects a tensor".to_string()
@@ -516,12 +517,12 @@ impl Interpreter {
             Value::TensorF16(tensor) => {
                 let result = tensor.tan()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             Value::TensorF32(tensor) => {
                 let result = tensor.tan()
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "tan() expects a tensor".to_string()

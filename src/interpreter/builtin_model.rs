@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::device::Device;
+use std::sync::Arc;
 
 impl Interpreter {
     pub(super) fn eval_model_function(&mut self, name: &str, args: &[TensorExpr]) -> Option<RuntimeResult<Value>> {
@@ -97,7 +98,7 @@ impl Interpreter {
         let tensor = Tensor::load(&device, &filename).map_err(|e| RuntimeError::TensorError(e))?;
 
         println!("Loaded tensor from: {} (shape: {:?})", filename, tensor.dims());
-        Ok(Value::TensorF16(tensor))
+        Ok(Value::TensorF16(Arc::new(tensor)))
     }
 
     /// load_model("path/to/model.gguf")
@@ -226,20 +227,17 @@ impl Interpreter {
                     .ok_or_else(|| RuntimeError::InvalidOperation(
                         format!("Tensor '{}' not found in model", name)
                     ))?;
-                // FIXME: This clone increases Arc<Buffer> ref_count, preventing buffer pool return
-                // When Model is dropped, cloned tensors still hold references (ref_count > 1)
-                // Buffers accumulate in pool and cause GPU memory leaks
-                // Solution: Refactor Value to use Arc<Tensor> instead of owned Tensor
-                // See: claudedocs/arc_reference_counting_issue.md
-                Ok(Value::TensorF16(tensor.clone()))
+                // Arc::clone is cheap (atomic increment only) - no GPU memory cloning
+                // This fixes the memory leak that was caused by tensor.clone()
+                Ok(Value::TensorF16(Arc::clone(tensor)))
             }
             Value::ModelF32(ref model) => {
                 let tensor = model.get_tensor(&name)
                     .ok_or_else(|| RuntimeError::InvalidOperation(
                         format!("Tensor '{}' not found in model", name)
                     ))?;
-                // FIXME: Same Arc reference counting issue as above
-                Ok(Value::TensorF32(tensor.clone()))
+                // Arc::clone is cheap (atomic increment only) - no GPU memory cloning
+                Ok(Value::TensorF32(Arc::clone(tensor)))
             }
             _ => Err(RuntimeError::TypeError(
                 format!("get_tensor() first argument must be a Model, got {:?}", model_val.type_name())

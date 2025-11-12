@@ -2,6 +2,7 @@
 
 use crate::error::TensorResult;
 use crate::tensor::{FloatType, Tensor};
+use std::sync::Arc;
 
 /// Trait for lazy weight loading with LRU caching
 ///
@@ -14,8 +15,8 @@ pub trait LazyWeightLoader<T: FloatType>: Clone + Send + Sync {
     /// * `name` - Weight name (e.g., "model.layers.0.self_attn.q_proj.weight")
     ///
     /// # Returns
-    /// Tensor loaded from cache or storage
-    fn get_weight(&self, name: &str) -> TensorResult<Tensor<T>>;
+    /// Arc<Tensor> loaded from cache or storage (Arc avoids cloning GPU data)
+    fn get_weight(&self, name: &str) -> TensorResult<Arc<Tensor<T>>>;
 
     /// Get cache statistics (cached_count, capacity)
     ///

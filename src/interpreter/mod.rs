@@ -42,6 +42,7 @@ mod builtin_candle;    // Candle-based operations (cndl_ prefix)
 // Re-export public types
 pub use value::{Value, ModelLayerCollection, ModelLayer, ModelFeature};
 pub use environment::{RuntimeEnvironment, CallFrame, ScopeType};
+use std::sync::Arc;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -621,8 +622,8 @@ impl Interpreter {
 
             match (&init_value, &decl.tensor_type.base_type) {
                 (Value::TensorF16(t), BaseType::Float32) => {
-                    // f16 tensor
-                    let mut tensor = t.clone();
+                    // f16 tensor - need to work with owned Tensor before wrapping in Arc
+                    let mut tensor = (**t).clone();
                     if tensor.shape().dims() != declared_shape.as_slice() {
                         tensor = tensor.reshape(declared_shape)
                             .map_err(|e| RuntimeError::TensorError(e))?;
@@ -630,11 +631,11 @@ impl Interpreter {
                     if decl.tensor_type.learnable == LearnableStatus::Learnable {
                         tensor.set_requires_grad(true);
                     }
-                    Value::TensorF16(tensor)
+                    Value::TensorF16(Arc::new(tensor))
                 }
                 (Value::TensorF32(t), BaseType::Float64) => {
-                    // f32 tensor
-                    let mut tensor = t.clone();
+                    // f32 tensor - need to work with owned Tensor before wrapping in Arc
+                    let mut tensor = (**t).clone();
                     if tensor.shape().dims() != declared_shape.as_slice() {
                         tensor = tensor.reshape(declared_shape)
                             .map_err(|e| RuntimeError::TensorError(e))?;
@@ -642,7 +643,7 @@ impl Interpreter {
                     if decl.tensor_type.learnable == LearnableStatus::Learnable {
                         tensor.set_requires_grad(true);
                     }
-                    Value::TensorF32(tensor)
+                    Value::TensorF32(Arc::new(tensor))
                 }
                 _ => {
                     return Err(RuntimeError::TypeError(
@@ -658,8 +659,16 @@ impl Interpreter {
             // Set requires_grad if learnable
             if decl.tensor_type.learnable == LearnableStatus::Learnable {
                 match &mut value {
-                    Value::TensorF16(t) => t.set_requires_grad(true),
-                    Value::TensorF32(t) => t.set_requires_grad(true),
+                    Value::TensorF16(t) => {
+                        if let Some(tensor) = Arc::get_mut(t) {
+                            tensor.set_requires_grad(true);
+                        }
+                    }
+                    Value::TensorF32(t) => {
+                        if let Some(tensor) = Arc::get_mut(t) {
+                            tensor.set_requires_grad(true);
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -903,13 +912,13 @@ impl Interpreter {
                 // float16 -> f16 tensor
                 let tensor = Tensor::<half::f16>::zeros(self.env.metal_device(), shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(tensor))
+                Ok(Value::TensorF16(Arc::new(tensor)))
             }
             BaseType::Float64 => {
                 // float32 -> f32 tensor
                 let tensor = Tensor::<f32>::zeros(self.env.metal_device(), shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(tensor))
+                Ok(Value::TensorF32(Arc::new(tensor)))
             }
             _ => Err(RuntimeError::NotImplemented(format!(
                 "Base type {:?} not yet supported",
@@ -1702,7 +1711,7 @@ impl Interpreter {
                 let mask = Tensor::<half::f16>::causal_mask(seq_len)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::TensorF16(mask))
+                Ok(Value::TensorF16(Arc::new(mask)))
             }
 
             "batch_norm" => {
@@ -2865,13 +2874,13 @@ impl Interpreter {
                 match (tensor1_val, tensor2_val) {
                     (Value::TensorF16(tensor1), Value::TensorF16(tensor2)) => {
                         let tensors = vec![&tensor1, &tensor2];
-                        let output = crate::tensor::Tensor::concat(&tensors[..], dim)
+                        let output = crate::tensor::Tensor::concat(&tensors.iter().map(|t| t.as_ref()).collect::<Vec<_>>()[..], dim)
                             .map_err(|e| RuntimeError::TensorError(e))?;
                         Ok(output.to_value())
                     }
                     (Value::TensorF32(tensor1), Value::TensorF32(tensor2)) => {
                         let tensors = vec![&tensor1, &tensor2];
-                        let output = crate::tensor::Tensor::concat(&tensors[..], dim)
+                        let output = crate::tensor::Tensor::concat(&tensors.iter().map(|t| t.as_ref()).collect::<Vec<_>>()[..], dim)
                             .map_err(|e| RuntimeError::TensorError(e))?;
                         Ok(output.to_value())
                     }
@@ -3045,7 +3054,7 @@ impl Interpreter {
                 let tensor = Tensor::zeros(&device, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::TensorF16(tensor))
+                Ok(Value::TensorF16(Arc::new(tensor)))
             }
 
             "ones" => {
@@ -3070,7 +3079,7 @@ impl Interpreter {
                 let tensor = Tensor::ones(device, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::TensorF16(tensor))
+                Ok(Value::TensorF16(Arc::new(tensor)))
             }
 
             // Tensor shape functions
@@ -4003,7 +4012,7 @@ impl Interpreter {
                 let tensor = Tensor::from_vec_gpu(self.env.metal_device(), f16_vec, vec![dim])
                     .map_err(|e| RuntimeError::TensorError(e))?;
 
-                Ok(Value::TensorF16(tensor))
+                Ok(Value::TensorF16(Arc::new(tensor)))
             }
 
             "entity_dim" => {
@@ -5051,11 +5060,11 @@ impl Interpreter {
                             let scale = 1.0 / (num_neighbors as f32);
                             let scale_f16 = half::f16::from_f32(scale);
                             let scale_tensor = Tensor::from_vec_gpu(device, vec![scale_f16], vec![1])?;
-                            let aggregated = node_features.mul(&scale_tensor)?;
+                            let aggregated = node_features.as_ref().mul(&scale_tensor)?;
                             Ok(aggregated.to_value())
                         } else {
-                            // Sum aggregation (or no neighbors)
-                            Ok(node_features.to_value())
+                            // Sum aggregation (or no neighbors) - return Arc directly
+                            Ok(Value::TensorF16(Arc::clone(&node_features)))
                         }
                     }
                     Value::TensorF32(node_features) => {
@@ -5063,11 +5072,11 @@ impl Interpreter {
                             // Divide by number of neighbors for mean aggregation
                             let scale = 1.0 / (num_neighbors as f32);
                             let scale_tensor = Tensor::from_vec_gpu(device, vec![scale], vec![1])?;
-                            let aggregated = node_features.mul(&scale_tensor)?;
+                            let aggregated = node_features.as_ref().mul(&scale_tensor)?;
                             Ok(aggregated.to_value())
                         } else {
-                            // Sum aggregation (or no neighbors)
-                            Ok(node_features.to_value())
+                            // Sum aggregation (or no neighbors) - return Arc directly
+                            Ok(Value::TensorF32(Arc::clone(&node_features)))
                         }
                     }
                     _ => Err(RuntimeError::TypeError(
@@ -5208,43 +5217,43 @@ impl Interpreter {
                     Value::TensorF16(features) => {
                         if norm_type == "l2" {
                             // L2 normalization: x / ||x||_2
-                            let squared = features.mul(&features)?;
+                            let squared = features.as_ref().mul(features.as_ref())?;
                             let sum_squared_f16 = squared.sum()?;
                             let norm_f32 = sum_squared_f16.to_f32().sqrt();
 
                             if norm_f32 > 1e-8 {
                                 let inv_norm_f16 = half::f16::from_f32(1.0 / norm_f32);
                                 let inv_norm_tensor = Tensor::from_vec_gpu(device, vec![inv_norm_f16], vec![1])?;
-                                let normalized = features.mul(&inv_norm_tensor)?;
+                                let normalized = features.as_ref().mul(&inv_norm_tensor)?;
                                 Ok(normalized.to_value())
                             } else {
-                                // Avoid division by zero
-                                Ok(features.to_value())
+                                // Avoid division by zero - return Arc directly
+                                Ok(Value::TensorF16(Arc::clone(&features)))
                             }
                         } else {
                             // For other normalization types, just return features for now
-                            Ok(features.to_value())
+                            Ok(Value::TensorF16(Arc::clone(&features)))
                         }
                     }
                     Value::TensorF32(features) => {
                         if norm_type == "l2" {
                             // L2 normalization: x / ||x||_2
-                            let squared = features.mul(&features)?;
+                            let squared = features.as_ref().mul(features.as_ref())?;
                             let sum_squared_f32: f32 = squared.sum()?.into();  // Convert f16 to f32
                             let norm_f32 = sum_squared_f32.sqrt();
 
                             if norm_f32 > 1e-8 {
                                 let inv_norm = 1.0 / norm_f32;
                                 let inv_norm_tensor = Tensor::from_vec_gpu(device, vec![inv_norm], vec![1])?;
-                                let normalized = features.mul(&inv_norm_tensor)?;
+                                let normalized = features.as_ref().mul(&inv_norm_tensor)?;
                                 Ok(normalized.to_value())
                             } else {
-                                // Avoid division by zero
-                                Ok(features.to_value())
+                                // Avoid division by zero - return Arc directly
+                                Ok(Value::TensorF32(Arc::clone(&features)))
                             }
                         } else {
                             // For other normalization types, just return features for now
-                            Ok(features.to_value())
+                            Ok(Value::TensorF32(Arc::clone(&features)))
                         }
                     }
                     _ => Err(RuntimeError::TypeError(
@@ -5680,7 +5689,7 @@ impl Interpreter {
             .unwrap_or(0.001);
 
         // Collect parameter tensors
-        let params: Vec<Tensor> = learnable_params.iter().map(|(_, t)| t.clone()).collect();
+        let params: Vec<Tensor> = learnable_params.iter().map(|(_, t)| (**t).clone()).collect();
 
         // Create optimizer based on spec
         let mut opt: Box<dyn Optimizer> = match spec.optimizer.name.as_str() {
@@ -5764,7 +5773,7 @@ impl Interpreter {
                         use crate::tensor::TensorAutograd;
                         param_clone.set_grad_node(node_id);
                     }
-                    let _ = self.env.set_variable(name, Value::TensorF16(param_clone));
+                    let _ = self.env.set_variable(name, Value::TensorF16(Arc::new(param_clone)));
                 }
             }
 
@@ -5809,8 +5818,8 @@ impl Interpreter {
             print!("Epoch {:3}/{}: Loss = {:.6}", epoch + 1, spec.epochs, loss_scalar);
 
             // Compute gradients using autograd
-            // 1. Compute backward pass
-            let mut loss_tensor_mut = loss_tensor.clone();
+            // 1. Compute backward pass - need owned Tensor for backward()
+            let mut loss_tensor_mut = (*loss_tensor).clone();
             match loss_tensor_mut.backward() {
                 Ok(_) => {
                     // 2. Collect gradients from all learnable parameters and compute norm
@@ -5851,7 +5860,7 @@ impl Interpreter {
                                 // Restore the original node_id to maintain gradient connection
                                 param_with_grad.set_grad_node(*node_id);
                                 // Learning context - update parameter
-                                let _ = self.env.set_variable(name, Value::TensorF16(param_with_grad));
+                                let _ = self.env.set_variable(name, Value::TensorF16(Arc::new(param_with_grad)));
                             }
 
                             // Note: We don't rebuild learnable_params from the environment

@@ -5,12 +5,13 @@ use crate::model::{Model, WeightCache, GGUFWeightCache};
 use crate::ast::StructType;
 use half::f16;
 use std::collections::HashMap;
+use std::sync::Arc;
 use super::{RuntimeError, RuntimeResult, DISPLAY_LIMIT};
 
 /// Model layer collection (e.g., model.blk returns this)
 #[derive(Debug, Clone)]
 pub struct ModelLayerCollection<T: crate::tensor::FloatType> {
-    pub layers: std::collections::HashMap<usize, std::collections::HashMap<String, Tensor<T>>>,
+    pub layers: std::collections::HashMap<usize, std::collections::HashMap<String, Arc<Tensor<T>>>>,
     pub model_metadata: crate::model::ModelMetadata,
 }
 
@@ -73,12 +74,12 @@ impl<T: crate::tensor::FloatType> ModelLayer<T> {
 #[derive(Debug, Clone)]
 pub struct ModelFeature<T: crate::tensor::FloatType> {
     pub name: String,
-    pub properties: std::collections::HashMap<String, Tensor<T>>,
+    pub properties: std::collections::HashMap<String, Arc<Tensor<T>>>,
 }
 
 impl<T: crate::tensor::FloatType> ModelFeature<T> {
     /// Get a specific property tensor (e.g., "weight", "bias")
-    pub fn get_property(&self, property_name: &str) -> Option<&Tensor<T>> {
+    pub fn get_property(&self, property_name: &str) -> Option<&Arc<Tensor<T>>> {
         self.properties.get(property_name)
     }
 }
@@ -131,10 +132,10 @@ impl LazyModelFeatureF32 {
 /// Runtime value
 #[derive(Clone)]
 pub enum Value {
-    /// Tensor with f16 precision (float16)
-    TensorF16(Tensor<f16>),
-    /// Tensor with f32 precision (float32)
-    TensorF32(Tensor<f32>),
+    /// Tensor with f16 precision (float16) - Using Arc for efficient sharing
+    TensorF16(Arc<Tensor<f16>>),
+    /// Tensor with f32 precision (float32) - Using Arc for efficient sharing
+    TensorF32(Arc<Tensor<f32>>),
     Boolean(bool),
     Integer(i64),
     Float(f64),
@@ -672,12 +673,12 @@ pub trait ToValue {
 
 impl ToValue for Tensor<f16> {
     fn to_value(self) -> Value {
-        Value::TensorF16(self)
+        Value::TensorF16(Arc::new(self))
     }
 }
 
 impl ToValue for Tensor<f32> {
     fn to_value(self) -> Value {
-        Value::TensorF32(self)
+        Value::TensorF32(Arc::new(self))
     }
 }

@@ -12,6 +12,7 @@ use gguf_rs_lib::tensor::quantization::blocks::{Q4_0Block, Q8_0Block};
 use std::collections::HashMap;
 use std::path::Path;
 use std::fs::File;
+use std::sync::Arc;
 
 pub struct GGUFLoader;
 
@@ -447,7 +448,7 @@ impl GGUFLoader {
 
             // Create TensorLogic tensor (on Metal GPU)
             let tensor = Tensor::from_vec_gpu(device, f16_data, shape)?;
-            tensors.insert(name, tensor);
+            tensors.insert(name, Arc::new(tensor));
         }
 
         let metadata = ModelMetadata {
@@ -591,7 +592,7 @@ impl GGUFLoader {
             };
 
             let tensor = Tensor::from_vec_gpu(device, f32_data, shape)?;
-            tensors.insert(name, tensor);
+            tensors.insert(name, Arc::new(tensor));
         }
 
         let metadata = ModelMetadata {

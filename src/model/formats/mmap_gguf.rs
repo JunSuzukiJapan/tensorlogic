@@ -657,7 +657,7 @@ impl MmapGGUFLoader {
             }
 
             let tensor = self.load_tensor_f16(name, device)?;
-            tensors.insert(name.clone(), tensor);
+            tensors.insert(name.clone(), Arc::new(tensor));
         }
 
         println!("  Progress: {}/{} (complete)", self.tensor_infos.len(), self.tensor_infos.len());

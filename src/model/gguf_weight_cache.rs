@@ -49,8 +49,8 @@ pub struct GGUFWeightCache<T: FloatType> {
     /// GGUF file reader (wrapped in Arc<Mutex> for thread-safe access)
     reader: Arc<Mutex<GGUFFileReader<File>>>,
 
-    /// LRU cache of loaded and dequantized tensors
-    cache: Arc<Mutex<LruCache<String, Tensor<T>>>>,
+    /// LRU cache of loaded and dequantized tensors (using Arc to avoid clones)
+    cache: Arc<Mutex<LruCache<String, Arc<Tensor<T>>>>>,
 
     /// Metadata: weight name -> (shape, quantization)
     metadata: HashMap<String, GGUFWeightMetadata>,
@@ -125,8 +125,8 @@ impl<T: FloatType> GGUFWeightCache<T> {
     /// * `name` - Weight name (e.g., "model.layers.0.self_attn.q_proj.weight")
     ///
     /// # Returns
-    /// Tensor loaded from cache or dequantized from file
-    pub fn get_weight(&self, name: &str) -> TensorResult<Tensor<T>> {
+    /// Arc<Tensor> loaded from cache or dequantized from file (Arc avoids cloning GPU data)
+    pub fn get_weight(&self, name: &str) -> TensorResult<Arc<Tensor<T>>> {
         // Check cache first
         {
             let mut cache = self.cache.lock().unwrap();
@@ -134,7 +134,7 @@ impl<T: FloatType> GGUFWeightCache<T> {
                 if std::env::var("TL_DEBUG").is_ok() {
                     eprintln!("[GGUFWeightCache] Cache HIT: {}", name);
                 }
-                return Ok(tensor.clone());
+                return Ok(Arc::clone(tensor));
             }
         }
 
@@ -241,10 +241,11 @@ impl<T: FloatType> GGUFWeightCache<T> {
             eprintln!("[GGUFWeightCache]   Created tensor shape: {:?}", tensor.shape);
         }
 
-        // Store in cache
+        // Store in cache (using Arc to avoid cloning GPU data)
+        let tensor_arc = Arc::new(tensor);
         {
             let mut cache = self.cache.lock().unwrap();
-            cache.put(name.to_string(), tensor.clone());
+            cache.put(name.to_string(), Arc::clone(&tensor_arc));
 
             if std::env::var("TL_DEBUG").is_ok() {
                 eprintln!(
@@ -257,7 +258,7 @@ impl<T: FloatType> GGUFWeightCache<T> {
             }
         }
 
-        Ok(tensor)
+        Ok(tensor_arc)
     }
 
     /// Dequantize Q4_0 format to f16
@@ -452,7 +453,7 @@ impl<T: FloatType> Clone for GGUFWeightCache<T> {
 }
 
 impl<T: FloatType> crate::model::LazyWeightLoader<T> for GGUFWeightCache<T> {
-    fn get_weight(&self, name: &str) -> TensorResult<Tensor<T>> {
+    fn get_weight(&self, name: &str) -> TensorResult<Arc<Tensor<T>>> {
         self.get_weight(name)
     }
 

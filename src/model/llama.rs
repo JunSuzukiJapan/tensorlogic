@@ -115,25 +115,25 @@ impl<T: crate::tensor::FloatType> Cache<T> {
     }
 }
 
-/// Single transformer layer
+/// Single transformer layer (using Arc<Tensor> to avoid clones)
 pub struct TransformerLayer {
     // Attention weights
-    pub attn_q_weight: Tensor<half::f16>,
-    pub attn_k_weight: Tensor<half::f16>,
-    pub attn_v_weight: Tensor<half::f16>,
-    pub attn_output_weight: Tensor<half::f16>,
+    pub attn_q_weight: Arc<Tensor<half::f16>>,
+    pub attn_k_weight: Arc<Tensor<half::f16>>,
+    pub attn_v_weight: Arc<Tensor<half::f16>>,
+    pub attn_output_weight: Arc<Tensor<half::f16>>,
 
     // FFN weights
-    pub ffn_gate_weight: Tensor<half::f16>,
-    pub ffn_up_weight: Tensor<half::f16>,
-    pub ffn_down_weight: Tensor<half::f16>,
+    pub ffn_gate_weight: Arc<Tensor<half::f16>>,
+    pub ffn_up_weight: Arc<Tensor<half::f16>>,
+    pub ffn_down_weight: Arc<Tensor<half::f16>>,
 
     // Norms
-    pub attn_norm_weight: Tensor<half::f16>,
-    pub ffn_norm_weight: Tensor<half::f16>,
+    pub attn_norm_weight: Arc<Tensor<half::f16>>,
+    pub ffn_norm_weight: Arc<Tensor<half::f16>>,
 }
 
-/// LLaMA model
+/// LLaMA model (using Arc<Tensor> to avoid clones)
 ///
 /// Matches Candle's architecture:
 /// ```rust
@@ -141,16 +141,16 @@ pub struct TransformerLayer {
 /// ```
 pub struct LlamaModel {
     /// Token embeddings
-    pub tok_embeddings: Tensor<half::f16>,
+    pub tok_embeddings: Arc<Tensor<half::f16>>,
 
     /// Transformer layers (22 for TinyLlama)
     pub layers: Vec<TransformerLayer>,
 
     /// Final RMS norm
-    pub norm: Tensor<half::f16>,
+    pub norm: Arc<Tensor<half::f16>>,
 
     /// Output projection (lm_head)
-    pub output: Tensor<half::f16>,
+    pub output: Arc<Tensor<half::f16>>,
 
     /// Model configuration
     pub config: LlamaConfig,
@@ -162,24 +162,27 @@ pub struct LlamaModel {
 impl LlamaModel {
     /// Create model from loaded weights
     pub fn from_weights(
-        weights: &HashMap<String, Tensor<half::f16>>,
+        weights: &HashMap<String, Arc<Tensor<half::f16>>>,
         config: LlamaConfig,
         device: MetalDevice,
     ) -> TensorResult<Self> {
         // Get embeddings
-        let tok_embeddings = weights.get("tok_embeddings.weight")
-            .ok_or_else(|| TensorError::InvalidOperation("Missing tok_embeddings.weight".to_string()))?
-            .clone();
+        let tok_embeddings = Arc::clone(
+            weights.get("tok_embeddings.weight")
+                .ok_or_else(|| TensorError::InvalidOperation("Missing tok_embeddings.weight".to_string()))?
+        );
 
         // Get output projection
-        let output = weights.get("output.weight")
-            .ok_or_else(|| TensorError::InvalidOperation("Missing output.weight".to_string()))?
-            .clone();
+        let output = Arc::clone(
+            weights.get("output.weight")
+                .ok_or_else(|| TensorError::InvalidOperation("Missing output.weight".to_string()))?
+        );
 
         // Get final norm
-        let norm = weights.get("norm.weight")
-            .ok_or_else(|| TensorError::InvalidOperation("Missing norm.weight".to_string()))?
-            .clone();
+        let norm = Arc::clone(
+            weights.get("norm.weight")
+                .ok_or_else(|| TensorError::InvalidOperation("Missing norm.weight".to_string()))?
+        );
 
         // Build layers
         let mut layers = Vec::new();
@@ -187,35 +190,44 @@ impl LlamaModel {
             let prefix = format!("blk.{}", i);
 
             let layer = TransformerLayer {
-                attn_q_weight: weights.get(&format!("{}.attn_q.weight", prefix))
-                    .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.attn_q.weight", prefix)))?
-                    .clone(),
-                attn_k_weight: weights.get(&format!("{}.attn_k.weight", prefix))
-                    .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.attn_k.weight", prefix)))?
-                    .clone(),
-                attn_v_weight: weights.get(&format!("{}.attn_v.weight", prefix))
-                    .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.attn_v.weight", prefix)))?
-                    .clone(),
-                attn_output_weight: weights.get(&format!("{}.attn_output.weight", prefix))
-                    .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.attn_output.weight", prefix)))?
-                    .clone(),
+                attn_q_weight: Arc::clone(
+                    weights.get(&format!("{}.attn_q.weight", prefix))
+                        .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.attn_q.weight", prefix)))?
+                ),
+                attn_k_weight: Arc::clone(
+                    weights.get(&format!("{}.attn_k.weight", prefix))
+                        .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.attn_k.weight", prefix)))?
+                ),
+                attn_v_weight: Arc::clone(
+                    weights.get(&format!("{}.attn_v.weight", prefix))
+                        .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.attn_v.weight", prefix)))?
+                ),
+                attn_output_weight: Arc::clone(
+                    weights.get(&format!("{}.attn_output.weight", prefix))
+                        .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.attn_output.weight", prefix)))?
+                ),
 
-                ffn_gate_weight: weights.get(&format!("{}.ffn_gate.weight", prefix))
-                    .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.ffn_gate.weight", prefix)))?
-                    .clone(),
-                ffn_up_weight: weights.get(&format!("{}.ffn_up.weight", prefix))
-                    .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.ffn_up.weight", prefix)))?
-                    .clone(),
-                ffn_down_weight: weights.get(&format!("{}.ffn_down.weight", prefix))
-                    .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.ffn_down.weight", prefix)))?
-                    .clone(),
+                ffn_gate_weight: Arc::clone(
+                    weights.get(&format!("{}.ffn_gate.weight", prefix))
+                        .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.ffn_gate.weight", prefix)))?
+                ),
+                ffn_up_weight: Arc::clone(
+                    weights.get(&format!("{}.ffn_up.weight", prefix))
+                        .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.ffn_up.weight", prefix)))?
+                ),
+                ffn_down_weight: Arc::clone(
+                    weights.get(&format!("{}.ffn_down.weight", prefix))
+                        .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.ffn_down.weight", prefix)))?
+                ),
 
-                attn_norm_weight: weights.get(&format!("{}.attn_norm.weight", prefix))
-                    .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.attn_norm.weight", prefix)))?
-                    .clone(),
-                ffn_norm_weight: weights.get(&format!("{}.ffn_norm.weight", prefix))
-                    .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.ffn_norm.weight", prefix)))?
-                    .clone(),
+                attn_norm_weight: Arc::clone(
+                    weights.get(&format!("{}.attn_norm.weight", prefix))
+                        .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.attn_norm.weight", prefix)))?
+                ),
+                ffn_norm_weight: Arc::clone(
+                    weights.get(&format!("{}.ffn_norm.weight", prefix))
+                        .ok_or_else(|| TensorError::InvalidOperation(format!("Missing {}.ffn_norm.weight", prefix)))?
+                ),
             };
 
             layers.push(layer);

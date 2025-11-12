@@ -49,8 +49,8 @@ pub struct WeightCache<T: FloatType> {
     /// Memory-mapped safetensors file (zero-copy, OS managed)
     mmap: Arc<Mmap>,
 
-    /// LRU cache of loaded tensors (only keeps recently used)
-    cache: Arc<Mutex<LruCache<String, Tensor<T>>>>,
+    /// LRU cache of loaded tensors (only keeps recently used, using Arc to avoid clones)
+    cache: Arc<Mutex<LruCache<String, Arc<Tensor<T>>>>>,
 
     /// Metadata: weight name -> (offset, size, shape)
     metadata: HashMap<String, WeightMetadata>,
@@ -138,12 +138,12 @@ impl<T: FloatType> WeightCache<T> {
     /// * `name` - Weight name (e.g., "model.layers.0.self_attn.q_proj.weight")
     ///
     /// # Returns
-    /// Tensor loaded from cache or mmap
+    /// Arc<Tensor> loaded from cache or mmap (Arc avoids cloning GPU data)
     ///
     /// # Performance
-    /// - Cache hit: O(1) - returns cached tensor
+    /// - Cache hit: O(1) - returns Arc-cloned tensor (just atomic increment)
     /// - Cache miss: O(n) - loads from mmap and copies to GPU
-    pub fn get_weight(&self, name: &str) -> TensorResult<Tensor<T>> {
+    pub fn get_weight(&self, name: &str) -> TensorResult<Arc<Tensor<T>>> {
         // Check cache first
         {
             let mut cache = self.cache.lock().unwrap();
@@ -151,7 +151,7 @@ impl<T: FloatType> WeightCache<T> {
                 if std::env::var("TL_DEBUG").is_ok() {
                     eprintln!("[WeightCache] Cache HIT: {}", name);
                 }
-                return Ok(tensor.clone());
+                return Ok(Arc::clone(tensor));
             }
         }
 
@@ -185,10 +185,11 @@ impl<T: FloatType> WeightCache<T> {
         // Create tensor on GPU
         let tensor = Tensor::from_vec_gpu(&self.device, values, meta.shape.clone())?;
 
-        // Store in cache
+        // Store in cache (using Arc to avoid cloning GPU data)
+        let tensor_arc = Arc::new(tensor);
         {
             let mut cache = self.cache.lock().unwrap();
-            cache.put(name.to_string(), tensor.clone());
+            cache.put(name.to_string(), Arc::clone(&tensor_arc));
 
             if std::env::var("TL_DEBUG").is_ok() {
                 eprintln!(
@@ -201,7 +202,7 @@ impl<T: FloatType> WeightCache<T> {
             }
         }
 
-        Ok(tensor)
+        Ok(tensor_arc)
     }
 
     /// Check if dtype string matches T
@@ -254,7 +255,7 @@ impl<T: FloatType> Clone for WeightCache<T> {
 }
 
 impl<T: FloatType> crate::model::LazyWeightLoader<T> for WeightCache<T> {
-    fn get_weight(&self, name: &str) -> TensorResult<Tensor<T>> {
+    fn get_weight(&self, name: &str) -> TensorResult<Arc<Tensor<T>>> {
         self.get_weight(name)
     }
 

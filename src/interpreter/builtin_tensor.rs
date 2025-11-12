@@ -8,6 +8,7 @@ use crate::tensor::TensorConvert;
 use crate::error::TensorError;
 use crate::device::Device;
 use half::f16;
+use std::sync::Arc;
 
 /// Helper macro for extracting shape from tensor value using GPU
 macro_rules! extract_shape {
@@ -70,7 +71,7 @@ macro_rules! impl_tensor_fill {
             let tensor = Tensor::<$type>::from_vec_gpu(device, data, shape)
                 .map_err(|e| RuntimeError::TensorError(e))?;
 
-            Ok(Value::$value_variant(tensor))
+            Ok(Value::$value_variant(Arc::new(tensor)))
         }
     };
 }
@@ -142,7 +143,7 @@ macro_rules! impl_arange {
             let tensor = Tensor::<$type>::from_vec_gpu(device, data, vec![count])
                 .map_err(|e| RuntimeError::TensorError(e))?;
 
-            Ok(Value::$value_variant(tensor))
+            Ok(Value::$value_variant(Arc::new(tensor)))
         }
     };
 }
@@ -254,7 +255,7 @@ impl Interpreter {
                 let ones_data = vec![1.0f32; numel];
                 let tensor = Tensor::from_vec_gpu(device, ones_data, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(tensor))
+                Ok(Value::TensorF32(Arc::new(tensor)))
             }
             Value::TensorF16(ref t) => {
                 // f16 shape array -> create f16 ones tensor
@@ -269,7 +270,7 @@ impl Interpreter {
                 let ones_data = vec![f16::ONE; numel];
                 let tensor = Tensor::from_vec_gpu(device, ones_data, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(tensor))
+                Ok(Value::TensorF16(Arc::new(tensor)))
             }
             _ => Err(RuntimeError::TypeError(
                 format!("ones() expects shape as array, got {:?}", shape_val)
@@ -469,13 +470,15 @@ impl Interpreter {
         // Process based on tensor types
         match (val1, val2) {
             (Value::TensorF16(tensor1), Value::TensorF16(tensor2)) => {
-                let tensors = vec![&tensor1, &tensor2];
+                // Dereference Arc to get &Tensor for concat
+                let tensors = vec![tensor1.as_ref(), tensor2.as_ref()];
                 let output = crate::tensor::Tensor::concat(&tensors[..], dim)
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(output.to_value())
             }
             (Value::TensorF32(tensor1), Value::TensorF32(tensor2)) => {
-                let tensors = vec![&tensor1, &tensor2];
+                // Dereference Arc to get &Tensor for concat
+                let tensors = vec![tensor1.as_ref(), tensor2.as_ref()];
                 let output = crate::tensor::Tensor::concat(&tensors[..], dim)
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 Ok(output.to_value())
@@ -853,7 +856,7 @@ impl Interpreter {
             }
         }.map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::TensorF16(result_tensor))
+        Ok(Value::TensorF16(Arc::new(result_tensor)))
     }
 
     /// 1D slice: slice(array, start, end)
@@ -929,7 +932,7 @@ impl Interpreter {
             }
         }.map_err(|e| RuntimeError::TensorError(e))?;
 
-        Ok(Value::TensorF16(result_tensor))
+        Ok(Value::TensorF16(Arc::new(result_tensor)))
     }
 
     /// add(tensor1, tensor2) -> tensor
@@ -948,11 +951,11 @@ impl Interpreter {
         let result = match (left, right) {
             (Value::TensorF16(t1), Value::TensorF16(t2)) => {
                 let result = t1.add(&t2).map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             (Value::TensorF32(t1), Value::TensorF32(t2)) => {
                 let result = t1.add(&t2).map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "add() requires two tensors of the same type".to_string()
@@ -985,11 +988,11 @@ impl Interpreter {
         match (left, right) {
             (Value::TensorF16(t1), Value::TensorF16(t2)) => {
                 let result = t1.sub(&t2).map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             (Value::TensorF32(t1), Value::TensorF32(t2)) => {
                 let result = t1.sub(&t2).map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "sub() requires two tensors of the same type".to_string()
@@ -1013,16 +1016,16 @@ impl Interpreter {
         let result = match (left, right) {
             (Value::TensorF16(t1), Value::TensorF16(t2)) => {
                 let result = t1.mul(&t2).map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             (Value::TensorF32(t1), Value::TensorF32(t2)) => {
                 let result = t1.mul(&t2).map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             (Value::TensorF16(t), Value::Float(scalar)) | (Value::Float(scalar), Value::TensorF16(t)) => {
                 let result = t.mul_scalar(f16::from_f32(scalar as f32))
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             // TODO: Implement mul_scalar for f32 tensors
             (Value::TensorF32(_), Value::Float(_)) | (Value::Float(_), Value::TensorF32(_)) => {
@@ -1061,11 +1064,11 @@ impl Interpreter {
         match (left, right) {
             (Value::TensorF16(t1), Value::TensorF16(t2)) => {
                 let result = t1.div(&t2).map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             (Value::TensorF32(t1), Value::TensorF32(t2)) => {
                 let result = t1.div(&t2).map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "div() requires two tensors of the same type".to_string()
@@ -1153,7 +1156,7 @@ impl Interpreter {
                 let zeros_data = vec![0.0f32; numel];
                 let tensor = Tensor::from_vec_gpu(device, zeros_data, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(tensor))
+                Ok(Value::TensorF32(Arc::new(tensor)))
             }
             Value::TensorF16(ref t) => {
                 // f16 shape array -> create f16 zeros tensor
@@ -1163,7 +1166,7 @@ impl Interpreter {
                 let zeros_data = vec![f16::ZERO; numel];
                 let tensor = Tensor::from_vec_gpu(device, zeros_data, shape)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(tensor))
+                Ok(Value::TensorF16(Arc::new(tensor)))
             }
             _ => Err(RuntimeError::TypeError(
                 format!("zeros() expects shape as array, got {:?}", shape_val)
@@ -1259,13 +1262,13 @@ impl Interpreter {
                 let numel = tensor.numel();
                 let result = tensor.reshape(vec![numel])
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             Value::TensorF32(tensor) => {
                 let numel = tensor.numel();
                 let result = tensor.reshape(vec![numel])
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "flatten() expects a tensor".to_string()
@@ -1299,12 +1302,12 @@ impl Interpreter {
             Value::TensorF16(tensor) => {
                 let result = tensor.squeeze(dim)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             Value::TensorF32(tensor) => {
                 let result = tensor.squeeze(dim)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "squeeze() expects a tensor".to_string()
@@ -1347,7 +1350,7 @@ impl Interpreter {
 
                 let result = tensor.reshape(dims)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             Value::TensorF32(tensor) => {
                 let mut dims = tensor.dims().to_vec();
@@ -1362,7 +1365,7 @@ impl Interpreter {
 
                 let result = tensor.reshape(dims)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "unsqueeze() expects a tensor".to_string()
@@ -1473,7 +1476,7 @@ impl Interpreter {
                     let data = result.sync_and_read();
                     Ok(Value::Integer(data[0].to_f32() as i64))
                 } else {
-                    Ok(Value::TensorF16(result))
+                    Ok(Value::TensorF16(Arc::new(result)))
                 }
             }
             Value::TensorF32(tensor) => {
@@ -1485,7 +1488,7 @@ impl Interpreter {
                     let data = result.sync_and_read_f32();
                     Ok(Value::Integer(data[0] as i64))
                 } else {
-                    Ok(Value::TensorF32(result))
+                    Ok(Value::TensorF32(Arc::new(result)))
                 }
             }
             _ => Err(RuntimeError::TypeError(
@@ -1537,7 +1540,7 @@ impl Interpreter {
                     let data = result.sync_and_read();
                     Ok(Value::Integer(data[0].to_f32() as i64))
                 } else {
-                    Ok(Value::TensorF16(result))
+                    Ok(Value::TensorF16(Arc::new(result)))
                 }
             }
             Value::TensorF32(tensor) => {
@@ -1549,7 +1552,7 @@ impl Interpreter {
                     let data = result.sync_and_read_f32();
                     Ok(Value::Integer(data[0] as i64))
                 } else {
-                    Ok(Value::TensorF32(result))
+                    Ok(Value::TensorF32(Arc::new(result)))
                 }
             }
             _ => Err(RuntimeError::TypeError(
@@ -1586,12 +1589,12 @@ impl Interpreter {
             Value::TensorF16(tensor) => {
                 let result = tensor.permute(dims)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             Value::TensorF32(tensor) => {
                 let result = tensor.permute(dims)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "permute() expects a tensor".to_string()
@@ -1625,22 +1628,22 @@ impl Interpreter {
             (Value::TensorF16(tensor), Value::TensorF16(index)) => {
                 let result = tensor.gather(dim, &index)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             (Value::TensorF16(tensor), Value::TensorF32(index)) => {
                 let result = tensor.gather(dim, &index)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             (Value::TensorF32(tensor), Value::TensorF16(index)) => {
                 let result = tensor.gather(dim, &index)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             (Value::TensorF32(tensor), Value::TensorF32(index)) => {
                 let result = tensor.gather(dim, &index)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "gather() requires tensor and index as tensors (f16 or f32)".to_string()
@@ -1676,22 +1679,22 @@ impl Interpreter {
             (Value::TensorF16(tensor), Value::TensorF16(src), Value::TensorF16(index)) => {
                 let result = tensor.scatter(dim, &index, &src)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             (Value::TensorF16(tensor), Value::TensorF16(src), Value::TensorF32(index)) => {
                 let result = tensor.scatter(dim, &index, &src)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF16(result))
+                Ok(Value::TensorF16(Arc::new(result)))
             }
             (Value::TensorF32(tensor), Value::TensorF32(src), Value::TensorF16(index)) => {
                 let result = tensor.scatter(dim, &index, &src)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             (Value::TensorF32(tensor), Value::TensorF32(src), Value::TensorF32(index)) => {
                 let result = tensor.scatter(dim, &index, &src)
                     .map_err(|e| RuntimeError::TensorError(e))?;
-                Ok(Value::TensorF32(result))
+                Ok(Value::TensorF32(Arc::new(result)))
             }
             _ => Err(RuntimeError::TypeError(
                 "scatter() requires tensor, src, and index all as tensors (f16 or f32)".to_string()
@@ -1732,23 +1735,23 @@ impl Interpreter {
 
         match val {
             Value::TensorF16(tensor) => {
-                let result = tensor.chunk(chunks, dim)
+                let result = tensor.as_ref().chunk(chunks, dim)
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 // Return as array of tensors
                 let tensor_values: Vec<Value> = result.into_iter()
-                    .map(|t| Value::TensorF16(t))
+                    .map(|t| Value::TensorF16(Arc::new(t)))
                     .collect();
                 // For now, return the first chunk as we don't have array support
                 // TODO: Implement proper array return type
-                Ok(tensor_values.into_iter().next().unwrap_or(Value::TensorF16(tensor)))
+                Ok(tensor_values.into_iter().next().unwrap_or(Value::TensorF16(Arc::clone(&tensor))))
             }
             Value::TensorF32(tensor) => {
-                let result = tensor.chunk(chunks, dim)
+                let result = tensor.as_ref().chunk(chunks, dim)
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 let tensor_values: Vec<Value> = result.into_iter()
-                    .map(|t| Value::TensorF32(t))
+                    .map(|t| Value::TensorF32(Arc::new(t)))
                     .collect();
-                Ok(tensor_values.into_iter().next().unwrap_or(Value::TensorF32(tensor)))
+                Ok(tensor_values.into_iter().next().unwrap_or(Value::TensorF32(Arc::clone(&tensor))))
             }
             _ => Err(RuntimeError::TypeError(
                 "chunk() expects a tensor".to_string()
@@ -1789,20 +1792,20 @@ impl Interpreter {
 
         match val {
             Value::TensorF16(tensor) => {
-                let result = tensor.split(split_size, dim)
+                let result = tensor.as_ref().split(split_size, dim)
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 let tensor_values: Vec<Value> = result.into_iter()
-                    .map(|t| Value::TensorF16(t))
+                    .map(|t| Value::TensorF16(Arc::new(t)))
                     .collect();
-                Ok(tensor_values.into_iter().next().unwrap_or(Value::TensorF16(tensor)))
+                Ok(tensor_values.into_iter().next().unwrap_or(Value::TensorF16(Arc::clone(&tensor))))
             }
             Value::TensorF32(tensor) => {
-                let result = tensor.split(split_size, dim)
+                let result = tensor.as_ref().split(split_size, dim)
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 let tensor_values: Vec<Value> = result.into_iter()
-                    .map(|t| Value::TensorF32(t))
+                    .map(|t| Value::TensorF32(Arc::new(t)))
                     .collect();
-                Ok(tensor_values.into_iter().next().unwrap_or(Value::TensorF32(tensor)))
+                Ok(tensor_values.into_iter().next().unwrap_or(Value::TensorF32(Arc::clone(&tensor))))
             }
             _ => Err(RuntimeError::TypeError(
                 "split() expects a tensor".to_string()

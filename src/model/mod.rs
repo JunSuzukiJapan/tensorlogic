@@ -19,6 +19,7 @@ use crate::device::MetalDevice;
 use crate::error::TensorError;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 pub use metadata::{ModelMetadata, ModelFormat, QuantizationType};
 pub use convert::TypeConverter;
@@ -33,10 +34,12 @@ pub type ModelResult<T> = Result<T, TensorError>;
 ///
 /// Represents a complete model with all its weights and parameters.
 /// Generic over tensor precision type (f16 or f32).
+/// Tensors are stored in Arc for efficient sharing and to prevent unnecessary clones.
 #[derive(Debug, Clone)]
 pub struct Model<T: FloatType = half::f16> {
     /// Named tensors (e.g., "layers.0.weight", "layers.0.bias")
-    pub tensors: HashMap<String, Tensor<T>>,
+    /// Using Arc<Tensor> to enable efficient sharing without GPU memory leaks
+    pub tensors: HashMap<String, Arc<Tensor<T>>>,
     /// Model metadata (format, quantization, etc.)
     pub metadata: ModelMetadata,
 }
@@ -51,22 +54,22 @@ impl<T: FloatType> Model<T> {
     }
 
     /// Create a model from a hashmap of tensors
-    pub fn from_tensors(tensors: HashMap<String, Tensor<T>>, metadata: ModelMetadata) -> Self {
+    pub fn from_tensors(tensors: HashMap<String, Arc<Tensor<T>>>, metadata: ModelMetadata) -> Self {
         Self { tensors, metadata }
     }
 
-    /// Get a tensor by name
-    pub fn get_tensor(&self, name: &str) -> Option<&Tensor<T>> {
+    /// Get a tensor by name (returns Arc<Tensor> reference)
+    pub fn get_tensor(&self, name: &str) -> Option<&Arc<Tensor<T>>> {
         self.tensors.get(name)
     }
 
-    /// Get a mutable reference to a tensor by name
-    pub fn get_tensor_mut(&mut self, name: &str) -> Option<&mut Tensor<T>> {
+    /// Get a mutable reference to a tensor by name (not commonly needed with Arc)
+    pub fn get_tensor_mut(&mut self, name: &str) -> Option<&mut Arc<Tensor<T>>> {
         self.tensors.get_mut(name)
     }
 
     /// Insert a tensor with a name
-    pub fn insert_tensor(&mut self, name: String, tensor: Tensor<T>) {
+    pub fn insert_tensor(&mut self, name: String, tensor: Arc<Tensor<T>>) {
         self.tensors.insert(name, tensor);
     }
 
@@ -87,8 +90,8 @@ impl<T: FloatType> Model<T> {
         use crate::interpreter::ModelLayerCollection;
         
         let prefix = format!("{}.", collection_name);
-        let mut layers: HashMap<usize, HashMap<String, Tensor<T>>> = HashMap::new();
-        
+        let mut layers: HashMap<usize, HashMap<String, Arc<Tensor<T>>>> = HashMap::new();
+
         // Parse all tensors matching pattern: "blk.N.feature.property"
         for (name, tensor) in &self.tensors {
             if let Some(rest) = name.strip_prefix(&prefix) {
@@ -97,14 +100,11 @@ impl<T: FloatType> Model<T> {
                 if parts.len() >= 3 {
                     if let Ok(layer_idx) = parts[0].parse::<usize>() {
                         let feature_path = parts[1..].join(".");
-                        // FIXME: tensor.clone() increases Arc<Buffer> ref_count
-                        // Each layer tensor now has ref_count >= 2 (original in Model + this clone)
-                        // When Model is dropped, these clones prevent buffer pool return
-                        // Solution: Use Arc<Tensor> or reference counting at higher level
-                        // See: claudedocs/arc_reference_counting_issue.md
+                        // Arc::clone is cheap (atomic increment only)
+                        // No GPU memory cloning occurs - just reference counting
                         layers.entry(layer_idx)
                             .or_insert_with(HashMap::new)
-                            .insert(feature_path, tensor.clone());
+                            .insert(feature_path, Arc::clone(tensor));
                     }
                 }
             }
@@ -127,16 +127,16 @@ impl<T: FloatType> Model<T> {
         use crate::interpreter::ModelFeature;
         
         let prefix = format!("{}.", property_name);
-        let mut properties: HashMap<String, Tensor<T>> = HashMap::new();
-        
+        let mut properties: HashMap<String, Arc<Tensor<T>>> = HashMap::new();
+
         // Collect all tensors matching "property_name.X"
         for (name, tensor) in &self.tensors {
             if let Some(rest) = name.strip_prefix(&prefix) {
-                properties.insert(rest.to_string(), tensor.clone());
+                properties.insert(rest.to_string(), Arc::clone(tensor));
             } else if name == property_name {
                 // Exact match - single tensor property
                 let mut props = HashMap::new();
-                props.insert("".to_string(), tensor.clone());
+                props.insert("".to_string(), Arc::clone(tensor));
                 return Some(ModelFeature {
                     name: property_name.to_string(),
                     properties: props,

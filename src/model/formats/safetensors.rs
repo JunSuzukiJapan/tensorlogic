@@ -11,6 +11,7 @@ use safetensors::SafeTensors;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 pub struct SafeTensorsLoader;
 
@@ -84,7 +85,7 @@ impl SafeTensorsLoader {
 
             // Create TensorLogic tensor (on Metal GPU)
             let tensor = Tensor::from_vec_gpu(device, f16_data, shape.to_vec())?;
-            tensors.insert(name.to_string(), tensor);
+            tensors.insert(name.to_string(), Arc::new(tensor));
         }
 
         let metadata = ModelMetadata {
