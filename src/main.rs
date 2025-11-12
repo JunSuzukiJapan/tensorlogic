@@ -359,18 +359,20 @@ fn run_file_impl(
     // Set current file path for import resolution
     interpreter.set_current_file(path.canonicalize()?);
 
-    // Check for memory leak detection mode
-    let memory_check = std::env::var("TL_MEMORY_CHECK").is_ok();
-    let gpu_memory_before = if memory_check {
+    // Always check GPU memory before execution (memory leak detection always enabled)
+    let gpu_memory_before = {
         #[cfg(target_os = "macos")]
         {
             use tensorlogic::device::MetalDevice;
             match MetalDevice::new() {
                 Ok(device) => {
                     let allocated = device.current_allocated_size();
-                    eprintln!("\n=== GPU Memory Check: Before Execution ===");
-                    eprintln!("GPU memory allocated: {:.2} MB", allocated as f64 / 1_048_576.0);
-                    eprintln!("==========================================\n");
+                    // Only show detailed log if TL_MEMORY_CHECK is set
+                    if std::env::var("TL_MEMORY_CHECK").is_ok() {
+                        eprintln!("\n=== GPU Memory Check: Before Execution ===");
+                        eprintln!("GPU memory allocated: {:.2} MB", allocated as f64 / 1_048_576.0);
+                        eprintln!("==========================================\n");
+                    }
                     Some(allocated)
                 }
                 Err(_) => None
@@ -378,11 +380,8 @@ fn run_file_impl(
         }
         #[cfg(not(target_os = "macos"))]
         {
-            eprintln!("Note: TL_MEMORY_CHECK only supported on macOS (Metal backend)");
             None
         }
-    } else {
-        None
     };
 
     // Determine which blocks to execute
@@ -400,17 +399,20 @@ fn run_file_impl(
         interpreter.execute(&program)
     };
 
-    // Check memory stats after execution
-    if memory_check {
-        if let Some(memory_before) = gpu_memory_before {
-            #[cfg(target_os = "macos")]
-            {
-                use tensorlogic::device::MetalDevice;
-                match MetalDevice::new() {
-                    Ok(device) => {
-                        let memory_after = device.current_allocated_size();
-                        let memory_diff = memory_after as i64 - memory_before as i64;
+    // Always check memory stats after execution and purge if leaked
+    if let Some(memory_before) = gpu_memory_before {
+        #[cfg(target_os = "macos")]
+        {
+            use tensorlogic::device::MetalDevice;
+            match MetalDevice::new() {
+                Ok(device) => {
+                    let memory_after = device.current_allocated_size();
+                    let memory_diff = memory_after as i64 - memory_before as i64;
 
+                    // Only show detailed stats if TL_MEMORY_CHECK is set
+                    let show_details = std::env::var("TL_MEMORY_CHECK").is_ok();
+
+                    if show_details {
                         eprintln!("\n=== GPU Memory Check: After Execution ===");
                         eprintln!("GPU memory allocated: {:.2} MB", memory_after as f64 / 1_048_576.0);
                         eprintln!("Memory change: {:+.2} MB", memory_diff as f64 / 1_048_576.0);
@@ -425,24 +427,25 @@ fn run_file_impl(
                             let reuse_rate = (pool_stats.reuse_count as f64 / (pool_stats.allocation_count + pool_stats.reuse_count) as f64) * 100.0;
                             eprintln!("  Reuse rate: {:.1}%", reuse_rate);
                         }
+                    }
 
-                        // Detect memory leak
-                        if memory_diff > 1_048_576 {  // More than 1MB leaked
-                            eprintln!("\n⚠️  WARNING: GPU memory leak detected!");
-                            eprintln!("   {:.2} MB of GPU memory was not freed after execution.", memory_diff as f64 / 1_048_576.0);
-                            eprintln!("   This indicates buffers are not being properly released.");
+                    // Always detect and fix memory leaks
+                    if memory_diff > 1_048_576 {  // More than 1MB leaked
+                        eprintln!("\n⚠️  WARNING: GPU memory leak detected!");
+                        eprintln!("   {:.2} MB of GPU memory was not freed after execution.", memory_diff as f64 / 1_048_576.0);
 
-                            // Force purge all buffers to release GPU memory
-                            eprintln!("\n🔧 Attempting to force-release GPU memory...");
-                            device.purge_all_buffers();
+                        // Force purge all buffers to release GPU memory
+                        eprintln!("🔧 Attempting to force-release GPU memory...");
+                        device.purge_all_buffers();
 
-                            // Check memory after purge
-                            let memory_after_purge = device.current_allocated_size();
-                            let purged_amount = memory_after as i64 - memory_after_purge as i64;
-                            eprintln!("   After purge: {:.2} MB ({:+.2} MB freed)",
-                                     memory_after_purge as f64 / 1_048_576.0,
-                                     purged_amount as f64 / 1_048_576.0);
-                        } else if memory_diff > 0 {
+                        // Check memory after purge
+                        let memory_after_purge = device.current_allocated_size();
+                        let purged_amount = memory_after as i64 - memory_after_purge as i64;
+                        eprintln!("   After purge: {:.2} MB ({:+.2} MB freed)\n",
+                                 memory_after_purge as f64 / 1_048_576.0,
+                                 purged_amount as f64 / 1_048_576.0);
+                    } else if show_details {
+                        if memory_diff > 0 {
                             eprintln!("\n⚠️  Small memory increase: {:.2} MB", memory_diff as f64 / 1_048_576.0);
                             eprintln!("   This could be buffer pool caching (normal) or a small leak.");
                         } else {
@@ -451,8 +454,8 @@ fn run_file_impl(
                         }
                         eprintln!("=========================================\n");
                     }
-                    Err(_) => {}
                 }
+                Err(_) => {}
             }
         }
     }
