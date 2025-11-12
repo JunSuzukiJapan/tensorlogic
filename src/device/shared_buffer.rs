@@ -258,7 +258,7 @@ mod tests {
         assert_eq!(shared.to_f16_vec(), new_data);
 
         // Verify Metal buffer points to the same data
-        let metal_view = shared.as_metal_buffer();
+        let metal_view = shared.as_metal_buffer(&device);
         assert_eq!(metal_view.to_vec(), new_data);
     }
 

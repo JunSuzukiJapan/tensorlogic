@@ -351,7 +351,7 @@ mod tests {
         // Metal -> Neural Engine -> Metal
         let metal1 = MetalBuffer::<f16>::from_slice(&device, &original_data).unwrap();
         let ne_buffer = metal1.to_neural_engine(&shape).unwrap();
-        let metal2 = ne_buffer.to_metal_buffer(device.metal_device()).unwrap();
+        let metal2 = ne_buffer.to_metal_buffer(&device).unwrap();
 
         // Verify roundtrip preserves data
         let result = metal2.to_vec();

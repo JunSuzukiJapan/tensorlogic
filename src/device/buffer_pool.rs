@@ -651,7 +651,7 @@ mod tests {
         let device = get_test_device();
         let pool = BufferPool::new(device.metal_device());
 
-        let buffer = pool.allocate::<half::f16>(1024).unwrap();
+        let buffer = pool.allocate::<half::f16>(&device, 1024).unwrap();
         assert_eq!(buffer.length, 1024);
 
         let stats = pool.stats();
@@ -665,11 +665,11 @@ mod tests {
         let pool = BufferPool::new(device.metal_device());
 
         // Allocate and recycle
-        let buffer1 = pool.allocate::<half::f16>(512).unwrap();
+        let buffer1 = pool.allocate::<half::f16>(&device, 512).unwrap();
         pool.recycle(buffer1);
 
         // Allocate again - should reuse
-        let buffer2 = pool.allocate::<half::f16>(512).unwrap();
+        let buffer2 = pool.allocate::<half::f16>(&device, 512).unwrap();
         assert_eq!(buffer2.length, 512);
 
         let stats = pool.stats();
@@ -683,9 +683,9 @@ mod tests {
         let pool = BufferPool::with_capacity(device.metal_device(), 2);
 
         // Add 3 buffers, only 2 should be kept
-        let b1 = pool.allocate::<half::f16>(256).unwrap();
-        let b2 = pool.allocate::<half::f16>(256).unwrap();
-        let b3 = pool.allocate::<half::f16>(256).unwrap();
+        let b1 = pool.allocate::<half::f16>(&device, 256).unwrap();
+        let b2 = pool.allocate::<half::f16>(&device, 256).unwrap();
+        let b3 = pool.allocate::<half::f16>(&device, 256).unwrap();
 
         pool.recycle(b1);
         pool.recycle(b2);
@@ -702,7 +702,7 @@ mod tests {
         let device = get_test_device();
         let pool = BufferPool::new(device.metal_device());
 
-        let buffer = pool.allocate::<half::f16>(128).unwrap();
+        let buffer = pool.allocate::<half::f16>(&device, 128).unwrap();
         pool.recycle(buffer);
 
         assert_eq!(pool.stats().total_pooled, 1);
@@ -716,7 +716,7 @@ mod tests {
         let device = get_test_device();
         let pool = BufferPool::new(device.metal_device());
 
-        let buffer = pool.allocate_zeros::<half::f16>(10).unwrap();
+        let buffer = pool.allocate_zeros::<half::f16>(&device, 10).unwrap();
         let data = buffer.to_vec();
 
         assert_eq!(data.len(), 10);
@@ -729,7 +729,7 @@ mod tests {
         let pool = BufferPool::new(device.metal_device());
 
         // Allocate and recycle separate buffers
-        let buffers: Vec<_> = (0..5).map(|_| pool.allocate::<half::f16>(1024).unwrap()).collect();
+        let buffers: Vec<_> = (0..5).map(|_| pool.allocate::<half::f16>(&device, 1024).unwrap()).collect();
         for buffer in buffers {
             pool.recycle(buffer);
         }

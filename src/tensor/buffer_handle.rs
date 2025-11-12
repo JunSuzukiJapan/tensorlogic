@@ -142,7 +142,6 @@ impl<T: FloatType + PartialEq> PartialEq for BufferHandle<T> {
 mod tests {
     use half::f16;
     use super::*;
-    use metal::Device as MTLDevice;
 
     #[test]
     fn test_cpu_buffer() {
@@ -157,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_metal_buffer() {
-        let device = MTLDevice::system_default().unwrap();
+        let device = crate::device::MetalDevice::new().unwrap();
         let data = vec![f16::from_f32(1.0), f16::from_f32(2.0)];
         let metal_buf = MetalBuffer::<f16>::from_slice(&device, &data).unwrap();
         let handle = BufferHandle::<f16>::Metal(metal_buf);
