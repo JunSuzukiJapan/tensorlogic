@@ -7,6 +7,7 @@
 use tensorlogic::prelude::*;
 use tensorlogic::interpreter::Interpreter;
 use tensorlogic::parser::TensorLogicParser;
+use std::sync::Arc;
 use serial_test::serial;
 
 /// Helper to run TensorLogic code and return result
@@ -684,11 +685,11 @@ fn test_cndl_model_save_load_round_trip() -> TensorResult<()> {
     // Create a model with multiple tensors
     let mut tensors = HashMap::new();
     tensors.insert("layer1.weight".to_string(),
-                   Tensor::<f32>::from_vec_gpu(&device, vec![1.0, 2.0, 3.0, 4.0], vec![2, 2])?);
+                   Arc::new(Tensor::<f32>::from_vec_gpu(&device, vec![1.0, 2.0, 3.0, 4.0], vec![2, 2])?));
     tensors.insert("layer1.bias".to_string(),
-                   Tensor::<f32>::from_vec_gpu(&device, vec![0.5, 0.5], vec![2])?);
+                   Arc::new(Tensor::<f32>::from_vec_gpu(&device, vec![0.5, 0.5], vec![2])?));
     tensors.insert("layer2.weight".to_string(),
-                   Tensor::<f32>::from_vec_gpu(&device, vec![5.0, 6.0, 7.0, 8.0], vec![2, 2])?);
+                   Arc::new(Tensor::<f32>::from_vec_gpu(&device, vec![5.0, 6.0, 7.0, 8.0], vec![2, 2])?));
 
     let metadata = ModelMetadata {
         name: "test_model".to_string(),

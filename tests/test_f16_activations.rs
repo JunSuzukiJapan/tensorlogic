@@ -223,6 +223,189 @@ fn test_f16_sigmoid_range() -> TensorResult<()> {
     Ok(())
 }
 
+#[test]
+#[serial]
+fn test_f16_sigmoid_extreme_negative() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+    // Test very large negative values like those seen in FFN gates
+    let device = MetalDevice::new()?;
+
+    let a = Tensor::<f16>::from_vec(
+        vec![
+            f16::from_f32(-10000.0), f16::from_f32(-9840.0), f16::from_f32(-6208.0),
+            f16::from_f32(-5072.0), f16::from_f32(-3000.0),
+        ],
+        vec![5]
+    )?;
+
+    let b = a.sigmoid()?;
+    let result = b.sync_and_read();
+
+    // All values should be very close to 0 but finite
+    for (i, &val) in result.iter().enumerate() {
+        assert!(val.is_finite(), "Sigmoid of large negative value at {} should be finite, got {:?}", i, val);
+        assert!(val.to_f32() >= 0.0 && val.to_f32() <= 1.0, "Sigmoid at {} should be in [0, 1]", i);
+        // For very large negative values, sigmoid should be essentially 0
+        assert!(val.to_f32() < 0.001, "Sigmoid of large negative value at {} should be ~0, got {}", i, val.to_f32());
+    }
+
+    // Test sum doesn't overflow to inf
+    let sum: f32 = result.iter().map(|&x| x.to_f32()).sum();
+    assert!(sum.is_finite(), "Sum of sigmoid outputs should be finite");
+
+    println!("✓ f16 sigmoid extreme negative test passed");
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_f16_sigmoid_sum_stability() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+    // Test that sum() doesn't produce inf on sigmoid outputs
+    let device = MetalDevice::new()?;
+
+    // Create a large tensor with FFN-like negative values
+    let size = 100;
+    let values: Vec<f16> = (0..size)
+        .map(|i| f16::from_f32(-5000.0 - (i as f32) * 10.0))
+        .collect();
+
+    let a = Tensor::<f16>::from_vec(values, vec![size])?;
+    let b = a.sigmoid()?;
+
+    // Use Tensor::sum() method
+    let sum_result = b.sum()?;
+
+    assert!(sum_result.is_finite(), "Tensor::sum() of sigmoid should be finite, got {:?}", sum_result);
+    assert!(sum_result.to_f32() >= 0.0, "Sum should be non-negative");
+
+    println!("✓ f16 sigmoid sum stability test passed");
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_f16_sigmoid_ffn_exact_values() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+    // Test exact values observed in FFN: -6208, -5072, -9840
+    let device = MetalDevice::new()?;
+
+    let a = Tensor::<f16>::from_vec(
+        vec![
+            f16::from_f32(-6208.0),
+            f16::from_f32(-5072.0),
+            f16::from_f32(-9840.0),
+        ],
+        vec![3]
+    )?;
+
+    let b = a.sigmoid()?;
+    let result = b.sync_and_read();
+
+    // Each individual value must be finite
+    for (i, &val) in result.iter().enumerate() {
+        assert!(val.is_finite(), "sigmoid at index {} should be finite, got {:?}", i, val);
+        assert!(val.to_f32() >= 0.0 && val.to_f32() <= 1.0, "sigmoid at {} should be in [0,1]", i);
+        assert!(val.to_f32() < 1e-6, "sigmoid of large negative should be ~0, got {}", val.to_f32());
+    }
+
+    // Sum via CPU should be finite
+    let cpu_sum: f32 = result.iter().map(|&x| x.to_f32()).sum();
+    assert!(cpu_sum.is_finite(), "CPU sum should be finite, got {}", cpu_sum);
+
+    // Tensor::sum() via GPU should also be finite
+    let gpu_sum = b.sum()?;
+    assert!(gpu_sum.is_finite(), "GPU sum should be finite, got {:?}", gpu_sum);
+
+    println!("✓ f16 sigmoid FFN exact values test passed");
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_f16_sigmoid_large_tensor_ffn_size() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+    // Test with FFN-like tensor dimensions: [46, 5632]
+    let device = MetalDevice::new()?;
+
+    let rows = 46;
+    let cols = 100; // Use smaller cols for faster test, but still large
+    let size = rows * cols;
+
+    // Fill with large negative values similar to FFN gates
+    let values: Vec<f16> = (0..size)
+        .map(|i| {
+            let base = -6000.0;
+            let variation = (i % 100) as f32 * 10.0;
+            f16::from_f32(base - variation)
+        })
+        .collect();
+
+    let a = Tensor::<f16>::from_vec(values, vec![rows, cols])?;
+    let b = a.sigmoid()?;
+
+    // Test Tensor::sum() on large tensor
+    let sum_result = b.sum()?;
+    assert!(sum_result.is_finite(), "Sum of large sigmoid tensor should be finite, got {:?}", sum_result);
+    assert!(sum_result.to_f32() >= 0.0, "Sum should be non-negative");
+    assert!(sum_result.to_f32() < 1.0, "Sum of near-zero values should be close to 0");
+
+    // Verify a few individual values
+    let result = b.sync_and_read();
+    for i in (0..size).step_by(size / 10) {
+        assert!(result[i].is_finite(), "Value at {} should be finite", i);
+        assert!(result[i].to_f32() >= 0.0 && result[i].to_f32() <= 1.0);
+    }
+
+    println!("✓ f16 sigmoid large tensor FFN size test passed");
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_f16_sigmoid_mixed_large_values() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+    // Test mix of large positive and negative values
+    let device = MetalDevice::new()?;
+
+    let a = Tensor::<f16>::from_vec(
+        vec![
+            f16::from_f32(-10000.0), f16::from_f32(-6208.0), f16::from_f32(-1000.0),
+            f16::from_f32(0.0),
+            f16::from_f32(1000.0), f16::from_f32(6208.0), f16::from_f32(10000.0),
+        ],
+        vec![7]
+    )?;
+
+    let b = a.sigmoid()?;
+    let result = b.sync_and_read();
+
+    // Negative large values → ~0
+    assert!(result[0].to_f32() < 1e-6, "sigmoid(-10000) should be ~0");
+    assert!(result[1].to_f32() < 1e-6, "sigmoid(-6208) should be ~0");
+    assert!(result[2].to_f32() < 0.001, "sigmoid(-1000) should be ~0");
+
+    // Zero → 0.5
+    assert!((result[3].to_f32() - 0.5).abs() < 0.01, "sigmoid(0) should be ~0.5");
+
+    // Positive large values → ~1
+    assert!(result[4].to_f32() > 0.999, "sigmoid(1000) should be ~1");
+    assert!(result[5].to_f32() > 0.999, "sigmoid(6208) should be ~1");
+    assert!(result[6].to_f32() > 0.999, "sigmoid(10000) should be ~1");
+
+    // All should be finite
+    for &val in &result {
+        assert!(val.is_finite(), "All values should be finite");
+    }
+
+    // Sum should be finite
+    let sum_result = b.sum()?;
+    assert!(sum_result.is_finite(), "Sum should be finite");
+
+    println!("✓ f16 sigmoid mixed large values test passed");
+    Ok(())
+}
+
 // Tanh Tests
 
 #[test]
@@ -539,5 +722,129 @@ fn test_f16_activation_batched() -> TensorResult<()> {
     assert_eq!(c.shape().dims(), &[batch_size, features]);
 
     println!("✓ f16 activation batched test passed");
+    Ok(())
+}
+
+// Sum Reduction Tests for Large Tensors
+
+#[test]
+#[serial]
+fn test_f16_sum_simple() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+
+    // Test 1: 1D tensor
+    let a1d = Tensor::<f16>::from_vec(
+        vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)],
+        vec![4]
+    )?;
+    let sum1d = a1d.sum()?;
+    assert!((sum1d.to_f32() - 10.0).abs() < 0.1);
+
+    // Test 2: 2D tensor [2, 2]
+    let a2d = Tensor::<f16>::from_vec(
+        vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)],
+        vec![2, 2]
+    )?;
+    let sum2d = a2d.sum()?;
+    assert!((sum2d.to_f32() - 10.0).abs() < 0.1);
+
+    // Test 3: 2D tensor [1, 4]
+    let a1x4 = Tensor::<f16>::from_vec(
+        vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)],
+        vec![1, 4]
+    )?;
+    let sum1x4 = a1x4.sum()?;
+    assert!((sum1x4.to_f32() - 10.0).abs() < 0.1);
+
+    // Test 4: 2D tensor [4, 1]
+    let a4x1 = Tensor::<f16>::from_vec(
+        vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0), f16::from_f32(4.0)],
+        vec![4, 1]
+    )?;
+    let sum4x1 = a4x1.sum()?;
+    assert!((sum4x1.to_f32() - 10.0).abs() < 0.1);
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_f16_sum_large_tensor() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+
+    // Test with FFN-sized tensor: [46, 5632] = 259,072 elements
+    // This is the exact size that caused overflow in chat demo
+    let rows = 46;
+    let cols = 5632;
+    let size = rows * cols;
+
+    // Create tensor with small positive values (similar to sigmoid outputs)
+    // Note: Use small values (0.15 avg) so sum doesn't exceed f16 max (65,504)
+    // 259,072 × 0.15 ≈ 38,861 which is within f16 range
+    // This simulates sigmoid(large negative) outputs which are close to 0
+    let values: Vec<f16> = (0..size)
+        .map(|i| f16::from_f32(0.1 + (i % 100) as f32 * 0.001))
+        .collect();
+
+    let a = Tensor::<f16>::from_vec(values.clone(), vec![rows, cols])?;
+    let gpu_sum = a.sum()?;
+
+    // Calculate expected sum on CPU with f32 precision
+    let expected_sum: f32 = values.iter().map(|&x| x.to_f32()).sum();
+
+    // The sum should be finite
+    assert!(gpu_sum.is_finite(), "GPU sum should be finite, got {:?}", gpu_sum);
+
+    // The sum should be positive
+    assert!(gpu_sum > f16::ZERO, "GPU sum should be positive, got {:?}", gpu_sum);
+
+    // The sum should be reasonable (within 1% of expected)
+    // f32 accumulation should be very accurate
+    let gpu_f32 = gpu_sum.to_f32();
+    let error_pct = ((gpu_f32 - expected_sum).abs() / expected_sum) * 100.0;
+    assert!(error_pct < 1.0, "Sum error too large: {:.2}%", error_pct);
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_f16_sum_after_sigmoid_large() -> TensorResult<()> {
+    let device = MetalDevice::new()?;
+
+    // Test the exact scenario that fails: sigmoid then sum on large tensor
+    let rows = 46;
+    let cols = 5632;
+    let size = rows * cols;
+
+    println!("Testing sigmoid→sum on large tensor [{}, {}]", rows, cols);
+
+    // Create large negative values (simulating FFN gate output)
+    let values: Vec<f16> = (0..size)
+        .map(|i| {
+            let base = -6000.0;
+            let variation = (i % 100) as f32 * 10.0;
+            f16::from_f32(base - variation)
+        })
+        .collect();
+
+    let a = Tensor::<f16>::from_vec(values, vec![rows, cols])?;
+
+    // Apply sigmoid
+    let sig = a.sigmoid()?;
+
+    // Sum the result
+    let gpu_sum = sig.sum()?;
+
+    println!("Sigmoid sum: {:?}", gpu_sum);
+
+    // The sum should be finite (not inf)
+    assert!(gpu_sum.is_finite(), "Sigmoid sum should be finite, got {:?}", gpu_sum);
+
+    // For large negative values, sigmoid ≈ 0, so sum should be small but positive
+    assert!(gpu_sum >= f16::ZERO, "Sigmoid sum should be non-negative");
+
+    // With 258,872 elements each ≈ 0, sum should be < 1000
+    assert!(gpu_sum.to_f32() < 1000.0, "Sigmoid sum should be small for large negative inputs, got {}", gpu_sum.to_f32());
+
+    println!("✓ f16 sigmoid→sum large tensor test passed");
     Ok(())
 }

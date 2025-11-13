@@ -398,7 +398,7 @@ fn test_infer_shape_2d() {
 fn test_value_as_tensor() {
     let device = MetalDevice::new().unwrap();
     let tensor = Tensor::zeros(&device, vec![2, 3]).unwrap();
-    let value = Value::TensorF16(tensor);
+    let value = Value::TensorF16(Arc::new(tensor));
 
     assert!(value.as_tensor_f16().is_ok());
 }

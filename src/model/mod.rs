@@ -232,7 +232,7 @@ mod tests {
         let device = MetalDevice::new().unwrap();
         let tensor = Tensor::from_vec_gpu(&device, vec![half::f16::from_f32(1.0); 6], vec![2, 3]).unwrap();
 
-        model.insert_tensor("test_tensor".to_string(), tensor);
+        model.insert_tensor("test_tensor".to_string(), Arc::new(tensor));
         assert_eq!(model.num_tensors(), 1);
         assert!(model.get_tensor("test_tensor").is_some());
     }

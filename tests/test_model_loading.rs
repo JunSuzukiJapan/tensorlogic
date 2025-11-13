@@ -14,6 +14,7 @@
 /// These tests focus on the API and structure.
 
 use tensorlogic::device::MetalDevice;
+use std::sync::Arc;
 use tensorlogic::error::TensorResult;
 use tensorlogic::tensor::{Tensor, TensorCreation, TensorIO};
 use tensorlogic::model::{Model, ModelMetadata, ModelFormat, QuantizationType};
@@ -62,7 +63,7 @@ fn test_model_insert_single_tensor() -> TensorResult<()> {
         vec![2, 3]
     )?;
 
-    model.insert_tensor("layer.0.weight".to_string(), tensor);
+    model.insert_tensor("layer.0.weight".to_string(), Arc::new(tensor));
 
     assert_eq!(model.num_tensors(), 1);
     assert!(model.get_tensor("layer.0.weight").is_some());
@@ -91,7 +92,7 @@ fn test_model_insert_multiple_tensors() -> TensorResult<()> {
             vec![f16::from_f32(i as f32); 10],
             vec![2, 5]
         )?;
-        model.insert_tensor(format!("layer.{}.weight", i), tensor);
+        model.insert_tensor(format!("layer.{}.weight", i), Arc::new(tensor));
     }
 
     assert_eq!(model.num_tensors(), 5);
@@ -124,7 +125,7 @@ fn test_model_get_tensor() -> TensorResult<()> {
     let tensor_data = vec![f16::from_f32(42.0); 4];
     let tensor = Tensor::from_vec_gpu(&device, tensor_data.clone(), vec![2, 2])?;
 
-    model.insert_tensor("test_tensor".to_string(), tensor);
+    model.insert_tensor("test_tensor".to_string(), Arc::new(tensor));
 
     // Get tensor
     let retrieved = model.get_tensor("test_tensor");
@@ -173,7 +174,7 @@ fn test_model_tensor_names() -> TensorResult<()> {
 
     for name in &names {
         let tensor = Tensor::from_vec_gpu(&device, vec![f16::ONE; 4], vec![2, 2])?;
-        model.insert_tensor(name.to_string(), tensor);
+        model.insert_tensor(name.to_string(), Arc::new(tensor));
     }
 
     let retrieved_names = model.tensor_names();
@@ -406,7 +407,7 @@ fn test_model_large_number_of_tensors() -> TensorResult<()> {
     let num_tensors = 100;
     for i in 0..num_tensors {
         let tensor = Tensor::from_vec_gpu(&device, vec![f16::from_f32(i as f32); 4], vec![2, 2])?;
-        model.insert_tensor(format!("tensor_{}", i), tensor);
+        model.insert_tensor(format!("tensor_{}", i), Arc::new(tensor));
     }
 
     assert_eq!(model.num_tensors(), num_tensors);
@@ -492,7 +493,7 @@ fn test_model_various_tensor_shapes() -> TensorResult<()> {
     for (i, shape) in shapes.iter().enumerate() {
         let size: usize = shape.iter().product();
         let tensor = Tensor::from_vec_gpu(&device, vec![f16::ONE; size], shape.clone())?;
-        model.insert_tensor(format!("tensor_{}", i), tensor);
+        model.insert_tensor(format!("tensor_{}", i), Arc::new(tensor));
     }
 
     assert_eq!(model.num_tensors(), shapes.len());
@@ -520,7 +521,7 @@ fn test_model_empty_tensor() -> TensorResult<()> {
 
     // Empty tensor (0 elements)
     let tensor = Tensor::from_vec_gpu(&device, vec![], vec![0, 5])?;
-    model.insert_tensor("empty".to_string(), tensor);
+    model.insert_tensor("empty".to_string(), Arc::new(tensor));
 
     assert_eq!(model.num_tensors(), 1);
 
@@ -556,7 +557,7 @@ fn test_model_nested_tensor_names() -> TensorResult<()> {
 
     for name in &names {
         let tensor = Tensor::from_vec_gpu(&device, vec![f16::ONE; 4], vec![2, 2])?;
-        model.insert_tensor(name.to_string(), tensor);
+        model.insert_tensor(name.to_string(), Arc::new(tensor));
     }
 
     assert_eq!(model.num_tensors(), names.len());
@@ -592,7 +593,7 @@ fn test_model_special_characters_in_names() -> TensorResult<()> {
 
     for name in &names {
         let tensor = Tensor::from_vec_gpu(&device, vec![f16::ONE; 2], vec![2])?;
-        model.insert_tensor(name.to_string(), tensor);
+        model.insert_tensor(name.to_string(), Arc::new(tensor));
     }
 
     assert_eq!(model.num_tensors(), names.len());
@@ -652,7 +653,7 @@ fn test_model_clone() -> TensorResult<()> {
     });
 
     let tensor = Tensor::from_vec_gpu(&device, vec![f16::from_f32(42.0); 4], vec![2, 2])?;
-    model.insert_tensor("weight".to_string(), tensor);
+    model.insert_tensor("weight".to_string(), Arc::new(tensor));
 
     // Clone model
     let cloned = model.clone();
@@ -693,7 +694,7 @@ fn test_model_workflow_simulation() -> TensorResult<()> {
         vec![f16::from_f32(0.01); vocab_size * d_model],
         vec![vocab_size, d_model]
     )?;
-    model.insert_tensor("embedding.weight".to_string(), embedding);
+    model.insert_tensor("embedding.weight".to_string(), Arc::new(embedding));
 
     // Step 3: Verify model is ready for inference
     assert_eq!(model.num_tensors(), 1);

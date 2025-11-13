@@ -151,7 +151,7 @@ mod tests {
         let mut tensors = HashMap::new();
         let data = vec![half::f16::from_f32(1.0), half::f16::from_f32(2.0)];
         let tensor = Tensor::from_vec_gpu(&device, data, vec![2]).unwrap();
-        tensors.insert("test_tensor".to_string(), tensor);
+        tensors.insert("test_tensor".to_string(), Arc::new(tensor));
 
         let metadata = ModelMetadata {
             name: "test".to_string(),
@@ -180,15 +180,15 @@ mod tests {
         // Add multiple tensors with different shapes
         tensors.insert(
             "weights".to_string(),
-            Tensor::from_vec_gpu(&device, vec![half::f16::from_f32(0.5); 12], vec![3, 4]).unwrap()
+            Arc::new(Tensor::from_vec_gpu(&device, vec![half::f16::from_f32(0.5); 12], vec![3, 4]).unwrap())
         );
         tensors.insert(
             "bias".to_string(),
-            Tensor::from_vec_gpu(&device, vec![half::f16::from_f32(0.1); 4], vec![4]).unwrap()
+            Arc::new(Tensor::from_vec_gpu(&device, vec![half::f16::from_f32(0.1); 4], vec![4]).unwrap())
         );
         tensors.insert(
             "scale".to_string(),
-            Tensor::from_vec_gpu(&device, vec![half::f16::from_f32(1.0)], vec![1]).unwrap()
+            Arc::new(Tensor::from_vec_gpu(&device, vec![half::f16::from_f32(1.0)], vec![1]).unwrap())
         );
 
         let metadata = ModelMetadata {
@@ -230,7 +230,7 @@ mod tests {
 
         tensors.insert(
             "large_tensor".to_string(),
-            Tensor::from_vec_gpu(&device, data, vec![size]).unwrap()
+            Arc::new(Tensor::from_vec_gpu(&device, data, vec![size]).unwrap())
         );
 
         let metadata = ModelMetadata {
