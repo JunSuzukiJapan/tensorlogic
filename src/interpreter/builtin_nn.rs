@@ -903,6 +903,19 @@ impl Interpreter {
             for i in 0..10.min(data.len()) {
                 eprintln!("  [{}]: {}", i, data[i].to_f32());
             }
+
+            // Check full sum
+            let full_sum: f32 = data.iter().map(|&x| x.to_f32()).sum();
+            eprintln!("DEBUG F16 embedding result: full sum = {}", full_sum);
+            eprintln!("  PyTorch expected sum for BOS (ID=1): 0.052734375");
+
+            // Show values at different positions to diagnose
+            if data.len() >= 2048 {
+                eprintln!("  Values at positions [100], [500], [1000], [1500], [2000]:");
+                for &idx in &[100, 500, 1000, 1500, 2000] {
+                    eprintln!("    [{}]: {}", idx, data[idx].to_f32());
+                }
+            }
         }
 
         Ok(result)

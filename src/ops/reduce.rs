@@ -65,7 +65,9 @@ impl<T: FloatType> Tensor<T> {
 
         let grid_size = metal::MTLSize::new(count as u64, 1, 1);
         let tg_size = metal::MTLSize::new(threadgroup_size as u64, 1, 1);
-        let shared_mem_size = threadgroup_size * std::mem::size_of::<T>();
+        // CRITICAL: Metal kernel uses f32 for accumulation, not T!
+        // For f16 input, kernel converts to f32 and accumulates in f32 shared memory
+        let shared_mem_size = threadgroup_size * std::mem::size_of::<f32>();
 
         encoder.set_threadgroup_memory_length(0, shared_mem_size as u64);
         encoder.dispatch_threads(grid_size, tg_size);

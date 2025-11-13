@@ -3219,7 +3219,7 @@ impl Interpreter {
                         indices.len()
                     )));
                 }
-                
+
                 let index = match &indices[0] {
                     IndexExpr::Int(i) => {
                         if *i < 0 {
@@ -3245,18 +3245,153 @@ impl Interpreter {
                         ));
                     }
                 };
-                
+
                 if index >= arr.len() {
                     return Err(RuntimeError::InvalidOperation(format!(
                         "Index {} out of bounds for array with {} elements",
                         index, arr.len()
                     )));
                 }
-                
+
                 // Return as integer
                 Ok(Value::Integer(arr[index]))
             }
-            _ => Err(RuntimeError::TypeError("Expected tensor (f16 or f32) for indexing".to_string()))
+            Value::FloatArray(arr) => {
+                // Float arrays are always on CPU - instant access
+                if indices.len() != 1 {
+                    return Err(RuntimeError::InvalidOperation(format!(
+                        "FloatArray indexing requires exactly 1 index, got {}",
+                        indices.len()
+                    )));
+                }
+
+                let index = match &indices[0] {
+                    IndexExpr::Int(i) => {
+                        if *i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        *i as usize
+                    }
+                    IndexExpr::Var(var) => {
+                        let val = self.env.get_variable(var.as_str())?;
+                        let i = val.as_integer()?;
+                        if i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        i as usize
+                    }
+                    IndexExpr::Slice => {
+                        return Err(RuntimeError::NotImplemented(
+                            "Slice indexing not supported on FloatArray".to_string()
+                        ));
+                    }
+                };
+
+                if index >= arr.len() {
+                    return Err(RuntimeError::InvalidOperation(format!(
+                        "Index {} out of bounds for array with {} elements",
+                        index, arr.len()
+                    )));
+                }
+
+                // Return as float
+                Ok(Value::Float(arr[index]))
+            }
+            Value::StringArray(arr) => {
+                // String arrays are always on CPU - instant access
+                if indices.len() != 1 {
+                    return Err(RuntimeError::InvalidOperation(format!(
+                        "StringArray indexing requires exactly 1 index, got {}",
+                        indices.len()
+                    )));
+                }
+
+                let index = match &indices[0] {
+                    IndexExpr::Int(i) => {
+                        if *i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        *i as usize
+                    }
+                    IndexExpr::Var(var) => {
+                        let val = self.env.get_variable(var.as_str())?;
+                        let i = val.as_integer()?;
+                        if i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        i as usize
+                    }
+                    IndexExpr::Slice => {
+                        return Err(RuntimeError::NotImplemented(
+                            "Slice indexing not supported on StringArray".to_string()
+                        ));
+                    }
+                };
+
+                if index >= arr.len() {
+                    return Err(RuntimeError::InvalidOperation(format!(
+                        "Index {} out of bounds for array with {} elements",
+                        index, arr.len()
+                    )));
+                }
+
+                // Return as string
+                Ok(Value::String(arr[index].clone()))
+            }
+            Value::BoolArray(arr) => {
+                // Boolean arrays are always on CPU - instant access
+                if indices.len() != 1 {
+                    return Err(RuntimeError::InvalidOperation(format!(
+                        "BoolArray indexing requires exactly 1 index, got {}",
+                        indices.len()
+                    )));
+                }
+
+                let index = match &indices[0] {
+                    IndexExpr::Int(i) => {
+                        if *i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        *i as usize
+                    }
+                    IndexExpr::Var(var) => {
+                        let val = self.env.get_variable(var.as_str())?;
+                        let i = val.as_integer()?;
+                        if i < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Negative indices not supported".to_string()
+                            ));
+                        }
+                        i as usize
+                    }
+                    IndexExpr::Slice => {
+                        return Err(RuntimeError::NotImplemented(
+                            "Slice indexing not supported on BoolArray".to_string()
+                        ));
+                    }
+                };
+
+                if index >= arr.len() {
+                    return Err(RuntimeError::InvalidOperation(format!(
+                        "Index {} out of bounds for array with {} elements",
+                        index, arr.len()
+                    )));
+                }
+
+                // Return as boolean
+                Ok(Value::Boolean(arr[index]))
+            }
+            _ => Err(RuntimeError::TypeError("Expected tensor, array, or indexable collection for indexing".to_string()))
         }
     }
 

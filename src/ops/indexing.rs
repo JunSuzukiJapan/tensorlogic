@@ -61,6 +61,25 @@ impl<T: FloatType> Tensor<T> {
         let weight_data = self.sync_and_read();
         let mut output = Vec::with_capacity(num_tokens * d_model);
 
+        // Debug for BOS token (ID=1)
+        if token_data.iter().any(|&x| x.to_f32() == 1.0) && std::env::var("TL_DEBUG_EMBEDDING").is_ok() {
+            eprintln!("[EMBEDDING DEBUG] embedding() function called");
+            eprintln!("  Weight tensor shape: {:?}", weight_dims);
+            eprintln!("  Token IDs: {:?}", token_data.iter().map(|x| x.to_f32() as usize).collect::<Vec<_>>());
+
+            // Check BOS token (ID=1) in weight_data
+            let bos_start = 1 * d_model;
+            eprintln!("  BOS token (ID=1) from weight_data (first 10 dims):");
+            for i in 0..10 {
+                eprintln!("    [{}]: {}", i, weight_data[bos_start + i].to_f32());
+            }
+            let bos_sum: f32 = weight_data[bos_start..bos_start + d_model]
+                .iter()
+                .map(|&x| x.to_f32())
+                .sum();
+            eprintln!("  BOS sum from weight_data: {}", bos_sum);
+        }
+
         for &token_id in &token_data {
             let id = token_id.to_f32() as usize;
 
@@ -70,6 +89,12 @@ impl<T: FloatType> Tensor<T> {
                 let idx = id * d_model + col;
                 output.push(weight_data[idx]);
             }
+        }
+
+        // Debug output sum
+        if token_data.iter().any(|&x| x.to_f32() == 1.0) && std::env::var("TL_DEBUG_EMBEDDING").is_ok() {
+            let output_sum: f32 = output.iter().map(|&x| x.to_f32()).sum();
+            eprintln!("  Output sum: {}", output_sum);
         }
 
         // Create output tensor on same device as weight

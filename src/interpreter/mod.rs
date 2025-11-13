@@ -2931,7 +2931,26 @@ impl Interpreter {
                     // Sum all elements
                     match tensor_val {
                         Value::TensorF16(tensor) => {
+                            if std::env::var("TL_DEBUG_SUM").is_ok() {
+                                use crate::tensor::TensorAccessors;
+                                let device = tensor.device();
+                                let shape = tensor.shape();
+                                eprintln!("[SUM DEBUG] TL sum() called on f16 tensor");
+                                eprintln!("  Device: {}", match device {
+                                    crate::device::Device::Metal(_) => "Metal",
+                                    _ => "CPU"
+                                });
+                                eprintln!("  Shape: {:?}", shape.dims());
+
+                                // CPU reference sum
+                                let cpu_data = tensor.sync_and_read();
+                                let cpu_sum: f32 = cpu_data.iter().map(|&x| x.to_f32()).sum();
+                                eprintln!("  CPU reference sum: {}", cpu_sum);
+                            }
                             let result = tensor.sum().map_err(|e| RuntimeError::TensorError(e))?;
+                            if std::env::var("TL_DEBUG_SUM").is_ok() {
+                                eprintln!("  GPU kernel sum: {}", result.to_f32());
+                            }
                             Ok(Value::Float(result.to_f32() as f64))
                         }
                         Value::TensorF32(tensor) => {

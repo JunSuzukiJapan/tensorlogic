@@ -349,10 +349,36 @@ impl GGUFLoader {
                     };
 
                     // Already f16, just convert bytes
-                    bytes
+                    let f16_data: Vec<half::f16> = bytes
                         .chunks_exact(2)
                         .map(|chunk| half::f16::from_le_bytes([chunk[0], chunk[1]]))
-                        .collect()
+                        .collect();
+
+                    // Debug: Show first values for token_embd.weight
+                    if tensor_info.name.contains("token_embd") {
+                        eprintln!("  F16 loader: '{}' loaded {} f16 values", tensor_info.name, f16_data.len());
+                        eprintln!("    First 10 f16 values:");
+                        for i in 0..10.min(f16_data.len()) {
+                            eprintln!("      [{}]: {}", i, f16_data[i].to_f32());
+                        }
+
+                        // Show BOS token (ID=1) embedding if shape is [vocab_size, embedding_dim]
+                        if shape.len() == 2 {
+                            let vocab_size = shape[0];
+                            let emb_dim = shape[1];
+                            if vocab_size >= 2 && emb_dim > 0 {
+                                eprintln!("    BOS token (ID=1) embedding (first 10 dims):");
+                                let bos_start = emb_dim;
+                                for i in 0..10.min(emb_dim) {
+                                    if bos_start + i < f16_data.len() {
+                                        eprintln!("      [{}]: {}", i, f16_data[bos_start + i].to_f32());
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    f16_data
                 }
                 GGUFTensorType::Q8_0 => {
                     quantization_type = QuantizationType::Q8;
@@ -446,8 +472,73 @@ impl GGUFLoader {
                 }
             };
 
+            // Debug: Show raw loaded data for token_embd.weight BEFORE any transpose
+            if tensor_info.name == "token_embd.weight" && shape.len() == 2 {
+                let vocab_size = shape[0];  // After shape reverse: 32000
+                let emb_dim = shape[1];     // After shape reverse: 2048
+
+                eprintln!("[GGUF LOADER DEBUG] token_embd.weight raw data analysis");
+                eprintln!("  Shape after reverse: [{}, {}] (vocab_size, emb_dim)", vocab_size, emb_dim);
+                eprintln!("  Total f16 elements: {}", f16_data.len());
+                eprintln!("  Expected elements: {}", vocab_size * emb_dim);
+
+                // Show first 20 raw values
+                eprintln!("  First 20 raw f16 values (as loaded from file):");
+                for i in 0..20.min(f16_data.len()) {
+                    eprintln!("    [{}]: {}", i, f16_data[i].to_f32());
+                }
+
+                // Assuming row-major [vocab_size, emb_dim] after shape reverse:
+                // BOS token (ID=1) row starts at index 1 * emb_dim = 2048
+                if f16_data.len() >= (2 * emb_dim) {
+                    eprintln!("  BOS token (ID=1) assuming row-major [vocab, emb]:");
+                    eprintln!("    Row starts at index {}", emb_dim);
+                    let bos_start = emb_dim;
+                    for i in 0..10 {
+                        eprintln!("    [{}]: {}", i, f16_data[bos_start + i].to_f32());
+                    }
+
+                    let bos_sum: f32 = f16_data[bos_start..bos_start + emb_dim]
+                        .iter()
+                        .map(|&x| x.to_f32())
+                        .sum();
+                    eprintln!("  BOS sum (CPU, before GPU upload): {}", bos_sum);
+                }
+
+                // PyTorch reference
+                eprintln!("  PyTorch expected BOS sum: 0.052734375");
+            }
+
             // Create TensorLogic tensor (on Metal GPU)
-            let tensor = Tensor::from_vec_gpu(device, f16_data, shape)?;
+            let tensor = Tensor::from_vec_gpu(device, f16_data, shape.clone())?;
+
+            // Debug: Verify data after GPU upload
+            if tensor_info.name == "token_embd.weight" {
+                use crate::tensor::TensorIO;
+                let gpu_data = tensor.sync_and_read();
+                let vocab_size = shape[0];
+                let emb_dim = shape[1];
+
+                eprintln!("[GGUF LOADER DEBUG] After GPU upload verification:");
+                eprintln!("  First 20 values from GPU:");
+                for i in 0..20.min(gpu_data.len()) {
+                    eprintln!("    [{}]: {}", i, gpu_data[i].to_f32());
+                }
+
+                if gpu_data.len() >= (2 * emb_dim) {
+                    let bos_start = emb_dim;
+                    eprintln!("  BOS token (ID=1) from GPU:");
+                    for i in 0..10 {
+                        eprintln!("    [{}]: {}", i, gpu_data[bos_start + i].to_f32());
+                    }
+
+                    let bos_sum: f32 = gpu_data[bos_start..bos_start + emb_dim]
+                        .iter()
+                        .map(|&x| x.to_f32())
+                        .sum();
+                    eprintln!("  BOS sum (GPU, after upload): {}", bos_sum);
+                }
+            }
             tensors.insert(name, Arc::new(tensor));
         }
 
