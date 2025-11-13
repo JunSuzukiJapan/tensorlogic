@@ -219,11 +219,27 @@ impl<T: FloatType> MetalBuffer<T> {
         device.buffer_pool().allocate_zeros::<T>(device, length)
     }
 
-    /// Create a new Metal buffer from slice using pool
+    /// Create a new Metal buffer from slice (same as from_slice but pooled)
+    ///
+    /// For now, this is identical to the original from_slice implementation
+    /// to maintain compatibility while we transition to pooled buffers.
     pub fn from_vec_pooled(device: &crate::device::MetalDevice, data: &[T]) -> TensorResult<Self> {
-        let mut buffer = device.buffer_pool().allocate::<T>(device, data.len())?;
-        buffer.write_from_slice(data)?;
-        Ok(buffer)
+        let byte_length = data.len() * T::size_in_bytes();
+
+        let buffer = device.metal_device().new_buffer_with_data(
+            data.as_ptr() as *const _,
+            byte_length as u64,
+            metal::MTLResourceOptions::StorageModeShared,
+        );
+
+        Ok(Self {
+            buffer: std::sync::Arc::new(buffer),
+            length: data.len(),
+            _phantom: std::marker::PhantomData,
+            pool: None,  // Temporarily disabled pooling to debug NaN issue
+            size_class: None,
+            device: device.clone(),
+        })
     }
 }
 

@@ -133,7 +133,7 @@ Candleとの詳細比較により、以下5つの主要問題を特定：
 **場所**: `src/tensor/tensor_creation.rs:148-156`
 
 ```rust
-pub fn from_vec_gpu_pooled(data: Vec<T>, shape: Vec<usize>, pool: Arc<Mutex<BufferPool>>) -> TensorResult<Self> {
+pub fn from_vec_gpu(data: Vec<T>, shape: Vec<usize>, pool: Arc<Mutex<BufferPool>>) -> TensorResult<Self> {
     // ... GPU buffer作成 ...
 
     let tensor = Self::new(buffer, shape, Device::Metal(device.clone()))?;
@@ -159,7 +159,7 @@ pub fn from_vec_gpu_pooled(data: Vec<T>, shape: Vec<usize>, pool: Arc<Mutex<Buff
 **Option A: 完全削除** (推奨)
 
 ```rust
-pub fn from_vec_gpu_pooled(data: Vec<T>, shape: Vec<usize>, pool: Arc<Mutex<BufferPool>>) -> TensorResult<Self> {
+pub fn from_vec_gpu(data: Vec<T>, shape: Vec<usize>, pool: Arc<Mutex<BufferPool>>) -> TensorResult<Self> {
     // ... GPU buffer作成 ...
 
     let tensor = Self::new(buffer, shape, Device::Metal(device.clone()))?;
@@ -178,7 +178,7 @@ pub fn from_vec_gpu_pooled(data: Vec<T>, shape: Vec<usize>, pool: Arc<Mutex<Buff
 **Option B: 条件付き同期** (デバッグ用)
 
 ```rust
-pub fn from_vec_gpu_pooled(data: Vec<T>, shape: Vec<usize>, pool: Arc<Mutex<BufferPool>>) -> TensorResult<Self> {
+pub fn from_vec_gpu(data: Vec<T>, shape: Vec<usize>, pool: Arc<Mutex<BufferPool>>) -> TensorResult<Self> {
     // ... GPU buffer作成 ...
 
     let tensor = Self::new(buffer, shape, Device::Metal(device.clone()))?;

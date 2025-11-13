@@ -107,7 +107,7 @@ Element-wise演算: add, sub, mul, div (1D/2D)
 
 1. **✅ `from_vec_gpu()` の修正**: 内部で自動的に同期を実行
    - 修正ファイル: [src/tensor/tensor_creation.rs](src/tensor/tensor_creation.rs:133-158)
-   - 同様に `from_vec_gpu_pooled()` も修正
+   - 同様に `from_vec_gpu()` も修正
 
 2. **✅ 全テストの合格**: 21/21テストが成功
    - GPUバッファ同期問題を完全に解決

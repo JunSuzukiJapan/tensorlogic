@@ -21,7 +21,7 @@ The proposed TensorBuffer design aims to eliminate tensor allocation overhead th
 ```rust
 // From tensor_creation.rs
 fn from_vec_gpu(device: &MetalDevice, data: Vec<T>, shape: Vec<usize>) -> TensorResult<Self>
-fn from_vec_gpu_pooled(device: &MetalDevice, data: Vec<T>, shape: Vec<usize>) -> TensorResult<Self>
+fn from_vec_gpu(device: &MetalDevice, data: Vec<T>, shape: Vec<usize>) -> TensorResult<Self>
 fn zeros(device: &MetalDevice, shape: Vec<usize>) -> TensorResult<Self>
 fn ones(device: &MetalDevice, shape: Vec<usize>) -> TensorResult<Self>
 ```

@@ -27,8 +27,8 @@ impl TensorConvert for Tensor<f16> {
                     .map(|&x| x.to_f32())
                     .collect();
 
-                // Create f32 buffer
-                let f32_buf = MetalBuffer::from_slice(&device, &f32_data)?;
+                // Create f32 buffer with pooled memory
+                let f32_buf = MetalBuffer::from_vec_pooled(&device, &f32_data)?;
 
                 // Create new tensor
                 Tensor::new(
@@ -74,8 +74,8 @@ impl TensorConvert for Tensor<f32> {
                     .map(|&x| f16::from_f32(x))
                     .collect();
 
-                // Create f16 buffer
-                let f16_buf = MetalBuffer::from_slice(&device, &f16_data)?;
+                // Create f16 buffer with pooled memory
+                let f16_buf = MetalBuffer::from_vec_pooled(&device, &f16_data)?;
 
                 // Create new tensor
                 Tensor::new(

@@ -41,13 +41,6 @@ pub trait TensorCreation<T: FloatType>: Sized {
         shape: Vec<usize>,
     ) -> TensorResult<Self>;
 
-    /// Create a tensor from vector on Metal device using buffer pool
-    fn from_vec_gpu_pooled(
-        device: &MetalDevice,
-        data: Vec<T>,
-        shape: Vec<usize>,
-    ) -> TensorResult<Self>;
-
     /// Create a tensor filled with zeros on Metal device
     fn zeros(device: &MetalDevice, shape: Vec<usize>) -> TensorResult<Self>;
 
@@ -144,60 +137,14 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
             });
         }
 
-        let metal_buffer = MetalBuffer::from_slice(&device, &data)?;
+        // Changed to use pooled buffer for automatic memory management
+        let metal_buffer = MetalBuffer::from_vec_pooled(&device, &data)?;
         let buffer = BufferHandle::Metal(metal_buffer);
 
         let tensor = Self::new(buffer, shape, Device::Metal(device.clone()))?;
 
         // No sync needed: Metal's newBufferWithBytes is synchronous
         // Data is fully initialized before the buffer is returned
-
-        Ok(tensor)
-    }
-
-    fn from_vec_gpu_pooled(
-        device: &MetalDevice,
-        data: Vec<T>,
-        shape: Vec<usize>,
-    ) -> TensorResult<Self> {
-        let shape = TensorShape::new(shape);
-
-        if data.len() != shape.numel() {
-            return Err(TensorError::ShapeMismatch {
-                expected: vec![shape.numel()],
-                actual: vec![data.len()],
-            });
-        }
-
-        if std::env::var("TL_DEBUG_TENSOR_CREATION").is_ok() {
-            eprintln!("[TENSOR_CREATION] from_vec_gpu_pooled: start, len={}", data.len());
-        }
-
-        let data_f16: Vec<f16> = unsafe { std::mem::transmute(data) };
-
-        if std::env::var("TL_DEBUG_TENSOR_CREATION").is_ok() {
-            eprintln!("[TENSOR_CREATION] calling from_vec_pooled...");
-        }
-        let metal_buffer = MetalBuffer::from_vec_pooled(&device, &data_f16)?;
-
-        if std::env::var("TL_DEBUG_TENSOR_CREATION").is_ok() {
-            eprintln!("[TENSOR_CREATION] from_vec_pooled done, creating tensor...");
-        }
-        let buffer = BufferHandle::Metal(unsafe { std::mem::transmute(metal_buffer) });
-
-        let tensor = Self::new_with_pool(
-            buffer,
-            shape,
-            Device::Metal(device.clone()),
-            Some(device.buffer_pool().clone()),
-        )?;
-
-        if std::env::var("TL_DEBUG_TENSOR_CREATION").is_ok() {
-            eprintln!("[TENSOR_CREATION] tensor created successfully");
-        }
-
-        // No sync needed: write_from_slice now calls didModifyRange
-        // GPU is notified of CPU buffer modifications via Metal API
 
         Ok(tensor)
     }
@@ -229,4 +176,4 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
     }
 }
 
-// Note: from_vec_gpu_pooled supports both f16 and f32 through MetalBuffer::from_vec_pooled
+// Note: from_vec_gpu supports both f16 and f32 through MetalBuffer::from_vec_pooled

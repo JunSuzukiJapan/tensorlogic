@@ -158,7 +158,7 @@ mod tests {
     fn test_metal_buffer() {
         let device = crate::device::MetalDevice::new().unwrap();
         let data = vec![f16::from_f32(1.0), f16::from_f32(2.0)];
-        let metal_buf = MetalBuffer::<f16>::from_slice(&device, &data).unwrap();
+        let metal_buf = MetalBuffer::<f16>::from_vec_pooled(&device, &data).unwrap();
         let handle = BufferHandle::<f16>::Metal(metal_buf);
 
         assert!(handle.is_metal());

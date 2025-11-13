@@ -100,6 +100,11 @@ fn get_size_class(length: usize) -> usize {
         .unwrap_or(length) // For very large buffers, use exact size
 }
 
+/// Public version of get_size_class for use by MetalBuffer
+pub fn get_size_class_pub(length: usize) -> usize {
+    get_size_class(length)
+}
+
 impl BufferPool {
     /// Create a new buffer pool
     pub fn new(device: &MTLDevice) -> Self {

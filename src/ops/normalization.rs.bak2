@@ -242,7 +242,7 @@ impl<T: FloatType> Tensor<T> {
 
         let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_gpu_pooled(dev, output_t, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, output_t, self.dims().to_vec()),
             _ => Tensor::from_vec(output_t, self.dims().to_vec()),
         }
     }
@@ -523,7 +523,7 @@ impl<T: FloatType> Tensor<T> {
 
         let output_t: Vec<T> = unsafe { std::mem::transmute(output) };
         match self.device() {
-            Device::Metal(dev) => Tensor::from_vec_gpu_pooled(dev, output_t, self.dims().to_vec()),
+            Device::Metal(dev) => Tensor::from_vec_gpu(dev, output_t, self.dims().to_vec()),
             _ => Tensor::from_vec(output_t, self.dims().to_vec()),
         }
     }

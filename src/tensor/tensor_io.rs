@@ -66,7 +66,7 @@ impl<T: FloatType> TensorIO<T> for Tensor<T> {
         }
 
         let data = self.buffer.to_cpu_vec();
-        let metal_buffer = MetalBuffer::from_slice(&device, &data)?;
+        let metal_buffer = MetalBuffer::from_vec_pooled(&device, &data)?;
         let buffer = BufferHandle::Metal(metal_buffer);
 
         Self::new(buffer, self.shape.clone(), Device::Metal(device.clone()))
