@@ -434,6 +434,7 @@ fn run_file_impl(
                 }
             }
         }
+        }
 
         // Execute program with interpreter
         let mut interpreter = Interpreter::new();
@@ -456,6 +457,8 @@ fn run_file_impl(
             interpreter.execute(&program)
         };
 
+        // Handle result and print success/error messages
+        if let Err(e) = result {
             // Build stack trace from error context
             let mut stack_trace = StackTrace::new();
 
