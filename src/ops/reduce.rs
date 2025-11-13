@@ -76,21 +76,42 @@ impl<T: FloatType> Tensor<T> {
         // Note: For small num_blocks (<256), CPU reduction is faster than launching
         // another GPU kernel due to ~0.15-0.20ms kernel launch overhead
         let stage1_data = stage1_buf.to_vec();
-        let mut final_sum = T::zero();
-        for &val in &stage1_data {
-            final_sum = final_sum + val;
+
+        // For f16, accumulate in f32 to prevent overflow
+        // (e.g., 1012 blocks × 128 avg = 129,536 > f16 max 65,504)
+        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f16>() {
+            let mut final_sum_f32 = 0.0f32;
+            for &val in &stage1_data {
+                final_sum_f32 += val.to_f32();
+            }
+            Ok(T::from_f32(final_sum_f32))
+        } else {
+            let mut final_sum = T::zero();
+            for &val in &stage1_data {
+                final_sum = final_sum + val;
+            }
+            Ok(final_sum)
         }
 
-        Ok(final_sum)
     }
 
     fn sum_cpu(&self) -> TensorResult<T> {
         let data = self.sync_and_read();
-        let mut sum = T::zero();
-        for &val in &data {
-            sum = sum + val;
+
+        // For f16, accumulate in f32 to prevent overflow
+        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f16>() {
+            let mut sum_f32 = 0.0f32;
+            for &val in &data {
+                sum_f32 += val.to_f32();
+            }
+            Ok(T::from_f32(sum_f32))
+        } else {
+            let mut sum = T::zero();
+            for &val in &data {
+                sum = sum + val;
+            }
+            Ok(sum)
         }
-        Ok(sum)
     }
 
     /// Sum along a specific dimension

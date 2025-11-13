@@ -913,12 +913,22 @@ kernel void tan_f16(
 }
 
 /// Sigmoid: f(x) = 1 / (1 + exp(-x))
+/// Numerically stable implementation to avoid overflow with large negative values
 kernel void sigmoid_f16(
     device const half* input [[buffer(0)]],
     device half* output [[buffer(1)]],
     uint index [[thread_position_in_grid]]
 ) {
-    output[index] = half(1.0) / (half(1.0) + exp(-input[index]));
+    half x = input[index];
+    // For x >= 0: sigmoid(x) = 1 / (1 + exp(-x))
+    // For x < 0: sigmoid(x) = exp(x) / (1 + exp(x))
+    // This avoids computing exp(large_positive) which overflows
+    if (x >= half(0.0)) {
+        output[index] = half(1.0) / (half(1.0) + exp(-x));
+    } else {
+        half exp_x = exp(x);
+        output[index] = exp_x / (half(1.0) + exp_x);
+    }
 }
 
 /// Hyperbolic tangent: f(x) = tanh(x)
@@ -1125,13 +1135,19 @@ kernel void tan_f32(
     output[index] = tan(input[index]);
 }
 
-// F32 version
+// F32 version - numerically stable
 kernel void sigmoid_f32(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
     uint index [[thread_position_in_grid]]
 ) {
-    output[index] = float(1.0) / (float(1.0) + exp(-input[index]));
+    float x = input[index];
+    if (x >= 0.0f) {
+        output[index] = 1.0f / (1.0f + exp(-x));
+    } else {
+        float exp_x = exp(x);
+        output[index] = exp_x / (1.0f + exp_x);
+    }
 }
 
 // F32 version
@@ -1156,16 +1172,16 @@ kernel void sum_global_f16(
     uint gid [[thread_position_in_grid]],
     uint tid [[thread_index_in_threadgroup]],
     uint tg_size [[threads_per_threadgroup]],
-    threadgroup half* shared [[threadgroup(0)]]
+    threadgroup float* shared [[threadgroup(0)]]
 ) {
-    // Each thread loads one element
-    half local_sum = (gid < count) ? input[gid] : half(0.0);
+    // Each thread loads one element and converts to f32 for accurate accumulation
+    float local_sum = (gid < count) ? float(input[gid]) : 0.0f;
 
-    // Store in shared memory
+    // Store in shared memory (f32 for accumulation)
     shared[tid] = local_sum;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Parallel reduction within threadgroup
+    // Parallel reduction within threadgroup (in f32)
     for (uint stride = tg_size / 2; stride > 0; stride >>= 1) {
         if (tid < stride && (gid + stride) < count) {
             shared[tid] += shared[tid + stride];
@@ -1173,10 +1189,10 @@ kernel void sum_global_f16(
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    // First thread in each threadgroup writes result
+    // First thread in each threadgroup writes result (convert back to f16)
     if (tid == 0) {
         uint block_id = gid / tg_size;
-        output[block_id] = shared[0];
+        output[block_id] = half(shared[0]);
     }
 }
 
