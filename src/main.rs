@@ -257,59 +257,86 @@ fn run_file_impl(
     #[allow(unused_variables)]
     llvm_options: Option<(bool, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, u8)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Check if file exists
-    let path = Path::new(file_path);
-    if !path.exists() {
-        return Err(format!("File not found: {}", file_path).into());
-    }
-
-    // Read file contents
-    let source = fs::read_to_string(path)?;
-
-    // Create error reporter with source
-    let mut error_reporter = ErrorReporter::with_source(source.clone());
-
-    // Parse program
-    if debug_mode {
-        println!("[DEBUG] Parsing {}...", file_path);
-        println!("[DEBUG] Source length: {} bytes", source.len());
-    } else {
-        println!("Parsing {}...", file_path);
-    }
-
-    let program = match TensorLogicParser::parse_program(&source) {
-        Ok(program) => program,
-        Err(e) => {
-            // Report parse error with enhanced formatting
-            let diag = helpers::parse_error_diagnostic(e.to_string(), None);
-            error_reporter.report(diag);
-            eprintln!("{}", error_reporter.format_all());
-
-            if debug_mode {
-                eprintln!("\n[DEBUG] Parse error details:");
-                eprintln!("[DEBUG] Error: {:?}", e);
+    // GPU memory before execution (captured outside the block)
+    let gpu_memory_before = {
+        #[cfg(target_os = "macos")]
+        {
+            use tensorlogic::device::MetalDevice;
+            match MetalDevice::new() {
+                Ok(device) => {
+                    let allocated = device.current_allocated_size();
+                    // Only show detailed log if TL_MEMORY_CHECK is set
+                    if std::env::var("TL_MEMORY_CHECK").is_ok() {
+                        eprintln!("\n=== GPU Memory Check: Before Execution ===");
+                        eprintln!("GPU memory allocated: {:.2} MB", allocated as f64 / 1_048_576.0);
+                        eprintln!("==========================================\n");
+                    }
+                    Some(allocated)
+                }
+                Err(_) => None
             }
-            std::process::exit(1);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            None
         }
     };
 
-    if debug_mode {
-        println!("[DEBUG] Parsed {} declarations", program.declarations.len());
-        if program.main_block.is_some() {
-            println!("[DEBUG] Found main block");
+    // Execute in isolated block to ensure all variables are dropped before memory check
+    let result = {
+        // Check if file exists
+        let path = Path::new(file_path);
+        if !path.exists() {
+            return Err(format!("File not found: {}", file_path).into());
         }
-        println!("[DEBUG] Found {} test blocks", program.test_blocks.len());
-        println!("[DEBUG] Found {} bench blocks", program.bench_blocks.len());
-    } else {
-        println!("Parsed {} declarations", program.declarations.len());
-        if program.main_block.is_some() {
-            println!("Found main block");
-        }
-    }
 
-    // Handle LLVM compilation if requested
-    #[cfg(feature = "llvm")]
-    if let Some((use_jit, emit_llvm, emit_asm, emit_obj, emit_lib, emit_shared, emit_bin, opt_level)) = llvm_options {
+        // Read file contents
+        let source = fs::read_to_string(path)?;
+
+        // Create error reporter with source
+        let mut error_reporter = ErrorReporter::with_source(source.clone());
+
+        // Parse program
+        if debug_mode {
+            println!("[DEBUG] Parsing {}...", file_path);
+            println!("[DEBUG] Source length: {} bytes", source.len());
+        } else {
+            println!("Parsing {}...", file_path);
+        }
+
+        let program = match TensorLogicParser::parse_program(&source) {
+            Ok(program) => program,
+            Err(e) => {
+                // Report parse error with enhanced formatting
+                let diag = helpers::parse_error_diagnostic(e.to_string(), None);
+                error_reporter.report(diag);
+                eprintln!("{}", error_reporter.format_all());
+
+                if debug_mode {
+                    eprintln!("\n[DEBUG] Parse error details:");
+                    eprintln!("[DEBUG] Error: {:?}", e);
+                }
+                std::process::exit(1);
+            }
+        };
+
+        if debug_mode {
+            println!("[DEBUG] Parsed {} declarations", program.declarations.len());
+            if program.main_block.is_some() {
+                println!("[DEBUG] Found main block");
+            }
+            println!("[DEBUG] Found {} test blocks", program.test_blocks.len());
+            println!("[DEBUG] Found {} bench blocks", program.bench_blocks.len());
+        } else {
+            println!("Parsed {} declarations", program.declarations.len());
+            if program.main_block.is_some() {
+                println!("Found main block");
+            }
+        }
+
+        // Handle LLVM compilation if requested
+        #[cfg(feature = "llvm")]
+        if let Some((use_jit, emit_llvm, emit_asm, emit_obj, emit_lib, emit_shared, emit_bin, opt_level)) = llvm_options {
         use tensorlogic::compiler::{JITCompiler, OutputFormat, OutputWriter};
         use inkwell::{context::Context, OptimizationLevel};
 
@@ -407,55 +434,68 @@ fn run_file_impl(
                 }
             }
         }
-    }
 
-    // Execute program with interpreter
-    let mut interpreter = Interpreter::new();
+        // Execute program with interpreter
+        let mut interpreter = Interpreter::new();
 
-    // Set current file path for import resolution
-    interpreter.set_current_file(path.canonicalize()?);
+        // Set current file path for import resolution
+        interpreter.set_current_file(path.canonicalize()?);
 
-    // Always check GPU memory before execution (memory leak detection always enabled)
-    let gpu_memory_before = {
-        #[cfg(target_os = "macos")]
-        {
-            use tensorlogic::device::MetalDevice;
-            match MetalDevice::new() {
-                Ok(device) => {
-                    let allocated = device.current_allocated_size();
-                    // Only show detailed log if TL_MEMORY_CHECK is set
-                    if std::env::var("TL_MEMORY_CHECK").is_ok() {
-                        eprintln!("\n=== GPU Memory Check: Before Execution ===");
-                        eprintln!("GPU memory allocated: {:.2} MB", allocated as f64 / 1_048_576.0);
-                        eprintln!("==========================================\n");
-                    }
-                    Some(allocated)
-                }
-                Err(_) => None
+        // Determine which blocks to execute
+        let result = if test_mode {
+            // Run test blocks
+            println!("\n=== Running Tests ===\n");
+            interpreter.execute_tests(&program)
+        } else if bench_mode {
+            // Run benchmark blocks
+            println!("\n=== Running Benchmarks ===\n");
+            interpreter.execute_benchmarks(&program)
+        } else {
+            // Run main block (default)
+            println!("\nExecuting...\n");
+            interpreter.execute(&program)
+        };
+
+            // Build stack trace from error context
+            let mut stack_trace = StackTrace::new();
+
+            // Add main execution frame
+            stack_trace.push(StackFrame::with_location(
+                "main".to_string(),
+                FrameType::MainBlock,
+                file_path.to_string(),
+                0,
+            ));
+
+            // Add error chain as stack frames
+            let mut source = e.source();
+            let mut level = 1;
+            while let Some(err) = source {
+                stack_trace.push(StackFrame::new(
+                    format!("error level {}", level),
+                    FrameType::Expression,
+                ));
+                source = err.source();
+                level += 1;
             }
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            None
-        }
-    };
 
-    // Determine which blocks to execute
-    let result = if test_mode {
-        // Run test blocks
-        println!("\n=== Running Tests ===\n");
-        interpreter.execute_tests(&program)
-    } else if bench_mode {
-        // Run benchmark blocks
-        println!("\n=== Running Benchmarks ===\n");
-        interpreter.execute_benchmarks(&program)
-    } else {
-        // Run main block (default)
-        println!("\nExecuting...\n");
-        interpreter.execute(&program)
-    };
+            // Report runtime error with stack trace
+            let diag = helpers::runtime_error_with_trace(e.to_string(), None, stack_trace);
+            error_reporter.report(diag);
+            eprintln!("{}", error_reporter.format_all());
 
-    // Always check memory stats after execution and purge if leaked
+            if debug_mode {
+                eprintln!("\n[DEBUG] Runtime error details:");
+                eprintln!("[DEBUG] Error: {:?}", e);
+            }
+            std::process::exit(1);
+        }
+
+        println!("\n✅ Program executed successfully!");
+        Ok(())
+    }; // End of execution block - all variables including interpreter are now dropped
+
+    // Check GPU memory after all variables are dropped
     if let Some(memory_before) = gpu_memory_before {
         #[cfg(target_os = "macos")]
         {
@@ -486,7 +526,7 @@ fn run_file_impl(
                     }
 
                     // Always detect and fix memory leaks
-                    // Since this is at program end, purge any remaining GPU memory
+                    // Since this is after all variables are dropped, any remaining memory is a leak
                     if memory_diff > 0 {
                         eprintln!("\n⚠️  WARNING: GPU memory leak detected!");
                         eprintln!("   {:.2} MB of GPU memory was not freed after execution.", memory_diff as f64 / 1_048_576.0);
@@ -512,48 +552,7 @@ fn run_file_impl(
         }
     }
 
-    if let Err(e) = result {
-        // Build stack trace from error context
-        let mut stack_trace = StackTrace::new();
-
-        // Add main execution frame
-        stack_trace.push(StackFrame::with_location(
-            "main".to_string(),
-            FrameType::MainBlock,
-            file_path.to_string(),
-            0,
-        ));
-
-        // Add error chain as stack frames
-        let mut source = e.source();
-        let mut level = 1;
-        while let Some(err) = source {
-            stack_trace.push(StackFrame::new(
-                format!("error level {}", level),
-                FrameType::Expression,
-            ));
-            source = err.source();
-            level += 1;
-        }
-
-        // Report runtime error with stack trace
-        let diag = helpers::runtime_error_with_trace(e.to_string(), None, stack_trace);
-        error_reporter.report(diag);
-        eprintln!("{}", error_reporter.format_all());
-
-        if debug_mode {
-            eprintln!("\n[DEBUG] Runtime error details:");
-            eprintln!("[DEBUG] Error: {:?}", e);
-        }
-        std::process::exit(1);
-    }
-
-    println!("\n✅ Program executed successfully!");
-
-    // Print final state
-    // print_final_state(&interpreter);
-
-    Ok(())
+    result
 }
 
 fn run_repl(debug_mode: bool) -> Result<(), Box<dyn std::error::Error>> {
