@@ -7,12 +7,68 @@ use std::error::Error;
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
+use std::process;
 
+use sysinfo::{ProcessRefreshKind, System};
 use tensorlogic::error_reporting::{helpers, ErrorReporter, FrameType, StackFrame, StackTrace};
 use tensorlogic::interpreter::Interpreter;
 use tensorlogic::parser::TensorLogicParser;
 
+/// Check if another TensorLogic process is already running
+/// If found, print error message and exit to prevent GPU conflicts
+fn check_concurrent_execution() {
+    let current_pid = process::id();
+    let mut system = System::new();
+    system.refresh_processes_specifics(ProcessRefreshKind::everything());
+
+    let tl_processes: Vec<_> = system
+        .processes()
+        .iter()
+        .filter(|(pid, process)| {
+            // Check if it's a different process
+            if pid.as_u32() == current_pid {
+                return false;
+            }
+
+            // Check if the process name is exactly "tl" (our binary name)
+            let name = process.name();
+            name == "tl" || name.ends_with("/tl") || name.ends_with("\\tl")
+        })
+        .collect();
+
+    if !tl_processes.is_empty() {
+        eprintln!("╔════════════════════════════════════════════════════════════════╗");
+        eprintln!("║          ⚠️  TensorLogic Concurrent Execution Error  ⚠️         ║");
+        eprintln!("╠════════════════════════════════════════════════════════════════╣");
+        eprintln!("║                                                                ║");
+        eprintln!("║  Another TensorLogic process is already running!               ║");
+        eprintln!("║                                                                ║");
+        eprintln!("║  Running multiple TL scripts simultaneously causes:            ║");
+        eprintln!("║  • GPU resource conflicts                                      ║");
+        eprintln!("║  • System hangs and crashes                                    ║");
+        eprintln!("║  • Potential data loss                                         ║");
+        eprintln!("║                                                                ║");
+        eprintln!("║  Detected processes:                                           ║");
+        for (pid, process) in tl_processes.iter().take(5) {
+            eprintln!("║  • PID {}: {}                                        ",
+                     pid,
+                     process.name());
+        }
+        eprintln!("║                                                                ║");
+        eprintln!("║  Please wait for the other process to complete, or run:       ║");
+        eprintln!("║  $ pkill tl                                                    ║");
+        eprintln!("║                                                                ║");
+        eprintln!("╚════════════════════════════════════════════════════════════════╝");
+
+        process::exit(1);
+    }
+}
+
 fn main() {
+    // CRITICAL: Check for concurrent execution before doing anything
+    // This prevents GPU conflicts and system hangs
+    check_concurrent_execution();
+
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
