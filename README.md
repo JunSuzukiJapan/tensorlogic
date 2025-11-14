@@ -679,6 +679,86 @@ tensorlogic/
 
 See [Full Specification](claudedocs/f16_neural_engine_metal_spec.md) for detailed roadmap.
 
+## ⚠️ Important: F16 Precision and Overflow
+
+### F16 Range Limitations
+
+TensorLogic supports both `f16` (half precision) and `f32` (single precision) floating-point types. **F16 has a limited value range of ±65,504**, which can lead to overflow in certain operations.
+
+### Sum Operation Overflow
+
+The `sum()` operation preserves input type (consistent with Candle and PyTorch):
+- `Tensor<f16>.sum()` → returns `f16`
+- `Tensor<f32>.sum()` → returns `f32`
+
+**For large f16 tensors, sum() can overflow:**
+
+```tl
+// Example: LM head logits (1,088,000 elements with ±20 values)
+let logits = linear(x_final, lm_head)  // [34, 32000] f16 tensor
+let logits_sum = sum(logits)            // Result: inf (21,760,000 > 65,504)
+```
+
+### Why This Happens
+
+1. **Calculation**: 1,088,000 elements × 20 = 21,760,000
+2. **F16 Max**: 65,504
+3. **Result**: 21,760,000 > 65,504 → **overflow → `inf`**
+
+This is **expected behavior**, consistent with Candle's design philosophy of type preservation.
+
+### Solutions
+
+#### 1. Use F32 for large reductions (recommended)
+
+```tl
+// Option A: Use f32 model weights
+let model = load_model_f32(model_path)
+
+// Option B: Convert specific layers to f32 (when dtype conversion is available)
+// let logits_f32 = to_f32(logits)
+// let sum = sum(logits_f32)  // Returns f32, no overflow
+```
+
+#### 2. Accept inf for diagnostic purposes
+
+```tl
+let logits_sum = sum(logits)  // May be inf
+// This is fine for debugging, not for actual computation
+```
+
+#### 3. Use dimensionality-reducing operations
+
+```tl
+// Instead of sum() over all elements:
+let max_logit = max(logits)              // Max value, not sum
+let logit_probs = softmax(logits, dim=1) // Softmax normalizes, preventing overflow
+```
+
+### When F16 Works Well
+
+F16 is excellent for:
+- **Memory efficiency**: 50% less memory than f32
+- **GPU performance**: Faster on Metal GPUs
+- **Individual operations**: Element-wise ops, small matmuls
+- **Neural networks**: Most layer operations stay within f16 range
+
+**F16 can overflow in:**
+- Large tensor reductions (sum, mean of 1M+ elements with large values)
+- Logits from large vocabulary models (32K+ vocab)
+- Cumulative operations on long sequences
+
+### Design Philosophy
+
+Like Candle (Hugging Face's ML framework), TensorLogic prioritizes:
+1. **Type consistency**: Operations preserve input types
+2. **User control**: Explicit type conversions when needed
+3. **Performance**: f16 for speed, f32 for precision where required
+
+### Reference Implementation
+
+See Candle's approach: [candle-core/src/tensor.rs](https://github.com/huggingface/candle)
+
 ## Contributing
 
 This is currently a research/development project. Contributions, issues, and feature requests are welcome!

@@ -208,3 +208,69 @@ where
         _ => Tensor::from_vec(result, tensor.dims().to_vec()),
     }
 }
+
+/// Execute clamp operation using Metal GPU kernel
+///
+/// # Arguments
+/// * `tensor` - Input tensor (must be on Metal device)
+/// * `min_val` - Minimum value
+/// * `max_val` - Maximum value
+/// * `kernel_name` - Name of the Metal kernel function (e.g., "clamp_f16")
+///
+/// # Returns
+/// New tensor with values clamped to [min_val, max_val]
+pub(crate) fn execute_clamp_metal_op<T: FloatType>(
+    tensor: &Tensor<T>,
+    min_val: f32,
+    max_val: f32,
+    kernel_name: &str,
+) -> TensorResult<Tensor<T>> {
+    eprintln!("[DEBUG clamp] kernel={}, min={}, max={}, numel={}", kernel_name, min_val, max_val, tensor.numel());
+    let input_buf = tensor.buffer().as_metal()?;
+    let mut device = match tensor.device() {
+        Device::Metal(dev) => dev.clone(),
+        _ => {
+            return Err(TensorError::DeviceConversionError(
+                "Not on Metal device".to_string(),
+            ))
+        }
+    };
+
+    // Load shader library if not already loaded
+    if device.library().is_none() {
+        let shader_source = include_str!("../../shaders/unified.metal");
+        device.load_library(shader_source)?;
+    }
+
+    // Create output buffer from pool
+    let result_buf = MetalBuffer::<T>::new_uninit_pooled(&device, tensor.numel())?;
+
+    // Execute kernel
+    let mut executor = KernelExecutor::new(device.clone());
+    let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
+
+    // Create command buffer and encoder
+    let (_flushed, command_buffer) = device.command_buffer()?;
+    let encoder = command_buffer.encoder();
+
+    // Set pipeline and buffers
+    encoder.set_compute_pipeline_state(&pipeline);
+    encoder.set_buffer(0, Some(input_buf.metal_buffer()), 0);
+    encoder.set_buffer(1, Some(result_buf.metal_buffer()), 0);
+    encoder.set_bytes(2, std::mem::size_of::<f32>() as u64, &min_val as *const f32 as *const _);
+    encoder.set_bytes(3, std::mem::size_of::<f32>() as u64, &max_val as *const f32 as *const _);
+
+    // Configure thread groups
+    let grid_size = metal::MTLSize::new(tensor.numel() as u64, 1, 1);
+    let thread_group_size = metal::MTLSize::new(256, 1, 1);
+
+    encoder.dispatch_threads(grid_size, thread_group_size);
+    encoder.end_encoding();
+
+    // Return new tensor
+    Tensor::new(
+        BufferHandle::Metal(result_buf),
+        tensor.shape().clone(),
+        tensor.device().clone(),
+    )
+}

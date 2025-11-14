@@ -201,7 +201,7 @@ main {
     print("      Assistant: ")
 
     let eos_token_id = 2
-    let temperature = 0.8  // Higher for more creative responses
+    let temperature = 0.0  // Greedy decoding for comparison with Candle
 
     let gen_tokens = prompt_tokens
     let generated_count = 0
@@ -234,6 +234,9 @@ main {
         // Final layer norm and logits projection
         let normed = rms_norm(last_hidden, output_norm_weight)
         let logits = linear(normed, output_weight)
+
+        // CRITICAL: Force GPU sync by reading logits (prevents zero logits bug)
+        let _logit_min = min(logits)
 
         // Sample next token (GPU sync happens here via to_cpu)
         let next_token_id = temperature_sample(logits, temperature)

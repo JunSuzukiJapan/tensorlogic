@@ -8,7 +8,70 @@ use crate::tensor::{Tensor, TensorShape};
 use half::f16;
 
 impl<T: FloatType> Tensor<T> {
-    /// Sum all elements in the tensor, returns value of type T
+    /// Sum all elements in the tensor, returns a scalar value of type T
+    ///
+    /// # Type Preservation
+    ///
+    /// Like Candle and PyTorch, `sum()` returns the same type as the input tensor:
+    /// - `Tensor<f16>.sum()` → `f16`
+    /// - `Tensor<f32>.sum()` → `f32`
+    ///
+    /// # F16 Overflow Behavior
+    ///
+    /// **IMPORTANT**: For `f16` tensors, the sum can overflow if the result exceeds
+    /// f16's maximum value (±65,504).
+    ///
+    /// ## When overflow occurs:
+    /// - Result becomes `inf` or `-inf`
+    /// - This is **expected behavior** (consistent with Candle)
+    /// - Internally accumulates in f32 for accuracy, but final result is converted to f16
+    ///
+    /// ## Examples of overflow:
+    /// ```ignore
+    /// // 1,088,000 elements × 20 = 21,760,000 > 65,504 (f16 max)
+    /// let logits: Tensor<f16> = ...; // [34, 32000] with values around ±20
+    /// let sum = logits.sum()?; // Returns: inf
+    /// ```
+    ///
+    /// ## Solutions:
+    ///
+    /// 1. **Convert to f32 before sum** (recommended for large tensors):
+    /// ```ignore
+    /// // TODO: Add to_dtype() method
+    /// // let sum = logits.to_dtype(DType::F32)?.sum()?; // f32 result
+    /// ```
+    ///
+    /// 2. **Accept inf result** (for diagnostic purposes):
+    /// ```ignore
+    /// let sum = logits.sum()?; // May be inf
+    /// if sum.to_f32().is_infinite() {
+    ///     eprintln!("Sum overflow - tensor too large for f16");
+    /// }
+    /// ```
+    ///
+    /// 3. **Use sum_keepdim/sum_dim** (when available) to reduce dimensionality first
+    ///
+    /// # Performance
+    ///
+    /// - **GPU (Metal)**: Two-stage reduction with threadgroup parallelism
+    /// - **CPU**: Simple sequential accumulation (f16 → f32 accumulation)
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use tensorlogic::{Tensor, Device};
+    /// use half::f16;
+    ///
+    /// // Small tensor - no overflow
+    /// let device = Device::Metal::new()?;
+    /// let t = Tensor::from_vec_gpu(&device, vec![f16::from_f32(5.0); 10_000], vec![10_000])?;
+    /// let sum = t.sum()?; // 50,000 < 65,504 ✓
+    ///
+    /// // Large tensor - will overflow
+    /// let large = Tensor::from_vec_gpu(&device, vec![f16::from_f32(20.0); 1_000_000], vec![1_000_000])?;
+    /// let sum = large.sum()?; // 20,000,000 > 65,504 → inf
+    /// assert!(sum.to_f32().is_infinite());
+    /// ```
     pub fn sum(&self) -> TensorResult<T> {
         match self.device() {
             Device::Metal(_) => self.sum_metal(),
@@ -35,13 +98,11 @@ impl<T: FloatType> Tensor<T> {
         let threadgroup_size = 256;
         let num_blocks = (count + threadgroup_size - 1) / threadgroup_size;
 
-        // Stage 1: Reduce to blocks
-        let stage1_buf = MetalBuffer::<T>::new_uninit(&device, num_blocks)?;
-
         let mut executor = crate::device::KernelExecutor::new(device.clone());
 
         // Select kernel based on type
-        let kernel_name = if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f16>() {
+        let is_f16 = std::any::TypeId::of::<T>() == std::any::TypeId::of::<f16>();
+        let kernel_name = if is_f16 {
             "sum_global_f16"
         } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
             "sum_global_f32"
@@ -60,34 +121,50 @@ impl<T: FloatType> Tensor<T> {
 
         encoder.set_compute_pipeline_state(&pipeline);
         encoder.set_buffer(0, Some(&input_buf.buffer), 0);
-        encoder.set_buffer(1, Some(&stage1_buf.buffer), 0);
-        encoder.set_bytes(2, std::mem::size_of::<u32>() as u64, &count as *const usize as *const _);
 
-        let grid_size = metal::MTLSize::new(count as u64, 1, 1);
-        let tg_size = metal::MTLSize::new(threadgroup_size as u64, 1, 1);
-        // CRITICAL: Metal kernel uses f32 for accumulation, not T!
-        // For f16 input, kernel converts to f32 and accumulates in f32 shared memory
-        let shared_mem_size = threadgroup_size * std::mem::size_of::<f32>();
+        // CRITICAL: For f16, sum_global_f16 kernel outputs f32 to prevent overflow
+        // Stage 1: Reduce to blocks
+        if is_f16 {
+            // Create f32 buffer for stage1 output (kernel outputs f32)
+            let stage1_buf_f32 = MetalBuffer::<f32>::new_uninit(&device, num_blocks)?;
+            encoder.set_buffer(1, Some(&stage1_buf_f32.buffer), 0);
+            encoder.set_bytes(2, std::mem::size_of::<u32>() as u64, &count as *const usize as *const _);
 
-        encoder.set_threadgroup_memory_length(0, shared_mem_size as u64);
-        encoder.dispatch_threads(grid_size, tg_size);
-        encoder.end_encoding();
+            let grid_size = metal::MTLSize::new(count as u64, 1, 1);
+            let tg_size = metal::MTLSize::new(threadgroup_size as u64, 1, 1);
+            let shared_mem_size = threadgroup_size * std::mem::size_of::<f32>();
 
-        // Stage 2: Reduce blocks to final result (CPU for simplicity)
-        // Note: to_vec() will automatically wait for GPU completion (Candle pattern)
-        // Note: For small num_blocks (<256), CPU reduction is faster than launching
-        // another GPU kernel due to ~0.15-0.20ms kernel launch overhead
-        let stage1_data = stage1_buf.to_vec();
+            encoder.set_threadgroup_memory_length(0, shared_mem_size as u64);
+            encoder.dispatch_threads(grid_size, tg_size);
+            encoder.end_encoding();
 
-        // For f16, accumulate in f32 to prevent overflow
-        // (e.g., 1012 blocks × 128 avg = 129,536 > f16 max 65,504)
-        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f16>() {
-            let mut final_sum_f32 = 0.0f32;
-            for &val in &stage1_data {
-                final_sum_f32 += val.to_f32();
-            }
+            // Stage 2: Reduce blocks to final result (CPU, accumulate in f32)
+            let stage1_data_f32 = stage1_buf_f32.to_vec();
+            let final_sum_f32: f32 = stage1_data_f32.iter().sum();
+
+            // DESIGN NOTE: Like Candle, sum() returns same type as input
+            // f16 sum can overflow for large tensors (f16 max = 65504)
+            // This is consistent with Candle's design - user should handle overflow
+
+            // Convert f32 sum back to f16 (may become inf if exceeds f16 range)
+            // This matches Candle's behavior where sum() preserves input type
             Ok(T::from_f32(final_sum_f32))
         } else {
+            // f32 path remains unchanged
+            let stage1_buf = MetalBuffer::<T>::new_uninit(&device, num_blocks)?;
+            encoder.set_buffer(1, Some(&stage1_buf.buffer), 0);
+            encoder.set_bytes(2, std::mem::size_of::<u32>() as u64, &count as *const usize as *const _);
+
+            let grid_size = metal::MTLSize::new(count as u64, 1, 1);
+            let tg_size = metal::MTLSize::new(threadgroup_size as u64, 1, 1);
+            let shared_mem_size = threadgroup_size * std::mem::size_of::<f32>();
+
+            encoder.set_threadgroup_memory_length(0, shared_mem_size as u64);
+            encoder.dispatch_threads(grid_size, tg_size);
+            encoder.end_encoding();
+
+            // Stage 2: Reduce blocks to final result (CPU)
+            let stage1_data = stage1_buf.to_vec();
             let mut final_sum = T::zero();
             for &val in &stage1_data {
                 final_sum = final_sum + val;
@@ -1157,6 +1234,285 @@ mod tests {
             "CPU and GPU sum mismatch: CPU={}, GPU={}",
             cpu_sum.to_f32(),
             gpu_sum.to_f32()
+        );
+    }
+
+    #[test]
+    fn test_sum_large_tensor_f16() {
+        // Test sum with 1M+ elements
+        // 1,100,000 × 1.0 = 1,100,000 exceeds f16 max (65504)
+        // Expected: inf
+        use crate::device::MetalDevice;
+
+        let metal_device = MetalDevice::new().unwrap();
+
+        // Create 1,100,000 element tensor
+        let size = 1_100_000;
+        let value = f16::from_f32(1.0);
+        let data = vec![value; size];
+
+        let tensor = Tensor::from_vec_gpu(&metal_device, data, vec![size]).unwrap();
+        let sum = tensor.sum().unwrap();
+        let sum_f32 = sum.to_f32();
+
+        eprintln!("test_sum_large_tensor_f16: sum={} (expected: inf because 1,100,000 > 65504)", sum_f32);
+
+        // EXPECTED: sum WILL be inf (exceeds f16 range)
+        assert!(
+            sum_f32.is_infinite() && sum_f32 > 0.0,
+            "Sum should be +inf for 1,100,000 × 1.0 = 1,100,000 (exceeds f16 max 65504)"
+        );
+    }
+
+    #[test]
+    fn test_sum_within_f16_range() {
+        // Test sum that stays within f16 range (no overflow)
+        // 10,000 × 5.0 = 50,000 < 65504 (f16 max)
+        use crate::device::MetalDevice;
+
+        let metal_device = MetalDevice::new().unwrap();
+
+        let size = 10_000;
+        let value = f16::from_f32(5.0);
+        let data = vec![value; size];
+
+        let tensor = Tensor::from_vec_gpu(&metal_device, data, vec![size]).unwrap();
+        let sum = tensor.sum().unwrap();
+        let sum_f32 = sum.to_f32();
+
+        // Expected: 10,000 × 5.0 = 50,000 (within f16 range)
+        let expected = 50_000.0;
+        let diff = (expected - sum_f32).abs();
+
+        eprintln!("test_sum_within_f16_range: sum={}, expected={}, diff={}", sum_f32, expected, diff);
+
+        // Should be accurate (within 1%)
+        let tolerance = expected * 0.01;
+        assert!(
+            diff < tolerance,
+            "Sum within f16 range mismatch: expected={}, got={}, diff={}, tolerance={}",
+            expected,
+            sum_f32,
+            diff,
+            tolerance
+        );
+
+        // Should NOT be inf
+        assert!(
+            !sum_f32.is_infinite(),
+            "Sum should not be inf when result is within f16 range"
+        );
+    }
+
+    #[test]
+    fn test_sum_clamped_values_large() {
+        // Test sum with ±20 clamped values (actual logits case)
+        // This is the exact scenario from LM head: 1,088,000 elements clamped to ±20
+        use crate::device::MetalDevice;
+
+        let metal_device = MetalDevice::new().unwrap();
+
+        // 34 × 32000 = 1,088,000 (actual logits size)
+        let size = 34 * 32000;
+
+        // Half positive, half negative (balanced)
+        let mut data = Vec::with_capacity(size);
+        for i in 0..size {
+            let val = if i % 2 == 0 { 20.0 } else { -20.0 };
+            data.push(f16::from_f32(val));
+        }
+
+        let tensor = Tensor::from_vec_gpu(&metal_device, data, vec![34, 32000]).unwrap();
+        let sum = tensor.sum().unwrap();
+        let sum_f32 = sum.to_f32();
+
+        // Expected: ~0 (balanced positive/negative)
+        let expected = 0.0;
+        let diff = sum_f32.abs();
+
+        eprintln!("test_sum_clamped_values_large: sum={}, expected={}, diff={}", sum_f32, expected, diff);
+
+        // Allow some accumulation error
+        assert!(
+            diff < 1000.0,
+            "Balanced ±20 sum should be close to 0: got {}, diff={}",
+            sum_f32,
+            diff
+        );
+
+        // CRITICAL: sum should NOT be inf
+        assert!(
+            !sum_f32.is_infinite(),
+            "Sum should not be inf for clamped ±20 values"
+        );
+    }
+
+    #[test]
+    fn test_sum_all_positive_20() {
+        // Test sum with all positive 20 values
+        // IMPORTANT: Like Candle, f16 sum can overflow (f16 max = 65504)
+        // Expected: 1,088,000 × 20 = 21,760,000 → inf (exceeds f16 range)
+        use crate::device::MetalDevice;
+
+        let metal_device = MetalDevice::new().unwrap();
+
+        // 1,088,000 elements all at +20
+        let size = 34 * 32000;
+        let value = f16::from_f32(20.0);
+        let data = vec![value; size];
+
+        let tensor = Tensor::from_vec_gpu(&metal_device, data, vec![34, 32000]).unwrap();
+        let sum = tensor.sum().unwrap();
+        let sum_f32 = sum.to_f32();
+
+        // Expected: 1,088,000 × 20 = 21,760,000 exceeds f16 max (65504)
+        // Result: inf (this is expected behavior, matching Candle)
+        eprintln!("test_sum_all_positive_20: sum={} (expected: inf because 21,760,000 > 65504)", sum_f32);
+
+        // EXPECTED: sum WILL be inf (overflow is expected for f16)
+        assert!(
+            sum_f32.is_infinite() && sum_f32 > 0.0,
+            "Sum should be +inf for 1,088,000 × 20 = 21,760,000 (exceeds f16 max 65504)"
+        );
+    }
+
+    #[test]
+    fn test_sum_all_negative_20() {
+        // Test sum with all negative 20 values
+        // Expected: -21,760,000 → -inf (exceeds f16 range)
+        use crate::device::MetalDevice;
+
+        let metal_device = MetalDevice::new().unwrap();
+
+        // 1,088,000 elements all at -20
+        let size = 34 * 32000;
+        let value = f16::from_f32(-20.0);
+        let data = vec![value; size];
+
+        let tensor = Tensor::from_vec_gpu(&metal_device, data, vec![34, 32000]).unwrap();
+        let sum = tensor.sum().unwrap();
+        let sum_f32 = sum.to_f32();
+
+        eprintln!("test_sum_all_negative_20: sum={} (expected: -inf)", sum_f32);
+
+        // EXPECTED: sum WILL be -inf (overflow is expected for f16)
+        assert!(
+            sum_f32.is_infinite() && sum_f32 < 0.0,
+            "Sum should be -inf for 1,088,000 × (-20) = -21,760,000 (exceeds f16 range)"
+        );
+    }
+
+    #[test]
+    fn test_sum_mixed_signs_large() {
+        // Test sum with mixed positive/negative values
+        use crate::device::MetalDevice;
+
+        let metal_device = MetalDevice::new().unwrap();
+
+        let size = 1_000_000;
+        let mut data = Vec::with_capacity(size);
+
+        // Pattern: +15, -10, +5, -8, ... (net positive)
+        for i in 0..size {
+            let val = match i % 4 {
+                0 => 15.0,
+                1 => -10.0,
+                2 => 5.0,
+                _ => -8.0,
+            };
+            data.push(f16::from_f32(val));
+        }
+
+        let tensor = Tensor::from_vec_gpu(&metal_device, data, vec![size]).unwrap();
+        let sum = tensor.sum().unwrap();
+        let sum_f32 = sum.to_f32();
+
+        // Expected: (15 - 10 + 5 - 8) × 250,000 = 2 × 250,000 = 500,000
+        let expected = 2.0 * 250_000.0;
+        let diff = (expected - sum_f32).abs();
+
+        eprintln!("test_sum_mixed_signs_large: sum={}, expected={}, diff={}", sum_f32, expected, diff);
+
+        // Allow 1% error
+        let tolerance = expected * 0.01;
+        assert!(
+            diff < tolerance,
+            "Mixed signs sum mismatch: expected={}, got={}, diff={}, tolerance={}",
+            expected,
+            sum_f32,
+            diff,
+            tolerance
+        );
+
+        assert!(
+            !sum_f32.is_infinite(),
+            "Sum should not be inf for mixed sign values"
+        );
+    }
+
+    #[test]
+    fn test_sum_f32_large() {
+        // Test f32 sum with large tensor (for comparison with f16)
+        use crate::device::MetalDevice;
+
+        let metal_device = MetalDevice::new().unwrap();
+
+        let size = 1_000_000;
+        let value = 10.0f32;
+        let data = vec![value; size];
+
+        let tensor = Tensor::from_vec_gpu(&metal_device, data, vec![size]).unwrap();
+        let sum = tensor.sum().unwrap();
+
+        // Expected: 1,000,000 × 10.0 = 10,000,000
+        let expected = (size as f32) * value;
+        let diff = (expected - sum).abs();
+
+        eprintln!("test_sum_f32_large: sum={}, expected={}, diff={}", sum, expected, diff);
+
+        // f32 should be more accurate
+        let tolerance = expected * 0.0001; // 0.01% tolerance
+        assert!(
+            diff < tolerance,
+            "f32 large sum mismatch: expected={}, got={}, diff={}, tolerance={}",
+            expected,
+            sum,
+            diff,
+            tolerance
+        );
+
+        assert!(
+            !sum.is_infinite(),
+            "f32 sum should not be inf for 10M total"
+        );
+    }
+
+    #[test]
+    fn test_sum_overflow_boundary_f16() {
+        // Test sum at f16 overflow boundary
+        // 10,000 × 100 = 1,000,000 exceeds f16 max (65504)
+        // Expected: inf (like Candle)
+        use crate::device::MetalDevice;
+
+        let metal_device = MetalDevice::new().unwrap();
+
+        // 10,000 elements × 100 = 1,000,000 (exceeds f16 range)
+        let size = 10_000;
+        let value = f16::from_f32(100.0);
+        let data = vec![value; size];
+
+        let tensor = Tensor::from_vec_gpu(&metal_device, data, vec![size]).unwrap();
+        let sum = tensor.sum().unwrap();
+        let sum_f32 = sum.to_f32();
+
+        eprintln!("test_sum_overflow_boundary_f16: sum={} (expected: inf because 1,000,000 > 65504)", sum_f32);
+
+        // EXPECTED: sum WILL be inf (result exceeds f16 max)
+        // Even though we accumulate in f32, final result is converted to f16
+        // This is consistent with Candle's design
+        assert!(
+            sum_f32.is_infinite() && sum_f32 > 0.0,
+            "Sum should be +inf when result (1M) exceeds f16 max (65504)"
         );
     }
 }

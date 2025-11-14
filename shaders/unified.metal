@@ -805,17 +805,6 @@ kernel void min_f16(
     result[index] = min(a[index], b[index]);
 }
 
-/// Clamp: C[i] = clamp(A[i], min_val, max_val)
-kernel void clamp_f16(
-    device const half* a [[buffer(0)]],
-    device const half* min_val [[buffer(1)]],
-    device const half* max_val [[buffer(2)]],
-    device half* result [[buffer(3)]],
-    uint index [[thread_position_in_grid]]
-) {
-    result[index] = clamp(a[index], min_val[0], max_val[0]);
-}
-
 /// Fill with constant value
 kernel void fill_f16(
     device half* result [[buffer(0)]],
@@ -832,6 +821,33 @@ kernel void relu_f16(
     uint index [[thread_position_in_grid]]
 ) {
     output[index] = max(input[index], half(0.0));
+}
+
+/// Clamp: f(x) = max(min_val, min(x, max_val))
+/// Restricts values to [min_val, max_val] range
+kernel void clamp_f16(
+    device const half* input [[buffer(0)]],
+    device half* output [[buffer(1)]],
+    constant float& min_val [[buffer(2)]],
+    constant float& max_val [[buffer(3)]],
+    uint index [[thread_position_in_grid]]
+) {
+    half x = input[index];
+    // CRITICAL: Convert to float to check for inf/nan (isinf() unreliable with half)
+    float x_f32 = float(x);
+
+    // Handle inf/-inf/nan explicitly
+    if (isinf(x_f32) || isnan(x_f32)) {
+        if (x_f32 > 0.0f || isnan(x_f32)) {
+            x = half(max_val);  // +inf or nan → max_val
+        } else {
+            x = half(min_val);  // -inf → min_val
+        }
+    }
+
+    // Clamp to range
+    half clamped = max(half(min_val), min(x, half(max_val)));
+    output[index] = clamped;
 }
 
 /// GELU activation (approximation): f(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
@@ -1058,6 +1074,23 @@ kernel void relu_f32(
 }
 
 // F32 version
+kernel void clamp_f32(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    constant float& min_val [[buffer(2)]],
+    constant float& max_val [[buffer(3)]],
+    uint index [[thread_position_in_grid]]
+) {
+    float x = input[index];
+    // Handle inf/-inf explicitly (max/min don't work correctly with inf in Metal)
+    if (isinf(x)) {
+        x = (x > 0.0f) ? max_val : min_val;
+    }
+    float clamped = max(min_val, min(x, max_val));
+    output[index] = clamped;
+}
+
+// F32 version
 kernel void gelu_f32(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
@@ -1167,7 +1200,7 @@ using namespace metal;
 // Uses two-stage reduction: local (threadgroup) then global
 kernel void sum_global_f16(
     device const half* input [[buffer(0)]],
-    device half* output [[buffer(1)]],
+    device float* output [[buffer(1)]],  // CRITICAL: Changed to float to prevent overflow
     constant uint& count [[buffer(2)]],
     uint gid [[thread_position_in_grid]],
     uint tid [[thread_index_in_threadgroup]],
@@ -1189,10 +1222,10 @@ kernel void sum_global_f16(
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    // First thread in each threadgroup writes result (convert back to f16)
+    // First thread in each threadgroup writes result (keep as f32 to prevent overflow)
     if (tid == 0) {
         uint block_id = gid / tg_size;
-        output[block_id] = half(shared[0]);
+        output[block_id] = shared[0];  // CRITICAL: Removed half() cast
     }
 }
 

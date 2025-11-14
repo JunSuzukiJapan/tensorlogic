@@ -200,14 +200,11 @@ fn test_model_from_tensors() -> TensorResult<()> {
 
     let mut tensors = HashMap::new();
 
-    tensors.insert(
-        "weight".to_string(),
-        Tensor::from_vec_gpu(&device, vec![f16::ONE; 4], vec![2, 2])?
-    );
-    tensors.insert(
-        "bias".to_string(),
-        Tensor::from_vec_gpu(&device, vec![f16::ZERO; 2], vec![2])?
-    );
+    let weight = Tensor::from_vec_gpu(&device, vec![f16::ONE; 4], vec![2, 2])?;
+    tensors.insert("weight".to_string(), Arc::new(weight));
+
+    let bias = Tensor::from_vec_gpu(&device, vec![f16::ZERO; 2], vec![2])?;
+    tensors.insert("bias".to_string(), Arc::new(bias));
 
     let metadata = ModelMetadata {
         name: "from_tensors".to_string(),
@@ -310,40 +307,31 @@ fn test_model_typical_llm_structure() -> TensorResult<()> {
         vec![f16::from_f32(0.01); vocab_size * d_model],
         vec![vocab_size, d_model]
     )?;
-    model.insert_tensor("token_embd.weight".to_string(), embed);
+    model.insert_tensor("token_embd.weight".to_string(), Arc::new(embed));
 
     // Layer weights
     for layer in 0..num_layers {
         // Attention weights
-        model.insert_tensor(
-            format!("blk.{}.attn_q.weight", layer),
-            Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * d_model], vec![d_model, d_model])?
-        );
-        model.insert_tensor(
-            format!("blk.{}.attn_k.weight", layer),
-            Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * d_model], vec![d_model, d_model])?
-        );
-        model.insert_tensor(
-            format!("blk.{}.attn_v.weight", layer),
-            Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * d_model], vec![d_model, d_model])?
-        );
+        let attn_q = Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * d_model], vec![d_model, d_model])?;
+        model.insert_tensor(format!("blk.{}.attn_q.weight", layer), Arc::new(attn_q));
+
+        let attn_k = Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * d_model], vec![d_model, d_model])?;
+        model.insert_tensor(format!("blk.{}.attn_k.weight", layer), Arc::new(attn_k));
+
+        let attn_v = Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * d_model], vec![d_model, d_model])?;
+        model.insert_tensor(format!("blk.{}.attn_v.weight", layer), Arc::new(attn_v));
 
         // FFN weights
-        model.insert_tensor(
-            format!("blk.{}.ffn_up.weight", layer),
-            Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * d_model * 4], vec![d_model, d_model * 4])?
-        );
-        model.insert_tensor(
-            format!("blk.{}.ffn_down.weight", layer),
-            Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * 4 * d_model], vec![d_model * 4, d_model])?
-        );
+        let ffn_up = Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * d_model * 4], vec![d_model, d_model * 4])?;
+        model.insert_tensor(format!("blk.{}.ffn_up.weight", layer), Arc::new(ffn_up));
+
+        let ffn_down = Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * 4 * d_model], vec![d_model * 4, d_model])?;
+        model.insert_tensor(format!("blk.{}.ffn_down.weight", layer), Arc::new(ffn_down));
     }
 
     // Output layer
-    model.insert_tensor(
-        "output.weight".to_string(),
-        Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * vocab_size], vec![d_model, vocab_size])?
-    );
+    let output = Tensor::from_vec_gpu(&device, vec![f16::ONE; d_model * vocab_size], vec![d_model, vocab_size])?;
+    model.insert_tensor("output.weight".to_string(), Arc::new(output));
 
     // Verify structure
     let expected_tensors = 1 + (num_layers * 5) + 1; // embed + layers + output
@@ -372,11 +360,11 @@ fn test_model_update_tensor() -> TensorResult<()> {
 
     // Insert initial tensor
     let tensor1 = Tensor::from_vec_gpu(&device, vec![f16::ONE; 4], vec![2, 2])?;
-    model.insert_tensor("weight".to_string(), tensor1);
+    model.insert_tensor("weight".to_string(), Arc::new(tensor1));
 
     // Update tensor (same name, new value)
     let tensor2 = Tensor::from_vec_gpu(&device, vec![f16::from_f32(2.0); 4], vec![2, 2])?;
-    model.insert_tensor("weight".to_string(), tensor2);
+    model.insert_tensor("weight".to_string(), Arc::new(tensor2));
 
     // Should still have 1 tensor
     assert_eq!(model.num_tensors(), 1);

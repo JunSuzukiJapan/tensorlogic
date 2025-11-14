@@ -7,6 +7,11 @@ use std::io::Write;
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// Global Metal device instance (singleton)
+/// This prevents multiple GPU device initialization within the same process
+///
+/// ⚠️  CRITICAL: Do NOT run multiple TensorLogic processes simultaneously!
+/// Running multiple processes will cause GPU conflicts and system crashes.
+/// The singleton pattern protects against in-process conflicts only.
 static GLOBAL_METAL_DEVICE: OnceLock<Arc<Mutex<MetalDevice>>> = OnceLock::new();
 
 /// Metal GPU device wrapper

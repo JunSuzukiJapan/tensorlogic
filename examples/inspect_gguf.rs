@@ -1,9 +1,10 @@
 // Inspect GGUF file structure and tensor metadata
 
 use std::path::Path;
-use gguf_rs_lib::GGUFFileReader;
+use std::fs::File;
+use gguf_rs_lib::prelude::*;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> std::io::Result<()> {
     let gguf_path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| {
@@ -20,32 +21,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Open GGUF file
     let path = Path::new(&gguf_path);
-    let mut reader = gguf_rs_lib::GGUFFileReader::new_from_file(path)
-        .map_err(|e| format!("Failed to open GGUF file: {}", e))?;
+    let file = File::open(path)?;
+    let mut reader = GGUFFileReader::new(file)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
     // Print tensor information
     println!("[Tensors]");
     println!();
 
-    for tensor_info in reader.tensor_infos() {
+    let tensor_infos = reader.tensor_infos().to_vec();
+    for tensor_info in &tensor_infos {
         println!("Tensor: {}", tensor_info.name);
         println!("  Type: {:?}", tensor_info.tensor_type);
         println!("  Shape: {:?}", tensor_info.shape);
-        println!("  Offset: {}", tensor_info.offset);
 
         // Load tensor data for token_embd.weight
         if tensor_info.name == "token_embd.weight" {
             println!("  [Loading data for analysis...]");
 
             let data = reader.load_tensor_data(&tensor_info.name)
-                .map_err(|e| format!("Failed to load tensor data: {}", e))?
-                .ok_or("Tensor data not found")?;
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Tensor data not found"))?;
 
             let bytes = match data {
                 gguf_rs_lib::tensor::TensorData::Owned(ref v) => v.as_slice(),
                 gguf_rs_lib::tensor::TensorData::Borrowed(b) => b,
                 gguf_rs_lib::tensor::TensorData::Shared(ref arc) => arc.as_slice(),
-                _ => return Err("Unexpected tensor data type".into()),
+                _ => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Unexpected tensor data type")),
             };
 
             println!("  Data size: {} bytes", bytes.len());
@@ -60,9 +62,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // Calculate BOS token (ID=1) position
-            if tensor_info.shape.len() == 2 {
-                let dim0 = tensor_info.shape[0] as usize;
-                let dim1 = tensor_info.shape[1] as usize;
+            if tensor_info.shape.dimensions.len() == 2 {
+                let dim0 = tensor_info.shape.dimensions[0] as usize;
+                let dim1 = tensor_info.shape.dimensions[1] as usize;
 
                 println!("  Tensor dimensions: [{}, {}]", dim0, dim1);
 

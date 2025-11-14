@@ -289,6 +289,27 @@ impl<T: FloatType> Tensor<T> {
 
         super::helpers::execute_unary_cpu_op(self, |x| x.tanh())
     }
+
+    /// Clamp: f(x) = max(min_val, min(x, max_val))
+    /// Restricts values to [min_val, max_val] range
+    pub fn clamp(&self, min_val: f32, max_val: f32) -> TensorResult<Self> {
+        if self.buffer().is_metal() {
+            self.clamp_metal(min_val, max_val)
+        } else {
+            self.clamp_cpu(min_val, max_val)
+        }
+    }
+
+    fn clamp_metal(&self, min_val: f32, max_val: f32) -> TensorResult<Self> {
+        let kernel_name = format!("clamp{}", T::kernel_suffix());
+        super::helpers::execute_clamp_metal_op(self, min_val, max_val, &kernel_name)
+    }
+
+    fn clamp_cpu(&self, min_val: f32, max_val: f32) -> TensorResult<Self> {
+        Err(TensorError::InvalidOperation(
+            "Clamp CPU fallback not implemented - use Metal GPU".to_string()
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -946,5 +967,202 @@ mod tests {
                 diff
             );
         }
+    }
+
+    #[test]
+    fn test_clamp_basic_f16() {
+        // Test basic clamp functionality with f16
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![
+            f16::from_f32(-10.0),
+            f16::from_f32(-5.0),
+            f16::from_f32(0.0),
+            f16::from_f32(5.0),
+            f16::from_f32(10.0),
+        ];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![5]).unwrap();
+        let result = x.clamp(-3.0, 3.0).unwrap();
+        let values = result.sync_and_read();
+
+        // Expected: [-3.0, -3.0, 0.0, 3.0, 3.0]
+        assert_eq!(values[0], f16::from_f32(-3.0), "clamp(-10) should be -3");
+        assert_eq!(values[1], f16::from_f32(-3.0), "clamp(-5) should be -3");
+        assert_eq!(values[2], f16::from_f32(0.0), "clamp(0) should be 0");
+        assert_eq!(values[3], f16::from_f32(3.0), "clamp(5) should be 3");
+        assert_eq!(values[4], f16::from_f32(3.0), "clamp(10) should be 3");
+    }
+
+    #[test]
+    fn test_clamp_basic_f32() {
+        // Test basic clamp functionality with f32
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![-10.0f32, -5.0, 0.0, 5.0, 10.0];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![5]).unwrap();
+        let result = x.clamp(-3.0, 3.0).unwrap();
+        let values = result.sync_and_read();
+
+        // Expected: [-3.0, -3.0, 0.0, 3.0, 3.0]
+        assert_eq!(values[0], -3.0, "clamp(-10) should be -3");
+        assert_eq!(values[1], -3.0, "clamp(-5) should be -3");
+        assert_eq!(values[2], 0.0, "clamp(0) should be 0");
+        assert_eq!(values[3], 3.0, "clamp(5) should be 3");
+        assert_eq!(values[4], 3.0, "clamp(10) should be 3");
+    }
+
+    #[test]
+    fn test_clamp_attention_scores() {
+        // Test clamp with range suitable for attention scores (prevents overflow in softmax)
+        // This is the actual use case: preventing inf in QK attention scores
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![
+            f16::from_f32(-100.0),  // Would cause underflow in exp()
+            f16::from_f32(-20.0),
+            f16::from_f32(-15.0),   // At boundary
+            f16::from_f32(0.0),
+            f16::from_f32(15.0),    // At boundary
+            f16::from_f32(20.0),
+            f16::from_f32(100.0),   // Would cause overflow in exp()
+        ];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![7]).unwrap();
+        let result = x.clamp(-15.0, 15.0).unwrap();
+        let values = result.sync_and_read();
+
+        // All values should be within [-15, 15]
+        for (i, &val) in values.iter().enumerate() {
+            let f = val.to_f32();
+            assert!(
+                f >= -15.0 && f <= 15.0,
+                "clamp({}) = {} should be in [-15, 15]",
+                i,
+                f
+            );
+        }
+
+        // Check specific values
+        assert_eq!(values[0], f16::from_f32(-15.0), "clamp(-100) should be -15");
+        assert_eq!(values[2], f16::from_f32(-15.0), "clamp(-15) should be -15");
+        assert_eq!(values[3], f16::from_f32(0.0), "clamp(0) should be 0");
+        assert_eq!(values[4], f16::from_f32(15.0), "clamp(15) should be 15");
+        assert_eq!(values[6], f16::from_f32(15.0), "clamp(100) should be 15");
+    }
+
+    #[test]
+    fn test_clamp_no_effect() {
+        // Test that clamp has no effect when all values are within range
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![
+            f16::from_f32(-2.0),
+            f16::from_f32(-1.0),
+            f16::from_f32(0.0),
+            f16::from_f32(1.0),
+            f16::from_f32(2.0),
+        ];
+
+        let x = Tensor::from_vec_gpu(&device, x_data.clone(), vec![5]).unwrap();
+        let result = x.clamp(-10.0, 10.0).unwrap();
+        let values = result.sync_and_read();
+
+        // Should be identical to input
+        for i in 0..5 {
+            assert_eq!(
+                values[i], x_data[i],
+                "clamp should have no effect when value is within range"
+            );
+        }
+    }
+
+    #[test]
+    fn test_clamp_inf_nan_handling() {
+        // Test clamp behavior with inf and NaN
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![
+            f16::from_f32(f32::NEG_INFINITY),
+            f16::from_f32(-100.0),
+            f16::from_f32(0.0),
+            f16::from_f32(100.0),
+            f16::from_f32(f32::INFINITY),
+        ];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![5]).unwrap();
+        let result = x.clamp(-15.0, 15.0).unwrap();
+        let values = result.sync_and_read();
+
+        // -inf should be clamped to min_val
+        assert_eq!(values[0], f16::from_f32(-15.0), "clamp(-inf) should be -15");
+
+        // Normal values
+        assert_eq!(values[1], f16::from_f32(-15.0), "clamp(-100) should be -15");
+        assert_eq!(values[2], f16::from_f32(0.0), "clamp(0) should be 0");
+        assert_eq!(values[3], f16::from_f32(15.0), "clamp(100) should be 15");
+
+        // +inf should be clamped to max_val
+        assert_eq!(values[4], f16::from_f32(15.0), "clamp(inf) should be 15");
+    }
+
+    #[test]
+    fn test_clamp_large_tensor() {
+        // Test clamp with large tensor (similar to actual attention scores)
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        // Create 37x32x37 tensor (seq_len=37, num_heads=32) like TinyLlama attention
+        let size = 37 * 32 * 37;
+        let mut data = vec![f16::ZERO; size];
+
+        // Fill with values that need clamping
+        for i in 0..size {
+            let val = (i as f32 % 100.0) - 50.0;  // Range: [-50, 50]
+            data[i] = f16::from_f32(val);
+        }
+
+        let x = Tensor::from_vec_gpu(&device, data, vec![37, 32, 37]).unwrap();
+        let result = x.clamp(-15.0, 15.0).unwrap();
+        let values = result.sync_and_read();
+
+        // Verify all values are within range
+        for (i, &val) in values.iter().enumerate() {
+            let f = val.to_f32();
+            assert!(
+                f >= -15.0 && f <= 15.0,
+                "Value at index {} = {} is out of range [-15, 15]",
+                i,
+                f
+            );
+        }
+
+        // Verify some specific values
+        assert_eq!(values[0], f16::from_f32(-15.0), "First value should be clamped");
+        assert_eq!(values[50], f16::from_f32(0.0), "Middle value should be 0");
+    }
+
+    #[test]
+    fn test_clamp_asymmetric_range() {
+        // Test clamp with asymmetric range (e.g., [0, 10])
+        let device = MetalDevice::new().expect("Failed to create Metal device");
+
+        let x_data = vec![
+            f16::from_f32(-5.0),
+            f16::from_f32(0.0),
+            f16::from_f32(5.0),
+            f16::from_f32(10.0),
+            f16::from_f32(15.0),
+        ];
+
+        let x = Tensor::from_vec_gpu(&device, x_data, vec![5]).unwrap();
+        let result = x.clamp(0.0, 10.0).unwrap();
+        let values = result.sync_and_read();
+
+        assert_eq!(values[0], f16::from_f32(0.0), "clamp(-5) to [0,10] should be 0");
+        assert_eq!(values[1], f16::from_f32(0.0), "clamp(0) to [0,10] should be 0");
+        assert_eq!(values[2], f16::from_f32(5.0), "clamp(5) to [0,10] should be 5");
+        assert_eq!(values[3], f16::from_f32(10.0), "clamp(10) to [0,10] should be 10");
+        assert_eq!(values[4], f16::from_f32(10.0), "clamp(15) to [0,10] should be 10");
     }
 }

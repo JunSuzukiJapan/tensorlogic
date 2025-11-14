@@ -274,12 +274,14 @@ impl Interpreter {
 
         Ok(match (scores_val, mask_val) {
             (Value::TensorF16(scores), Value::TensorF16(mask)) => {
-                // Apply mask: scores + (1 - mask) * (-1e9)
+                // Apply mask: scores + (1 - mask) * large_negative
+                // CRITICAL: f16 range is ±65504, so -1e9 becomes -inf!
+                // Use -100 instead (safe for f16, exp(-100) ≈ 3.7e-44 ≈ 0 for softmax)
                 let ones = Tensor::ones(device, scores.shape().dims().to_vec())
                     .map_err(|e| RuntimeError::TensorError(e))?;
                 let inv_mask = ones.sub(&mask).map_err(|e| RuntimeError::TensorError(e))?;
 
-                let large_neg_value = half::f16::from_f32(-1e9);
+                let large_neg_value = half::f16::from_f32(-100.0);  // Safe for f16, large enough for masking
                 let large_neg_vec = vec![large_neg_value; inv_mask.shape().numel()];
                 let large_neg = Tensor::from_vec_gpu(device, large_neg_vec, inv_mask.shape().dims().to_vec())
                     .map_err(|e| RuntimeError::TensorError(e))?;

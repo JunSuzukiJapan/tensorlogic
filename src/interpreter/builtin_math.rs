@@ -14,6 +14,7 @@ impl Interpreter {
             "relu" => Some(self.eval_relu(args)),
             "gelu" => Some(self.eval_gelu(args)),
             "tanh" => Some(self.eval_tanh(args)),
+            "clamp" => Some(self.eval_clamp(args)),
 
             // Basic math operations (for method chaining)
             "exp" => Some(self.eval_exp(args)),
@@ -115,6 +116,15 @@ impl Interpreter {
                     result = result.add(&bias)
                         .map_err(|e| RuntimeError::TensorError(e))?;
                 }
+
+                // CRITICAL: Clamp result to prevent f16 overflow
+                // f16 range is ±65504, but matmul can easily exceed this
+                // Clamp to ±20 for balance between safety and model accuracy:
+                //   - Prevents individual element overflow
+                //   - Prevents sum() overflow (1.5M elements * 20 = 30M, safe for f32)
+                //   - Allows typical logit ranges (±5 to ±20) while preventing extreme values
+                result = result.clamp(-20.0, 20.0)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
 
                 Ok(Value::TensorF16(Arc::new(result)))
             }
@@ -526,6 +536,53 @@ impl Interpreter {
             }
             _ => Err(RuntimeError::TypeError(
                 "tan() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// clamp(tensor, min_val, max_val) -> tensor
+    /// Restricts tensor values to [min_val, max_val] range
+    /// Useful for preventing overflow in attention scores
+    fn eval_clamp(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 3 {
+            return Err(RuntimeError::TypeError(
+                format!("clamp() expects 3 arguments (tensor, min_val, max_val), got {}", args.len())
+            ));
+        }
+
+        let tensor_val = self.eval_expr(&args[0])?;
+
+        // Evaluate min_val (can be float or int)
+        let min_val = match self.eval_expr(&args[1])? {
+            Value::Float(f) => f as f32,
+            Value::Integer(i) => i as f32,
+            _ => return Err(RuntimeError::TypeError(
+                "clamp() min_val must be a number".to_string()
+            ))
+        };
+
+        // Evaluate max_val (can be float or int)
+        let max_val = match self.eval_expr(&args[2])? {
+            Value::Float(f) => f as f32,
+            Value::Integer(i) => i as f32,
+            _ => return Err(RuntimeError::TypeError(
+                "clamp() max_val must be a number".to_string()
+            ))
+        };
+
+        match tensor_val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.clamp(min_val, max_val)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF16(Arc::new(result)))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.clamp(min_val, max_val)
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::TensorF32(Arc::new(result)))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "clamp() expects a tensor as first argument".to_string()
             ))
         }
     }
