@@ -170,6 +170,12 @@ impl<T: FloatType> Tensor<T> {
         encoder.set_bytes(4, std::mem::size_of::<u32>() as u64, &n_u32 as *const u32 as *const _);
         encoder.set_bytes(5, std::mem::size_of::<u32>() as u64, &k_u32 as *const u32 as *const _);
 
+        // Declare resource usage for Metal's automatic dependency tracking
+        use metal::MTLResourceUsage;
+        encoder.use_resource(a_buf.metal_buffer(), MTLResourceUsage::Read);
+        encoder.use_resource(b_buf.metal_buffer(), MTLResourceUsage::Read);
+        encoder.use_resource(result_buf.metal_buffer(), MTLResourceUsage::Write);
+
         // Configure thread groups for 2D grid
         let threadgroup_size = metal::MTLSize {
             width: tile_size,
@@ -421,6 +427,12 @@ impl<T: FloatType> Tensor<T> {
         encoder.set_bytes(3, std::mem::size_of::<u32>() as u64, &m_u32 as *const u32 as *const _);
         encoder.set_bytes(4, std::mem::size_of::<u32>() as u64, &n_u32 as *const u32 as *const _);
         encoder.set_bytes(5, std::mem::size_of::<u32>() as u64, &k_u32 as *const u32 as *const _);
+
+        // Declare resource usage for Metal's automatic dependency tracking
+        use metal::MTLResourceUsage;
+        encoder.use_resource(a_buf.metal_buffer(), MTLResourceUsage::Read);
+        encoder.use_resource(b_buf.metal_buffer(), MTLResourceUsage::Read);
+        encoder.use_resource(result_buf.metal_buffer(), MTLResourceUsage::Write);
 
         let threadgroup_size = metal::MTLSize {
             width: tile_size,

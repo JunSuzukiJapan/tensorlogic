@@ -169,6 +169,14 @@ impl<T: FloatType> Tensor<T> {
         encoder.set_buffer(3, Some(normalized_size_buf.metal_buffer()), 0);
         encoder.set_buffer(4, Some(eps_buf.metal_buffer()), 0);
 
+        // Declare resource usage for Metal's automatic dependency tracking
+        use metal::MTLResourceUsage;
+        encoder.use_resource(input_buf.metal_buffer(), MTLResourceUsage::Read);
+        encoder.use_resource(weight_buf.metal_buffer(), MTLResourceUsage::Read);
+        encoder.use_resource(result_buf.metal_buffer(), MTLResourceUsage::Write);
+        encoder.use_resource(normalized_size_buf.metal_buffer(), MTLResourceUsage::Read);
+        encoder.use_resource(eps_buf.metal_buffer(), MTLResourceUsage::Read);
+
         // For optimized kernel: each batch element gets one threadgroup (256 threads)
         // For simple kernel: one thread per batch element
         if normalized_size <= 256 {
@@ -432,6 +440,17 @@ impl<T: FloatType> Tensor<T> {
         encoder.set_buffer(5, Some(eps_buf.metal_buffer()), 0);
         encoder.set_buffer(6, Some(has_weight_buf.metal_buffer()), 0);
         encoder.set_buffer(7, Some(has_bias_buf.metal_buffer()), 0);
+
+        // Declare resource usage for Metal's automatic dependency tracking
+        use metal::MTLResourceUsage;
+        encoder.use_resource(input_buf.metal_buffer(), MTLResourceUsage::Read);
+        encoder.use_resource(weight_buf.metal_buffer(), MTLResourceUsage::Read);
+        encoder.use_resource(bias_buf.metal_buffer(), MTLResourceUsage::Read);
+        encoder.use_resource(result_buf.metal_buffer(), MTLResourceUsage::Write);
+        encoder.use_resource(normalized_size_buf.metal_buffer(), MTLResourceUsage::Read);
+        encoder.use_resource(eps_buf.metal_buffer(), MTLResourceUsage::Read);
+        encoder.use_resource(has_weight_buf.metal_buffer(), MTLResourceUsage::Read);
+        encoder.use_resource(has_bias_buf.metal_buffer(), MTLResourceUsage::Read);
 
         let grid_size = metal::MTLSize::new(batch_size as u64, 1, 1);
         let threadgroup_size = if normalized_size <= 256 {

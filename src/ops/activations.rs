@@ -201,6 +201,11 @@ impl<T: FloatType> Tensor<T> {
         encoder.set_buffer(1, Some(result_buf.metal_buffer()), 0);
         encoder.set_buffer(2, Some(&last_dim_buf), 0);
 
+        // Declare resource usage for Metal's automatic dependency tracking
+        use metal::MTLResourceUsage;
+        encoder.use_resource(input_buf.metal_buffer(), MTLResourceUsage::Read);
+        encoder.use_resource(result_buf.metal_buffer(), MTLResourceUsage::Write);
+
         // For now, always use simple kernel (dispatch_threads)
         // TODO: Implement threadgroup dispatch when needed for large dimensions
         use metal::MTLSize;

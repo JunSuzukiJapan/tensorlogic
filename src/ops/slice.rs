@@ -166,10 +166,6 @@ impl<T: FloatType> Tensor<T> {
         }
         encoder.end_encoding();
 
-        // ⚠️ EXPERIMENTAL: Force flush to ensure kernel executes before result is used
-        // This deviates from candle's approach but may be necessary for our use case
-        device_mut.wait_until_completed()?;
-
         if std::env::var("TL_DEBUG_HANG").is_ok() {
             eprintln!("[HANG] slice_last: creating output tensor");
         }
