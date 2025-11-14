@@ -84,7 +84,7 @@ impl<T: FloatType> Tensor<T> {
         let h = if dims.len() > 2 { dims[1] as u32 } else { 1 };
         let d = if output_numel > 0 { (output_numel / h as usize) as u32 } else { 1 };
 
-        // Get input buffer
+        // Get input buffer first (must be before wait to preserve buffer reference)
         let input_buf = self.buffer().as_metal()?;
 
         // Load Metal shader library
@@ -97,6 +97,12 @@ impl<T: FloatType> Tensor<T> {
         let library = device_mut.library().ok_or_else(|| {
             TensorError::InvalidOperation("Failed to load Metal library".to_string())
         })?;
+
+        // ⚠️  CRITICAL GPU SYNC: Wait for previous operations to complete
+        // slice_last reads from the input tensor, so we must ensure all prior
+        // operations (transformer layers, etc.) have finished writing to it.
+        // Without this sync, slice_last may read zeros or stale data.
+        device_mut.wait_until_completed()?;
 
         // Select kernel based on type
         let kernel_name = if std::mem::size_of::<T>() == 4 {
