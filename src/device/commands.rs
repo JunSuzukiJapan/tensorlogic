@@ -53,6 +53,11 @@ pub struct Commands {
     /// Each thread has its own index for batching
     per_thread_indices: Arc<Mutex<HashMap<thread::ThreadId, usize>>>,
 
+    /// In-flight command buffers (committed but not yet completed)
+    /// Key insight from Candle: track committed buffers without blocking
+    /// This allows GPU to work in parallel while CPU prepares next operations
+    in_flight_buffers: Arc<Mutex<Vec<CommandBuffer>>>,
+
     /// Maximum number of compute operations per command buffer
     /// Default: 50 (matching Candle, can be configured with TL_COMPUTE_PER_BUFFER env var)
     compute_per_buffer: usize,
@@ -82,10 +87,14 @@ impl Commands {
             .and_then(|val| val.parse().ok())
             .unwrap_or(50);
 
+        // Initialize in-flight buffers tracking
+        let in_flight_buffers = Arc::new(Mutex::new(Vec::new()));
+
         Ok(Self {
             command_queue,
             command_buffers,
             per_thread_indices,
+            in_flight_buffers,
             compute_per_buffer,
         })
     }
@@ -96,6 +105,37 @@ impl Commands {
     ) -> TensorResult<CommandBuffer> {
         let raw = command_queue.new_command_buffer().to_owned();
         Ok(CommandBuffer::new(raw))
+    }
+
+    /// Clean up completed buffers from the in-flight queue
+    /// This is called periodically to prevent the queue from growing indefinitely
+    /// Matches Candle's pattern of non-blocking cleanup
+    fn cleanup_completed_buffers(&self) -> TensorResult<()> {
+        let mut in_flight = self.in_flight_buffers.lock().map_err(|e| {
+            TensorError::InvalidOperation(format!("Mutex poison: {}", e))
+        })?;
+
+        if std::env::var("TL_DEBUG_BATCHING").is_ok() {
+            eprintln!("[BATCH] Cleanup: {} in-flight buffers before", in_flight.len());
+        }
+
+        // Remove completed buffers (retain only non-completed ones)
+        in_flight.retain(|buf| {
+            let status = buf.status();
+            let keep = !matches!(status, MTLCommandBufferStatus::Completed);
+
+            if std::env::var("TL_DEBUG_BATCHING").is_ok() && !keep {
+                eprintln!("[BATCH] Cleanup: removing completed buffer");
+            }
+
+            keep
+        });
+
+        if std::env::var("TL_DEBUG_BATCHING").is_ok() {
+            eprintln!("[BATCH] Cleanup: {} in-flight buffers after", in_flight.len());
+        }
+
+        Ok(())
     }
 
     /// Get the current command buffer for the calling thread
@@ -143,8 +183,24 @@ impl Commands {
                 );
             }
 
-            // Commit current buffer (send to GPU)
-            command_buffer.commit();
+            // Save the old buffer before replacing it
+            let old_buffer = command_buffer.clone();
+
+            // Commit old buffer (send to GPU, but don't wait)
+            old_buffer.commit();
+
+            // Add to in-flight queue for tracking (Candle's pattern)
+            // This allows GPU to work in parallel while we prepare next operations
+            let mut in_flight = self.in_flight_buffers.lock().map_err(|e| {
+                TensorError::InvalidOperation(format!("Mutex poison: {}", e))
+            })?;
+            in_flight.push(old_buffer);
+
+            if std::env::var("TL_DEBUG_BATCHING").is_ok() {
+                eprintln!("[BATCH] Added buffer to in-flight queue (total: {})", in_flight.len());
+            }
+
+            drop(in_flight); // Release lock before creating new buffer
 
             // Replace with new buffer
             *command_buffer = Self::create_command_buffer(&self.command_queue)?;
@@ -152,6 +208,9 @@ impl Commands {
             // Reset index for this thread
             *current_index = 0;
             flushed = true;
+
+            // Periodically clean up completed buffers to prevent queue growth
+            self.cleanup_completed_buffers()?;
         }
 
         // Increment index for this thread
@@ -185,7 +244,8 @@ impl Commands {
     /// - Before reading tensor data
     /// - At end of operation sequence
     ///
-    /// Matches Candle's implementation with per-thread buffers
+    /// CRITICAL: Now also waits for ALL in-flight buffers, not just current thread's buffer
+    /// This prevents reading GPU data before previous operations complete
     pub fn wait_until_completed(&mut self) -> TensorResult<()> {
         let start = if std::env::var("TL_DEBUG_SYNC").is_ok() {
             Some(std::time::Instant::now())
@@ -207,8 +267,46 @@ impl Commands {
             );
         }
 
+        // FIRST: Wait for ALL in-flight buffers from previous flushes
+        // This is the KEY FIX: ensure all previously committed buffers complete
+        {
+            let mut in_flight = self.in_flight_buffers.lock().map_err(|e| {
+                TensorError::InvalidOperation(format!("Mutex poison: {}", e))
+            })?;
+
+            if std::env::var("TL_DEBUG_BATCHING").is_ok() {
+                eprintln!("[BATCH] Waiting for {} in-flight buffers", in_flight.len());
+            }
+
+            // Wait for each in-flight buffer to complete
+            for buf in in_flight.iter() {
+                match buf.status() {
+                    MTLCommandBufferStatus::NotEnqueued | MTLCommandBufferStatus::Enqueued => {
+                        buf.commit();
+                        buf.wait_until_completed();
+                    }
+                    MTLCommandBufferStatus::Committed | MTLCommandBufferStatus::Scheduled => {
+                        buf.wait_until_completed();
+                    }
+                    MTLCommandBufferStatus::Completed => {
+                        // Already done
+                    }
+                    MTLCommandBufferStatus::Error => {
+                        eprintln!("[WARN] In-flight buffer in error state");
+                    }
+                }
+            }
+
+            // Clear all in-flight buffers after waiting
+            in_flight.clear();
+
+            if std::env::var("TL_DEBUG_BATCHING").is_ok() {
+                eprintln!("[BATCH] All in-flight buffers completed and cleared");
+            }
+        }
+
+        // SECOND: Handle current thread's command buffer
         // Extract current thread's command buffer, create new in its place
-        // This is Candle's pattern: simple Mutex, no semaphore
         let current = {
             let mut command_buffers = self.command_buffers.lock().map_err(|e| {
                 TensorError::InvalidOperation(format!("Mutex poison: {}", e))
@@ -301,10 +399,44 @@ impl Drop for Commands {
     /// manager is destroyed, preventing GPU resource leaks.
     fn drop(&mut self) {
         if std::env::var("TL_DEBUG_HANG").is_ok() {
-            eprintln!("[DROP] Commands: Starting cleanup of all thread command buffers");
+            eprintln!("[DROP] Commands: Starting cleanup of all buffers");
         }
 
-        // Lock the command buffers map
+        // FIRST: Wait for all in-flight buffers from previous flushes
+        if let Ok(mut in_flight) = self.in_flight_buffers.lock() {
+            if std::env::var("TL_DEBUG_HANG").is_ok() {
+                eprintln!("[DROP] Commands: Waiting for {} in-flight buffers", in_flight.len());
+            }
+
+            for buf in in_flight.iter() {
+                match buf.status() {
+                    MTLCommandBufferStatus::Committed
+                    | MTLCommandBufferStatus::Scheduled
+                    | MTLCommandBufferStatus::Enqueued => {
+                        buf.commit();
+                        buf.wait_until_completed();
+                    }
+                    MTLCommandBufferStatus::NotEnqueued => {
+                        buf.commit();
+                        buf.wait_until_completed();
+                    }
+                    MTLCommandBufferStatus::Completed => {
+                        // Already done
+                    }
+                    MTLCommandBufferStatus::Error => {
+                        eprintln!("[WARN] Commands: In-flight buffer in error state");
+                    }
+                }
+            }
+
+            in_flight.clear();
+
+            if std::env::var("TL_DEBUG_HANG").is_ok() {
+                eprintln!("[DROP] Commands: All in-flight buffers completed");
+            }
+        }
+
+        // SECOND: Lock the command buffers map and wait for per-thread buffers
         if let Ok(command_buffers) = self.command_buffers.lock() {
             let thread_ids: Vec<thread::ThreadId> =
                 command_buffers.inner.keys().copied().collect();
@@ -331,8 +463,6 @@ impl Drop for Commands {
                                     thread_id, status
                                 );
                             }
-                            // CommandBuffer's Drop will handle the wait,
-                            // but we commit first to ensure it's submitted
                             cmd_buf.commit();
                             cmd_buf.wait_until_completed();
 
