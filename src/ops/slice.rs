@@ -98,12 +98,6 @@ impl<T: FloatType> Tensor<T> {
             TensorError::InvalidOperation("Failed to load Metal library".to_string())
         })?;
 
-        // ⚠️  CRITICAL GPU SYNC: Wait for previous operations to complete
-        // slice_last reads from the input tensor, so we must ensure all prior
-        // operations (transformer layers, etc.) have finished writing to it.
-        // Without this sync, slice_last may read zeros or stale data.
-        device_mut.wait_until_completed()?;
-
         // Select kernel based on type
         let kernel_name = if std::mem::size_of::<T>() == 4 {
             "slice_last_axis0_f32"
@@ -142,6 +136,19 @@ impl<T: FloatType> Tensor<T> {
         encoder.set_bytes(3, std::mem::size_of::<u32>() as u64, &h as *const u32 as *const _);
         encoder.set_bytes(4, std::mem::size_of::<u32>() as u64, &d as *const u32 as *const _);
 
+        // Declare resource usage for Metal's automatic dependency tracking
+        // This is candle's approach: let GPU driver handle synchronization
+        use metal::MTLResourceUsage;
+        encoder.use_resource(input_buf.metal_buffer(), MTLResourceUsage::Read);
+        encoder.use_resource(output_buf.metal_buffer(), MTLResourceUsage::Write);
+
+        if std::env::var("TL_DEBUG_HANG").is_ok() {
+            eprintln!("[HANG] slice_last: input buffer size={}, output buffer size={}",
+                input_buf.metal_buffer().length(),
+                output_buf.metal_buffer().length());
+            eprintln!("[HANG] slice_last: I={}, H={}, D={}, output_numel={}", i, h, d, output_numel);
+        }
+
         if std::env::var("TL_DEBUG_HANG").is_ok() {
             eprintln!("[HANG] slice_last: dispatching kernel, grid={}x{}, threadgroup=8x8", h, d);
         }
@@ -158,7 +165,10 @@ impl<T: FloatType> Tensor<T> {
             eprintln!("[HANG] slice_last: ending encoding");
         }
         encoder.end_encoding();
-        // NO commit here - Commands manager will batch and commit automatically
+
+        // ⚠️ EXPERIMENTAL: Force flush to ensure kernel executes before result is used
+        // This deviates from candle's approach but may be necessary for our use case
+        device_mut.wait_until_completed()?;
 
         if std::env::var("TL_DEBUG_HANG").is_ok() {
             eprintln!("[HANG] slice_last: creating output tensor");
