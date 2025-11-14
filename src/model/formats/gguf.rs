@@ -285,8 +285,14 @@ impl GGUFLoader {
             // - attn_k.weight: [2048, 256] → [256, 2048] for linear() which transposes internally
             // - attn_norm.weight: [2048] → [2048] (1D, no change)
 
-            let needs_reverse = shape.len() > 1;  // Reverse all multi-dimensional tensors
-            if needs_reverse {
+            // EXPERIMENTAL: Test both with and without transpose
+            // Set TL_NO_TRANSPOSE=1 to disable transpose and test original data layout
+            let disable_transpose = std::env::var("TL_NO_TRANSPOSE").is_ok();
+            let needs_transpose = shape.len() > 1 && !disable_transpose;
+            let original_shape = shape.clone();  // Save for transpose
+
+            // Always reverse shape (change from GGUF [d0, d1] to TensorLogic [d1, d0])
+            if shape.len() > 1 {
                 shape.reverse();
             }
 
@@ -472,7 +478,53 @@ impl GGUFLoader {
                 }
             };
 
-            // Debug: Show raw loaded data for token_embd.weight BEFORE any transpose
+            // TRANSPOSE 2D tensors: GGUF stores them in [dim0, dim1] but after reverse we want [dim1, dim0]
+            // After shape.reverse(), we declared shape as [new_dim0, new_dim1]
+            // but data is still in original [original_dim0, original_dim1] row-major order
+            let f16_data = if needs_transpose && shape.len() == 2 {
+                let new_dim0 = shape[0];  // Target dim0 (after reverse)
+                let new_dim1 = shape[1];  // Target dim1 (after reverse)
+
+                let orig_dim0 = original_shape[0];  // Original dim0 (from GGUF)
+                let orig_dim1 = original_shape[1];  // Original dim1 (from GGUF)
+
+                // Original data layout: [orig_dim0, orig_dim1] row-major
+                // Target layout: [new_dim0, new_dim1] row-major
+                // Since shape.reverse() swapped dims: new_dim0 = orig_dim1, new_dim1 = orig_dim0
+
+                let mut transposed = Vec::with_capacity(f16_data.len());
+
+                // For each position in target [new_dim0, new_dim1]:
+                for r in 0..new_dim0 {
+                    for c in 0..new_dim1 {
+                        // Map to source [orig_dim0, orig_dim1]:
+                        // target[r, c] = source[c, r] (because dims are swapped)
+                        let src_idx = c * orig_dim1 + r;
+                        transposed.push(f16_data[src_idx]);
+                    }
+                }
+
+                if tensor_info.name == "token_embd.weight" {
+                    eprintln!("[TRANSPOSE] {} from [{}, {}] to [{}, {}]",
+                        tensor_info.name, orig_dim0, orig_dim1, new_dim0, new_dim1);
+
+                    // Show BOS token BEFORE transpose (from original data)
+                    if std::env::var("TL_DEBUG_TRANSPOSE").is_ok() {
+                        eprintln!("  BOS (ID=1) BEFORE transpose (from column 1 of original):");
+                        for i in 0..10 {
+                            // In original [2048, 32000], token 1 is at column 1, so indices are 1, 32001, 64001, ...
+                            let idx = i * orig_dim1 + 1;
+                            eprintln!("    [{}]: {}", i, f16_data[idx].to_f32());
+                        }
+                    }
+                }
+
+                transposed
+            } else {
+                f16_data
+            };
+
+            // Debug: Show raw loaded data for token_embd.weight AFTER transpose
             if tensor_info.name == "token_embd.weight" && shape.len() == 2 {
                 let vocab_size = shape[0];  // After shape reverse: 32000
                 let emb_dim = shape[1];     // After shape reverse: 2048
