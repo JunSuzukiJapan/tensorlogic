@@ -313,7 +313,7 @@ impl GGUFLoader {
                     };
 
                     // Debug: Check data size for critical tensors
-                    if tensor_info.name == "output.weight" || std::env::var("TL_DEBUG_GGUF").is_ok() {
+                    if tensor_info.name == "output.weight" || tensor_info.name.contains("norm") || std::env::var("TL_DEBUG_GGUF").is_ok() {
                         let num_elements: usize = shape.iter().product();
                         let expected_bytes = num_elements * 4; // F32 = 4 bytes
                         eprintln!("\n=== GGUF F32 Tensor Debug ===");
@@ -322,7 +322,7 @@ impl GGUFLoader {
                         eprintln!("  Expected bytes: {}", expected_bytes);
                         eprintln!("  Actual bytes: {}", bytes.len());
                         if bytes.len() != expected_bytes {
-                            eprintln!("  ❌ SIZE MISMATCH!");
+                            eprintln!("  ❌ SIZE MISMATCH! Only {}% of expected data", (bytes.len() as f32 / expected_bytes as f32 * 100.0));
                         }
                         eprintln!("=============================\n");
                     }
@@ -333,8 +333,34 @@ impl GGUFLoader {
                         .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
                         .collect();
 
+                    // Debug: Check F32 values before F16 conversion for norm weights
+                    if tensor_info.name.contains("norm") && (tensor_info.name.contains("blk.0") || tensor_info.name == "output_norm.weight") {
+                        let f32_sum: f32 = f32_data.iter().sum();
+                        eprintln!("\n=== F32 Before F16 Conversion ===");
+                        eprintln!("  Tensor: {}", tensor_info.name);
+                        eprintln!("  F32 count: {}", f32_data.len());
+                        eprintln!("  F32 sum: {:.6}", f32_sum);
+                        eprintln!("  F32 mean: {:.6}", f32_sum / f32_data.len() as f32);
+                        eprintln!("  First 10 F32: {:?}", &f32_data[..10.min(f32_data.len())]);
+                        eprintln!("=================================\n");
+                    }
+
                     // Convert to f16
-                    f32_to_f16(&f32_data)
+                    let f16_data = f32_to_f16(&f32_data);
+
+                    // Debug: Check F16 values after conversion
+                    if tensor_info.name.contains("norm") && (tensor_info.name.contains("blk.0") || tensor_info.name == "output_norm.weight") {
+                        let f16_sum: f32 = f16_data.iter().map(|x| x.to_f32()).sum();
+                        eprintln!("\n=== F16 After Conversion ===");
+                        eprintln!("  Tensor: {}", tensor_info.name);
+                        eprintln!("  F16 count: {}", f16_data.len());
+                        eprintln!("  F16 sum: {:.6}", f16_sum);
+                        eprintln!("  F16 mean: {:.6}", f16_sum / f16_data.len() as f32);
+                        eprintln!("  First 10 F16: {:?}", &f16_data[..10.min(f16_data.len())].iter().map(|x| x.to_f32()).collect::<Vec<_>>());
+                        eprintln!("============================\n");
+                    }
+
+                    f16_data
                 }
                 GGUFTensorType::F16 => {
                     quantization_type = QuantizationType::F16;
