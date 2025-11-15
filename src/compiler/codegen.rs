@@ -228,42 +228,6 @@ impl<'ctx> LLVMCodeGen<'ctx> {
     /// Compile control flow
     fn compile_control_flow(&mut self, cf: &ControlFlow) -> TensorResult<()> {
         match cf {
-            ControlFlow::If { condition, then_block, else_block } => {
-                let cond_val = self.compile_condition(condition)?;
-                let function = self.current_function.unwrap();
-
-                let then_bb = self.context.append_basic_block(function, "then");
-                let else_bb = self.context.append_basic_block(function, "else");
-                let merge_bb = self.context.append_basic_block(function, "merge");
-
-                self.builder.build_conditional_branch(cond_val, then_bb, else_bb)
-                    .map_err(|e| TensorError::CompilationError(e.to_string()))?;
-
-                // Then block
-                self.builder.position_at_end(then_bb);
-                for stmt in then_block {
-                    self.compile_statement(stmt)?;
-                }
-                if !self.has_terminator() {
-                    self.builder.build_unconditional_branch(merge_bb)
-                        .map_err(|e| TensorError::CompilationError(e.to_string()))?;
-                }
-
-                // Else block
-                self.builder.position_at_end(else_bb);
-                if let Some(else_stmts) = else_block {
-                    for stmt in else_stmts {
-                        self.compile_statement(stmt)?;
-                    }
-                }
-                if !self.has_terminator() {
-                    self.builder.build_unconditional_branch(merge_bb)
-                        .map_err(|e| TensorError::CompilationError(e.to_string()))?;
-                }
-
-                // Merge block
-                self.builder.position_at_end(merge_bb);
-            }
             ControlFlow::While { condition, body } => {
                 let function = self.current_function.unwrap();
 

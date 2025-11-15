@@ -127,29 +127,6 @@ impl Interpreter {
                 }
             }
             Statement::ControlFlow(cf) => match cf {
-                ControlFlow::If {
-                    condition,
-                    then_block,
-                    else_block,
-                } => {
-                    // Evaluate condition
-                    let condition_result = match condition {
-                        Condition::Constraint(c) => self.eval_constraint(c)?,
-                        Condition::Tensor(expr) => {
-                            let val = self.eval_expr(expr)?;
-                            val.as_bool()?
-                        }
-                    };
-
-                    // Execute appropriate block using centralized function
-                    if condition_result {
-                        self.execute_block(then_block, false)?;
-                    } else if let Some(else_stmts) = else_block {
-                        self.execute_block(else_stmts, false)?;
-                    }
-
-                    Ok(())
-                }
                 ControlFlow::For {
                     variable,
                     iterable,

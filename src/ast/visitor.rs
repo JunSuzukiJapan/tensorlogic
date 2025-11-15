@@ -362,26 +362,6 @@ pub fn walk_statement<V: Visitor>(visitor: &mut V, stmt: &Statement) -> Result<(
             Ok(())
         }
         Statement::ControlFlow(cf) => match cf {
-            ControlFlow::If {
-                condition,
-                then_block,
-                else_block,
-            } => {
-                if let Condition::Constraint(c) = condition {
-                    visitor.visit_constraint(c)?;
-                } else if let Condition::Tensor(expr) = condition {
-                    visitor.visit_tensor_expr(expr)?;
-                }
-                for stmt in then_block {
-                    visitor.visit_statement(stmt)?;
-                }
-                if let Some(else_stmts) = else_block {
-                    for stmt in else_stmts {
-                        visitor.visit_statement(stmt)?;
-                    }
-                }
-                Ok(())
-            }
             ControlFlow::For {
                 variable,
                 iterable,
@@ -555,21 +535,6 @@ pub fn walk_statement_mut<V: VisitorMut>(
             Ok(())
         }
         Statement::ControlFlow(cf) => match cf {
-            ControlFlow::If {
-                then_block,
-                else_block,
-                ..
-            } => {
-                for stmt in then_block {
-                    visitor.visit_statement_mut(stmt)?;
-                }
-                if let Some(else_stmts) = else_block {
-                    for stmt in else_stmts {
-                        visitor.visit_statement_mut(stmt)?;
-                    }
-                }
-                Ok(())
-            }
             ControlFlow::For { body, .. } | ControlFlow::While { body, .. } | ControlFlow::Loop { body } => {
                 for stmt in body {
                     visitor.visit_statement_mut(stmt)?;

@@ -808,11 +808,6 @@ pub struct SchedulerSpec {
 /// Control flow statements
 #[derive(Debug, Clone, PartialEq)]
 pub enum ControlFlow {
-    If {
-        condition: Condition,
-        then_block: Vec<Statement>,
-        else_block: Option<Vec<Statement>>,
-    },
     For {
         variable: Identifier,
         iterable: Iterable,

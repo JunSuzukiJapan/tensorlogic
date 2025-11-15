@@ -1988,73 +1988,11 @@ impl TensorLogicParser {
         })?;
 
         match inner.as_rule() {
-            Rule::if_statement => Self::parse_if_statement(inner, registry),
             Rule::for_statement => Self::parse_for_statement(inner, registry),
             Rule::while_statement => Self::parse_while_statement(inner, registry),
             Rule::loop_statement => Self::parse_loop_statement(inner, registry),
             _ => Err(ParseError::InvalidValue(format!("Invalid control flow: {}", inner.as_str()))),
         }
-    }
-
-    fn parse_if_statement(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<ControlFlow, ParseError> {
-        // Get the input string and position before consuming pair
-        let input_str = pair.as_str();
-        let if_start_pos = pair.as_span().start();
-        let has_else = input_str.contains("} else {");
-
-        let mut inner = pair.into_inner();
-
-        // Parse condition (always first)
-        let condition_pair = inner.next().ok_or_else(|| {
-            ParseError::MissingField("if condition".to_string())
-        })?;
-        let condition = Self::parse_condition(condition_pair, registry)?;
-
-        // Find the absolute position of "} else {" to determine then/else boundary
-        let else_pos = input_str.find("} else {").map(|p| if_start_pos + p + 1); // +1 for the closing }
-
-        // Collect all statement pairs
-        let remaining: Vec<_> = inner
-            .filter(|p| p.as_rule() == Rule::statement)
-            .collect();
-
-        let mut then_block = Vec::new();
-        let mut else_block = None;
-
-        if has_else {
-            // Split statements by position: before else_pos goes to then block, after goes to else block
-            let boundary_pos = else_pos.unwrap();
-
-            // Parse then block (statements before the else)
-            for stmt_pair in remaining.iter() {
-                if stmt_pair.as_span().start() < boundary_pos {
-                    then_block.push(Self::parse_statement(stmt_pair.clone(), registry)?);
-                }
-            }
-
-            // Parse else block (statements after the else)
-            let mut else_stmts = Vec::new();
-            for stmt_pair in remaining.iter() {
-                if stmt_pair.as_span().start() > boundary_pos {
-                    else_stmts.push(Self::parse_statement(stmt_pair.clone(), registry)?);
-                }
-            }
-
-            if !else_stmts.is_empty() {
-                else_block = Some(else_stmts);
-            }
-        } else {
-            // No else block - all statements go to then block
-            for stmt_pair in remaining {
-                then_block.push(Self::parse_statement(stmt_pair, registry)?);
-            }
-        }
-        
-        Ok(ControlFlow::If {
-            condition,
-            then_block,
-            else_block,
-        })
     }
 
     fn parse_for_statement(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<ControlFlow, ParseError> {
@@ -2649,6 +2587,11 @@ impl TensorLogicParser {
         pair: pest::iterators::Pair<Rule>,
         registry: &FunctionRegistry
     ) -> Result<TensorExpr, ParseError> {
+        // Get the input string and position before consuming pair
+        let input_str = pair.as_str();
+        let if_start_pos = pair.as_span().start();
+        let has_else = input_str.contains("} else {");
+
         let mut inner = pair.into_inner();
 
         // Condition expression (required)
@@ -2656,34 +2599,43 @@ impl TensorLogicParser {
             .ok_or_else(|| ParseError::MissingField("if condition".to_string()))?;
         let condition = Box::new(Self::parse_tensor_expr(condition_pair, registry)?);
 
-        // Parse then block statements
+        // Find the absolute position of "} else {" to determine then/else boundary
+        let else_pos = input_str.find("} else {").map(|p| if_start_pos + p + 1); // +1 for the closing }
+
+        // Collect all statement pairs
+        let remaining: Vec<_> = inner
+            .filter(|p| p.as_rule() == Rule::statement)
+            .collect();
+
         let mut then_block = Vec::new();
         let mut else_block = None;
 
-        // Collect all remaining pairs
-        let remaining: Vec<_> = inner.collect();
+        if has_else {
+            // Split statements by position: before else_pos goes to then block, after goes to else block
+            let boundary_pos = else_pos.unwrap();
 
-        if remaining.is_empty() {
-            return Err(ParseError::MissingField("if then block".to_string()));
-        }
-
-        // Find the boundary between then and else blocks
-        // All statement rules come before else keyword
-        let mut i = 0;
-        while i < remaining.len() && remaining[i].as_rule() == Rule::statement {
-            then_block.push(Self::parse_statement(remaining[i].clone(), registry)?);
-            i += 1;
-        }
-
-        // Parse else block if present (remaining statements after then block)
-        if i < remaining.len() {
-            let mut else_statements = Vec::new();
-            while i < remaining.len() && remaining[i].as_rule() == Rule::statement {
-                else_statements.push(Self::parse_statement(remaining[i].clone(), registry)?);
-                i += 1;
+            // Parse then block (statements before the else)
+            for stmt_pair in remaining.iter() {
+                if stmt_pair.as_span().start() < boundary_pos {
+                    then_block.push(Self::parse_statement(stmt_pair.clone(), registry)?);
+                }
             }
-            if !else_statements.is_empty() {
-                else_block = Some(else_statements);
+
+            // Parse else block (statements after the else)
+            let mut else_stmts = Vec::new();
+            for stmt_pair in remaining.iter() {
+                if stmt_pair.as_span().start() > boundary_pos {
+                    else_stmts.push(Self::parse_statement(stmt_pair.clone(), registry)?);
+                }
+            }
+
+            if !else_stmts.is_empty() {
+                else_block = Some(else_stmts);
+            }
+        } else {
+            // No else block - all statements go to then block
+            for stmt_pair in remaining {
+                then_block.push(Self::parse_statement(stmt_pair, registry)?);
             }
         }
 

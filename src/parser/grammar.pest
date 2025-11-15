@@ -484,12 +484,7 @@ with_block = { "with" ~ identifier ~ "{" ~ statement* ~ "}" }
 // Control Flow
 // ============================================================================
 
-control_flow = { if_statement | for_statement | while_statement | loop_statement }
-
-if_statement = {
-    "if" ~ condition ~ "{" ~ statement* ~ "}"
-    ~ ("else" ~ "{" ~ statement* ~ "}")?
-}
+control_flow = { for_statement | while_statement | loop_statement }
 
 condition = { tensor_expr | constraint }
 

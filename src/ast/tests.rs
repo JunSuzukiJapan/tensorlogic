@@ -173,29 +173,6 @@ mod tests {
         assert_eq!(func.params.len(), 1);
     }
 
-    #[test]
-    fn test_control_flow_if() {
-        let stmt = Statement::ControlFlow(ControlFlow::If {
-            condition: Condition::Constraint(Constraint::Comparison {
-                op: CompOp::Gt,
-                left: TensorExpr::var("x"),
-                right: TensorExpr::scalar(0.0),
-            }),
-            then_block: vec![Statement::Assignment {
-                target: Identifier::new("y"),
-                value: TensorExpr::var("x"),
-            }],
-            else_block: None,
-        });
-
-        match stmt {
-            Statement::ControlFlow(ControlFlow::If { then_block, .. }) => {
-                assert_eq!(then_block.len(), 1);
-            }
-            _ => panic!("Expected If statement"),
-        }
-    }
-
     // Visitor pattern tests
     struct IdentifierCounter {
         count: usize,
