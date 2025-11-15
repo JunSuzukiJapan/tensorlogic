@@ -119,6 +119,9 @@ pub enum ParseError {
 
     #[error("Invalid value: {0}")]
     InvalidValue(String),
+
+    #[error("If expression used in assignment must have an else clause")]
+    MissingElse,
 }
 
 impl From<pest::error::Error<Rule>> for ParseError {
@@ -1232,6 +1235,9 @@ impl TensorLogicParser {
                 // String literals in expressions (e.g., for save/load filenames)
                 let s = Self::parse_string_literal(inner)?;
                 Ok(TensorExpr::Literal(TensorLiteral::Scalar(ScalarLiteral::String(s))))
+            }
+            Rule::if_expr => {
+                Self::parse_if_expr(inner, registry)
             }
             Rule::match_expr => {
                 Self::parse_match_expr(inner, registry)
@@ -2637,6 +2643,34 @@ impl TensorLogicParser {
         })?, registry)?;
 
         Ok(FieldInit { name, value })
+    }
+
+    fn parse_if_expr(
+        pair: pest::iterators::Pair<Rule>,
+        registry: &FunctionRegistry
+    ) -> Result<TensorExpr, ParseError> {
+        let mut inner = pair.into_inner();
+
+        // Condition expression (required)
+        let condition_pair = inner.next()
+            .ok_or_else(|| ParseError::MissingField("if condition".to_string()))?;
+        let condition = Box::new(Self::parse_tensor_expr(condition_pair, registry)?);
+
+        // Then expression (required)
+        let then_pair = inner.next()
+            .ok_or_else(|| ParseError::MissingField("if then expression".to_string()))?;
+        let then_expr = Box::new(Self::parse_tensor_expr(then_pair, registry)?);
+
+        // Else expression (required - grammar enforces but check anyway)
+        let else_pair = inner.next()
+            .ok_or_else(|| ParseError::MissingElse)?;
+        let else_expr = Box::new(Self::parse_tensor_expr(else_pair, registry)?);
+
+        Ok(TensorExpr::If {
+            condition,
+            then_expr,
+            else_expr,
+        })
     }
 
     fn parse_match_expr(pair: pest::iterators::Pair<Rule>, registry: &FunctionRegistry) -> Result<TensorExpr, ParseError> {

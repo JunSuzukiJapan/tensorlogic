@@ -230,6 +230,7 @@ unary_expr = { unary_op ~ unary_expr | tensor_term }
 tensor_term = {
     postfix_expr
     | "(" ~ tensor_expr ~ ")"
+    | if_expr
     | match_expr
     | embedding_lookup
     | einstein_sum
@@ -316,6 +317,11 @@ scalar_literal = { complex_number | number | boolean }
 // ============================================================================
 // Pattern Matching
 // ============================================================================
+
+if_expr = {
+    "if" ~ tensor_expr ~ "{" ~ tensor_expr ~ "}"
+    ~ "else" ~ "{" ~ tensor_expr ~ "}"
+}
 
 match_expr = { "match" ~ tensor_expr ~ "{" ~ match_arm ~ ("," ~ match_arm)* ~ ","? ~ "}" }
 

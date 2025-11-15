@@ -83,16 +83,24 @@ fn tinyllama_gqa_attention(
     let scores = einsum("ihd,jhd->ihj", Q_rope, K_expanded)
     let scaled_scores = scores * 0.125  // 1/sqrt(64)
 
-    // Apply causal mask (always applied in this version for simplicity)
-    // In Candle, masking is skipped when seq_len == 1 (decode phase)
-    // But for TensorLogic syntax compatibility, we apply it unconditionally
+    // Conditional masking: skip masking when seq_len == 1 (decode phase)
+    // This matches Candle's optimization for single-token generation
     let seq_len_int = seq_len as int
+
+    // Pre-compute mask (will only be used if seq_len > 1)
     let mask_2d = causal_mask(seq_len_int)
     let mask_3d = reshape(mask_2d, [seq_len, 1, seq_len])
     let mask_broadcast = broadcast_to(mask_3d, [seq_len, 32, seq_len])
     let masked_scores = apply_attention_mask(scaled_scores, mask_broadcast)
 
-    let attn_weights = softmax(masked_scores, 2)
+    // Use if-expression to select masked vs unmasked scores
+    let scores_for_softmax = if seq_len_int == 1 {
+        scaled_scores
+    } else {
+        masked_scores
+    }
+
+    let attn_weights = softmax(scores_for_softmax, 2)
     let attn_output = einsum("ihj,jhd->ihd", attn_weights, V_expanded)
 
     // Flatten and project
@@ -196,18 +204,18 @@ main {
     // ----------------------------------------------------------------------------
     // [4] GENERATION LOOP: Generate tokens with clean output
     // ----------------------------------------------------------------------------
-    print("[4/5] Generating response (max 3 tokens)...")
+    print("[4/5] Generating response (max 50 tokens)...")
     print("")
     print("      Assistant: ")
 
     let eos_token_id = 2
-    let temperature = 0.8  // Higher for more creative responses
+    let temperature = 0.7  // Balanced creativity and coherence
 
     let gen_tokens = prompt_tokens
     let generated_count = 0
 
     // Token generation loop
-    for token_step in range_i(3) {
+    for token_step in range_i(15) {
         // Get embeddings for all tokens so far
         let current_emb = embedding(emb_weight, gen_tokens)
 
@@ -249,6 +257,10 @@ main {
         // Append token
         gen_tokens = append(gen_tokens, next_token_id)
         generated_count = generated_count + 1
+
+        // Log GPU memory after each token
+        let memory_label = "After Token " + str(generated_count)
+        gpu_memory_stats(memory_label)
 
         // Progress indicator every 10 tokens
         if token_step % 10 == 0 && token_step > 0 {

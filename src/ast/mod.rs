@@ -469,6 +469,14 @@ pub enum TensorExpr {
         expr: Box<TensorExpr>,
         target_type: CastType,
     },
+    /// If expression: if cond { expr } else { expr }
+    /// Both branches must return the same type
+    /// The else branch is mandatory (expressions must always return a value)
+    If {
+        condition: Box<TensorExpr>,
+        then_expr: Box<TensorExpr>,
+        else_expr: Box<TensorExpr>,
+    },
 }
 
 /// Type cast target types

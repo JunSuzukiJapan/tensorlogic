@@ -32,6 +32,7 @@ impl Interpreter {
             "int_to_tokenids" => Some(self.eval_int_to_tokenids(args)),
             "string_length" => Some(self.eval_string_length(args)),
             "string_substring" => Some(self.eval_string_substring(args)),
+            "gpu_memory_stats" => Some(self.eval_gpu_memory_stats(args)),
             "generate" | "print_top_k" => {
                 Some(Err(RuntimeError::NotImplemented(
                     format!("Model/IO function '{}' migration in progress", name)
@@ -959,6 +960,35 @@ impl Interpreter {
                    epsilon,
                    location);
         }
+
+        Ok(Value::Void)
+    }
+
+    /// gpu_memory_stats(label)
+    /// Print GPU memory statistics with optional label
+    fn eval_gpu_memory_stats(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        let label = if args.is_empty() {
+            "GPU Memory".to_string()
+        } else {
+            // Evaluate label argument
+            let label_val = self.eval_expr(&args[0])?;
+            match label_val {
+                Value::String(s) => s,
+                _ => return Err(RuntimeError::TypeError(
+                    "gpu_memory_stats() argument must be a string (label)".to_string()
+                )),
+            }
+        };
+
+        // Get buffer pool statistics from Metal device
+        let device = self.env.metal_device();
+        let stats = device.buffer_pool_stats();
+
+        println!("[GPU MEMORY] {}", label);
+        println!("  Pooled buffers: {}", stats.total_pooled);
+        println!("  Total memory: {:.2} MB", stats.total_memory as f64 / 1_048_576.0);
+        println!("  Allocations: {}", stats.allocation_count);
+        println!("  Reuse count: {}", stats.reuse_count);
 
         Ok(Value::Void)
     }

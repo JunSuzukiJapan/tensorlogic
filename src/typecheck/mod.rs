@@ -800,6 +800,22 @@ impl TypeChecker {
                 self.infer_expr_type(&arms[0].body)
             }
 
+            TensorExpr::If { condition, then_expr, else_expr } => {
+                // Check condition type (should be boolean-like)
+                let cond_type = self.infer_expr_type(condition)?;
+                // Condition can be int, float, or boolean
+                // No strict type checking needed as interpreter handles conversion
+
+                // Infer types of both branches
+                let then_type = self.infer_expr_type(then_expr)?;
+                let else_type = self.infer_expr_type(else_expr)?;
+
+                // Both branches should have compatible types
+                // For now, return the type of the then branch
+                // TODO: Verify both branches have compatible types
+                Ok(then_type)
+            }
+
             TensorExpr::Cast { expr: _, target_type } => {
                 use crate::ast::CastType;
                 // Cast expression: infer type based on target type

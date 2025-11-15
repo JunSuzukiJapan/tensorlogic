@@ -863,6 +863,7 @@ impl Interpreter {
             TensorExpr::StructLiteral { .. } => "StructLiteral",
             TensorExpr::AssociatedCall { .. } => "AssociatedCall",
             TensorExpr::Match { .. } => "Match",
+            TensorExpr::If { .. } => "If",
             TensorExpr::Cast { .. } => "Cast",
         };
         // eprintln!("[DEBUG] eval_expr: type={}", expr_type);
@@ -2088,6 +2089,31 @@ impl Interpreter {
 
             TensorExpr::Match { expr, arms } => {
                 self.eval_match(expr, arms)
+            }
+
+            TensorExpr::If { condition, then_expr, else_expr } => {
+                // Evaluate the condition
+                let cond_value = self.eval_expr(condition)?;
+
+                // Convert condition to boolean
+                let is_true = match cond_value {
+                    Value::Boolean(b) => b,
+                    Value::Integer(i) => i != 0,
+                    Value::Float(f) => f != 0.0,
+                    _ => {
+                        return Err(RuntimeError::TypeError(format!(
+                            "If condition must evaluate to a boolean-like value, got {:?}",
+                            cond_value
+                        )));
+                    }
+                };
+
+                // Evaluate the appropriate branch
+                if is_true {
+                    self.eval_expr(then_expr)
+                } else {
+                    self.eval_expr(else_expr)
+                }
             }
 
             TensorExpr::Cast { expr, target_type } => {
