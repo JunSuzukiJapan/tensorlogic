@@ -28,6 +28,8 @@ pub enum QuantizationType {
     None,
     /// 4-bit quantization
     Q4,
+    /// 5-bit quantization
+    Q5,
     /// 6-bit quantization
     Q6,
     /// 8-bit quantization
@@ -43,6 +45,7 @@ impl std::fmt::Display for QuantizationType {
         match self {
             QuantizationType::None => write!(f, "None"),
             QuantizationType::Q4 => write!(f, "4-bit"),
+            QuantizationType::Q5 => write!(f, "5-bit"),
             QuantizationType::Q6 => write!(f, "6-bit"),
             QuantizationType::Q8 => write!(f, "8-bit"),
             QuantizationType::F16 => write!(f, "FP16"),
