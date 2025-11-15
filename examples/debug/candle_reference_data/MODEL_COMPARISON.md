@@ -133,10 +133,13 @@ Multi-tensor verification with 7+ checks:
 - blk.0.attn_v.weight: sum
 - output_norm.weight: sum
 
-**Q4_0 Comprehensive Results**: 7/7 checks passed ✅
-- All relative errors < 0.15%
-- Validates multiple tensor types and quantization paths
-- More thorough implementation verification
+**Comprehensive Verification Results**:
+- **Q4_0**: 7/7 checks passed ✅ (all errors < 0.15%)
+- **Q5_0**: 7/7 checks passed ✅ (all errors < 0.2%)
+- **Q8_0**: 7/7 checks passed ✅ (all errors < 0.12%)
+- **Q6_K**: 7/7 checks passed ✅ (all errors < 0.16%)
+
+All models validated against Candle reference with multiple tensor types and comprehensive statistics checks.
 
 ## Future Work
 
@@ -146,7 +149,8 @@ Multi-tensor verification with 7+ checks:
 - [x] Test TensorLogic with F16 model ✅
 - [x] Implement Q5_0 support in TensorLogic ✅
 - [x] Create comprehensive multi-tensor verification ✅
-- [ ] Create comprehensive verification for Q5_0, Q8_0, F16, Q6_K
+- [x] Create comprehensive verification for Q4_0, Q5_0, Q8_0, Q6_K ✅
+- [ ] Create comprehensive verification for F16
 - [ ] Extract reference for larger models (Llama-2, Mistral, etc.)
 - [ ] Document quantization error tolerance per operation
 
