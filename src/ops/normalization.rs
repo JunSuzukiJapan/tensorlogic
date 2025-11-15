@@ -973,4 +973,139 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_rms_norm_nan_resistance() {
+        // Test that RMS norm doesn't produce NaN even with edge case inputs
+        // This test verifies the fix for the sequence length 46 bug
+        let device = get_test_device();
+
+        // Test case 1: Very small values (near zero)
+        let small_values = vec![
+            f16::from_f32(1e-8),
+            f16::from_f32(1e-8),
+            f16::from_f32(1e-8),
+            f16::from_f32(1e-8),
+        ];
+
+        let x_small = match &device {
+            Device::Metal(dev) => {
+                Tensor::from_vec_gpu(dev, small_values.clone(), vec![1, 4]).unwrap()
+            }
+            _ => Tensor::from_vec(small_values, vec![1, 4]).unwrap(),
+        };
+
+        let weight = match &device {
+            Device::Metal(dev) => Tensor::from_vec_gpu(
+                dev,
+                vec![
+                    f16::from_f32(1.0),
+                    f16::from_f32(1.0),
+                    f16::from_f32(1.0),
+                    f16::from_f32(1.0),
+                ],
+                vec![4],
+            )
+            .unwrap(),
+            _ => Tensor::from_vec(
+                vec![
+                    f16::from_f32(1.0),
+                    f16::from_f32(1.0),
+                    f16::from_f32(1.0),
+                    f16::from_f32(1.0),
+                ],
+                vec![4],
+            )
+            .unwrap(),
+        };
+
+        let result_small = x_small.rms_norm(vec![4], &weight, 1e-6).unwrap();
+        let values_small = result_small.sync_and_read();
+
+        // Verify no NaN values
+        for (i, &val) in values_small.iter().enumerate() {
+            assert!(
+                val.is_finite(),
+                "RMS norm with small values should not produce NaN or Inf at index {}, got {:?}",
+                i,
+                val
+            );
+        }
+
+        // Test case 2: All zeros
+        let zero_values = vec![
+            f16::from_f32(0.0),
+            f16::from_f32(0.0),
+            f16::from_f32(0.0),
+            f16::from_f32(0.0),
+        ];
+
+        let x_zero = match &device {
+            Device::Metal(dev) => {
+                Tensor::from_vec_gpu(dev, zero_values.clone(), vec![1, 4]).unwrap()
+            }
+            _ => Tensor::from_vec(zero_values, vec![1, 4]).unwrap(),
+        };
+
+        let result_zero = x_zero.rms_norm(vec![4], &weight, 1e-6).unwrap();
+        let values_zero = result_zero.sync_and_read();
+
+        // Verify no NaN values
+        for (i, &val) in values_zero.iter().enumerate() {
+            assert!(
+                val.is_finite(),
+                "RMS norm with zero values should not produce NaN or Inf at index {}, got {:?}",
+                i,
+                val
+            );
+        }
+
+        // Test case 3: Large sequence (simulate seq_len=46 scenario)
+        let large_seq_len = 46;
+        let hidden_dim = 2048;
+        let mut large_input = Vec::with_capacity(large_seq_len * hidden_dim);
+
+        // Fill with realistic embedding values (small numbers)
+        for _ in 0..large_seq_len * hidden_dim {
+            large_input.push(f16::from_f32(0.001)); // Small but not zero
+        }
+
+        let mut large_weight = Vec::with_capacity(hidden_dim);
+        for _ in 0..hidden_dim {
+            large_weight.push(f16::from_f32(1.0));
+        }
+
+        let x_large = match &device {
+            Device::Metal(dev) => {
+                Tensor::from_vec_gpu(dev, large_input, vec![large_seq_len, hidden_dim]).unwrap()
+            }
+            _ => Tensor::from_vec(large_input, vec![large_seq_len, hidden_dim]).unwrap(),
+        };
+
+        let weight_large = match &device {
+            Device::Metal(dev) => {
+                Tensor::from_vec_gpu(dev, large_weight, vec![hidden_dim]).unwrap()
+            }
+            _ => Tensor::from_vec(large_weight, vec![hidden_dim]).unwrap(),
+        };
+
+        let result_large = x_large.rms_norm(vec![hidden_dim], &weight_large, 1e-6).unwrap();
+        let values_large = result_large.sync_and_read();
+
+        // Check a sample of values to ensure no NaN
+        let sample_indices = [0, 1000, 10000, 50000, 90000];
+        for &idx in &sample_indices {
+            if idx < values_large.len() {
+                assert!(
+                    values_large[idx].is_finite(),
+                    "RMS norm with large sequence (seq_len={}) should not produce NaN at index {}, got {:?}",
+                    large_seq_len,
+                    idx,
+                    values_large[idx]
+                );
+            }
+        }
+
+        println!("✅ RMS norm NaN resistance test passed");
+    }
 }

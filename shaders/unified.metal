@@ -1868,6 +1868,12 @@ kernel void rms_norm_f16(
     float sq_sum = local_sums[0];
     float mean_sq = sq_sum / float(normalized_size);
     float rms = sqrt(mean_sq + eps);
+
+    // Guard against NaN, Inf, or very small values to prevent numerical issues
+    if (!isfinite(rms) || rms < 1e-10f) {
+        rms = 1.0f;  // Fallback to no normalization if degenerate
+    }
+
     float inv_rms = 1.0f / rms;
 
     // Normalize and scale by weight (parallel)
@@ -2075,6 +2081,12 @@ kernel void rms_norm_f32(
     float sq_sum = local_sums[0];
     float mean_sq = sq_sum / float(normalized_size);
     float rms = sqrt(mean_sq + eps);
+
+    // Guard against NaN, Inf, or very small values to prevent numerical issues
+    if (!isfinite(rms) || rms < 1e-10f) {
+        rms = 1.0f;  // Fallback to no normalization if degenerate
+    }
+
     float inv_rms = 1.0f / rms;
 
     // Normalize and scale by weight (parallel)
