@@ -534,9 +534,6 @@ impl GGUFLoader {
                         .sum();
                     eprintln!("  BOS sum (CPU, before GPU upload): {}", bos_sum);
                 }
-
-                // PyTorch reference
-                eprintln!("  PyTorch expected BOS sum: 0.052734375");
             }
 
             // Create TensorLogic tensor (on Metal GPU)

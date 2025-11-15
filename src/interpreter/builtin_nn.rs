@@ -909,7 +909,6 @@ impl Interpreter {
             // Check full sum
             let full_sum: f32 = data.iter().map(|&x| x.to_f32()).sum();
             eprintln!("DEBUG F16 embedding result: full sum = {}", full_sum);
-            eprintln!("  PyTorch expected sum for BOS (ID=1): 0.052734375");
 
             // Show values at different positions to diagnose
             if data.len() >= 2048 {

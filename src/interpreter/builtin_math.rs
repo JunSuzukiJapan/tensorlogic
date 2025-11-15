@@ -117,15 +117,9 @@ impl Interpreter {
                         .map_err(|e| RuntimeError::TensorError(e))?;
                 }
 
-                // CRITICAL: Clamp result to prevent f16 overflow
-                // f16 range is ±65504, but matmul can easily exceed this
-                // Clamp to ±20 for balance between safety and model accuracy:
-                //   - Prevents individual element overflow
-                //   - Prevents sum() overflow (1.5M elements * 20 = 30M, safe for f32)
-                //   - Allows typical logit ranges (±5 to ±20) while preventing extreme values
-                result = result.clamp(-20.0, 20.0)
-                    .map_err(|e| RuntimeError::TensorError(e))?;
-
+                // No clamping applied - matches Candle/PyTorch convention
+                // Transformers rely on full dynamic range for Q/K/V projections,
+                // attention scores, and FFN intermediate values
                 Ok(Value::TensorF16(Arc::new(result)))
             }
             (Value::TensorF32(x), Value::TensorF32(weight)) => {
