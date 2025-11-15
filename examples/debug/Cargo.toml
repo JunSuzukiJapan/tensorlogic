@@ -1,0 +1,14 @@
+[package]
+name = "candle_reference_extractor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+candle-core = { path = "../../tmp/candle/candle-core" }
+candle-nn = { path = "../../tmp/candle/candle-nn" }
+candle-transformers = { path = "../../tmp/candle/candle-transformers" }
+anyhow = "1.0"
+
+[[bin]]
+name = "extract_candle_values"
+path = "extract_candle_values.rs"
