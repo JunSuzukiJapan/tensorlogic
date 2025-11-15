@@ -116,13 +116,37 @@ Different quantization formats produce different BOS sums - this is expected beh
 2. Compare TensorLogic output with reference
 3. Verify error is within quantization tolerance
 
+## Verification Methodology
+
+### Simple Verification (verify_*.tl)
+Single BOS token sum check:
+- Fast execution (~30 seconds)
+- Single data point verification
+- Good for quick regression testing
+
+### Comprehensive Verification (verify_all_*.tl)
+Multi-tensor verification with 7+ checks:
+- token_embd.weight: BOS sum + full tensor sum
+- blk.0.attn_norm.weight: sum
+- blk.0.attn_q.weight: sum
+- blk.0.attn_k.weight: sum
+- blk.0.attn_v.weight: sum
+- output_norm.weight: sum
+
+**Q4_0 Comprehensive Results**: 7/7 checks passed ✅
+- All relative errors < 0.15%
+- Validates multiple tensor types and quantization paths
+- More thorough implementation verification
+
 ## Future Work
 
 - [x] Extract reference for Q8_0 models ✅
 - [x] Extract reference for Q5_0 models ✅
+- [x] Extract reference for Q6_K models ✅
 - [x] Test TensorLogic with F16 model ✅
 - [x] Implement Q5_0 support in TensorLogic ✅
-- [ ] Extract reference for Q6_K models
+- [x] Create comprehensive multi-tensor verification ✅
+- [ ] Create comprehensive verification for Q5_0, Q8_0, F16, Q6_K
 - [ ] Extract reference for larger models (Llama-2, Mistral, etc.)
 - [ ] Document quantization error tolerance per operation
 
