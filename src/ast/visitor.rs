@@ -279,10 +279,17 @@ pub fn walk_tensor_expr<V: Visitor>(visitor: &mut V, expr: &TensorExpr) -> Resul
             }
             Ok(())
         }
-        TensorExpr::If { condition, then_expr, else_expr } => {
+        TensorExpr::If { condition, then_block, else_block } => {
             visitor.visit_tensor_expr(condition)?;
-            visitor.visit_tensor_expr(then_expr)?;
-            visitor.visit_tensor_expr(else_expr)
+            for stmt in then_block {
+                visitor.visit_statement(stmt)?;
+            }
+            if let Some(else_stmts) = else_block {
+                for stmt in else_stmts {
+                    visitor.visit_statement(stmt)?;
+                }
+            }
+            Ok(())
         }
         TensorExpr::Cast { expr, .. } => {
             visitor.visit_tensor_expr(expr)

@@ -319,8 +319,8 @@ scalar_literal = { complex_number | number | boolean }
 // ============================================================================
 
 if_expr = {
-    "if" ~ tensor_expr ~ "{" ~ tensor_expr ~ "}"
-    ~ "else" ~ "{" ~ tensor_expr ~ "}"
+    "if" ~ tensor_expr ~ "{" ~ statement* ~ "}"
+    ~ ("else" ~ "{" ~ statement* ~ "}")?
 }
 
 match_expr = { "match" ~ tensor_expr ~ "{" ~ match_arm ~ ("," ~ match_arm)* ~ ","? ~ "}" }

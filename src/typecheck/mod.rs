@@ -800,20 +800,33 @@ impl TypeChecker {
                 self.infer_expr_type(&arms[0].body)
             }
 
-            TensorExpr::If { condition, then_expr, else_expr } => {
+            TensorExpr::If { condition, then_block, else_block } => {
                 // Check condition type (should be boolean-like)
-                let cond_type = self.infer_expr_type(condition)?;
+                let _cond_type = self.infer_expr_type(condition)?;
                 // Condition can be int, float, or boolean
                 // No strict type checking needed as interpreter handles conversion
 
-                // Infer types of both branches
-                let then_type = self.infer_expr_type(then_expr)?;
-                let else_type = self.infer_expr_type(else_expr)?;
+                // Infer type of then block
+                let then_type = self.infer_block_type(then_block)?;
 
-                // Both branches should have compatible types
-                // For now, return the type of the then branch
-                // TODO: Verify both branches have compatible types
-                Ok(then_type)
+                // Infer type of else block if present
+                if let Some(else_stmts) = else_block {
+                    let else_type = self.infer_block_type(else_stmts)?;
+
+                    // Both branches should have compatible types
+                    if !then_type.is_compatible_with(&else_type) {
+                        return Err(TypeError::TypeMismatch {
+                            expected: format!("{:?}", then_type),
+                            found: format!("{:?}", else_type),
+                        });
+                    }
+
+                    Ok(then_type)
+                } else {
+                    // No else block - cannot infer type (not usable in expressions)
+                    // The user should add an else clause if they want to use this as an expression
+                    Err(TypeError::CannotInferType)
+                }
             }
 
             TensorExpr::Cast { expr: _, target_type } => {
@@ -861,6 +874,27 @@ impl TypeChecker {
                 dimensions.extend(elem_type.dimensions);
 
                 Ok(TensorTypeInfo::new(elem_type.base_type, dimensions))
+            }
+        }
+    }
+
+    /// Infer type of a block
+    /// Returns the type of the last expression statement, or error if the block doesn't end with an expression
+    fn infer_block_type(&self, statements: &[Statement]) -> TypeResult<TensorTypeInfo> {
+        if statements.is_empty() {
+            return Err(TypeError::CannotInferType);
+        }
+
+        // Check if the last statement is an expression statement
+        match &statements[statements.len() - 1] {
+            Statement::Expr { expr } => {
+                // Last statement is an expression - return its type
+                self.infer_expr_type(expr)
+            }
+            _ => {
+                // Last statement is not an expression - cannot be used as expression
+                // Block must end with an expression (without semicolon) to be used as value
+                Err(TypeError::CannotInferType)
             }
         }
     }

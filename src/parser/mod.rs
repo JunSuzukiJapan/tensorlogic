@@ -2656,20 +2656,41 @@ impl TensorLogicParser {
             .ok_or_else(|| ParseError::MissingField("if condition".to_string()))?;
         let condition = Box::new(Self::parse_tensor_expr(condition_pair, registry)?);
 
-        // Then expression (required)
-        let then_pair = inner.next()
-            .ok_or_else(|| ParseError::MissingField("if then expression".to_string()))?;
-        let then_expr = Box::new(Self::parse_tensor_expr(then_pair, registry)?);
+        // Parse then block statements
+        let mut then_block = Vec::new();
+        let mut else_block = None;
 
-        // Else expression (required - grammar enforces but check anyway)
-        let else_pair = inner.next()
-            .ok_or_else(|| ParseError::MissingElse)?;
-        let else_expr = Box::new(Self::parse_tensor_expr(else_pair, registry)?);
+        // Collect all remaining pairs
+        let remaining: Vec<_> = inner.collect();
+
+        if remaining.is_empty() {
+            return Err(ParseError::MissingField("if then block".to_string()));
+        }
+
+        // Find the boundary between then and else blocks
+        // All statement rules come before else keyword
+        let mut i = 0;
+        while i < remaining.len() && remaining[i].as_rule() == Rule::statement {
+            then_block.push(Self::parse_statement(remaining[i].clone(), registry)?);
+            i += 1;
+        }
+
+        // Parse else block if present (remaining statements after then block)
+        if i < remaining.len() {
+            let mut else_statements = Vec::new();
+            while i < remaining.len() && remaining[i].as_rule() == Rule::statement {
+                else_statements.push(Self::parse_statement(remaining[i].clone(), registry)?);
+                i += 1;
+            }
+            if !else_statements.is_empty() {
+                else_block = Some(else_statements);
+            }
+        }
 
         Ok(TensorExpr::If {
             condition,
-            then_expr,
-            else_expr,
+            then_block,
+            else_block,
         })
     }
 

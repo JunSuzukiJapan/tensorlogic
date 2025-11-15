@@ -2091,7 +2091,7 @@ impl Interpreter {
                 self.eval_match(expr, arms)
             }
 
-            TensorExpr::If { condition, then_expr, else_expr } => {
+            TensorExpr::If { condition, then_block, else_block } => {
                 // Evaluate the condition
                 let cond_value = self.eval_expr(condition)?;
 
@@ -2110,14 +2110,45 @@ impl Interpreter {
 
                 // Evaluate the appropriate branch
                 if is_true {
-                    self.eval_expr(then_expr)
+                    self.eval_block_as_expr(then_block)
                 } else {
-                    self.eval_expr(else_expr)
+                    if let Some(else_stmts) = else_block {
+                        self.eval_block_as_expr(else_stmts)
+                    } else {
+                        // No else block - return Void
+                        Ok(Value::Void)
+                    }
                 }
             }
 
             TensorExpr::Cast { expr, target_type } => {
                 self.eval_cast(expr, *target_type)
+            }
+        }
+    }
+
+    /// Evaluate a block as an expression
+    /// Returns the value of the last expression statement, or Void if the block doesn't end with an expression
+    pub(super) fn eval_block_as_expr(&mut self, statements: &[Statement]) -> RuntimeResult<Value> {
+        if statements.is_empty() {
+            return Ok(Value::Void);
+        }
+
+        // Execute all statements except the last
+        for stmt in &statements[..statements.len() - 1] {
+            self.execute_statement(stmt)?;
+        }
+
+        // Check if the last statement is an expression statement
+        match &statements[statements.len() - 1] {
+            Statement::Expr { expr } => {
+                // Last statement is an expression - return its value
+                self.eval_expr(expr)
+            }
+            _ => {
+                // Last statement is not an expression - execute it and return Void
+                self.execute_statement(&statements[statements.len() - 1])?;
+                Ok(Value::Void)
             }
         }
     }

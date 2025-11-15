@@ -469,13 +469,14 @@ pub enum TensorExpr {
         expr: Box<TensorExpr>,
         target_type: CastType,
     },
-    /// If expression: if cond { expr } else { expr }
-    /// Both branches must return the same type
-    /// The else branch is mandatory (expressions must always return a value)
+    /// If expression: if cond { statements } else { statements }
+    /// Blocks can contain statements, and the last expression (without semicolon) is the return value
+    /// The else branch is optional, but required when used in assignments
+    /// Both branches must return the same type when used as expression
     If {
         condition: Box<TensorExpr>,
-        then_expr: Box<TensorExpr>,
-        else_expr: Box<TensorExpr>,
+        then_block: Vec<Statement>,
+        else_block: Option<Vec<Statement>>,
     },
 }
 
