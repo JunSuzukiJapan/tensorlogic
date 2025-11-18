@@ -191,7 +191,7 @@ impl MetalDevice {
             std::io::stderr().flush().ok();
         }
 
-        let (flushed, buffer) = commands.get_or_flush_command_buffer()?;
+        let (flushed, buffer) = commands.command_buffer()?;
         // buffer is already CommandBuffer (not a guard anymore)
 
         if std::env::var("TL_DEBUG").is_ok() {
