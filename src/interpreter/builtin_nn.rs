@@ -213,22 +213,59 @@ impl Interpreter {
     fn eval_layer_norm(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
         use crate::interpreter::value::ToValue;
 
-        if args.is_empty() || args.len() > 3 {
+        // Support two signatures:
+        // 1. layer_norm(tensor, eps) - 2 args (no gamma/beta)
+        // 2. layer_norm(tensor, gamma, beta, eps) - 4 args (with gamma/beta)
+        if args.is_empty() || (args.len() != 2 && args.len() != 4) {
             return Err(RuntimeError::TypeError(
-                format!("layer_norm() expects 1-3 arguments (tensor, optional normalized_shape, optional eps), got {}", args.len())
+                format!("layer_norm() expects 2 or 4 arguments:\n  - layer_norm(tensor, eps)\n  - layer_norm(tensor, gamma, beta, eps)\ngot {} arguments", args.len())
             ));
         }
 
         let tensor_val = self.eval_expr(&args[0])?;
 
-        let eps = if args.len() >= 3 {
-            match self.eval_expr(&args[2])? {
+        // Parse gamma and beta if provided (4 args)
+        let (gamma_opt, beta_opt, eps) = if args.len() == 4 {
+            // Extract gamma tensor
+            let gamma_val = self.eval_expr(&args[1])?;
+            let gamma = match gamma_val {
+                Value::TensorF16(ref t) => Some(t.clone()),
+                Value::TensorF32(ref t) => {
+                    // Convert f32 to f16 if needed
+                    use crate::tensor::TensorConvert;
+                    Some(std::sync::Arc::new(t.to_f16().map_err(|e| RuntimeError::TensorError(e))?))
+                }
+                _ => return Err(RuntimeError::TypeError("layer_norm() gamma must be a tensor".to_string())),
+            };
+
+            // Extract beta tensor
+            let beta_val = self.eval_expr(&args[2])?;
+            let beta = match beta_val {
+                Value::TensorF16(ref t) => Some(t.clone()),
+                Value::TensorF32(ref t) => {
+                    // Convert f32 to f16 if needed
+                    use crate::tensor::TensorConvert;
+                    Some(std::sync::Arc::new(t.to_f16().map_err(|e| RuntimeError::TensorError(e))?))
+                }
+                _ => return Err(RuntimeError::TypeError("layer_norm() beta must be a tensor".to_string())),
+            };
+
+            // Extract eps
+            let eps_val = match self.eval_expr(&args[3])? {
                 Value::Float(f) => f as f32,
                 Value::Integer(i) => i as f32,
                 _ => 1e-5_f32,
-            }
+            };
+
+            (gamma, beta, eps_val)
         } else {
-            1e-5_f32
+            // 2 args: just tensor and eps
+            let eps_val = match self.eval_expr(&args[1])? {
+                Value::Float(f) => f as f32,
+                Value::Integer(i) => i as f32,
+                _ => 1e-5_f32,
+            };
+            (None, None, eps_val)
         };
 
         Ok(match tensor_val {
@@ -237,7 +274,7 @@ impl Interpreter {
                 let dims = shape.dims();
                 let normalized_shape = vec![dims[dims.len() - 1]];
                 tensor
-                    .layer_norm(normalized_shape, None, None, eps)
+                    .layer_norm(normalized_shape, gamma_opt.as_deref(), beta_opt.as_deref(), eps)
                     .map_err(|e| RuntimeError::TensorError(e))?
                     .to_value()
             }
@@ -245,8 +282,20 @@ impl Interpreter {
                 let shape = tensor.shape();
                 let dims = shape.dims();
                 let normalized_shape = vec![dims[dims.len() - 1]];
+
+                // Convert gamma/beta to f32 if provided
+                let gamma_f32 = gamma_opt.as_ref().map(|g| {
+                    use crate::tensor::TensorConvert;
+                    g.to_f32()
+                }).transpose().map_err(|e| RuntimeError::TensorError(e))?;
+
+                let beta_f32 = beta_opt.as_ref().map(|b| {
+                    use crate::tensor::TensorConvert;
+                    b.to_f32()
+                }).transpose().map_err(|e| RuntimeError::TensorError(e))?;
+
                 tensor
-                    .layer_norm(normalized_shape, None, None, eps)
+                    .layer_norm(normalized_shape, gamma_f32.as_ref(), beta_f32.as_ref(), eps)
                     .map_err(|e| RuntimeError::TensorError(e))?
                     .to_value()
             }

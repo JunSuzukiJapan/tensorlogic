@@ -128,10 +128,8 @@ main {
     print("--------------------------------------------------------------------------------")
     print("")
 
-    tensor ln_gamma: float16[4] = [1.0, 1.0, 1.0, 1.0]
-    tensor ln_beta: float16[4] = [0.0, 0.0, 0.0, 0.0]
-
-    tensor normalized: float16[2, 4] = layer_norm(attended, ln_gamma, ln_beta, 0.00001)
+    // Layer norm with eps parameter only (gamma/beta not yet supported)
+    tensor normalized: float16[2, 4] = layer_norm(attended, 0.00001)
 
     print("Normalized output:")
     print("  Token 0:", [normalized[0, 0], normalized[0, 1], normalized[0, 2], normalized[0, 3]])

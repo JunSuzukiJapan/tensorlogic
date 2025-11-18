@@ -64,10 +64,8 @@ main {
     print("  This normalizes each token's features to mean=0, std=1")
     print("")
 
-    tensor ln1_gamma: float16[8] = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    tensor ln1_beta: float16[8] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-
-    tensor x_norm1: float16[4, 8] = layer_norm(x_input, ln1_gamma, ln1_beta, 0.00001)
+    // Layer norm with eps parameter only (gamma/beta not yet supported)
+    tensor x_norm1: float16[4, 8] = layer_norm(x_input, 0.00001)
 
     print("Normalized input [4, 8]:")
     print("  Token 0:", [x_norm1[0, 0], x_norm1[0, 1], x_norm1[0, 2], x_norm1[0, 3]])
@@ -169,10 +167,8 @@ main {
     print("================================================================================")
     print("")
 
-    tensor ln2_gamma: float16[8] = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    tensor ln2_beta: float16[8] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-
-    tensor x_norm2: float16[4, 8] = layer_norm(x_after_attn, ln2_gamma, ln2_beta, 0.00001)
+    // Layer norm with eps parameter only (gamma/beta not yet supported)
+    tensor x_norm2: float16[4, 8] = layer_norm(x_after_attn, 0.00001)
 
     print("Normalized for FFN [4, 8]:")
     print("  Token 0:", [x_norm2[0, 0], x_norm2[0, 1], x_norm2[0, 2], x_norm2[0, 3]])
