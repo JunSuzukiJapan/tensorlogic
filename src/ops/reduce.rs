@@ -193,6 +193,86 @@ impl<T: FloatType> Tensor<T> {
         }
     }
 
+    /// Sum all elements and return f32 result (prevents f16 overflow)
+    ///
+    /// Unlike `sum()` which preserves input type, this always returns f32.
+    /// Useful for debugging and diagnostics with large f16 tensors.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let logits: Tensor<f16> = ...; // [34, 32000] with large values
+    /// let sum = logits.sum_f32()?; // Always f32, never overflows
+    /// ```
+    pub fn sum_f32(&self) -> TensorResult<f32> {
+        match self.device() {
+            Device::Metal(_) => self.sum_f32_metal(),
+            Device::CPU | Device::NeuralEngine => self.sum_f32_cpu(),
+        }
+    }
+
+    fn sum_f32_metal(&self) -> TensorResult<f32> {
+        let input_buf = self.buffer().as_metal()?;
+        let count = self.numel();
+
+        let mut device = match self.device() {
+            Device::Metal(dev) => dev.clone(),
+            _ => return Err(TensorError::DeviceConversionError("Not on Metal device".to_string())),
+        };
+
+        if device.library().is_none() {
+            let shader_source = include_str!("../../shaders/unified.metal");
+            device.load_library(shader_source)?;
+        }
+
+        let threadgroup_size = 256;
+        let num_blocks = (count + threadgroup_size - 1) / threadgroup_size;
+
+        let mut executor = crate::device::KernelExecutor::new(device.clone());
+
+        // Always use f16 → f32 conversion kernel
+        let is_f16 = std::any::TypeId::of::<T>() == std::any::TypeId::of::<f16>();
+        let kernel_name = if is_f16 {
+            "sum_global_f16"
+        } else {
+            "sum_global_f32"
+        };
+
+        let pipeline = executor.get_or_compile_pipeline(kernel_name)?;
+        let (_flushed, command_buffer) = device.command_buffer()?;
+        let encoder = command_buffer.encoder();
+
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input_buf.buffer), 0);
+
+        // Stage 1: Always output f32
+        let stage1_buf_f32 = MetalBuffer::<f32>::new_uninit(&device, num_blocks)?;
+        encoder.set_buffer(1, Some(&stage1_buf_f32.buffer), 0);
+        encoder.set_bytes(2, std::mem::size_of::<u32>() as u64, &count as *const usize as *const _);
+
+        let grid_size = metal::MTLSize::new(count as u64, 1, 1);
+        let tg_size = metal::MTLSize::new(threadgroup_size as u64, 1, 1);
+        let shared_mem_size = threadgroup_size * std::mem::size_of::<f32>();
+
+        encoder.set_threadgroup_memory_length(0, shared_mem_size as u64);
+        encoder.dispatch_threads(grid_size, tg_size);
+        encoder.end_encoding();
+
+        // Stage 2: Accumulate in f32 and return f32
+        let stage1_data_f32 = stage1_buf_f32.to_vec();
+        let final_sum_f32: f32 = stage1_data_f32.iter().sum();
+        Ok(final_sum_f32)
+    }
+
+    fn sum_f32_cpu(&self) -> TensorResult<f32> {
+        let data = self.sync_and_read();
+        let mut sum_f32 = 0.0f32;
+        for &val in &data {
+            sum_f32 += val.to_f32();
+        }
+        Ok(sum_f32)
+    }
+
     /// Sum along a specific dimension
     pub fn sum_dim(&self, dim: usize, keepdim: bool) -> TensorResult<Self> {
         if dim >= self.shape().rank() {

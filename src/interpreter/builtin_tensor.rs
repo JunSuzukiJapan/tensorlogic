@@ -172,6 +172,7 @@ impl Interpreter {
 
             // Reduction operations (for method chaining)
             "sum" => Some(self.eval_sum_method(args)),
+            "sum_f32" => Some(self.eval_sum_f32_method(args)),
             "mean" => Some(self.eval_mean_method(args)),
             "max" => Some(self.eval_max_method(args)),
             "min" => Some(self.eval_min_method(args)),
@@ -1100,6 +1101,35 @@ impl Interpreter {
             }
             _ => Err(RuntimeError::TypeError(
                 "sum() expects a tensor".to_string()
+            ))
+        }
+    }
+
+    /// sum_f32(tensor) -> scalar (always f32, prevents f16 overflow)
+    /// Computes the sum of all elements in the tensor, always returning f32.
+    /// This prevents overflow for large f16 tensors.
+    fn eval_sum_f32_method(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("sum_f32() expects 1 argument, got {}", args.len())
+            ));
+        }
+
+        let val = self.eval_expr(&args[0])?;
+
+        match val {
+            Value::TensorF16(tensor) => {
+                let result = tensor.sum_f32()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::Float(result as f64))
+            }
+            Value::TensorF32(tensor) => {
+                let result = tensor.sum_f32()
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                Ok(Value::Float(result as f64))
+            }
+            _ => Err(RuntimeError::TypeError(
+                "sum_f32() expects a tensor".to_string()
             ))
         }
     }

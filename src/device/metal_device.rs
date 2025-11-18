@@ -133,6 +133,45 @@ impl MetalDevice {
         self.buffer_pool.print_current_stats(label);
     }
 
+    /// Check actual Metal GPU memory availability before allocation
+    ///
+    /// Returns TensorError if available GPU memory is too low to prevent system hangs.
+    /// This checks the real Metal device memory using `recommended_max_working_set_size()`
+    /// and `current_allocated_size()`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// device.check_gpu_memory()?; // Fails if < 100 MB available
+    /// ```
+    pub fn check_gpu_memory(&self) -> TensorResult<()> {
+        // Get Metal device memory info
+        let recommended_max = self.device.recommended_max_working_set_size();
+        let current_allocated = self.device.current_allocated_size();
+
+        // Calculate available memory
+        let available = recommended_max.saturating_sub(current_allocated);
+
+        // Minimum required free memory: 100 MB
+        const MIN_FREE_MEMORY_MB: u64 = 100;
+        const MIN_FREE_MEMORY_BYTES: u64 = MIN_FREE_MEMORY_MB * 1_048_576;
+
+        if available < MIN_FREE_MEMORY_BYTES {
+            return Err(TensorError::MetalError(format!(
+                "Insufficient GPU memory: available={:.2} MB, current={:.2} MB, max={:.2} MB. \
+                 Need at least {} MB free to prevent system hang.",
+                available as f64 / 1_048_576.0,
+                current_allocated as f64 / 1_048_576.0,
+                recommended_max as f64 / 1_048_576.0,
+                MIN_FREE_MEMORY_MB
+            )));
+        }
+
+        // Also check buffer pool and shrink if needed
+        self.buffer_pool.check_and_shrink();
+
+        Ok(())
+    }
+
     /// Check and shrink buffer pool if memory limit exceeded
     pub fn check_buffer_pool_memory(&self) -> bool {
         self.buffer_pool.check_and_shrink()
