@@ -1,6 +1,6 @@
 //! Type conversion operations for tensors
 
-use crate::tensor::{Tensor, BufferHandle, TensorAccessors, TensorCreation};
+use crate::tensor::{Tensor, BufferHandle, TensorAccessors, TensorCreation, TensorIO};
 use crate::error::{TensorError, TensorResult};
 use crate::device::{Device, MetalBuffer};
 use half::f16;
@@ -85,9 +85,16 @@ impl TensorConvert for Tensor<f32> {
                 )
             }
             Device::CPU => {
-                return Err(TensorError::InvalidOperation(
-                    "CPU tensor conversion not yet implemented".to_string()
-                ));
+                // Get f32 data from CPU buffer
+                let f32_data = self.sync_and_read();
+
+                // Convert to f16
+                let f16_data: Vec<f16> = f32_data.iter()
+                    .map(|&x| f16::from_f32(x))
+                    .collect();
+
+                // Create CPU f16 tensor
+                Tensor::from_vec(f16_data, self.dims().to_vec())
             }
             Device::NeuralEngine => {
                 return Err(TensorError::InvalidOperation(

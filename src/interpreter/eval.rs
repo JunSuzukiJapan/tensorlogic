@@ -23,9 +23,104 @@ impl Interpreter {
     pub(super) fn execute_statement(&mut self, stmt: &Statement) -> RuntimeResult<()> {
         match stmt {
             Statement::TensorDecl(decl) => {
-                // Handle tensor declaration (same logic as Let statement)
+                // Handle tensor declaration with type conversion
                 if let Some(init_expr) = &decl.init_expr {
-                    let value = self.eval_expr(init_expr)?;
+                    let mut value = self.eval_expr(init_expr)?;
+
+                    // Convert tensor type if needed based on declared type annotation
+                    // Note: BaseType::Float32 represents float16, BaseType::Float64 represents float32
+                    use crate::ast::BaseType;
+                    value = match (&decl.tensor_type.base_type, &value) {
+                        // FloatArray → f16 GPU tensor conversion (for float16 declaration)
+                        (BaseType::Float32, Value::FloatArray(arr)) => {
+                            use crate::tensor::{TensorCreation};
+
+                            // Convert Vec<f64> to Vec<f32> to Vec<f16>
+                            let f32_data: Vec<f32> = arr.iter().map(|&x| x as f32).collect();
+                            let f16_data: Vec<half::f16> = f32_data.iter().map(|&x| half::f16::from_f32(x)).collect();
+
+                            // Create GPU tensor
+                            let device = self.env.metal_device();
+                            let shape = vec![arr.len()];
+                            let gpu_tensor = crate::tensor::Tensor::from_vec_gpu(device, f16_data, shape)
+                                .map_err(|e| RuntimeError::TensorError(e))?;
+
+                            Value::TensorF16(std::sync::Arc::new(gpu_tensor))
+                        }
+
+                        // FloatArray → f32 GPU tensor conversion (for float32 declaration)
+                        (BaseType::Float64, Value::FloatArray(arr)) => {
+                            use crate::tensor::{TensorCreation};
+
+                            // Convert Vec<f64> to Vec<f32>
+                            let f32_data: Vec<f32> = arr.iter().map(|&x| x as f32).collect();
+
+                            // Create GPU tensor
+                            let device = self.env.metal_device();
+                            let shape = vec![arr.len()];
+                            let gpu_tensor = crate::tensor::Tensor::from_vec_gpu(device, f32_data, shape)
+                                .map_err(|e| RuntimeError::TensorError(e))?;
+
+                            Value::TensorF32(std::sync::Arc::new(gpu_tensor))
+                        }
+
+                        // f32 CPU tensor → f16 GPU tensor conversion (for float16 declaration)
+                        (BaseType::Float32, Value::TensorF32(cpu_tensor)) => {
+                            use crate::tensor::{TensorConvert, TensorCreation};
+                            use crate::device::Device;
+
+                            // Convert f32 → f16
+                            let f16_tensor = cpu_tensor.to_f16()
+                                .map_err(|e| RuntimeError::TensorError(e))?;
+
+                            // Move to GPU if not already there
+                            let gpu_tensor = match f16_tensor.device() {
+                                Device::Metal(_) => f16_tensor,
+                                _ => {
+                                    // Transfer to GPU
+                                    let device = self.env.metal_device();
+                                    let data = f16_tensor.sync_and_read();
+                                    let shape = f16_tensor.dims().to_vec();
+                                    crate::tensor::Tensor::from_vec_gpu(device, data, shape)
+                                        .map_err(|e| RuntimeError::TensorError(e))?
+                                }
+                            };
+
+                            Value::TensorF16(std::sync::Arc::new(gpu_tensor))
+                        }
+
+                        // f32 GPU tensor for float32 declaration
+                        (BaseType::Float64, Value::TensorF32(cpu_tensor)) => {
+                            use crate::tensor::TensorCreation;
+                            use crate::device::Device;
+
+                            // Move to GPU if not already there
+                            let gpu_tensor = match cpu_tensor.device() {
+                                Device::Metal(_) => cpu_tensor.as_ref().clone(),
+                                _ => {
+                                    let device = self.env.metal_device();
+                                    let data = cpu_tensor.sync_and_read();
+                                    let shape = cpu_tensor.dims().to_vec();
+                                    crate::tensor::Tensor::from_vec_gpu(device, data, shape)
+                                        .map_err(|e| RuntimeError::TensorError(e))?
+                                }
+                            };
+
+                            Value::TensorF32(std::sync::Arc::new(gpu_tensor))
+                        }
+
+                        // Already correct type
+                        (BaseType::Float32, Value::TensorF16(_)) |
+                        (BaseType::Float64, Value::TensorF32(_)) => value,
+
+                        // Type mismatch
+                        _ => return Err(RuntimeError::TypeError(format!(
+                            "Cannot initialize tensor '{}' of type {:?} with value of type {}",
+                            decl.name.as_str(),
+                            decl.tensor_type.base_type,
+                            value.type_name()
+                        )))
+                    };
 
                     // Declare in current scope (handled by scope stack)
                     self.env.declare_variable(decl.name.as_str().to_string(), value)?;
@@ -2793,6 +2888,44 @@ impl Interpreter {
             }
             (Value::Integer(i), Value::TensorF32(t)) => {
                 self.eval_binary_op(op, Value::Float(i as f64), Value::TensorF32(t))
+            }
+            // TensorF16-FloatArray operations (convert single-element array to scalar)
+            (Value::TensorF16(t), Value::FloatArray(arr)) => {
+                if arr.len() == 1 {
+                    self.eval_binary_op(op, Value::TensorF16(t), Value::Float(arr[0]))
+                } else {
+                    Err(RuntimeError::TypeError(
+                        "Cannot perform binary operation between tensor and multi-element array".to_string(),
+                    ))
+                }
+            }
+            (Value::FloatArray(arr), Value::TensorF16(t)) => {
+                if arr.len() == 1 {
+                    self.eval_binary_op(op, Value::Float(arr[0]), Value::TensorF16(t))
+                } else {
+                    Err(RuntimeError::TypeError(
+                        "Cannot perform binary operation between multi-element array and tensor".to_string(),
+                    ))
+                }
+            }
+            // TensorF32-FloatArray operations (convert single-element array to scalar)
+            (Value::TensorF32(t), Value::FloatArray(arr)) => {
+                if arr.len() == 1 {
+                    self.eval_binary_op(op, Value::TensorF32(t), Value::Float(arr[0]))
+                } else {
+                    Err(RuntimeError::TypeError(
+                        "Cannot perform binary operation between tensor and multi-element array".to_string(),
+                    ))
+                }
+            }
+            (Value::FloatArray(arr), Value::TensorF32(t)) => {
+                if arr.len() == 1 {
+                    self.eval_binary_op(op, Value::Float(arr[0]), Value::TensorF32(t))
+                } else {
+                    Err(RuntimeError::TypeError(
+                        "Cannot perform binary operation between multi-element array and tensor".to_string(),
+                    ))
+                }
             }
             _ => Err(RuntimeError::TypeError(
                 "Binary operation requires compatible types".to_string(),
