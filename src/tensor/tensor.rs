@@ -8,7 +8,7 @@
 //! - TensorAutograd: Automatic differentiation methods (backward, grad, etc.)
 
 use crate::autograd::NodeId;
-use crate::device::{BufferPool, Device};
+use crate::device::Device;
 use crate::tensor::{BufferHandle, FloatType, TensorShape, TensorIO};
 use half::f16;
 use std::marker::PhantomData;
@@ -41,10 +41,6 @@ pub struct Tensor<T: FloatType = f16> {
     /// Version counter for gradient accumulation tracking
     pub(crate) version: u64,
 
-    /// Buffer pool reference for automatic buffer recycling (Metal only)
-    /// Cloning BufferPool is cheap - it just clones Arc pointers to shared data
-    pub(crate) buffer_pool: Option<BufferPool>,
-
     /// Phantom data to hold the type parameter
     pub(crate) _phantom: PhantomData<T>,
 }
@@ -56,67 +52,15 @@ impl<T: FloatType> Tensor<T> {
 }
 
 /// Automatic buffer recycling when tensor is dropped
+/// Buffer recycling is now handled automatically by MetalBuffer's Drop implementation
 impl<T: FloatType> Drop for Tensor<T> {
     fn drop(&mut self) {
         if std::env::var("TL_BUFFER_DEBUG").is_ok() {
             if let BufferHandle::Metal(metal_buffer) = &self.buffer {
-                let has_pool = self.buffer_pool.is_some();
-                eprintln!("[Drop] Tensor drop: size={}, has_pool={}", metal_buffer.len(), has_pool);
+                eprintln!("[Drop] Tensor drop: size={}", metal_buffer.len());
             }
         }
-
-        // Only recycle Metal buffers that have a buffer pool
-        // Both f16 and f32 buffers can be recycled (BufferPool supports both)
-        if T::is_f16() {
-            if let (BufferHandle::Metal(metal_buffer), Some(pool)) =
-                (&self.buffer, &self.buffer_pool)
-            {
-                // Only recycle if this is the last reference to the buffer
-                // Arc::strong_count returns the number of strong references
-                let ref_count = Arc::strong_count(&metal_buffer.buffer);
-
-                if std::env::var("TL_BUFFER_DEBUG").is_ok() {
-                    eprintln!("[Drop] ref_count={}", ref_count);
-                }
-
-                if ref_count == 1 {
-                    // CRITICAL: GPU fence before recycling buffer
-                    // The kernel executor creates independent command buffers that bypass
-                    // the Commands system. We must insert a fence (empty command buffer)
-                    // and wait for it to ensure ALL previous GPU operations complete.
-                    // Without this, buffers get recycled while GPU operations are still
-                    // writing to them, causing data corruption (the silu bug!)
-                    use crate::device::Device;
-                    if let Device::Metal(ref device) = self.device {
-                        if std::env::var("TL_BUFFER_DEBUG").is_ok() {
-                            eprintln!("[Drop] Inserting GPU fence before recycling...");
-                        }
-                        // Create a fence: submit empty command buffer and wait for it
-                        // This ensures all previous operations in the GPU queue complete
-                        let command_queue = device.command_queue();
-                        let fence = command_queue.new_command_buffer();
-                        fence.commit();
-                        fence.wait_until_completed();
-                        if std::env::var("TL_BUFFER_DEBUG").is_ok() {
-                            eprintln!("[Drop] GPU fence completed");
-                        }
-                    }
-
-                    // Clone the buffer for recycling (the clone shares the Arc)
-                    // Need to convert to MetalBuffer<f16> for recycling
-                    if let BufferHandle::Metal(mb) = &self.buffer {
-                        // Safety: We checked T::is_f16(), so this is MetalBuffer<f16>
-                        let f16_buffer: &crate::device::MetalBuffer<f16> = unsafe {
-                            std::mem::transmute(mb)
-                        };
-                        let recycled = pool.recycle(f16_buffer.clone());
-                        if std::env::var("TL_BUFFER_DEBUG").is_ok() {
-                            eprintln!("[Drop] Buffer recycled: success={}", recycled);
-                        }
-                    }
-                }
-            }
-        }
+        // BufferPool recycling is now handled automatically by MetalBuffer::Drop
     }
 }
 

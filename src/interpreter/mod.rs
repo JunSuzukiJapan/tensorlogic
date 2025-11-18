@@ -203,7 +203,21 @@ impl Interpreter {
 
         // Print buffer pool statistics if enabled via environment variable
         if std::env::var("TL_BUFFER_STATS").is_ok() {
-            self.env.metal_device().print_buffer_pool_stats("Program Execution");
+            let stats = crate::device::MetalBuffer::<half::f16>::pool_stats();
+            println!("\n=== Buffer Pool Stats: Program Execution ===");
+            println!("  Pooled buffers: {}", stats.total_pooled);
+            println!("  Size classes: {}", stats.size_classes);
+            println!("  Total memory: {} MB", stats.total_memory / 1_048_576);
+            println!("  Allocations: {}", stats.allocation_count);
+            println!("  Reuses: {}", stats.reuse_count);
+            println!("  Evictions: {}", stats.eviction_count);
+
+            let total_ops = stats.allocation_count + stats.reuse_count;
+            if total_ops > 0 {
+                let reuse_rate = (stats.reuse_count as f64 / total_ops as f64) * 100.0;
+                println!("  Reuse rate: {:.1}%", reuse_rate);
+            }
+            println!("================================\n");
         }
 
         // Explicit cleanup: Clear all variables to release GPU memory

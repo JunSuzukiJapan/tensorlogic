@@ -1,7 +1,7 @@
 //! Tensor accessor methods for shape, device, and buffer information
 
 use crate::autograd::NodeId;
-use crate::device::{BufferPool, Device};
+use crate::device::Device;
 use crate::tensor::{BufferHandle, FloatType, Tensor, TensorShape};
 
 /// Trait for accessing tensor properties
@@ -26,9 +26,6 @@ pub trait TensorAccessors<T: FloatType> {
 
     /// Get reference to buffer
     fn buffer(&self) -> &BufferHandle<T>;
-
-    /// Get the buffer pool reference (for creating output tensors, internal use)
-    fn buffer_pool(&self) -> Option<&BufferPool>;
 
     /// Check if tensor requires gradient
     fn requires_grad(&self) -> bool;
@@ -67,10 +64,6 @@ impl<T: FloatType> TensorAccessors<T> for Tensor<T> {
 
     fn buffer(&self) -> &BufferHandle<T> {
         &self.buffer
-    }
-
-    fn buffer_pool(&self) -> Option<&BufferPool> {
-        self.buffer_pool.as_ref()
     }
 
     fn requires_grad(&self) -> bool {

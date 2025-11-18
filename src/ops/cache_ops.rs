@@ -65,7 +65,6 @@ impl<T: FloatType> Tensor<T> {
             requires_grad: false,
             grad_node: None,
             version: 0,
-            buffer_pool: None,
             _phantom: std::marker::PhantomData,
         };
 
@@ -161,7 +160,6 @@ impl<T: FloatType> Tensor<T> {
             requires_grad: false,
             grad_node: None,
             version: cache.version + 1,
-            buffer_pool: cache.buffer_pool.clone(),
             _phantom: std::marker::PhantomData,
         })
     }

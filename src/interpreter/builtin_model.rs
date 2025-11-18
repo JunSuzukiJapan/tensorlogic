@@ -980,9 +980,8 @@ impl Interpreter {
             }
         };
 
-        // Get buffer pool statistics from Metal device
-        let device = self.env.metal_device();
-        let stats = device.buffer_pool_stats();
+        // Get buffer pool statistics from MetalBuffer global pool
+        let stats = crate::device::MetalBuffer::<half::f16>::pool_stats();
 
         println!("[GPU MEMORY] {}", label);
         println!("  Pooled buffers: {}", stats.total_pooled);

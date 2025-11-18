@@ -44,11 +44,7 @@ impl<T: FloatType> TensorTransform for Tensor<T> {
         let device_clone = self.device.clone();
         // eprintln!("[RESHAPE] Step 4: DONE");
 
-        // eprintln!("[RESHAPE] Step 5: Cloning buffer_pool...");
-        let pool_clone = self.buffer_pool.clone();
-        // eprintln!("[RESHAPE] Step 5: DONE");
-
-        // eprintln!("[RESHAPE] Step 6: Creating new tensor struct...");
+        // eprintln!("[RESHAPE] Step 5: Creating new tensor struct...");
         let result = Self {
             shape: new_tensor_shape.clone(),
             strides: new_strides,
@@ -58,10 +54,9 @@ impl<T: FloatType> TensorTransform for Tensor<T> {
             requires_grad: self.requires_grad,
             grad_node: None,
             version: 0,
-            buffer_pool: pool_clone,
             _phantom: PhantomData,
         };
-        // eprintln!("[RESHAPE] Step 6: DONE");
+        // eprintln!("[RESHAPE] Step 5: DONE");
 
         // eprintln!("[RESHAPE] === Exit ===");
         Ok(result)

@@ -1,6 +1,6 @@
 //! Tensor creation methods
 
-use crate::device::{BufferPool, Device, MetalBuffer, MetalDevice};
+use crate::device::{Device, MetalBuffer, MetalDevice};
 use crate::error::{TensorError, TensorResult};
 use crate::tensor::{BufferHandle, FloatType, Tensor, TensorShape};
 use crate::tensor::TensorAccessors;
@@ -15,12 +15,12 @@ pub trait TensorCreation<T: FloatType>: Sized {
     /// For Metal tensors, this enables automatic buffer recycling when the tensor is dropped.
     fn new(buffer: BufferHandle<T>, shape: TensorShape, device: Device) -> TensorResult<Self>;
 
-    /// Create a new tensor with buffer pool support for automatic recycling (internal use)
+    /// Create a new tensor (internal use)
+    /// BufferPool is now managed internally by MetalBuffer
     fn new_with_pool(
         buffer: BufferHandle<T>,
         shape: TensorShape,
         device: Device,
-        buffer_pool: Option<BufferPool>,
     ) -> TensorResult<Self>;
 
     /// Create a new tensor from this tensor's buffer pool (internal use)
@@ -53,21 +53,14 @@ pub trait TensorCreation<T: FloatType>: Sized {
 
 impl<T: FloatType> TensorCreation<T> for Tensor<T> {
     fn new(buffer: BufferHandle<T>, shape: TensorShape, device: Device) -> TensorResult<Self> {
-        // Automatically get buffer_pool from Metal device
-        let buffer_pool = match &device {
-            Device::Metal(metal_device) => Some(metal_device.buffer_pool().clone()),
-            #[allow(unreachable_patterns)]
-            _ => None,
-        };
-
-        Self::new_with_pool(buffer, shape, device, buffer_pool)
+        // BufferPool is now managed internally by MetalBuffer
+        Self::new_with_pool(buffer, shape, device)
     }
 
     fn new_with_pool(
         buffer: BufferHandle<T>,
         shape: TensorShape,
         device: Device,
-        buffer_pool: Option<BufferPool>,
     ) -> TensorResult<Self> {
         let expected_len = shape.numel();
         let actual_len = buffer.len();
@@ -90,7 +83,6 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
             requires_grad: false,
             grad_node: None,
             version: 0,
-            buffer_pool,
             _phantom: PhantomData,
         })
     }
@@ -104,7 +96,6 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
             buffer,
             shape,
             self.device.clone(),
-            self.buffer_pool.clone(),
         )
     }
 
@@ -159,7 +150,6 @@ impl<T: FloatType> TensorCreation<T> for Tensor<T> {
             buffer,
             shape,
             Device::Metal(device.clone()),
-            Some(device.buffer_pool().clone()),
         )
     }
 

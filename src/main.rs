@@ -517,7 +517,7 @@ fn run_file_impl(
                         eprintln!("Memory change: {:+.2} MB", memory_diff as f64 / 1_048_576.0);
 
                         // Also show buffer pool stats for context
-                        let pool_stats = device.buffer_pool().stats();
+                        let pool_stats = tensorlogic::device::MetalBuffer::<half::f16>::pool_stats();
                         eprintln!("\nBuffer Pool Stats:");
                         eprintln!("  Pooled buffers: {}", pool_stats.total_pooled);
                         eprintln!("  Pool memory: {:.2} MB", pool_stats.total_memory as f64 / 1_048_576.0);

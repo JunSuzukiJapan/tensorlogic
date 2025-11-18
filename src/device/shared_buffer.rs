@@ -139,8 +139,6 @@ impl SharedBuffer {
             buffer: Arc::new(self.metal_buffer.clone()),
             length: self.count,
             _phantom: PhantomData,
-            pool: None,
-            size_class: None,
             device: device.clone(),
         }
     }

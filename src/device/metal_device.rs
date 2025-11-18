@@ -1,6 +1,6 @@
 //! Metal device management
 
-use crate::device::{BufferPool, Commands};
+use crate::device::Commands;
 use crate::error::{TensorError, TensorResult};
 use metal::{Device as MTLDevice, CommandQueue, Library};
 use std::io::Write;
@@ -20,7 +20,6 @@ pub struct MetalDevice {
     device: Arc<MTLDevice>,
     command_queue: Arc<CommandQueue>,
     library: Option<Arc<Library>>,
-    buffer_pool: BufferPool,
     /// Command buffer manager for efficient batching
     commands: Arc<Mutex<Commands>>,
 }
@@ -56,10 +55,6 @@ impl MetalDevice {
         let command_queue = device.new_command_queue();
         let command_queue = Arc::new(command_queue);
 
-        // Optimize buffer pool capacity for scope management
-        // With proper scope cleanup, we only need buffers for active layers
-        let buffer_pool = BufferPool::with_capacity(&device, 30);
-
         // Create Commands manager for efficient batching
         let commands = Commands::new(command_queue.clone())?;
 
@@ -67,7 +62,6 @@ impl MetalDevice {
             device: Arc::new(device),
             command_queue,
             library: None,
-            buffer_pool,
             commands: Arc::new(Mutex::new(commands)),
         };
 
@@ -83,10 +77,6 @@ impl MetalDevice {
         let command_queue = device.new_command_queue();
         let command_queue = Arc::new(command_queue);
 
-        // Optimize buffer pool capacity for scope management
-        // With proper scope cleanup, we only need buffers for active layers
-        let buffer_pool = BufferPool::with_capacity(&device, 30);
-
         // Create Commands manager for efficient batching
         let commands = Commands::new(command_queue.clone())?;
 
@@ -94,44 +84,10 @@ impl MetalDevice {
             device: Arc::new(device),
             command_queue,
             library: None,
-            buffer_pool,
             commands: Arc::new(Mutex::new(commands)),
         })
     }
 
-    /// Get the buffer pool for efficient buffer allocation
-    pub fn buffer_pool(&self) -> &BufferPool {
-        &self.buffer_pool
-    }
-
-    /// Get buffer pool statistics
-    pub fn buffer_pool_stats(&self) -> crate::device::buffer_pool::PoolStats {
-        self.buffer_pool.stats()
-    }
-
-    /// Print buffer pool statistics to stdout
-    pub fn print_buffer_pool_stats(&self, label: &str) {
-        let stats = self.buffer_pool.stats();
-        println!("\n=== Buffer Pool Stats: {} ===", label);
-        println!("  Pooled buffers: {}", stats.total_pooled);
-        println!("  Size classes: {}", stats.size_classes);
-        println!("  Total memory: {} MB", stats.total_memory / 1_048_576);
-        println!("  Allocations: {}", stats.allocation_count);
-        println!("  Reuses: {}", stats.reuse_count);
-        println!("  Evictions: {}", stats.eviction_count);
-
-        let total_ops = stats.allocation_count + stats.reuse_count;
-        if total_ops > 0 {
-            let reuse_rate = (stats.reuse_count as f64 / total_ops as f64) * 100.0;
-            println!("  Reuse rate: {:.1}%", reuse_rate);
-        }
-        println!("================================\n");
-    }
-
-    /// Print current buffer pool statistics (to stderr for monitoring)
-    pub fn print_current_buffer_stats(&self, label: &str) {
-        self.buffer_pool.print_current_stats(label);
-    }
 
     /// Check actual Metal GPU memory availability before allocation
     ///
@@ -166,7 +122,7 @@ impl MetalDevice {
 
         if available < required {
             // Also try to shrink buffer pool before panicking
-            self.buffer_pool.check_and_shrink();
+            crate::device::MetalBuffer::<half::f16>::shrink_pool();
 
             // Re-check after shrinking
             let current_allocated_after = self.device.current_allocated_size();
@@ -192,11 +148,6 @@ impl MetalDevice {
                 );
             }
         }
-    }
-
-    /// Check and shrink buffer pool if memory limit exceeded
-    pub fn check_buffer_pool_memory(&self) -> bool {
-        self.buffer_pool.check_and_shrink()
     }
 
     /// Get the underlying Metal device
@@ -332,7 +283,7 @@ impl MetalDevice {
     /// release GPU memory immediately. Should only be called when a memory leak
     /// is detected at program end.
     pub fn purge_all_buffers(&self) {
-        self.buffer_pool.purge_all_buffers();
+        crate::device::MetalBuffer::<half::f16>::purge_all_buffers();
     }
 
     /// Check if model size fits in available GPU memory

@@ -36,22 +36,22 @@ fn test_simple(device: &MetalDevice) -> TensorResult<()> {
     println!("[Test: Simple Buffer Allocation]\n");
 
     // Initial stats
-    print_stats(device, "Initial");
+    print_stats("Initial");
 
     // Allocate some tensors
     {
         let _t1 = Tensor::<f16>::zeros(device, vec![100, 100])?;
-        print_stats(device, "After t1 allocation");
+        print_stats("After t1 allocation");
 
         let _t2 = Tensor::<f16>::zeros(device, vec![100, 100])?;
-        print_stats(device, "After t2 allocation");
+        print_stats("After t2 allocation");
 
         let _t3 = Tensor::<f16>::zeros(device, vec![200, 200])?;
-        print_stats(device, "After t3 allocation");
+        print_stats("After t3 allocation");
     }
 
     // After tensors go out of scope
-    print_stats(device, "After scope exit");
+    print_stats("After scope exit");
 
     Ok(())
 }
@@ -59,7 +59,7 @@ fn test_simple(device: &MetalDevice) -> TensorResult<()> {
 fn test_layers(device: &MetalDevice) -> TensorResult<()> {
     println!("[Test: Sequential Layer Processing]\n");
 
-    print_stats(device, "Initial");
+    print_stats("Initial");
 
     // Simulate 5 layers
     for i in 0..5 {
@@ -76,17 +76,17 @@ fn test_layers(device: &MetalDevice) -> TensorResult<()> {
             let _ffn_up = Tensor::<f16>::zeros(device, vec![29, 5632])?;
             let _output = Tensor::<f16>::zeros(device, vec![29, 2048])?;
 
-            print_stats(device, &format!("Layer {} - inside scope", i));
+            print_stats(&format!("Layer {} - inside scope", i));
         }
 
-        print_stats(device, &format!("Layer {} - after scope", i));
+        print_stats(&format!("Layer {} - after scope", i));
     }
 
     Ok(())
 }
 
-fn print_stats(device: &MetalDevice, label: &str) {
-    let stats = device.buffer_pool_stats();
+fn print_stats(label: &str) {
+    let stats = tensorlogic::device::MetalBuffer::<half::f16>::pool_stats();
 
     println!("--- {} ---", label);
     println!("  Pooled buffers: {}", stats.total_pooled);

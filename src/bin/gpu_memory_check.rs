@@ -11,7 +11,6 @@ use std::env;
 use std::io::Write;
 use std::thread;
 use std::time::Duration;
-use tensorlogic::device::MetalDevice;
 
 fn format_bytes(bytes: usize) -> String {
     const KB: f64 = 1024.0;
@@ -34,8 +33,8 @@ fn format_bytes(bytes: usize) -> String {
     }
 }
 
-fn show_memory_info(device: &MetalDevice, show_header: bool, show_details: bool) {
-    let stats = device.buffer_pool_stats();
+fn show_memory_info(show_header: bool, show_details: bool) {
+    let stats = tensorlogic::device::MetalBuffer::<half::f16>::pool_stats();
 
     if show_header {
         println!("╔═══════════════════════════════════════════════════╗");
@@ -119,15 +118,6 @@ fn main() {
         return;
     }
 
-    // Initialize Metal device
-    let device = match MetalDevice::new() {
-        Ok(dev) => dev,
-        Err(e) => {
-            eprintln!("Error: Failed to initialize Metal device: {}", e);
-            std::process::exit(1);
-        }
-    };
-
     if watch_mode {
         println!("Monitoring GPU memory usage (press Ctrl+C to stop)");
         println!("Update interval: {} seconds", interval_secs);
@@ -136,10 +126,10 @@ fn main() {
         let mut iteration = 0;
         loop {
             if iteration == 0 {
-                show_memory_info(&device, true, show_details);
+                show_memory_info(true, show_details);
             } else {
                 // Show compact format for continuous monitoring
-                let stats = device.buffer_pool_stats();
+                let stats = tensorlogic::device::MetalBuffer::<half::f16>::pool_stats();
                 print!("\r[Update #{}] GPU Memory: {} (Buffers: {}) ",
                     iteration,
                     format_bytes(stats.total_memory),
@@ -153,6 +143,6 @@ fn main() {
         }
     } else {
         // Single check mode
-        show_memory_info(&device, true, show_details);
+        show_memory_info(true, show_details);
     }
 }

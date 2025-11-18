@@ -191,8 +191,6 @@ impl TensorBuffer {
             buffer: sub_buffer.base_buffer.clone(),
             length: numel,
             _phantom: PhantomData,
-            pool: None,
-            size_class: None,
             device: self.device.clone(),
         };
 
@@ -224,8 +222,6 @@ impl TensorBuffer {
             buffer: self.buffer.clone(),
             length: numel,
             _phantom: PhantomData,
-            pool: None,
-            size_class: None,
             device: self.device.clone(),
         };
 
