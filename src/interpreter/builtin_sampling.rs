@@ -10,8 +10,10 @@ impl Interpreter {
         match name {
             "softmax" => Some(self.eval_softmax(args)),
             "temperature_sample" => Some(self.eval_temperature_sample(args)),
-            "sample" | "top_k" | "top_p" | "top_p_sample" |
-            "temperature" | "argmax" | "argmin" => {
+            "argmax" => Some(self.eval_argmax(args)),
+            "top_k" => Some(self.eval_top_k(args)),
+            "top_p" => Some(self.eval_top_p(args)),
+            "sample" | "top_p_sample" | "temperature" | "argmin" => {
                 Some(Err(RuntimeError::NotImplemented(
                     format!("Sampling function '{}' migration in progress", name)
                 )))
@@ -98,6 +100,260 @@ impl Interpreter {
                 "temperature_sample() expects tensor (f16 or f32)".to_string()
             ))
         }
+    }
+
+    /// argmax(tensor) -> int
+    /// Returns the index of the maximum value in the tensor
+    /// For greedy sampling: argmax(logits) returns the token ID with highest probability
+    fn eval_argmax(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+        use crate::tensor::TensorAccessors;
+
+        if args.len() != 1 {
+            return Err(RuntimeError::TypeError(
+                format!("argmax() expects 1 argument (tensor), got {}", args.len())
+            ));
+        }
+
+        // Evaluate tensor argument
+        let tensor_val = self.eval_expr(&args[0])?;
+
+        Ok(match tensor_val {
+            Value::TensorF16(tensor) => {
+                // Read tensor data and find max index
+                let data = tensor.sync_and_read_f32();
+                let (max_idx, _) = data.iter().enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .ok_or_else(|| RuntimeError::TensorError(
+                        crate::error::TensorError::InvalidOperation("Empty tensor".to_string())
+                    ))?;
+                Value::Integer(max_idx as i64)
+            }
+            Value::TensorF32(tensor) => {
+                // Read tensor data and find max index
+                let data = tensor.sync_and_read_f32();
+                let (max_idx, _) = data.iter().enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .ok_or_else(|| RuntimeError::TensorError(
+                        crate::error::TensorError::InvalidOperation("Empty tensor".to_string())
+                    ))?;
+                Value::Integer(max_idx as i64)
+            }
+            _ => return Err(RuntimeError::TypeError("argmax() expects tensor (f16 or f32)".to_string()))
+        })
+    }
+
+    /// top_k(tensor, k) -> tensor
+    /// Filters tensor to keep only top-k values, sets others to -inf
+    /// For Top-K sampling: top_k(logits, k=3) keeps only 3 highest values
+    fn eval_top_k(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+        use crate::tensor::{TensorCreation, TensorAccessors};
+
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("top_k() expects 2 arguments (tensor, k), got {}", args.len())
+            ));
+        }
+
+        // Evaluate tensor argument
+        let tensor_val = self.eval_expr(&args[0])?;
+
+        // Evaluate k parameter
+        let k_val = self.eval_expr(&args[1])?;
+        let k = match k_val {
+            Value::Integer(i) => i as usize,
+            _ => return Err(RuntimeError::TypeError("top_k() k must be an integer".to_string())),
+        };
+
+        Ok(match tensor_val {
+            Value::TensorF16(tensor) => {
+                // Read tensor data
+                let data = tensor.sync_and_read_f32();
+
+                // Create index-value pairs and sort by value (descending)
+                let mut indexed: Vec<(usize, f32)> = data.iter().enumerate()
+                    .map(|(i, &v)| (i, v))
+                    .collect();
+                indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+                // Keep top-k indices
+                let top_k_indices: std::collections::HashSet<usize> =
+                    indexed.iter().take(k).map(|(i, _)| *i).collect();
+
+                // Create filtered data (-inf for non-top-k)
+                let filtered: Vec<f32> = data.iter().enumerate()
+                    .map(|(i, &v)| if top_k_indices.contains(&i) { v } else { f32::NEG_INFINITY })
+                    .collect();
+
+                // Convert to f16 and create tensor
+                let f16_data: Vec<half::f16> = filtered.iter()
+                    .map(|&x| half::f16::from_f32(x))
+                    .collect();
+                let device = self.env.metal_device();
+                let result = crate::tensor::Tensor::from_vec_gpu(device, f16_data, tensor.dims().to_vec())
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                result.to_value()
+            }
+            Value::TensorF32(tensor) => {
+                // Read tensor data
+                let data = tensor.sync_and_read_f32();
+
+                // Create index-value pairs and sort by value (descending)
+                let mut indexed: Vec<(usize, f32)> = data.iter().enumerate()
+                    .map(|(i, &v)| (i, v))
+                    .collect();
+                indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+                // Keep top-k indices
+                let top_k_indices: std::collections::HashSet<usize> =
+                    indexed.iter().take(k).map(|(i, _)| *i).collect();
+
+                // Create filtered data (-inf for non-top-k)
+                let filtered: Vec<f32> = data.iter().enumerate()
+                    .map(|(i, &v)| if top_k_indices.contains(&i) { v } else { f32::NEG_INFINITY })
+                    .collect();
+
+                // Create tensor
+                let device = self.env.metal_device();
+                let result = crate::tensor::Tensor::from_vec_gpu(device, filtered, tensor.dims().to_vec())
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                result.to_value()
+            }
+            _ => return Err(RuntimeError::TypeError("top_k() expects tensor (f16 or f32)".to_string()))
+        })
+    }
+
+    /// top_p(tensor, p) -> tensor
+    /// Filters tensor to keep values until cumulative probability reaches p (nucleus sampling)
+    /// For Top-P sampling: top_p(logits, p=0.9) keeps values covering 90% probability mass
+    fn eval_top_p(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+        use crate::interpreter::value::ToValue;
+        use crate::tensor::{TensorCreation, TensorAccessors};
+
+        if args.len() != 2 {
+            return Err(RuntimeError::TypeError(
+                format!("top_p() expects 2 arguments (tensor, p), got {}", args.len())
+            ));
+        }
+
+        // Evaluate tensor argument
+        let tensor_val = self.eval_expr(&args[0])?;
+
+        // Evaluate p parameter
+        let p_val = self.eval_expr(&args[1])?;
+        let p = match p_val {
+            Value::Float(f) => f as f32,
+            Value::Integer(i) => i as f32,
+            _ => return Err(RuntimeError::TypeError("top_p() p must be a number".to_string())),
+        };
+
+        if p < 0.0 || p > 1.0 {
+            return Err(RuntimeError::TypeError("top_p() p must be in range [0.0, 1.0]".to_string()));
+        }
+
+        Ok(match tensor_val {
+            Value::TensorF16(tensor) => {
+                // Read tensor data
+                let data = tensor.sync_and_read_f32();
+
+                // Compute softmax probabilities
+                let max_logit = data.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                let mut probs: Vec<f32> = Vec::with_capacity(data.len());
+                let mut exp_sum = 0.0f32;
+
+                for &logit in &data {
+                    let exp_val = (logit - max_logit).exp();
+                    probs.push(exp_val);
+                    exp_sum += exp_val;
+                }
+
+                for prob in &mut probs {
+                    *prob /= exp_sum;
+                }
+
+                // Create index-probability pairs and sort by probability (descending)
+                let mut indexed: Vec<(usize, f32)> = probs.iter().enumerate()
+                    .map(|(i, &v)| (i, v))
+                    .collect();
+                indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+                // Find indices to keep (cumulative probability <= p)
+                let mut cumulative = 0.0f32;
+                let mut nucleus_indices = std::collections::HashSet::new();
+
+                for (idx, prob) in indexed {
+                    nucleus_indices.insert(idx);
+                    cumulative += prob;
+                    if cumulative >= p {
+                        break;
+                    }
+                }
+
+                // Create filtered data (-inf for values outside nucleus)
+                let filtered: Vec<f32> = data.iter().enumerate()
+                    .map(|(i, &v)| if nucleus_indices.contains(&i) { v } else { f32::NEG_INFINITY })
+                    .collect();
+
+                // Convert to f16 and create tensor
+                let f16_data: Vec<half::f16> = filtered.iter()
+                    .map(|&x| half::f16::from_f32(x))
+                    .collect();
+                let device = self.env.metal_device();
+                let result = crate::tensor::Tensor::from_vec_gpu(device, f16_data, tensor.dims().to_vec())
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                result.to_value()
+            }
+            Value::TensorF32(tensor) => {
+                // Read tensor data
+                let data = tensor.sync_and_read_f32();
+
+                // Compute softmax probabilities
+                let max_logit = data.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                let mut probs: Vec<f32> = Vec::with_capacity(data.len());
+                let mut exp_sum = 0.0f32;
+
+                for &logit in &data {
+                    let exp_val = (logit - max_logit).exp();
+                    probs.push(exp_val);
+                    exp_sum += exp_val;
+                }
+
+                for prob in &mut probs {
+                    *prob /= exp_sum;
+                }
+
+                // Create index-probability pairs and sort by probability (descending)
+                let mut indexed: Vec<(usize, f32)> = probs.iter().enumerate()
+                    .map(|(i, &v)| (i, v))
+                    .collect();
+                indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+                // Find indices to keep (cumulative probability <= p)
+                let mut cumulative = 0.0f32;
+                let mut nucleus_indices = std::collections::HashSet::new();
+
+                for (idx, prob) in indexed {
+                    nucleus_indices.insert(idx);
+                    cumulative += prob;
+                    if cumulative >= p {
+                        break;
+                    }
+                }
+
+                // Create filtered data (-inf for values outside nucleus)
+                let filtered: Vec<f32> = data.iter().enumerate()
+                    .map(|(i, &v)| if nucleus_indices.contains(&i) { v } else { f32::NEG_INFINITY })
+                    .collect();
+
+                // Create tensor
+                let device = self.env.metal_device();
+                let result = crate::tensor::Tensor::from_vec_gpu(device, filtered, tensor.dims().to_vec())
+                    .map_err(|e| RuntimeError::TensorError(e))?;
+                result.to_value()
+            }
+            _ => return Err(RuntimeError::TypeError("top_p() expects tensor (f16 or f32)".to_string()))
+        })
     }
 
     /// Temperature sampling implementation (Candle-style: always use CPU)
