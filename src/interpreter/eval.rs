@@ -2737,6 +2737,40 @@ impl Interpreter {
                     ))),
                 }
             }
+            // String repetition: "abc" * 3 => "abcabcabc"
+            (Value::String(s), Value::Integer(n)) => {
+                match op {
+                    BinaryOp::Mul => {
+                        if n < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "String repetition count must be non-negative".to_string()
+                            ));
+                        }
+                        Ok(Value::String(s.repeat(n as usize)))
+                    }
+                    _ => Err(RuntimeError::InvalidOperation(format!(
+                        "Operation {:?} not supported for String and Integer",
+                        op
+                    ))),
+                }
+            }
+            // Allow reverse order: 3 * "abc" => "abcabcabc"
+            (Value::Integer(n), Value::String(s)) => {
+                match op {
+                    BinaryOp::Mul => {
+                        if n < 0 {
+                            return Err(RuntimeError::InvalidOperation(
+                                "String repetition count must be non-negative".to_string()
+                            ));
+                        }
+                        Ok(Value::String(s.repeat(n as usize)))
+                    }
+                    _ => Err(RuntimeError::InvalidOperation(format!(
+                        "Operation {:?} not supported for Integer and String",
+                        op
+                    ))),
+                }
+            }
             (Value::Integer(l), Value::Integer(r)) => {
                 match op {
                     BinaryOp::Add => Ok(Value::Integer(l + r)),
