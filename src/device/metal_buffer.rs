@@ -35,10 +35,10 @@ impl<T: FloatType> std::fmt::Debug for MetalBuffer<T> {
 impl<T: FloatType> MetalBuffer<T> {
     /// Create a new Metal buffer from slice
     pub fn from_slice(device: &MetalDevice, data: &[T]) -> TensorResult<Self> {
-        // Check GPU memory before allocation to prevent hangs
-        device.check_gpu_memory()?;
-
         let byte_length = data.len() * T::size_in_bytes();
+
+        // Check GPU memory before allocation to prevent hangs
+        device.check_gpu_memory(byte_length as u64);
 
         let buffer = device.metal_device().new_buffer_with_data(
             data.as_ptr() as *const _,
@@ -58,10 +58,10 @@ impl<T: FloatType> MetalBuffer<T> {
 
     /// Create a new uninitialized Metal buffer
     pub fn new_uninit(device: &MetalDevice, length: usize) -> TensorResult<Self> {
-        // Check GPU memory before allocation to prevent hangs
-        device.check_gpu_memory()?;
-
         let byte_length = length * T::size_in_bytes();
+
+        // Check GPU memory before allocation to prevent hangs
+        device.check_gpu_memory(byte_length as u64);
 
         let buffer = device.metal_device().new_buffer(
             byte_length as u64,
@@ -80,8 +80,10 @@ impl<T: FloatType> MetalBuffer<T> {
 
     /// Create a new Metal buffer filled with zeros
     pub fn zeros(device: &MetalDevice, length: usize) -> TensorResult<Self> {
+        let byte_length = length * T::size_in_bytes();
+
         // Check GPU memory before allocation to prevent hangs
-        device.check_gpu_memory()?;
+        device.check_gpu_memory(byte_length as u64);
 
         let zeros = vec![T::zero(); length];
         Self::from_slice(device, &zeros)
@@ -89,8 +91,10 @@ impl<T: FloatType> MetalBuffer<T> {
 
     /// Create a new Metal buffer filled with ones
     pub fn ones(device: &MetalDevice, length: usize) -> TensorResult<Self> {
+        let byte_length = length * T::size_in_bytes();
+
         // Check GPU memory before allocation to prevent hangs
-        device.check_gpu_memory()?;
+        device.check_gpu_memory(byte_length as u64);
 
         let ones = vec![T::one(); length];
         Self::from_slice(device, &ones)
@@ -223,16 +227,20 @@ impl<T: FloatType> MetalBuffer<T> {
 impl<T: FloatType> MetalBuffer<T> {
     /// Create a new uninitialized Metal buffer from pool
     pub fn new_uninit_pooled(device: &crate::device::MetalDevice, length: usize) -> TensorResult<Self> {
+        let byte_length = length * T::size_in_bytes();
+
         // Check GPU memory before allocation to prevent hangs
-        device.check_gpu_memory()?;
+        device.check_gpu_memory(byte_length as u64);
 
         device.buffer_pool().allocate::<T>(device, length)
     }
 
     /// Create a new Metal buffer filled with zeros from pool
     pub fn zeros_pooled(device: &crate::device::MetalDevice, length: usize) -> TensorResult<Self> {
+        let byte_length = length * T::size_in_bytes();
+
         // Check GPU memory before allocation to prevent hangs
-        device.check_gpu_memory()?;
+        device.check_gpu_memory(byte_length as u64);
 
         device.buffer_pool().allocate_zeros::<T>(device, length)
     }
@@ -242,10 +250,10 @@ impl<T: FloatType> MetalBuffer<T> {
     /// For now, this is identical to the original from_slice implementation
     /// to maintain compatibility while we transition to pooled buffers.
     pub fn from_vec_pooled(device: &crate::device::MetalDevice, data: &[T]) -> TensorResult<Self> {
-        // Check GPU memory before allocation to prevent hangs
-        device.check_gpu_memory()?;
-
         let byte_length = data.len() * T::size_in_bytes();
+
+        // Check GPU memory before allocation to prevent hangs
+        device.check_gpu_memory(byte_length as u64);
 
         let buffer = device.metal_device().new_buffer_with_data(
             data.as_ptr() as *const _,

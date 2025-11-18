@@ -135,15 +135,22 @@ impl MetalDevice {
 
     /// Check actual Metal GPU memory availability before allocation
     ///
-    /// Returns TensorError if available GPU memory is too low to prevent system hangs.
+    /// Panics if insufficient GPU memory to prevent system hangs.
     /// This checks the real Metal device memory using `recommended_max_working_set_size()`
     /// and `current_allocated_size()`.
     ///
+    /// # Arguments
+    /// * `allocation_size` - Size in bytes to be allocated
+    ///
+    /// # Panics
+    /// Panics if available memory < allocation_size + 100 MB safety margin
+    ///
     /// # Example
     /// ```ignore
-    /// device.check_gpu_memory()?; // Fails if < 100 MB available
+    /// let size_bytes = length * std::mem::size_of::<f16>();
+    /// device.check_gpu_memory(size_bytes as u64); // Panics if insufficient
     /// ```
-    pub fn check_gpu_memory(&self) -> TensorResult<()> {
+    pub fn check_gpu_memory(&self, allocation_size: u64) {
         // Get Metal device memory info
         let recommended_max = self.device.recommended_max_working_set_size();
         let current_allocated = self.device.current_allocated_size();
@@ -151,25 +158,40 @@ impl MetalDevice {
         // Calculate available memory
         let available = recommended_max.saturating_sub(current_allocated);
 
-        // Minimum required free memory: 100 MB
-        const MIN_FREE_MEMORY_MB: u64 = 100;
-        const MIN_FREE_MEMORY_BYTES: u64 = MIN_FREE_MEMORY_MB * 1_048_576;
+        // Safety margin: 100 MB extra beyond allocation size
+        const SAFETY_MARGIN_MB: u64 = 100;
+        const SAFETY_MARGIN_BYTES: u64 = SAFETY_MARGIN_MB * 1_048_576;
 
-        if available < MIN_FREE_MEMORY_BYTES {
-            return Err(TensorError::MetalError(format!(
-                "Insufficient GPU memory: available={:.2} MB, current={:.2} MB, max={:.2} MB. \
-                 Need at least {} MB free to prevent system hang.",
-                available as f64 / 1_048_576.0,
-                current_allocated as f64 / 1_048_576.0,
-                recommended_max as f64 / 1_048_576.0,
-                MIN_FREE_MEMORY_MB
-            )));
+        let required = allocation_size.saturating_add(SAFETY_MARGIN_BYTES);
+
+        if available < required {
+            // Also try to shrink buffer pool before panicking
+            self.buffer_pool.check_and_shrink();
+
+            // Re-check after shrinking
+            let current_allocated_after = self.device.current_allocated_size();
+            let available_after = recommended_max.saturating_sub(current_allocated_after);
+
+            if available_after < required {
+                panic!(
+                    "GPU memory exhausted!\n\
+                     Requested: {:.2} MB + {:.2} MB margin = {:.2} MB\n\
+                     Available: {:.2} MB\n\
+                     Current allocated: {:.2} MB\n\
+                     Max recommended: {:.2} MB\n\
+                     Deficit: {:.2} MB\n\
+                     \n\
+                     System will hang if allocation proceeds. Terminating to prevent freeze.",
+                    allocation_size as f64 / 1_048_576.0,
+                    SAFETY_MARGIN_MB,
+                    required as f64 / 1_048_576.0,
+                    available_after as f64 / 1_048_576.0,
+                    current_allocated_after as f64 / 1_048_576.0,
+                    recommended_max as f64 / 1_048_576.0,
+                    (required.saturating_sub(available_after)) as f64 / 1_048_576.0
+                );
+            }
         }
-
-        // Also check buffer pool and shrink if needed
-        self.buffer_pool.check_and_shrink();
-
-        Ok(())
     }
 
     /// Check and shrink buffer pool if memory limit exceeded
