@@ -115,13 +115,14 @@ impl MetalDevice {
         let available = recommended_max.saturating_sub(current_allocated);
 
         // Safety margin: 100 MB extra beyond allocation size
-        const SAFETY_MARGIN_MB: u64 = 100;
+        const SAFETY_MARGIN_MB: u64 = 1000;
         const SAFETY_MARGIN_BYTES: u64 = SAFETY_MARGIN_MB * 1_048_576;
 
         let required = allocation_size.saturating_add(SAFETY_MARGIN_BYTES);
 
         if available < required {
             // Also try to shrink buffer pool before panicking
+            // Note: Pool is shared across all data types (f16/f32/etc), f16 is arbitrary
             crate::device::MetalBuffer::<half::f16>::shrink_pool();
 
             // Re-check after shrinking
