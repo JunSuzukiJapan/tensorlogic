@@ -1,58 +1,68 @@
 //! Candle-based operations for TensorLogic interpreter
-//! All functions in this module use the "cndl_" prefix to distinguish them from native implementations.
+//! All functions in this module use the Cndl type to organize Candle-based operations.
 
 use super::*;
 use candle_core::{DType, Device as CandleDevice, Tensor as CandleTensor};
 use candle_nn::ops;
 use std::sync::Arc;
 
+/// Cndl: A namespace for Candle-based operations
+pub struct Cndl;
+
 impl Interpreter {
     pub(super) fn eval_candle_function(&mut self, name: &str, args: &[TensorExpr]) -> Option<RuntimeResult<Value>> {
         match name {
             // Tensor operations
-            "cndl_matmul" => Some(self.eval_cndl_matmul(args)),
-            "cndl_transpose" => Some(self.eval_cndl_transpose(args)),
-            "cndl_reshape" => Some(self.eval_cndl_reshape(args)),
+            "cndl_matmul" => Some(Cndl::matmul(self, args)),
+            "cndl_transpose" => Some(Cndl::transpose(self, args)),
+            "cndl_reshape" => Some(Cndl::reshape(self, args)),
 
             // Math operations
-            "cndl_softmax" => Some(self.eval_cndl_softmax(args)),
-            "cndl_log_softmax" => Some(self.eval_cndl_log_softmax(args)),
+            "cndl_softmax" => Some(Cndl::softmax(self, args)),
+            "cndl_log_softmax" => Some(Cndl::log_softmax(self, args)),
 
             // Activation functions
-            "cndl_gelu" => Some(self.eval_cndl_gelu(args)),
-            "cndl_silu" => Some(self.eval_cndl_silu(args)),
-            "cndl_relu" => Some(self.eval_cndl_relu(args)),
-            "cndl_tanh" => Some(self.eval_cndl_tanh(args)),
+            "cndl_gelu" => Some(Cndl::gelu(self, args)),
+            "cndl_silu" => Some(Cndl::silu(self, args)),
+            "cndl_relu" => Some(Cndl::relu(self, args)),
+            "cndl_tanh" => Some(Cndl::tanh(self, args)),
 
             // Neural network operations
-            "cndl_layer_norm" => Some(self.eval_cndl_layer_norm(args)),
-            "cndl_rms_norm" => Some(self.eval_cndl_rms_norm(args)),
-            "cndl_embedding" => Some(self.eval_cndl_embedding(args)),
+            "cndl_layer_norm" => Some(Cndl::layer_norm(self, args)),
+            "cndl_rms_norm" => Some(Cndl::rms_norm(self, args)),
+            "cndl_embedding" => Some(Cndl::embedding(self, args)),
 
             // Position embeddings
-            "cndl_rope" => Some(self.eval_cndl_rope(args)),
+            "cndl_rope" => Some(Cndl::rope(self, args)),
 
             // Model loading and saving
-            "cndl_load_safetensor" => Some(self.eval_cndl_load_safetensor(args)),
-            "cndl_save_safetensor" => Some(self.eval_cndl_save_safetensor(args)),
-            "cndl_list_safetensors" => Some(self.eval_cndl_list_safetensors(args)),
-            "cndl_load_gguf_tensor" => Some(self.eval_cndl_load_gguf_tensor(args)),
-            "cndl_list_gguf_tensors" => Some(self.eval_cndl_list_gguf_tensors(args)),
+            "cndl_load_safetensor" => Some(Cndl::load_safetensor(self, args)),
+            "cndl_save_safetensor" => Some(Cndl::save_safetensor(self, args)),
+            "cndl_list_safetensors" => Some(Cndl::list_safetensors(self, args)),
+            "cndl_load_gguf_tensor" => Some(Cndl::load_gguf_tensor(self, args)),
+            "cndl_list_gguf_tensors" => Some(Cndl::list_gguf_tensors(self, args)),
 
             // Model save/load (full models with multiple tensors)
-            "cndl_save_model_safetensor" => Some(self.eval_cndl_save_model_safetensor(args)),
-            "cndl_load_model_safetensor" => Some(self.eval_cndl_load_model_safetensor(args)),
+            "cndl_save_model_safetensor" => Some(Cndl::save_model_safetensor(self, args)),
+            "cndl_load_model_safetensor" => Some(Cndl::load_model_safetensor(self, args)),
 
             _ => None,
         }
     }
 
+}
+
+// ============================================================================
+// Cndl implementation
+// ============================================================================
+
+impl Cndl {
     // ============================================================================
     // Helper functions for converting between TensorLogic and Candle tensors
     // ============================================================================
 
     /// Convert TensorLogic Tensor<f32> to Candle Tensor
-    fn tl_to_candle_f32(&self, tensor: &crate::tensor::Tensor<f32>) -> RuntimeResult<CandleTensor> {
+    fn tl_to_candle_f32(interpreter: &Interpreter, tensor: &crate::tensor::Tensor<f32>) -> RuntimeResult<CandleTensor> {
         let device = CandleDevice::new_metal(0)
             .map_err(|e| RuntimeError::TensorError(
                 crate::error::TensorError::InvalidOperation(format!("Failed to create Candle Metal device: {}", e))
@@ -68,7 +78,7 @@ impl Interpreter {
     }
 
     /// Convert TensorLogic Tensor<f16> to Candle Tensor
-    fn tl_to_candle_f16(&self, tensor: &crate::tensor::Tensor<half::f16>) -> RuntimeResult<CandleTensor> {
+    fn tl_to_candle_f16(interpreter: &Interpreter, tensor: &crate::tensor::Tensor<half::f16>) -> RuntimeResult<CandleTensor> {
         let device = CandleDevice::new_metal(0)
             .map_err(|e| RuntimeError::TensorError(
                 crate::error::TensorError::InvalidOperation(format!("Failed to create Candle Metal device: {}", e))
@@ -88,7 +98,7 @@ impl Interpreter {
     }
 
     /// Convert Candle Tensor to TensorLogic Tensor<f32>
-    fn candle_to_tl_f32(&self, tensor: CandleTensor) -> RuntimeResult<crate::tensor::Tensor<f32>> {
+    fn candle_to_tl_f32(interpreter: &Interpreter, tensor: CandleTensor) -> RuntimeResult<crate::tensor::Tensor<f32>> {
         use crate::tensor::TensorCreation;
 
         let shape = tensor.dims().to_vec();
@@ -102,13 +112,13 @@ impl Interpreter {
                 crate::error::TensorError::InvalidOperation(format!("Failed to convert Candle tensor to vec: {}", e))
             ))?;
 
-        let device = self.env.metal_device();
+        let device = interpreter.env.metal_device();
         crate::tensor::Tensor::<f32>::from_vec_gpu(device, data, shape)
             .map_err(|e| RuntimeError::TensorError(e))
     }
 
     /// Convert Candle Tensor to TensorLogic Tensor<f16>
-    fn candle_to_tl_f16(&self, tensor: CandleTensor) -> RuntimeResult<crate::tensor::Tensor<half::f16>> {
+    fn candle_to_tl_f16(interpreter: &Interpreter, tensor: CandleTensor) -> RuntimeResult<crate::tensor::Tensor<half::f16>> {
         use crate::tensor::TensorCreation;
 
         let shape = tensor.dims().to_vec();
@@ -135,7 +145,7 @@ impl Interpreter {
         // Convert f32 to f16
         let data_f16: Vec<half::f16> = data_f32.iter().map(|x| half::f16::from_f32(*x)).collect();
 
-        let device = self.env.metal_device();
+        let device = interpreter.env.metal_device();
         crate::tensor::Tensor::<half::f16>::from_vec_gpu(device, data_f16, shape)
             .map_err(|e| RuntimeError::TensorError(e))
     }
@@ -146,39 +156,39 @@ impl Interpreter {
 
     /// cndl_matmul(a, b) -> tensor
     /// Matrix multiplication using Candle: a @ b
-    fn eval_cndl_matmul(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn matmul(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_matmul() expects 2 arguments (a, b), got {}", args.len())
             ));
         }
 
-        let a_val = self.eval_expr(&args[0])?;
-        let b_val = self.eval_expr(&args[1])?;
+        let a_val = interpreter.eval_expr(&args[0])?;
+        let b_val = interpreter.eval_expr(&args[1])?;
 
         match (a_val, b_val) {
             (Value::TensorF32(ref a), Value::TensorF32(ref b)) => {
-                let a_candle = self.tl_to_candle_f32(a)?;
-                let b_candle = self.tl_to_candle_f32(b)?;
+                let a_candle = Self::tl_to_candle_f32(interpreter, a)?;
+                let b_candle = Self::tl_to_candle_f32(interpreter, b)?;
 
                 let result = a_candle.matmul(&b_candle)
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle matmul failed: {}", e))
                     ))?;
 
-                let result_tl = self.candle_to_tl_f32(result)?;
+                let result_tl = Self::candle_to_tl_f32(interpreter, result)?;
                 Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             (Value::TensorF16(ref a), Value::TensorF16(ref b)) => {
-                let a_candle = self.tl_to_candle_f16(a)?;
-                let b_candle = self.tl_to_candle_f16(b)?;
+                let a_candle = Self::tl_to_candle_f16(interpreter, a)?;
+                let b_candle = Self::tl_to_candle_f16(interpreter, b)?;
 
                 let result = a_candle.matmul(&b_candle)
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle matmul failed: {}", e))
                     ))?;
 
-                let result_tl = self.candle_to_tl_f16(result)?;
+                let result_tl = Self::candle_to_tl_f16(interpreter, result)?;
                 Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError(
@@ -189,16 +199,16 @@ impl Interpreter {
 
     /// cndl_transpose(x, dim0, dim1) -> tensor
     /// Transpose two dimensions using Candle
-    fn eval_cndl_transpose(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn transpose(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 3 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_transpose() expects 3 arguments (x, dim0, dim1), got {}", args.len())
             ));
         }
 
-        let x_val = self.eval_expr(&args[0])?;
-        let dim0_val = self.eval_expr(&args[1])?;
-        let dim1_val = self.eval_expr(&args[2])?;
+        let x_val = interpreter.eval_expr(&args[0])?;
+        let dim0_val = interpreter.eval_expr(&args[1])?;
+        let dim1_val = interpreter.eval_expr(&args[2])?;
 
         let dim0 = match dim0_val {
             Value::Integer(i) => i as usize,
@@ -212,21 +222,21 @@ impl Interpreter {
 
         match x_val {
             Value::TensorF32(ref x) => {
-                let x_candle = self.tl_to_candle_f32(x)?;
+                let x_candle = Self::tl_to_candle_f32(interpreter, x)?;
                 let result = x_candle.transpose(dim0, dim1)
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle transpose failed: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f32(result)?;
+                let result_tl = Self::candle_to_tl_f32(interpreter, result)?;
                 Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
-                let x_candle = self.tl_to_candle_f16(x)?;
+                let x_candle = Self::tl_to_candle_f16(interpreter, x)?;
                 let result = x_candle.transpose(dim0, dim1)
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle transpose failed: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f16(result)?;
+                let result_tl = Self::candle_to_tl_f16(interpreter, result)?;
                 Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_transpose() requires a tensor".to_string()))
@@ -235,15 +245,15 @@ impl Interpreter {
 
     /// cndl_softmax(x, dim) -> tensor
     /// Softmax operation using Candle
-    fn eval_cndl_softmax(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn softmax(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_softmax() expects 2 arguments (x, dim), got {}", args.len())
             ));
         }
 
-        let x_val = self.eval_expr(&args[0])?;
-        let dim_val = self.eval_expr(&args[1])?;
+        let x_val = interpreter.eval_expr(&args[0])?;
+        let dim_val = interpreter.eval_expr(&args[1])?;
 
         let dim = match dim_val {
             Value::Integer(i) => i as usize,
@@ -252,21 +262,21 @@ impl Interpreter {
 
         match x_val {
             Value::TensorF32(ref x) => {
-                let x_candle = self.tl_to_candle_f32(x)?;
+                let x_candle = Self::tl_to_candle_f32(interpreter, x)?;
                 let result = candle_nn::ops::softmax(&x_candle, dim)
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle softmax failed: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f32(result)?;
+                let result_tl = Self::candle_to_tl_f32(interpreter, result)?;
                 Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
-                let x_candle = self.tl_to_candle_f16(x)?;
+                let x_candle = Self::tl_to_candle_f16(interpreter, x)?;
                 let result = candle_nn::ops::softmax(&x_candle, dim)
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle softmax failed: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f16(result)?;
+                let result_tl = Self::candle_to_tl_f16(interpreter, result)?;
                 Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_softmax() requires a tensor".to_string()))
@@ -275,15 +285,15 @@ impl Interpreter {
 
     /// cndl_log_softmax(x, dim) -> tensor
     /// Log softmax operation using Candle
-    fn eval_cndl_log_softmax(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn log_softmax(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_log_softmax() expects 2 arguments (x, dim), got {}", args.len())
             ));
         }
 
-        let x_val = self.eval_expr(&args[0])?;
-        let dim_val = self.eval_expr(&args[1])?;
+        let x_val = interpreter.eval_expr(&args[0])?;
+        let dim_val = interpreter.eval_expr(&args[1])?;
 
         let dim = match dim_val {
             Value::Integer(i) => i as usize,
@@ -292,21 +302,21 @@ impl Interpreter {
 
         match x_val {
             Value::TensorF32(ref x) => {
-                let x_candle = self.tl_to_candle_f32(x)?;
+                let x_candle = Self::tl_to_candle_f32(interpreter, x)?;
                 let result = candle_nn::ops::log_softmax(&x_candle, dim)
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle log_softmax failed: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f32(result)?;
+                let result_tl = Self::candle_to_tl_f32(interpreter, result)?;
                 Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
-                let x_candle = self.tl_to_candle_f16(x)?;
+                let x_candle = Self::tl_to_candle_f16(interpreter, x)?;
                 let result = candle_nn::ops::log_softmax(&x_candle, dim)
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle log_softmax failed: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f16(result)?;
+                let result_tl = Self::candle_to_tl_f16(interpreter, result)?;
                 Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_log_softmax() requires a tensor".to_string()))
@@ -315,32 +325,32 @@ impl Interpreter {
 
     /// cndl_gelu(x) -> tensor
     /// GELU activation using Candle
-    fn eval_cndl_gelu(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn gelu(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_gelu() expects 1 argument (x), got {}", args.len())
             ));
         }
 
-        let x_val = self.eval_expr(&args[0])?;
+        let x_val = interpreter.eval_expr(&args[0])?;
 
         match x_val {
             Value::TensorF32(ref x) => {
-                let x_candle = self.tl_to_candle_f32(x)?;
+                let x_candle = Self::tl_to_candle_f32(interpreter, x)?;
                 let result = x_candle.gelu()
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle gelu failed: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f32(result)?;
+                let result_tl = Self::candle_to_tl_f32(interpreter, result)?;
                 Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
-                let x_candle = self.tl_to_candle_f16(x)?;
+                let x_candle = Self::tl_to_candle_f16(interpreter, x)?;
                 let result = x_candle.gelu()
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle gelu failed: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f16(result)?;
+                let result_tl = Self::candle_to_tl_f16(interpreter, result)?;
                 Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_gelu() requires a tensor".to_string()))
@@ -349,32 +359,32 @@ impl Interpreter {
 
     /// cndl_silu(x) -> tensor
     /// SiLU (Swish) activation using Candle
-    fn eval_cndl_silu(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn silu(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_silu() expects 1 argument (x), got {}", args.len())
             ));
         }
 
-        let x_val = self.eval_expr(&args[0])?;
+        let x_val = interpreter.eval_expr(&args[0])?;
 
         match x_val {
             Value::TensorF32(ref x) => {
-                let x_candle = self.tl_to_candle_f32(x)?;
+                let x_candle = Self::tl_to_candle_f32(interpreter, x)?;
                 let result = candle_nn::ops::silu(&x_candle)
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle silu failed: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f32(result)?;
+                let result_tl = Self::candle_to_tl_f32(interpreter, result)?;
                 Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
-                let x_candle = self.tl_to_candle_f16(x)?;
+                let x_candle = Self::tl_to_candle_f16(interpreter, x)?;
                 let result = candle_nn::ops::silu(&x_candle)
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle silu failed: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f16(result)?;
+                let result_tl = Self::candle_to_tl_f16(interpreter, result)?;
                 Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_silu() requires a tensor".to_string()))
@@ -383,32 +393,32 @@ impl Interpreter {
 
     /// cndl_relu(x) -> tensor
     /// ReLU activation using Candle
-    fn eval_cndl_relu(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn relu(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_relu() expects 1 argument (x), got {}", args.len())
             ));
         }
 
-        let x_val = self.eval_expr(&args[0])?;
+        let x_val = interpreter.eval_expr(&args[0])?;
 
         match x_val {
             Value::TensorF32(ref x) => {
-                let x_candle = self.tl_to_candle_f32(x)?;
+                let x_candle = Self::tl_to_candle_f32(interpreter, x)?;
                 let result = x_candle.relu()
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle relu failed: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f32(result)?;
+                let result_tl = Self::candle_to_tl_f32(interpreter, result)?;
                 Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
-                let x_candle = self.tl_to_candle_f16(x)?;
+                let x_candle = Self::tl_to_candle_f16(interpreter, x)?;
                 let result = x_candle.relu()
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle relu failed: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f16(result)?;
+                let result_tl = Self::candle_to_tl_f16(interpreter, result)?;
                 Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_relu() requires a tensor".to_string()))
@@ -417,32 +427,32 @@ impl Interpreter {
 
     /// cndl_tanh(x) -> tensor
     /// Tanh activation using Candle
-    fn eval_cndl_tanh(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn tanh(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_tanh() expects 1 argument (x), got {}", args.len())
             ));
         }
 
-        let x_val = self.eval_expr(&args[0])?;
+        let x_val = interpreter.eval_expr(&args[0])?;
 
         match x_val {
             Value::TensorF32(ref x) => {
-                let x_candle = self.tl_to_candle_f32(x)?;
+                let x_candle = Self::tl_to_candle_f32(interpreter, x)?;
                 let result = x_candle.tanh()
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle tanh failed: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f32(result)?;
+                let result_tl = Self::candle_to_tl_f32(interpreter, result)?;
                 Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
-                let x_candle = self.tl_to_candle_f16(x)?;
+                let x_candle = Self::tl_to_candle_f16(interpreter, x)?;
                 let result = x_candle.tanh()
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle tanh failed: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f16(result)?;
+                let result_tl = Self::candle_to_tl_f16(interpreter, result)?;
                 Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_tanh() requires a tensor".to_string()))
@@ -451,15 +461,15 @@ impl Interpreter {
 
     /// cndl_layer_norm(x, normalized_shape, weight, bias, eps) -> tensor
     /// Layer normalization using Candle
-    fn eval_cndl_layer_norm(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn layer_norm(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() < 2 || args.len() > 5 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_layer_norm() expects 2-5 arguments (x, normalized_shape, [weight], [bias], [eps]), got {}", args.len())
             ));
         }
 
-        let x_val = self.eval_expr(&args[0])?;
-        let normalized_shape_val = self.eval_expr(&args[1])?;
+        let x_val = interpreter.eval_expr(&args[0])?;
+        let normalized_shape_val = interpreter.eval_expr(&args[1])?;
 
         let normalized_shape = match normalized_shape_val {
             Value::Integer(i) => vec![i as usize],
@@ -475,7 +485,7 @@ impl Interpreter {
         };
 
         let eps = if args.len() >= 5 {
-            let eps_val = self.eval_expr(&args[4])?;
+            let eps_val = interpreter.eval_expr(&args[4])?;
             match eps_val {
                 Value::Float(f) => f,
                 Value::Integer(i) => i as f64,
@@ -489,7 +499,7 @@ impl Interpreter {
         // For now, just normalize without weight/bias
         match x_val {
             Value::TensorF32(ref x) => {
-                let x_candle = self.tl_to_candle_f32(x)?;
+                let x_candle = Self::tl_to_candle_f32(interpreter, x)?;
 
                 // Simple layer norm: (x - mean) / sqrt(var + eps)
                 let dims = x_candle.dims();
@@ -522,11 +532,11 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Broadcast div failed: {}", e))
                     ))?;
 
-                let result_tl = self.candle_to_tl_f32(result)?;
+                let result_tl = Self::candle_to_tl_f32(interpreter, result)?;
                 Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
-                let x_candle = self.tl_to_candle_f16(x)?;
+                let x_candle = Self::tl_to_candle_f16(interpreter, x)?;
 
                 let dims = x_candle.dims();
                 let last_dim = dims.len() - 1;
@@ -558,7 +568,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Broadcast div failed: {}", e))
                     ))?;
 
-                let result_tl = self.candle_to_tl_f16(result)?;
+                let result_tl = Self::candle_to_tl_f16(interpreter, result)?;
                 Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_layer_norm() requires a tensor".to_string()))
@@ -567,17 +577,17 @@ impl Interpreter {
 
     /// cndl_rms_norm(x, weight, eps) -> tensor
     /// RMS normalization using Candle
-    fn eval_cndl_rms_norm(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn rms_norm(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() < 1 || args.len() > 3 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_rms_norm() expects 1-3 arguments (x, [weight], [eps]), got {}", args.len())
             ));
         }
 
-        let x_val = self.eval_expr(&args[0])?;
+        let x_val = interpreter.eval_expr(&args[0])?;
 
         let eps = if args.len() >= 3 {
-            let eps_val = self.eval_expr(&args[2])?;
+            let eps_val = interpreter.eval_expr(&args[2])?;
             match eps_val {
                 Value::Float(f) => f,
                 Value::Integer(i) => i as f64,
@@ -590,7 +600,7 @@ impl Interpreter {
         // RMS norm: x / sqrt(mean(x^2) + eps)
         match x_val {
             Value::TensorF32(ref x) => {
-                let x_candle = self.tl_to_candle_f32(x)?;
+                let x_candle = Self::tl_to_candle_f32(interpreter, x)?;
 
                 let dims = x_candle.dims();
                 let last_dim = dims.len() - 1;
@@ -616,11 +626,11 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Broadcast div failed: {}", e))
                     ))?;
 
-                let result_tl = self.candle_to_tl_f32(result)?;
+                let result_tl = Self::candle_to_tl_f32(interpreter, result)?;
                 Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
-                let x_candle = self.tl_to_candle_f16(x)?;
+                let x_candle = Self::tl_to_candle_f16(interpreter, x)?;
 
                 let dims = x_candle.dims();
                 let last_dim = dims.len() - 1;
@@ -646,7 +656,7 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Broadcast div failed: {}", e))
                     ))?;
 
-                let result_tl = self.candle_to_tl_f16(result)?;
+                let result_tl = Self::candle_to_tl_f16(interpreter, result)?;
                 Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_rms_norm() requires a tensor".to_string()))
@@ -655,20 +665,20 @@ impl Interpreter {
 
     /// cndl_embedding(indices, embeddings) -> tensor
     /// Embedding lookup using Candle
-    fn eval_cndl_embedding(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn embedding(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_embedding() expects 2 arguments (indices, embeddings), got {}", args.len())
             ));
         }
 
-        let indices_val = self.eval_expr(&args[0])?;
-        let embeddings_val = self.eval_expr(&args[1])?;
+        let indices_val = interpreter.eval_expr(&args[0])?;
+        let embeddings_val = interpreter.eval_expr(&args[1])?;
 
         match (indices_val, embeddings_val) {
             (Value::TensorF32(ref indices), Value::TensorF32(ref embeddings)) => {
-                let indices_candle = self.tl_to_candle_f32(indices)?;
-                let embeddings_candle = self.tl_to_candle_f32(embeddings)?;
+                let indices_candle = Self::tl_to_candle_f32(interpreter, indices)?;
+                let embeddings_candle = Self::tl_to_candle_f32(interpreter, embeddings)?;
 
                 // Convert indices to u32
                 let indices_u32 = indices_candle.to_dtype(DType::U32)
@@ -681,12 +691,12 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle embedding failed: {}", e))
                     ))?;
 
-                let result_tl = self.candle_to_tl_f32(result)?;
+                let result_tl = Self::candle_to_tl_f32(interpreter, result)?;
                 Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             (Value::TensorF16(ref indices), Value::TensorF16(ref embeddings)) => {
-                let indices_candle = self.tl_to_candle_f16(indices)?;
-                let embeddings_candle = self.tl_to_candle_f16(embeddings)?;
+                let indices_candle = Self::tl_to_candle_f16(interpreter, indices)?;
+                let embeddings_candle = Self::tl_to_candle_f16(interpreter, embeddings)?;
 
                 let indices_u32 = indices_candle.to_dtype(DType::U32)
                     .map_err(|e| RuntimeError::TensorError(
@@ -698,29 +708,29 @@ impl Interpreter {
                         crate::error::TensorError::InvalidOperation(format!("Candle embedding failed: {}", e))
                     ))?;
 
-                let result_tl = self.candle_to_tl_f16(result)?;
+                let result_tl = Self::candle_to_tl_f16(interpreter, result)?;
                 Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             (Value::Integer(idx), Value::TensorF32(ref embeddings)) => {
-                let embeddings_candle = self.tl_to_candle_f32(embeddings)?;
+                let embeddings_candle = Self::tl_to_candle_f32(interpreter, embeddings)?;
 
                 let result = embeddings_candle.get(idx as usize)
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle embedding failed: {}", e))
                     ))?;
 
-                let result_tl = self.candle_to_tl_f32(result)?;
+                let result_tl = Self::candle_to_tl_f32(interpreter, result)?;
                 Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             (Value::Integer(idx), Value::TensorF16(ref embeddings)) => {
-                let embeddings_candle = self.tl_to_candle_f16(embeddings)?;
+                let embeddings_candle = Self::tl_to_candle_f16(interpreter, embeddings)?;
 
                 let result = embeddings_candle.get(idx as usize)
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle embedding failed: {}", e))
                     ))?;
 
-                let result_tl = self.candle_to_tl_f16(result)?;
+                let result_tl = Self::candle_to_tl_f16(interpreter, result)?;
                 Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError(
@@ -731,18 +741,18 @@ impl Interpreter {
 
     /// cndl_rope(x, position_ids, rope_theta) -> tensor
     /// Rotary Position Embedding using Candle
-    fn eval_cndl_rope(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn rope(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() < 2 || args.len() > 3 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_rope() expects 2-3 arguments (x, position_ids, [rope_theta]), got {}", args.len())
             ));
         }
 
-        let x_val = self.eval_expr(&args[0])?;
-        let position_ids_val = self.eval_expr(&args[1])?;
+        let x_val = interpreter.eval_expr(&args[0])?;
+        let position_ids_val = interpreter.eval_expr(&args[1])?;
 
         let rope_theta = if args.len() >= 3 {
-            let theta_val = self.eval_expr(&args[2])?;
+            let theta_val = interpreter.eval_expr(&args[2])?;
             match theta_val {
                 Value::Float(f) => f as f32,
                 Value::Integer(i) => i as f32,
@@ -756,10 +766,10 @@ impl Interpreter {
         let position_offset = match position_ids_val {
             Value::Integer(i) => i as usize,
             Value::TensorF32(ref t) if t.numel() == 1 => {
-                self.tensor_f32_to_scalar(t)? as usize
+                interpreter.tensor_f32_to_scalar(t)? as usize
             }
             Value::TensorF16(ref t) if t.numel() == 1 => {
-                self.tensor_f16_to_scalar(t)? as usize
+                interpreter.tensor_f16_to_scalar(t)? as usize
             }
             _ => return Err(RuntimeError::TypeError(
                 "position_ids must be a scalar integer or single-element tensor".to_string()
@@ -769,7 +779,7 @@ impl Interpreter {
         // Use Candle's RoPE implementation
         match x_val {
             Value::TensorF32(ref x) => {
-                let x_candle = self.tl_to_candle_f32(x)?;
+                let x_candle = Self::tl_to_candle_f32(interpreter, x)?;
 
                 // Apply RoPE using Candle
                 let dims = x_candle.dims();
@@ -782,16 +792,16 @@ impl Interpreter {
                 let head_dim = dims[dims.len() - 1];
 
                 // Create cos/sin cache for RoPE
-                let cos_sin = self.create_rope_cache_candle(head_dim, rope_theta, position_offset + 1)?;
+                let cos_sin = Self::create_rope_cache_candle(head_dim, rope_theta, position_offset + 1)?;
 
                 // Apply RoPE rotation
-                let result = self.apply_rope_candle(x_candle, &cos_sin, position_offset)?;
+                let result = Self::apply_rope_candle(x_candle, &cos_sin, position_offset)?;
 
-                let result_tl = self.candle_to_tl_f32(result)?;
+                let result_tl = Self::candle_to_tl_f32(interpreter, result)?;
                 Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
-                let x_candle = self.tl_to_candle_f16(x)?;
+                let x_candle = Self::tl_to_candle_f16(interpreter, x)?;
 
                 let dims = x_candle.dims();
                 if dims.len() < 3 {
@@ -802,10 +812,10 @@ impl Interpreter {
 
                 let head_dim = dims[dims.len() - 1];
 
-                let cos_sin = self.create_rope_cache_candle(head_dim, rope_theta, position_offset + 1)?;
-                let result = self.apply_rope_candle(x_candle, &cos_sin, position_offset)?;
+                let cos_sin = Self::create_rope_cache_candle(head_dim, rope_theta, position_offset + 1)?;
+                let result = Self::apply_rope_candle(x_candle, &cos_sin, position_offset)?;
 
-                let result_tl = self.candle_to_tl_f16(result)?;
+                let result_tl = Self::candle_to_tl_f16(interpreter, result)?;
                 Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_rope() requires a tensor".to_string()))
@@ -813,7 +823,7 @@ impl Interpreter {
     }
 
     /// Helper: Create RoPE cos/sin cache
-    fn create_rope_cache_candle(&self, head_dim: usize, theta: f32, max_seq_len: usize) -> RuntimeResult<(CandleTensor, CandleTensor)> {
+    fn create_rope_cache_candle( head_dim: usize, theta: f32, max_seq_len: usize) -> RuntimeResult<(CandleTensor, CandleTensor)> {
         let device = CandleDevice::new_metal(0)
             .map_err(|e| RuntimeError::TensorError(
                 crate::error::TensorError::InvalidOperation(format!("Failed to create Candle Metal device: {}", e))
@@ -864,7 +874,7 @@ impl Interpreter {
     }
 
     /// Helper: Apply RoPE rotation
-    fn apply_rope_candle(&self, x: CandleTensor, cos_sin: &(CandleTensor, CandleTensor), position_offset: usize) -> RuntimeResult<CandleTensor> {
+    fn apply_rope_candle( x: CandleTensor, cos_sin: &(CandleTensor, CandleTensor), position_offset: usize) -> RuntimeResult<CandleTensor> {
         let (cos, sin) = cos_sin;
 
         let dims = x.dims();
@@ -949,15 +959,15 @@ impl Interpreter {
 
     /// cndl_reshape(x, shape) -> tensor
     /// Reshape tensor using Candle
-    fn eval_cndl_reshape(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn reshape(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_reshape() expects 2 arguments (x, shape), got {}", args.len())
             ));
         }
 
-        let x_val = self.eval_expr(&args[0])?;
-        let shape_val = self.eval_expr(&args[1])?;
+        let x_val = interpreter.eval_expr(&args[0])?;
+        let shape_val = interpreter.eval_expr(&args[1])?;
 
         let shape: Vec<usize> = match shape_val {
             Value::TensorF32(ref t) => {
@@ -973,21 +983,21 @@ impl Interpreter {
 
         match x_val {
             Value::TensorF32(ref x) => {
-                let x_candle = self.tl_to_candle_f32(x)?;
+                let x_candle = Self::tl_to_candle_f32(interpreter, x)?;
                 let result = x_candle.reshape(shape.as_slice())
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle reshape failed: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f32(result)?;
+                let result_tl = Self::candle_to_tl_f32(interpreter, result)?;
                 Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             Value::TensorF16(ref x) => {
-                let x_candle = self.tl_to_candle_f16(x)?;
+                let x_candle = Self::tl_to_candle_f16(interpreter, x)?;
                 let result = x_candle.reshape(shape.as_slice())
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Candle reshape failed: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f16(result)?;
+                let result_tl = Self::candle_to_tl_f16(interpreter, result)?;
                 Ok(Value::TensorF16(Arc::new(result_tl)))
             }
             _ => Err(RuntimeError::TypeError("cndl_reshape() requires a tensor".to_string()))
@@ -1000,20 +1010,20 @@ impl Interpreter {
 
     /// cndl_load_safetensor(path, tensor_name) -> tensor
     /// Load a specific tensor from a Safetensors file using Candle
-    fn eval_cndl_load_safetensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn load_safetensor(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_load_safetensor() expects 2 arguments (path, tensor_name), got {}", args.len())
             ));
         }
 
-        let path_val = self.eval_expr(&args[0])?;
+        let path_val = interpreter.eval_expr(&args[0])?;
         let path = match path_val {
             Value::String(s) => s,
             _ => return Err(RuntimeError::TypeError("path must be a string".to_string())),
         };
 
-        let tensor_name_val = self.eval_expr(&args[1])?;
+        let tensor_name_val = interpreter.eval_expr(&args[1])?;
         let tensor_name = match tensor_name_val {
             Value::String(s) => s,
             _ => return Err(RuntimeError::TypeError("tensor_name must be a string".to_string())),
@@ -1039,12 +1049,12 @@ impl Interpreter {
         // Convert to TensorLogic tensor based on dtype
         match tensor.dtype() {
             DType::F32 => {
-                let result_tl = self.candle_to_tl_f32(tensor.clone())?;
+                let result_tl = Self::candle_to_tl_f32(interpreter, tensor.clone())?;
                 println!("Loaded tensor '{}' from {} (f32, shape: {:?})", tensor_name, path, tensor.dims());
                 Ok(Value::TensorF32(Arc::new(result_tl)))
             }
             DType::F16 => {
-                let result_tl = self.candle_to_tl_f16(tensor.clone())?;
+                let result_tl = Self::candle_to_tl_f16(interpreter, tensor.clone())?;
                 println!("Loaded tensor '{}' from {} (f16, shape: {:?})", tensor_name, path, tensor.dims());
                 Ok(Value::TensorF16(Arc::new(result_tl)))
             }
@@ -1054,7 +1064,7 @@ impl Interpreter {
                     .map_err(|e| RuntimeError::TensorError(
                         crate::error::TensorError::InvalidOperation(format!("Failed to convert tensor to f32: {}", e))
                     ))?;
-                let result_tl = self.candle_to_tl_f32(tensor_f32)?;
+                let result_tl = Self::candle_to_tl_f32(interpreter, tensor_f32)?;
                 println!("Loaded tensor '{}' from {} (converted from {:?} to f32, shape: {:?})",
                          tensor_name, path, dtype, tensor.dims());
                 Ok(Value::TensorF32(Arc::new(result_tl)))
@@ -1064,22 +1074,22 @@ impl Interpreter {
 
     /// cndl_save_safetensor(tensor, path, tensor_name) -> void
     /// Save a tensor to a Safetensors file using Candle
-    fn eval_cndl_save_safetensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn save_safetensor(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 3 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_save_safetensor() expects 3 arguments (tensor, path, tensor_name), got {}", args.len())
             ));
         }
 
-        let tensor_val = self.eval_expr(&args[0])?;
+        let tensor_val = interpreter.eval_expr(&args[0])?;
 
-        let path_val = self.eval_expr(&args[1])?;
+        let path_val = interpreter.eval_expr(&args[1])?;
         let path = match path_val {
             Value::String(s) => s,
             _ => return Err(RuntimeError::TypeError("path must be a string".to_string())),
         };
 
-        let tensor_name_val = self.eval_expr(&args[2])?;
+        let tensor_name_val = interpreter.eval_expr(&args[2])?;
         let tensor_name = match tensor_name_val {
             Value::String(s) => s,
             _ => return Err(RuntimeError::TypeError("tensor_name must be a string".to_string())),
@@ -1087,8 +1097,8 @@ impl Interpreter {
 
         // Convert TensorLogic tensor to Candle tensor
         let candle_tensor = match tensor_val {
-            Value::TensorF32(ref t) => self.tl_to_candle_f32(t)?,
-            Value::TensorF16(ref t) => self.tl_to_candle_f16(t)?,
+            Value::TensorF32(ref t) => Self::tl_to_candle_f32(interpreter, t)?,
+            Value::TensorF16(ref t) => Self::tl_to_candle_f16(interpreter, t)?,
             _ => return Err(RuntimeError::TypeError("First argument must be a tensor".to_string())),
         };
 
@@ -1108,14 +1118,14 @@ impl Interpreter {
 
     /// cndl_list_safetensors(path) -> void
     /// List all tensor names in a Safetensors file
-    fn eval_cndl_list_safetensors(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn list_safetensors(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_list_safetensors() expects 1 argument (path), got {}", args.len())
             ));
         }
 
-        let path_val = self.eval_expr(&args[0])?;
+        let path_val = interpreter.eval_expr(&args[0])?;
         let path = match path_val {
             Value::String(s) => s,
             _ => return Err(RuntimeError::TypeError("path must be a string".to_string())),
@@ -1149,20 +1159,20 @@ impl Interpreter {
 
     /// cndl_load_gguf_tensor(path, tensor_name) -> tensor
     /// Load a specific tensor from a GGUF file using Candle
-    fn eval_cndl_load_gguf_tensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn load_gguf_tensor(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_load_gguf_tensor() expects 2 arguments (path, tensor_name), got {}", args.len())
             ));
         }
 
-        let path_val = self.eval_expr(&args[0])?;
+        let path_val = interpreter.eval_expr(&args[0])?;
         let path = match path_val {
             Value::String(s) => s,
             _ => return Err(RuntimeError::TypeError("path must be a string".to_string())),
         };
 
-        let tensor_name_val = self.eval_expr(&args[1])?;
+        let tensor_name_val = interpreter.eval_expr(&args[1])?;
         let tensor_name = match tensor_name_val {
             Value::String(s) => s,
             _ => return Err(RuntimeError::TypeError("tensor_name must be a string".to_string())),
@@ -1199,7 +1209,7 @@ impl Interpreter {
             tensor
         } else if tensor.dtype() == DType::F16 {
             // Try f16 first
-            let result_tl = self.candle_to_tl_f16(tensor.clone())?;
+            let result_tl = Self::candle_to_tl_f16(interpreter, tensor.clone())?;
             println!("Loaded tensor '{}' from {} (f16, shape: {:?})", tensor_name, path, tensor.dims());
             return Ok(Value::TensorF16(Arc::new(result_tl)));
         } else {
@@ -1209,21 +1219,21 @@ impl Interpreter {
                 ))?
         };
 
-        let result_tl = self.candle_to_tl_f32(tensor_f32.clone())?;
+        let result_tl = Self::candle_to_tl_f32(interpreter, tensor_f32.clone())?;
         println!("Loaded tensor '{}' from {} (f32, shape: {:?})", tensor_name, path, tensor_f32.dims());
         Ok(Value::TensorF32(Arc::new(result_tl)))
     }
 
     /// cndl_list_gguf_tensors(path) -> void
     /// List all tensor names in a GGUF file
-    fn eval_cndl_list_gguf_tensors(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn list_gguf_tensors(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_list_gguf_tensors() expects 1 argument (path), got {}", args.len())
             ));
         }
 
-        let path_val = self.eval_expr(&args[0])?;
+        let path_val = interpreter.eval_expr(&args[0])?;
         let path = match path_val {
             Value::String(s) => s,
             _ => return Err(RuntimeError::TypeError("path must be a string".to_string())),
@@ -1266,16 +1276,16 @@ impl Interpreter {
 
     /// cndl_save_model_safetensor(model, path) -> void
     /// Save an entire model (all tensors) to a Safetensors file using Candle
-    fn eval_cndl_save_model_safetensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn save_model_safetensor(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 2 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_save_model_safetensor() expects 2 arguments (model, path), got {}", args.len())
             ));
         }
 
-        let model_val = self.eval_expr(&args[0])?;
+        let model_val = interpreter.eval_expr(&args[0])?;
 
-        let path_val = self.eval_expr(&args[1])?;
+        let path_val = interpreter.eval_expr(&args[1])?;
         let path = match path_val {
             Value::String(s) => s,
             _ => return Err(RuntimeError::TypeError("path must be a string".to_string())),
@@ -1289,7 +1299,7 @@ impl Interpreter {
                 println!("Saving model with {} tensors (f16)...", model.num_tensors());
 
                 for (name, tensor) in &model.tensors {
-                    let candle_tensor = self.tl_to_candle_f16(tensor)?;
+                    let candle_tensor = Self::tl_to_candle_f16(interpreter, tensor)?;
                     candle_tensors.insert(name.clone(), candle_tensor);
                 }
             }
@@ -1297,7 +1307,7 @@ impl Interpreter {
                 println!("Saving model with {} tensors (f32)...", model.num_tensors());
 
                 for (name, tensor) in &model.tensors {
-                    let candle_tensor = self.tl_to_candle_f32(tensor)?;
+                    let candle_tensor = Self::tl_to_candle_f32(interpreter, tensor)?;
                     candle_tensors.insert(name.clone(), candle_tensor);
                 }
             }
@@ -1320,14 +1330,14 @@ impl Interpreter {
 
     /// cndl_load_model_safetensor(path) -> model
     /// Load an entire model from a Safetensors file using Candle
-    fn eval_cndl_load_model_safetensor(&mut self, args: &[TensorExpr]) -> RuntimeResult<Value> {
+    pub fn load_model_safetensor(interpreter: &mut Interpreter, args: &[TensorExpr]) -> RuntimeResult<Value> {
         if args.len() != 1 {
             return Err(RuntimeError::TypeError(
                 format!("cndl_load_model_safetensor() expects 1 argument (path), got {}", args.len())
             ));
         }
 
-        let path_val = self.eval_expr(&args[0])?;
+        let path_val = interpreter.eval_expr(&args[0])?;
         let path = match path_val {
             Value::String(s) => s,
             _ => return Err(RuntimeError::TypeError("path must be a string".to_string())),
@@ -1361,7 +1371,7 @@ impl Interpreter {
                 let mut tl_tensors = std::collections::HashMap::new();
 
                 for (name, candle_tensor) in candle_tensors {
-                    let tl_tensor = self.candle_to_tl_f16(candle_tensor)?;
+                    let tl_tensor = Self::candle_to_tl_f16(interpreter, candle_tensor)?;
                     tl_tensors.insert(name, Arc::new(tl_tensor));
                 }
 
@@ -1386,7 +1396,7 @@ impl Interpreter {
                 let mut tl_tensors = std::collections::HashMap::new();
 
                 for (name, candle_tensor) in candle_tensors {
-                    let tl_tensor = self.candle_to_tl_f32(candle_tensor)?;
+                    let tl_tensor = Self::candle_to_tl_f32(interpreter, candle_tensor)?;
                     tl_tensors.insert(name, Arc::new(tl_tensor));
                 }
 
@@ -1416,7 +1426,7 @@ impl Interpreter {
                         .map_err(|e| RuntimeError::TensorError(
                             crate::error::TensorError::InvalidOperation(format!("Failed to convert tensor to f32: {}", e))
                         ))?;
-                    let tl_tensor = self.candle_to_tl_f32(tensor_f32)?;
+                    let tl_tensor = Self::candle_to_tl_f32(interpreter, tensor_f32)?;
                     tl_tensors.insert(name, Arc::new(tl_tensor));
                 }
 
